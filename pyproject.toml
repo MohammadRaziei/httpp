@@ -1,0 +1,92 @@
+[build-system]
+requires = [
+    "scikit-build-core[pyproject]",
+    "cython",
+    "cython-cmake",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "httpp"
+version = "0.1.0"
+description = "A Cython project with scikit-build"
+authors = [
+    {name = "Mohammad Raziei", email = "mohammadraziei1375@gmail.com"},
+]
+readme = "README.md"
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.20",
+    "click>=8.0",
+]
+
+[project.scripts]
+httpp = "httpp.__main__:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-xdist>=3.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "isort>=5.0",
+    "flake8>=6.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/MohammadRaziei/httpp"
+"Bug Tracker" = "https://github.com/MohammadRaziei/httpp/issues"
+"Document" = "https://MohammadRaziei.github.io/httpp"
+
+
+[tool.setuptools.package-dir]
+httpp = "src/httpp"
+
+[tool.scikit-build.cmake]
+version = ">=3.15"
+build-type = "Release"
+
+[tool.scikit-build]
+sdist.include = [
+    "src/third_party/curl/**/*"
+]
+
+
+[tool.cibuildwheel]
+skip = "*i686*"
+test-command = "pytest {project}/tests"
+test-extras = ["test"]
+
+[tool.cibuildwheel.linux]
+repair-wheel-command = "cp {wheel} {dest_dir}/"
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "-v",
+    "--tb=short",
+]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
