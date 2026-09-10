@@ -52,15 +52,16 @@ dev = [
 
 
 [tool.setuptools.package-dir]
-httpp = "src/httpp"
+httpp = "src/bindings/python/httpp"
 
 [tool.scikit-build.cmake]
-version = ">=3.15"
+version = ">=3.21"
 build-type = "Release"
 
 [tool.scikit-build]
 sdist.include = [
-    "src/third_party/curl/**/*"
+    "src/third_party/cpp-httplib/**/*",
+    "src/third_party/mbedtls/**/*",
 ]
 
 

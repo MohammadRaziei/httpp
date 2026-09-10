@@ -13,7 +13,7 @@ def test_hello_world():
 
 def test_calculator_class():
     """Test Calculator class functionality."""
-    from httpp.httpp import Calculator
+    from httpp.httpp_cy import Calculator
 
     # Test basic functionality
     calc = Calculator()
@@ -42,7 +42,7 @@ def test_calculator_class():
 
 def test_calculator_divide_by_zero():
     """Test Calculator division by zero handling."""
-    from httpp.httpp import Calculator
+    from httpp.httpp_cy import Calculator
 
     calc = Calculator(10.0)
     with pytest.raises(ZeroDivisionError):
@@ -51,7 +51,7 @@ def test_calculator_divide_by_zero():
 
 def test_calculator_reset():
     """Test Calculator reset functionality."""
-    from httpp.httpp import Calculator
+    from httpp.httpp_cy import Calculator
 
     calc = Calculator(5.0)
     assert calc.get_value() == 5.0

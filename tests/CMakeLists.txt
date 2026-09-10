@@ -6,3 +6,7 @@ add_custom_target(httpp_test
 )
 
 add_subdirectory(${HTTPP_TEST_SOURCE_DIR}/cpp)
+
+if(TARGET build_python)
+    add_subdirectory(${HTTPP_TEST_SOURCE_DIR}/python)
+endif()

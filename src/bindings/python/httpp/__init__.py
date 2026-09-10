@@ -3,6 +3,6 @@
 __version__ = "0.1.0"
 
 # Import the compiled Cython module
-from .httpp import hello_world, Calculator
+from .httpp_cy import hello_world, Calculator
 
 __all__ = ["hello_world", "Calculator"]
