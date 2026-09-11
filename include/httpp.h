@@ -48,5 +48,6 @@
 #include "httpp/export.hpp"
 #include "httpp/url.hpp"
 #include "httpp/client.hpp"
+#include "httpp/server.hpp"
 
 #endif /* HTTPP_H */

@@ -5,10 +5,10 @@
 namespace httpp {
 
 // Minimal HTTP(S) URL parser. Header-only, no system/third-party deps.
-class Url {
+class url {
 public:
-    static Url parse(const std::string& raw) {
-        Url u;
+    static url parse(const std::string& raw) {
+        url u;
 
         const auto scheme_end = raw.find("://");
         if (scheme_end == std::string::npos) {

@@ -1,64 +1,43 @@
-"""Basic tests for httpp."""
+"""Tests for the httpp Python bindings (Client + Server)."""
 
-import pytest
-
-
-def test_hello_world():
-    """Test the hello_world function."""
-    from httpp import hello_world
-
-    result = hello_world()
-    assert result == "Hello, World from httpp!"
+import time
+import threading
 
 
-def test_calculator_class():
-    """Test Calculator class functionality."""
-    from httpp.httpp_cy import Calculator
+def test_server_serves_a_directory(tmp_path):
+    from httpp.httpp_cy import Server, Client
 
-    # Test basic functionality
-    calc = Calculator()
-    assert calc.get_value() == 0.0
+    (tmp_path / "index.html").write_text("hello from httpp")
 
-    # Test addition
-    calc.add(5.0)
-    assert calc.get_value() == 5.0
-
-    # Test subtraction
-    calc.subtract(2.0)
-    assert calc.get_value() == 3.0
-
-    # Test multiplication
-    calc.multiply(3.0)
-    assert calc.get_value() == 9.0
-
-    # Test division
-    calc.divide(3.0)
-    assert calc.get_value() == 3.0
-
-    # Test with initial value
-    calc2 = Calculator(10.0)
-    assert calc2.get_value() == 10.0
+    srv = Server()
+    srv.serve_directory("/", str(tmp_path))
+    port = srv.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=srv.listen_after_bind)
+    th.start()
+    time.sleep(0.05)
+    try:
+        cli = Client("127.0.0.1", port)
+        res = cli.get("/index.html")
+        assert res.status == 200
+        assert res.body == "hello from httpp"
+    finally:
+        srv.stop()
+        th.join()
 
 
-def test_calculator_divide_by_zero():
-    """Test Calculator division by zero handling."""
-    from httpp.httpp_cy import Calculator
+def test_client_returns_404_for_missing_path():
+    from httpp.httpp_cy import Server, Client
 
-    calc = Calculator(10.0)
-    with pytest.raises(ZeroDivisionError):
-        calc.divide(0.0)
-
-
-def test_calculator_reset():
-    """Test Calculator reset functionality."""
-    from httpp.httpp_cy import Calculator
-
-    calc = Calculator(5.0)
-    assert calc.get_value() == 5.0
-
-    calc.reset()
-    assert calc.get_value() == 0.0
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    srv = Server()
+    port = srv.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=srv.listen_after_bind)
+    th.start()
+    time.sleep(0.05)
+    try:
+        cli = Client("127.0.0.1", port)
+        res = cli.get("/nope")
+        assert res.status == 404
+        assert not res.ok
+    finally:
+        srv.stop()
+        th.join()

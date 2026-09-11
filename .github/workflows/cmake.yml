@@ -1,0 +1,102 @@
+name: cmake stuff
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        submodules: true
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.11"
+        cache: "pip"
+
+    - name: Install python deps
+      run: pip install -r requirements-dev.txt
+
+    - name: Build Project
+      uses: threeal/cmake-action@v2.1.0
+      with:
+        build-dir: build
+        options: |
+          CMAKE_BUILD_TYPE=Release
+          HTTPP_BUILD_TESTS=ON
+          HTTPP_BUILD_PYTHON=ON
+
+    - name: Build
+      run: cmake --build build -j4 --config Release
+
+    - name: Run tests (Linux/macOS)
+      if: runner.os != 'Windows'
+      run: ctest --test-dir build --output-on-failure --extra-verbose
+
+  build-coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        submodules: true
+
+    - name: Setup cmake
+      uses: jwlawson/actions-setup-cmake@v2
+      with:
+        cmake-version: '3.28.x'
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.11"
+        cache: "pip"
+
+    - name: Install python dependencies
+      run: pip install -r requirements-dev.txt
+
+    - name: Install coverage tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y lcov
+
+    - name: Configure CMake with coverage
+      run: |
+        cmake -B build \
+          -DHTTPP_BUILD_TESTS=ON \
+          -DHTTPP_BUILD_PYTHON=ON \
+          -DCMAKE_CXX_FLAGS="--coverage -O0 -g" \
+          -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+
+    - name: Build and run C++ tests
+      run: |
+        cmake --build build --target test_httpp_cpp -j4
+        ctest --test-dir build -R test_httpp_cpp --output-on-failure
+
+    - name: Capture coverage
+      run: |
+        lcov --capture --directory build --base-directory . \
+             --exclude '*/tests/*' --exclude '*/third_party/*' --exclude '/usr/*' \
+             --output-file coverage.lcov
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        files: coverage.lcov
+        flags: unittests
+        name: codecov-httpp
+        fail_ci_if_error: false
+        verbose: true

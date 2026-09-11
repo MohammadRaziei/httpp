@@ -2,26 +2,26 @@
 
 // httplib.h is included ONLY in this translation unit. It is compiled into
 // httpp's .so/.a object code and is never included by any public httpp/*.hpp
-// header, so consumers linking against httpp::httpp never see it and don't
+// header, so consumers linking against httpp::core never see it and don't
 // need it on their include path.
 #include <httplib.h>
 
 namespace httpp {
 
-struct Client::Impl {
+struct client::impl {
     httplib::Client cli;
-    Impl(const std::string& host, int port) : cli(host, port) {}
+    impl(const std::string& host, int port) : cli(host, port) {}
 };
 
-Client::Client(const std::string& host, int port)
-    : impl_(std::make_unique<Impl>(host, port)) {}
+client::client(const std::string& host, int port)
+    : impl_(std::make_unique<impl>(host, port)) {}
 
-Client::~Client() = default;
-Client::Client(Client&&) noexcept = default;
-Client& Client::operator=(Client&&) noexcept = default;
+client::~client() = default;
+client::client(client&&) noexcept = default;
+client& client::operator=(client&&) noexcept = default;
 
-Response Client::get(const std::string& path) {
-    Response out;
+response client::get(const std::string& path) {
+    response out;
     auto res = impl_->cli.Get(path);
     if (res) {
         out.status = res->status;

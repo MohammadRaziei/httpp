@@ -1,59 +1,104 @@
 # httpp
 
-A Cython project with scikit-build
+A lightweight, **zero-system-dependency** HTTP client + server library for
+C++ and Python — a replacement for libcurl for both making requests *and*
+running a server, not a reimplementation of libcurl itself.
 
-## Overview
+**Hard rule:** no system libraries (nothing that needs `apt`/`choco`/`brew`
+installed for headers or linking). Everything third-party is vendored:
+`cpp-httplib` is a committed header file, `mbedtls` is a git submodule —
+both built from source. A clean checkout only needs a C++ compiler + CMake
+(+ Python/Cython for the bindings).
 
-This project provides Python bindings for the [libcurl](https://curl.se/libcurl/) library, enabling HTTP client capabilities in Python with native performance through Cython integration.
+## What it gives you
 
-**Note:** This project is not just for Python developers! C++ developers can also use the pre-built libcurl library included in this package instead of building libcurl from source.
+- **`httpp::client` / `httpp.Client`** — make HTTP(S) requests.
+- **`httpp::server` / `httpp.Server`** — register routes or serve a
+  directory (static file serving), the way you'd use `python -m http.server`
+  but embeddable in your own app, from C++ or Python.
+- **CLI** (`httpp server DIR`, analogous to `python -m http.server`;
+  `httpp download URL`, a tiny libcurl-CLI-style helper).
+- All of the above without ever exposing `httplib.h`/mbedtls to consumers:
+  the public headers (`include/httpp.h` and `include/httpp/*.hpp`) use PIMPL,
+  and the compiled core (`httpp_core` / `httpp_cy.*.so`) is built with hidden
+  visibility so vendored symbols never leak into the public ABI.
 
-## Features
+## Status (TDD log)
 
-- Python bindings for libcurl HTTP client
-- Built with Cython for optimal performance
-- CMake integration via scikit-build
-- Support for HTTP/HTTPS protocols
-- Test-driven development approach
+Built strictly test-first, C++ and Python together: a failing test before
+any implementation, smallest change to turn it green, repeat.
 
-## Installation
+- [x] `httpp::url` — minimal URL parser (scheme/host/port/path/query).
+- [x] `httpp::client` — GET requests, backed by vendored cpp-httplib.
+- [x] `httpp::server` — route handlers, static directory serving, both
+      "bind then listen" and "listen on a fixed port" flows.
+- [x] Python bindings (`httpp.Client`, `httpp.Server`) over the same core.
+- [x] CLI: `httpp server [DIR]`, `httpp download URL`.
+- [ ] HTTPS via the vendored mbedtls submodule (currently HTTP-only).
+- [ ] Route handlers from Python (`Server.get(path, callback)` — directory
+      serving and plain GET/404 work today; Python route callbacks are next).
+- [ ] `get_cmake_dir()` / `get_include_dir()` for downstream `find_package(httpp)`.
+
+## Build & test (standalone, C++ + Python together)
 
 ```bash
-pip install httpp
+pip install -r requirements-dev.txt
+cmake -B build -DHTTPP_BUILD_TESTS=ON -DHTTPP_BUILD_PYTHON=ON
+cmake --build build -j4
+ctest --test-dir build --output-on-failure   # runs both test_httpp_cpp and test_httpp_python
 ```
 
-For the latest development version:
+## Install / use as a Python package
+
 ```bash
-pip install git+https://github.com/MohammadRaziei/httpp.git
+pip install .
+httpp server .              # like `python -m http.server`
+httpp download http://example.com/
 ```
-
-## Quick Start
-
-### Basic HTTP Request
 
 ```python
-from httpp import curl
+from httpp import Client, Server
 
-# Create a curl instance
-c = curl.Curl()
-
-# Perform a GET request
-response = c.get("https://httpbin.org/get")
-print(response.status_code)
-print(response.text)
-
-# Perform a POST request
-response = c.post("https://httpbin.org/post", data={"key": "value"})
-print(response.json())
+srv = Server()
+srv.serve_directory("/", "./public")
+srv.listen("0.0.0.0", 8000)
 ```
 
-## Development
+## Layout
 
-Run tests:
-```bash
-pytest -n auto
+```
+include/
+  httpp.h              umbrella public header (version macros + all public API)
+  httpp/
+    url.hpp, client.hpp, server.hpp, export.hpp
+src/
+  core/                httpp_core: client.cpp, server.cpp — the ONLY files
+                        that #include <httplib.h>; hidden visibility so
+                        those symbols never leak into the compiled library
+  bindings/python/      Cython module (httpp_cy.pyx) + the httpp/ package
+  third_party/
+    cpp-httplib/        vendored (committed header, no system package)
+    mbedtls/            git submodule (built from source, no system package)
+tests/
+  cpp/                  C++ unit tests (test_*.cpp, GLOB'd), utest.h-based
+  python/                pytest tests against the built Cython module
+  utest/                 vendored single-header test framework
+cmake/                  DynamicVersion / Startup / Optimize (ctoon-style) +
+                         FindCython / UseCython
+version.py              version/tag manager, reads include/httpp.h
+.github/workflows/       cmake.yml (build+test+coverage), wheels.yml
+                         (sdist+cibuildwheel), orchestrator.yml (release)
 ```
 
-## License
+Test folder structure mirrors github.com/mohammadraziei/ctoon (`tests/cpp` +
+`tests/python` + `tests/utest`); the Cython wiring in
+`src/bindings/python/CMakeLists.txt` (SKBUILD branch + standalone
+`ExternalProject_Add(build_python ...)` branch) mirrors
+github.com/mohammadraziei/pygixml.
 
-MIT License
+## Naming convention
+
+C++ identifiers follow the standard library's style: `snake_case` for both
+types and functions (`httpp::url`, `httpp::client`, `client::get`, not
+`Url`/`Client::Get`). The Python-facing classes (`Client`, `Server`) use
+ordinary PEP 8 `PascalCase`, as is conventional there.

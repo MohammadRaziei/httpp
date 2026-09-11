@@ -7,7 +7,7 @@
 
 namespace httpp {
 
-struct HTTPP_API Response {
+struct HTTPP_API response {
     int status = 0;
     std::string body;
     bool ok() const { return status >= 200 && status < 300; }
@@ -18,21 +18,21 @@ struct HTTPP_API Response {
 // src/client.cpp and is hidden behind this pointer, so httplib.h never
 // leaks into consumers of <httpp/client.hpp> and stays compiled into
 // the httpp .so/.a only.
-class HTTPP_API Client {
+class HTTPP_API client {
 public:
-    explicit Client(const std::string& host, int port);
-    ~Client();
+    explicit client(const std::string& host, int port);
+    ~client();
 
-    Client(Client&&) noexcept;
-    Client& operator=(Client&&) noexcept;
-    Client(const Client&) = delete;
-    Client& operator=(const Client&) = delete;
+    client(client&&) noexcept;
+    client& operator=(client&&) noexcept;
+    client(const client&) = delete;
+    client& operator=(const client&) = delete;
 
-    Response get(const std::string& path);
+    response get(const std::string& path);
 
 private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
+    struct impl;
+    std::unique_ptr<impl> impl_;
 };
 
 } // namespace httpp

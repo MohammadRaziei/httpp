@@ -1,8 +1,8 @@
-"""A Cython project with scikit-build"""
+"""httpp: a lightweight, zero-system-dependency HTTP client + server."""
 
 __version__ = "0.1.0"
 
 # Import the compiled Cython module
-from .httpp_cy import hello_world, Calculator
+from .httpp_cy import Client, Server
 
-__all__ = ["hello_world", "Calculator"]
+__all__ = ["Client", "Server"]

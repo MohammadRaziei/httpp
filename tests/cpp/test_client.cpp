@@ -2,7 +2,7 @@
 #include "httpp/client.hpp"
 
 // httplib is used here ONLY to spin up a throwaway test server; it is not
-// part of httpp's public surface. The thing under test is httpp::Client,
+// part of httpp's public surface. The thing under test is httpp::client,
 // whose public header (httpp/client.hpp) never includes httplib.h.
 #include <httplib.h>
 
@@ -35,9 +35,9 @@ struct TestServer {
 
 UTEST(httpp_client, gets_body_from_local_server) {
     TestServer server;
-    httpp::Client client("127.0.0.1", server.port);
+    httpp::client cli("127.0.0.1", server.port);
 
-    httpp::Response res = client.get("/hello");
+    httpp::response res = cli.get("/hello");
 
     ASSERT_TRUE(res.ok());
     ASSERT_EQ(200, res.status);
@@ -46,9 +46,9 @@ UTEST(httpp_client, gets_body_from_local_server) {
 
 UTEST(httpp_client, returns_404_for_unknown_path) {
     TestServer server;
-    httpp::Client client("127.0.0.1", server.port);
+    httpp::client cli("127.0.0.1", server.port);
 
-    httpp::Response res = client.get("/does-not-exist");
+    httpp::response res = cli.get("/does-not-exist");
 
     ASSERT_FALSE(res.ok());
     ASSERT_EQ(404, res.status);

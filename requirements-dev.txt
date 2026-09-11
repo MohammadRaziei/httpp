@@ -1,0 +1,12 @@
+# build dependencies
+scikit-build-core[pyproject]
+cython
+cython-cmake
+
+# development dependencies
+build
+twine
+
+# testing dependencies
+pytest
+pytest-cov
