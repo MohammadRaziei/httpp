@@ -1,4 +1,4 @@
-set(HTTPP_CMAKE_TEST_EXAMPLE_DIR ${CMAKE_SOURCE_DIR}/examples/find_httpp_via_python)
+set(HTTPP_CMAKE_TEST_EXAMPLE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/consumer_project)
 set(HTTPP_CMAKE_TEST_BUILD_DIR ${CMAKE_BINARY_DIR}/cmake_consumer_test)
 
 add_test(NAME test_httpp_cmake
