@@ -44,7 +44,7 @@ set(BUILD_PYTHON OFF CACHE BOOL "" FORCE)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/third_party/liburlparser)
 
-add_library(httpp_core ${HTTPP_CORE_SOURCES})
+add_library(httpp_core SHARED ${HTTPP_CORE_SOURCES})
 add_library(httpp::core ALIAS httpp_core)
 
 set_target_properties(httpp_core PROPERTIES
@@ -54,7 +54,9 @@ set_target_properties(httpp_core PROPERTIES
 )
 
 target_include_directories(httpp_core
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:httpp/include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/cpp-httplib
 )

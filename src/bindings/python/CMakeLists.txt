@@ -29,6 +29,15 @@ if(DEFINED SKBUILD)
         VERSION_INFO=${PROJECT_VERSION}
     )
 
+    # libhttpp_core.so is installed alongside this module under httpp/lib/
+    # (see below); point the loader there at runtime.
+    if(NOT WIN32)
+        set_target_properties(httpp_cy PROPERTIES
+            INSTALL_RPATH "$ORIGIN/lib"
+            BUILD_WITH_INSTALL_RPATH TRUE
+        )
+    endif()
+
     # Install the compiled extension module + the pure-Python package files
     install(TARGETS httpp_cy
         DESTINATION httpp
@@ -36,6 +45,51 @@ if(DEFINED SKBUILD)
     install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/httpp/
         DESTINATION httpp
         FILES_MATCHING PATTERN "*.py"
+    )
+
+    # --- also ship the C++ library inside the wheel ---
+    # `pip install httpp` gives you not just the Python module but a usable
+    # C++ package too: headers, the compiled core library, and a CMake
+    # config, all under the installed `httpp` package directory (the
+    # nanobind/pybind11 pattern: httpp.get_cmake_dir() etc., see
+    # httpp/__init__.py). A downstream CMakeLists.txt can then do:
+    #
+    #   execute_process(COMMAND ${Python3_EXECUTABLE} -c
+    #       "import httpp; print(httpp.get_cmake_dir())"
+    #       OUTPUT_VARIABLE httpp_DIR OUTPUT_STRIP_TRAILING_WHITESPACE)
+    #   find_package(httpp CONFIG REQUIRED)
+    #   target_link_libraries(app PRIVATE httpp::httpp)
+    #
+    # (see examples/find_httpp_via_python/ for a full working example.)
+    install(TARGETS httpp_core
+        EXPORT httppTargets
+        ARCHIVE DESTINATION httpp/lib
+        LIBRARY DESTINATION httpp/lib
+    )
+    install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/
+        DESTINATION httpp/include
+    )
+    install(EXPORT httppTargets
+        FILE httppTargets.cmake
+        NAMESPACE httpp::
+        DESTINATION httpp/cmake
+    )
+
+    include(CMakePackageConfigHelpers)
+    configure_package_config_file(
+        ${CMAKE_SOURCE_DIR}/cmake/httppConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/httppConfig.cmake
+        INSTALL_DESTINATION httpp/cmake
+    )
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/httppConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion
+    )
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/httppConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/httppConfigVersion.cmake
+        DESTINATION httpp/cmake
     )
 
     return()
