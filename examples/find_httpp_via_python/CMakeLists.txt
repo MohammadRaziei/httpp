@@ -16,7 +16,6 @@ execute_process(
     COMMAND_ERROR_IS_FATAL ANY
 )
 
-list(APPEND CMAKE_PREFIX_PATH "${httpp_DIR}")
 find_package(httpp CONFIG REQUIRED)
 
 add_executable(app main.cpp)
