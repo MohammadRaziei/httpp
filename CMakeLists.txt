@@ -34,6 +34,16 @@ set(HTTPP_SOURCE_DIR ${PROJECT_SOURCE_DIR})
 # they never leak into the httpp .so/.a's public symbols.
 file(GLOB HTTPP_CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/*.cpp)
 
+# liburlparser (git submodule, built from source — no system package) does
+# the real URL parsing (scheme/host/port/path, IPv4/IPv6, PSL-aware). It is
+# linked PRIVATE into httpp_core, same as cpp-httplib: consumers of
+# <httpp/url.hpp> see only httpp::url, never urlparser::url directly.
+set(BUILD_PYTHON OFF CACHE BOOL "" FORCE)
+# Needed so liburlparser's static lib can be linked into httpp's shared
+# lib / the Cython extension module (which are themselves PIC).
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+add_subdirectory(${PROJECT_SOURCE_DIR}/src/third_party/liburlparser)
+
 add_library(httpp_core ${HTTPP_CORE_SOURCES})
 add_library(httpp::core ALIAS httpp_core)
 
@@ -51,6 +61,7 @@ target_include_directories(httpp_core
 
 find_package(Threads REQUIRED)
 target_link_libraries(httpp_core PUBLIC Threads::Threads)
+target_link_libraries(httpp_core PRIVATE url::base)
 
 target_compile_options(httpp_core PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /EHsc>

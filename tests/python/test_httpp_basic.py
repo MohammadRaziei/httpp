@@ -41,3 +41,23 @@ def test_client_returns_404_for_missing_path():
     finally:
         srv.stop()
         th.join()
+
+
+def test_client_fetch_parses_full_url(tmp_path):
+    from httpp.httpp_cy import Server, Client
+
+    (tmp_path / "index.html").write_text("fetched via full url")
+
+    srv = Server()
+    srv.serve_directory("/", str(tmp_path))
+    port = srv.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=srv.listen_after_bind)
+    th.start()
+    time.sleep(0.05)
+    try:
+        res = Client.fetch(f"http://127.0.0.1:{port}/index.html")
+        assert res.ok
+        assert res.body == "fetched via full url"
+    finally:
+        srv.stop()
+        th.join()

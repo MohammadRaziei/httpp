@@ -61,6 +61,7 @@ build-type = "Release"
 sdist.include = [
     "src/third_party/cpp-httplib/**/*",
     "src/third_party/mbedtls/**/*",
+    "src/third_party/liburlparser/**/*",
 ]
 
 

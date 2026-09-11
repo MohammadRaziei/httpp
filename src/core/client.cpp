@@ -1,10 +1,13 @@
 #include "httpp/client.hpp"
+#include "httpp/url.hpp"
 
 // httplib.h is included ONLY in this translation unit. It is compiled into
 // httpp's .so/.a object code and is never included by any public httpp/*.hpp
 // header, so consumers linking against httpp::core never see it and don't
 // need it on their include path.
 #include <httplib.h>
+
+#include <stdexcept>
 
 namespace httpp {
 
@@ -30,6 +33,19 @@ response client::get(const std::string& path) {
         out.status = 0; // connection/transport error
     }
     return out;
+}
+
+response client::fetch(const std::string& full_url) {
+    const url u = url::parse(full_url);
+    if (!u.valid()) {
+        throw std::invalid_argument("httpp::client::fetch: unsupported or invalid URL: " + full_url);
+    }
+    client cli(u.host(), u.port());
+    std::string path = u.path();
+    if (!u.query().empty()) {
+        path += "?" + u.query();
+    }
+    return cli.get(path);
 }
 
 } // namespace httpp

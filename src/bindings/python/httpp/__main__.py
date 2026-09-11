@@ -28,14 +28,14 @@ def server(directory, host, port):
 @main.command()
 @click.argument("url")
 def download(url):
-    """Download URL to stdout (a small libcurl-CLI-style replacement)."""
-    from httpp import Client
-    from urllib.parse import urlsplit
+    """Download URL to stdout (a small libcurl-CLI-style replacement).
 
-    parts = urlsplit(url)
-    port = parts.port or (443 if parts.scheme == "https" else 80)
-    cli = Client(parts.hostname, port)
-    res = cli.get(parts.path or "/")
+    URL parsing happens entirely in the C++ layer (httpp::client::fetch,
+    backed by the vendored liburlparser) — nothing is parsed manually here.
+    """
+    from httpp import Client
+
+    res = Client.fetch(url)
     if not res.ok:
         raise click.ClickException(f"request failed with status {res.status}")
     click.echo(res.body)

@@ -30,6 +30,12 @@ public:
 
     response get(const std::string& path);
 
+    // Parse `full_url` (via httpp::url) and GET it in one call, so callers
+    // (like the CLI's `download` command) never have to parse a URL
+    // themselves. Throws std::invalid_argument for an unsupported/invalid
+    // URL (only http/https are handled).
+    static response fetch(const std::string& full_url);
+
 private:
     struct impl;
     std::unique_ptr<impl> impl_;

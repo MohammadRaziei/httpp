@@ -53,3 +53,13 @@ UTEST(httpp_client, returns_404_for_unknown_path) {
     ASSERT_FALSE(res.ok());
     ASSERT_EQ(404, res.status);
 }
+
+UTEST(httpp_client, fetch_parses_a_full_url_and_gets_it) {
+    TestServer server;
+    std::string full_url = "http://127.0.0.1:" + std::to_string(server.port) + "/hello";
+
+    httpp::response res = httpp::client::fetch(full_url);
+
+    ASSERT_TRUE(res.ok());
+    ASSERT_STREQ("world", res.body.c_str());
+}

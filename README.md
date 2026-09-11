@@ -28,8 +28,15 @@ both built from source. A clean checkout only needs a C++ compiler + CMake
 Built strictly test-first, C++ and Python together: a failing test before
 any implementation, smallest change to turn it green, repeat.
 
-- [x] `httpp::url` — minimal URL parser (scheme/host/port/path/query).
-- [x] `httpp::client` — GET requests, backed by vendored cpp-httplib.
+- [x] `httpp::url` — minimal http(s) URL view (scheme/host/port/path/query),
+      implemented on top of the vendored **liburlparser** (git submodule,
+      github.com/mohammadraziei/liburlparser) instead of a hand-rolled
+      parser — real IPv4/IPv6/PSL-aware parsing, still hidden behind
+      httpp's own public header (urlparser.h is only included from
+      src/core/url.cpp).
+- [x] `httpp::client` — GET requests, backed by vendored cpp-httplib;
+      `client::fetch(full_url)` parses a whole URL and GETs it in one call
+      (no manual URL parsing needed by callers — see the CLI's `download`).
 - [x] `httpp::server` — route handlers, static directory serving, both
       "bind then listen" and "listen on a fixed port" flows.
 - [x] Python bindings (`httpp.Client`, `httpp.Server`) over the same core.
@@ -79,6 +86,8 @@ src/
   third_party/
     cpp-httplib/        vendored (committed header, no system package)
     mbedtls/            git submodule (built from source, no system package)
+    liburlparser/       git submodule (built from source, no system package;
+                        small local patch — see third_party/README.md)
 tests/
   cpp/                  C++ unit tests (test_*.cpp, GLOB'd), utest.h-based
   python/                pytest tests against the built Cython module

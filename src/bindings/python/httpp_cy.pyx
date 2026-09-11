@@ -22,6 +22,9 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         cpp_client(string host, int port) except +
         response get(string path) except +
 
+        @staticmethod
+        response fetch(string full_url) except +
+
 
 cdef extern from "httpp/server.hpp" namespace "httpp":
     cdef cppclass cpp_server "httpp::server":
@@ -69,6 +72,13 @@ cdef class Client:
 
     def get(self, str path):
         cdef response res = self._cli.get(path.encode("utf-8"))
+        return Response(res.status, res.body)
+
+    @staticmethod
+    def fetch(str full_url):
+        """Parse `full_url` and GET it in one call — no manual URL parsing
+        needed on the Python side either (see httpp::client::fetch)."""
+        cdef response res = cpp_client.fetch(full_url.encode("utf-8"))
         return Response(res.status, res.body)
 
 
