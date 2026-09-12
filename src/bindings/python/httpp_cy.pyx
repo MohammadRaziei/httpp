@@ -36,6 +36,20 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         void stop() except +
 
 
+cdef extern from "httpp/download.hpp" namespace "httpp":
+    cdef cppclass download_result:
+        cbool ok
+        int status
+        string error
+
+    cdef cppclass cpp_download_file "httpp::download_file":
+        cpp_download_file(string url) except +
+        cpp_download_file& output(string dest_path) except +
+        cpp_download_file& enable_progress(cbool enable) except +
+        cpp_download_file& disable_progress() except +
+        download_result run() except + nogil
+
+
 cdef class Response:
     """A response to an HTTP request made via Client.get()."""
     cdef int _status
@@ -113,3 +127,67 @@ cdef class Server:
 
     def stop(self):
         self._srv.stop()
+
+
+cdef class DownloadResult:
+    """Result of DownloadFile.run()."""
+    cdef cbool _ok
+    cdef int _status
+    cdef bytes _error
+
+    def __init__(self, cbool ok, int status, bytes error):
+        self._ok = ok
+        self._status = status
+        self._error = error
+
+    @property
+    def ok(self):
+        return self._ok
+
+    @property
+    def status(self):
+        return self._status
+
+    @property
+    def error(self):
+        return self._error.decode("utf-8", errors="replace")
+
+
+cdef class DownloadFile:
+    """Fluent builder over httpp::download_file:
+
+        DownloadFile(url).output(path).enable_progress().run()
+    """
+    cdef cpp_download_file* _dl
+
+    def __init__(self, str url):
+        self._dl = new cpp_download_file(url.encode("utf-8"))
+
+    def __dealloc__(self):
+        if self._dl is not NULL:
+            del self._dl
+
+    def output(self, str dest_path):
+        self._dl.output(dest_path.encode("utf-8"))
+        return self
+
+    def enable_progress(self, cbool enable=True):
+        self._dl.enable_progress(enable)
+        return self
+
+    def disable_progress(self):
+        self._dl.disable_progress()
+        return self
+
+    def run(self):
+        cdef download_result res
+        with nogil:
+            res = self._dl.run()
+        return DownloadResult(res.ok, res.status, res.error)
+
+
+def download(str url, str dest_path, cbool show_progress=True):
+    """Download `url` to `dest_path`, with a tqdm-like terminal progress
+    bar unless show_progress=False. Shorthand for
+    DownloadFile(url).output(dest_path).run()."""
+    return DownloadFile(url).output(dest_path).enable_progress(show_progress).run()

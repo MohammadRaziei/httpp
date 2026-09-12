@@ -20,8 +20,21 @@ def _cmd_server(args):
 
 
 def _cmd_download(args):
-    # URL parsing happens entirely in the C++ layer (httpp::client::fetch,
-    # backed by the vendored liburlparser) — nothing is parsed manually here.
+    if args.output:
+        # Real download to a file, with a terminal progress bar (see
+        # httpp::download_file / httpp::progress::bar) — nothing here
+        # reimplements the request or the progress logic, it's all in C++.
+        from httpp import DownloadFile
+
+        result = DownloadFile(args.url).output(args.output).enable_progress(not args.quiet).run()
+        if not result.ok:
+            print(f"error: {result.error}", file=sys.stderr)
+            return 1
+        return 0
+
+    # No destination given: behave like `curl URL` with no -o — print the
+    # body to stdout. URL parsing happens entirely in the C++ layer
+    # (httpp::client::fetch, backed by the vendored liburlparser).
     from httpp import Client
 
     res = Client.fetch(args.url)
@@ -97,8 +110,10 @@ def build_parser():
     p_server.add_argument("--port", "-p", type=int, default=8000)
     p_server.set_defaults(func=_cmd_server)
 
-    p_download = sub.add_parser("download", help="Download a URL to stdout.")
+    p_download = sub.add_parser("download", help="Download a URL (to stdout, or a file with -o).")
     p_download.add_argument("url")
+    p_download.add_argument("-o", "--output", default=None, help="Save to this file (shows a progress bar) instead of printing to stdout.")
+    p_download.add_argument("-q", "--quiet", action="store_true", help="With -o, suppress the progress bar.")
     p_download.set_defaults(func=_cmd_download)
 
     sdk_parent = argparse.ArgumentParser(add_help=False)

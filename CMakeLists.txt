@@ -70,6 +70,7 @@ target_include_directories(httpp_core
         $<INSTALL_INTERFACE:httpp/include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/cpp-httplib
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party
 )
 
 find_package(Threads REQUIRED)
