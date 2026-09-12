@@ -153,6 +153,7 @@ def cmd_tag(args):
     # --------------------------------------------------------
     if args.subcommand == "create":
         version, text = read_version()
+        old_version = version_str(version)
         if args.value is None:
             # use current header version
             pass
@@ -168,8 +169,9 @@ def cmd_tag(args):
         write_version(version, text)
         new_version = version_str(version)
         tag_name = f"v{new_version}"
-        run(["git", "add", str(HEADER_ABS_PATH)])
-        run(["git", "commit", "-m", f"Release {new_version}"], "--allow-empty")
+        if (new_version != old_version):
+            run(["git", "add", str(HEADER_ABS_PATH)])
+        run(["git", "commit", "-m", f"Release {new_version}", "--allow-empty"])
         run(["git", "tag", tag_name])
         print(f"Committed and tagged {tag_name}")
         return
