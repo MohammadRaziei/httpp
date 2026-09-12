@@ -123,7 +123,7 @@ ExternalProject_Add(build_python
         -DCMAKE_BUILD_TYPE=Release
         -DCMAKE_INSTALL_PREFIX=${PYTHON_INSTALL_DIR}
 
-    INSTALL_COMMAND ${CMAKE_COMMAND} --build . --target install --parallel 8
+    INSTALL_COMMAND ${CMAKE_COMMAND} --build . --target install --config Release --parallel 8
     BUILD_ALWAYS 1
 )
 add_dependencies(build_python httpp_core)

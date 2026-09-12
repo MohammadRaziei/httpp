@@ -29,10 +29,11 @@ jobs:
     - name: Install python deps
       run: pip install -r requirements-dev.txt
 
-    - name: Build Project
+    - name: Configure Project
       uses: threeal/cmake-action@v2.1.0
       with:
         build-dir: build
+        run-build: false
         options: |
           CMAKE_BUILD_TYPE=Release
           HTTPP_BUILD_TESTS=ON
