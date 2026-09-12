@@ -2,6 +2,12 @@
 
 // httplib.h is included ONLY in this translation unit — never in a public
 // httpp/*.hpp header — and stays hidden inside the compiled core.
+#ifdef _WIN32
+// Must come before <httplib.h> (which pulls in <winsock2.h>): without this,
+// <windows.h> drags in the legacy <winsock.h> first and the two conflict.
+#  define WIN32_LEAN_AND_MEAN
+#  define NOMINMAX
+#endif
 #include <httplib.h>
 
 namespace httpp {

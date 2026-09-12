@@ -4,6 +4,12 @@
 // httplib is used here ONLY to spin up a throwaway test server; it is not
 // part of httpp's public surface. The thing under test is httpp::client,
 // whose public header (httpp/client.hpp) never includes httplib.h.
+#ifdef _WIN32
+// Must come before <httplib.h> (which pulls in <winsock2.h>): without this,
+// <windows.h> drags in the legacy <winsock.h> first and the two conflict.
+#  define WIN32_LEAN_AND_MEAN
+#  define NOMINMAX
+#endif
 #include <httplib.h>
 
 #include <thread>

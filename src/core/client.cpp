@@ -5,6 +5,12 @@
 // httpp's .so/.a object code and is never included by any public httpp/*.hpp
 // header, so consumers linking against httpp::core never see it and don't
 // need it on their include path.
+#ifdef _WIN32
+// Must come before <httplib.h> (which pulls in <winsock2.h>): without this,
+// <windows.h> drags in the legacy <winsock.h> first and the two conflict.
+#  define WIN32_LEAN_AND_MEAN
+#  define NOMINMAX
+#endif
 #include <httplib.h>
 
 #include <stdexcept>
