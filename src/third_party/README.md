@@ -1,8 +1,15 @@
 # third_party
 
-Vendored dependencies. Each is either a committed file (`cpp-httplib`) or a
-git submodule built from source (`mbedtls`, `liburlparser`) — never a system
-package.
+Vendored dependencies. Each is either a committed file (`cpp-httplib`,
+`indicators`) or a git submodule built from source (`mbedtls`,
+`liburlparser`) — never a system package.
+
+## indicators (not wired up yet)
+
+`indicators/indicators.hpp` — a single-header terminal progress-bar/spinner
+library (github.com/p-ranav/indicators). Vendored for later use (e.g. a
+progress bar for `httpp download`), not currently included or built by
+anything.
 
 ## Local patches
 
