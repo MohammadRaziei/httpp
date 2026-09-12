@@ -51,6 +51,8 @@ set_target_properties(httpp_core PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
+    MACOSX_RPATH ON
+    INSTALL_NAME_DIR "@rpath"
 )
 
 target_include_directories(httpp_core

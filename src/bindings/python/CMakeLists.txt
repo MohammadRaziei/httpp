@@ -29,11 +29,22 @@ if(DEFINED SKBUILD)
         VERSION_INFO=${PROJECT_VERSION}
     )
 
-    # libhttpp_core.so is installed alongside this module under httpp/lib/
-    # (see below); point the loader there at runtime.
-    if(NOT WIN32)
+    # libhttpp_core is installed in the standard `httpp/lib/` layout
+    # (alongside `httpp/include/`, `httpp/cmake/` — see below), not next to
+    # the Python module itself. So the loader needs to look one directory
+    # down from wherever it is:
+    #   - Linux:   $ORIGIN/lib
+    #   - macOS:   @loader_path/lib (dylib's own id is set to @rpath below)
+    #   - Windows: no RPATH concept — handled at import time instead, see
+    #              httpp/__init__.py (os.add_dll_directory(get_lib_dir())).
+    if(APPLE)
+        set(_httpp_rpath "@loader_path/lib")
+    elseif(UNIX)
+        set(_httpp_rpath "$ORIGIN/lib")
+    endif()
+    if(_httpp_rpath)
         set_target_properties(httpp_cy PROPERTIES
-            INSTALL_RPATH "$ORIGIN/lib"
+            INSTALL_RPATH "${_httpp_rpath}"
             BUILD_WITH_INSTALL_RPATH TRUE
         )
     endif()
@@ -65,6 +76,7 @@ if(DEFINED SKBUILD)
         EXPORT httppTargets
         ARCHIVE DESTINATION httpp/lib
         LIBRARY DESTINATION httpp/lib
+        RUNTIME DESTINATION httpp/lib
     )
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/
         DESTINATION httpp/include
