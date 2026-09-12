@@ -47,6 +47,15 @@ add_subdirectory(${PROJECT_SOURCE_DIR}/src/third_party/liburlparser)
 add_library(httpp_core SHARED ${HTTPP_CORE_SOURCES})
 add_library(httpp::core ALIAS httpp_core)
 
+# Windows/MSVC dllexport-vs-dllimport: HTTPP_API (include/httpp/export.hpp)
+# resolves to __declspec(dllexport) only when HTTPP_BUILDING_DLL is defined.
+# It must be defined while compiling httpp_core's OWN translation units
+# (client.cpp/server.cpp/url.cpp) so the public classes are actually
+# exported from httpp_core.dll — and must NOT be defined for anyone
+# consuming the already-built DLL (they need dllimport instead), hence
+# PRIVATE, not PUBLIC/INTERFACE.
+target_compile_definitions(httpp_core PRIVATE HTTPP_BUILDING_DLL)
+
 set_target_properties(httpp_core PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden
