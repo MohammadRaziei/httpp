@@ -9,12 +9,11 @@ add_executable(test_httpp_cpp
 
 target_include_directories(test_httpp_cpp PRIVATE
     ${HTTPP_TEST_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/src/third_party/cpp-httplib
 )
 
-# httplib.h here is only used to spin up a throwaway local server inside
-# test_client.cpp — it never leaks into httpp's public API (see
-# include/httpp/client.hpp, which is what's actually under test).
+# The tests only ever use httpp::client/httpp::server (the public API,
+# already compiled into httpp_core) — httplib.h is never included here,
+# so no httplib include path or windows.h/winsock macro juggling is needed.
 target_link_libraries(test_httpp_cpp PRIVATE httpp::core)
 
 add_test(NAME test_httpp_cpp COMMAND $<TARGET_FILE:test_httpp_cpp>)

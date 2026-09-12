@@ -1,38 +1,34 @@
 #include "utest/utest.h"
 #include "httpp/client.hpp"
-
-// httplib is used here ONLY to spin up a throwaway test server; it is not
-// part of httpp's public surface. The thing under test is httpp::client,
-// whose public header (httpp/client.hpp) never includes httplib.h.
-#ifdef _WIN32
-// Must come before <httplib.h> (which pulls in <winsock2.h>): without this,
-// <windows.h> drags in the legacy <winsock.h> first and the two conflict.
-#  define WIN32_LEAN_AND_MEAN
-#  define NOMINMAX
-#endif
-#include <httplib.h>
+#include "httpp/server.hpp"
 
 #include <thread>
 #include <chrono>
 
+// This test never touches httplib.h — httpp::server (already compiled into
+// httpp_core, PIMPL-wrapped) is used to spin up a throwaway test server, the
+// same way any other consumer of httpp would. That's the whole point of
+// hiding httplib behind httpp::client/httpp::server: our own tests get to
+// use just the public API too, with zero macro juggling.
 namespace {
 
 struct TestServer {
-    httplib::Server svr;
+    httpp::server srv;
     std::thread th;
     int port = 0;
 
     TestServer() {
-        svr.Get("/hello", [](const httplib::Request&, httplib::Response& res) {
-            res.set_content("world", "text/plain");
+        srv.get("/hello", [](const httpp::request&, httpp::response& res) {
+            res.status = 200;
+            res.body = "world";
         });
-        port = svr.bind_to_any_port("127.0.0.1");
-        th = std::thread([this] { svr.listen_after_bind(); });
+        port = srv.bind_to_any_port("127.0.0.1");
+        th = std::thread([this] { srv.listen_after_bind(); });
         // give the listener a moment to actually accept()
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     ~TestServer() {
-        svr.stop();
+        srv.stop();
         if (th.joinable()) th.join();
     }
 };
