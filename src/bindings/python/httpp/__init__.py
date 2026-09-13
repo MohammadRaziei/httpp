@@ -17,7 +17,7 @@ if _sys.platform == "win32" and hasattr(_os, "add_dll_directory"):
     _os.add_dll_directory(_lib_dir)
 
 # Import the compiled Cython module
-from .httpp_cy import Client, Server, download, DownloadFile, DownloadResult
+from .httpp_cy import Client, Server, download, DownloadFile, DownloadResult, CurlRequest
 
 
 def get_include_dir():
@@ -38,6 +38,6 @@ def get_cmake_dir():
 
 
 __all__ = [
-    "Client", "Server", "download", "DownloadFile", "DownloadResult",
+    "Client", "Server", "download", "DownloadFile", "DownloadResult", "CurlRequest",
     "get_include_dir", "get_lib_dir", "get_cmake_dir",
 ]

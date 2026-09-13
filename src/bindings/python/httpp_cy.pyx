@@ -50,6 +50,16 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         download_result run() except + nogil
 
 
+cdef extern from "httpp/curl.hpp" namespace "httpp::curl":
+    cdef cppclass cpp_curl_request "httpp::curl::request":
+        cpp_curl_request(string url) except +
+        cpp_curl_request& method(string m) except +
+        cpp_curl_request& header(string name, string value) except +
+        cpp_curl_request& data(string body) except +
+        cpp_curl_request& content_type(string type) except +
+        response run() except + nogil
+
+
 cdef class Response:
     """A response to an HTTP request made via Client.get()."""
     cdef int _status
@@ -191,3 +201,41 @@ def download(str url, str dest_path, cbool show_progress=True):
     bar unless show_progress=False. Shorthand for
     DownloadFile(url).output(dest_path).run()."""
     return DownloadFile(url).output(dest_path).enable_progress(show_progress).run()
+
+cdef class CurlRequest:
+    """A small, curl-flavored fluent request builder — the common cases
+    only (-X method, -H headers, -d data). NOT a libcurl-compatible shim;
+    see Client for the plain request API this is built on.
+
+        CurlRequest(url).method("PUT").header("X-Token", "abc").data("body").run()
+    """
+    cdef cpp_curl_request* _req
+
+    def __init__(self, str url):
+        self._req = new cpp_curl_request(url.encode("utf-8"))
+
+    def __dealloc__(self):
+        if self._req is not NULL:
+            del self._req
+
+    def method(self, str m):
+        self._req.method(m.encode("utf-8"))
+        return self
+
+    def header(self, str name, str value):
+        self._req.header(name.encode("utf-8"), value.encode("utf-8"))
+        return self
+
+    def data(self, str body):
+        self._req.data(body.encode("utf-8"))
+        return self
+
+    def content_type(self, str type_):
+        self._req.content_type(type_.encode("utf-8"))
+        return self
+
+    def run(self):
+        cdef response res
+        with nogil:
+            res = self._req.run()
+        return Response(res.status, res.body)

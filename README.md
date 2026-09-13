@@ -55,7 +55,12 @@ target_link_libraries(app PRIVATE httpp::httpp)
 
 - [x] Client — GET requests, `Client.fetch(url)` from a full URL
 - [x] Server — route handlers, static directory serving
-- [x] CLI — `httpp server`, `httpp download`
+- [x] CLI — `httpp server`, `httpp download`, `httpp curl` (limited -X/-H/-d)
+- [x] `httpp/curl_compat.h` — a `curl_easy_*` (libcurl-style) C API subset
+      for migrating existing libcurl code with (ideally) just a header
+      swap; built directly on top of `httpp::curl::request` (no duplicated
+      HTTP logic). Deliberately NOT a full libcurl replacement — see the
+      comment at the top of that header for exactly what is/isn't covered.
 - [ ] HTTPS
 - [ ] Route handlers from Python (directory serving works today)
 

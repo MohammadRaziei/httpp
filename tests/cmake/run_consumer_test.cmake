@@ -47,8 +47,8 @@ if(NOT run_result EQUAL 0)
     message(FATAL_ERROR "consumer app failed to run:\n${run_output}")
 endif()
 
-if(NOT run_output MATCHES "httpp found and linked OK")
-    message(FATAL_ERROR "unexpected consumer app output:\n${run_output}")
+if(NOT run_output MATCHES "httpp found and linked OK: all checks passed")
+    message(FATAL_ERROR "consumer app checks failed or produced unexpected output:\n${run_output}")
 endif()
 
 message(STATUS "OK: ${run_output}")

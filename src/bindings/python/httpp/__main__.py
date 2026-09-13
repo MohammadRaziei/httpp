@@ -98,6 +98,33 @@ def _cmd_uninstall(args):
     return 0
 
 
+def _cmd_curl(args):
+    from httpp import CurlRequest
+
+    req = CurlRequest(args.url)
+    if args.request:
+        req.method(args.request)
+    for h in args.header or []:
+        if ":" not in h:
+            print(f"error: malformed header (expected 'Name: value'): {h!r}", file=sys.stderr)
+            return 1
+        name, value = h.split(":", 1)
+        req.header(name.strip(), value.strip())
+    if args.data is not None:
+        req.data(args.data)
+
+    res = req.run()
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write(res.body)
+    else:
+        print(res.body)
+    if not res.ok:
+        print(f"error: request failed with status {res.status}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="httpp", description="httpp: a lightweight HTTP client + server toolkit."
@@ -115,6 +142,14 @@ def build_parser():
     p_download.add_argument("-o", "--output", default=None, help="Save to this file (shows a progress bar) instead of printing to stdout.")
     p_download.add_argument("-q", "--quiet", action="store_true", help="With -o, suppress the progress bar.")
     p_download.set_defaults(func=_cmd_download)
+
+    p_curl = sub.add_parser("curl", help="Make a request (limited curl-like subset: -X/-H/-d).")
+    p_curl.add_argument("url")
+    p_curl.add_argument("-X", "--request", default=None, help="HTTP method (default: GET, or POST if -d is given).")
+    p_curl.add_argument("-H", "--header", action="append", default=None, help="Extra header 'Name: value' (repeatable).")
+    p_curl.add_argument("-d", "--data", default=None, help="Request body.")
+    p_curl.add_argument("-o", "--output", default=None, help="Write the response body to this file instead of stdout.")
+    p_curl.set_defaults(func=_cmd_curl)
 
     sdk_parent = argparse.ArgumentParser(add_help=False)
     sdk_parent.add_argument("--prefix", default=None, help="Install location (parent of httpp/). Default: /usr/local.")
