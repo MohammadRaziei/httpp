@@ -79,6 +79,7 @@ jobs:
           prerelease: ${{ needs.init.outputs.is_tag == 'false' }}
           token: ${{ secrets.GITHUB_TOKEN }}
           files: dist/*
+          generate_release_notes: true
 
       - name: Publishing to PyPi
         uses: pypa/gh-action-pypi-publish@release/v1
