@@ -50,6 +50,35 @@ set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
 set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
 set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+# mbedtls's codegen'd sources (library/error.c,
+# tf-psa-crypto/core/psa_crypto_driver_wrappers_no_static.c, etc.) must
+# exist on disk before add_subdirectory() below runs. mbedtls generates
+# them itself via its own GEN_FILES option on Linux/macOS, but defaults
+# GEN_FILES OFF on any Windows host (assuming a release tarball with these
+# files already bundled). We build mbedtls from a git submodule, which
+# never has them on any platform, so we generate them ourselves here,
+# unconditionally, using mbedtls's own official scripts — the approach
+# mbedtls's maintainers recommend: https://github.com/Mbed-TLS/mbedtls/issues/10678.
+# Requires Python 3 and Perl on PATH (both are already required to build
+# mbedtls from a git checkout, per its own documentation).
+set(_httpp_mbedtls_dir ${PROJECT_SOURCE_DIR}/src/third_party/mbedtls)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} framework/scripts/make_generated_files.py
+    WORKING_DIRECTORY ${_httpp_mbedtls_dir}/tf-psa-crypto
+    RESULT_VARIABLE _httpp_mbedtls_gen_result
+)
+if(NOT _httpp_mbedtls_gen_result EQUAL 0)
+    message(FATAL_ERROR "Failed to generate tf-psa-crypto sources (exit ${_httpp_mbedtls_gen_result})")
+endif()
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} scripts/make_generated_files.py
+    WORKING_DIRECTORY ${_httpp_mbedtls_dir}
+    RESULT_VARIABLE _httpp_mbedtls_gen_result
+)
+if(NOT _httpp_mbedtls_gen_result EQUAL 0)
+    message(FATAL_ERROR "Failed to generate mbedtls sources (exit ${_httpp_mbedtls_gen_result})")
+endif()
 # mbedtls's own install() rules are unconditional unless this is forced ON
 # (its "am I a subproject" auto-detection doesn't reliably suppress them);
 # httpp links it in statically and never re-exports its headers/libs, so
