@@ -2,9 +2,9 @@
 #include "httpp/url.hpp"
 #include "httpp/progress.hpp"
 
-// httplib.h is included ONLY in this translation unit — never in a public
-// httpp/*.hpp header — and stays hidden inside the compiled core.
-#include <httplib.h>
+// httplib.h (+ mbedtls support) is included ONLY via this internal header,
+// never in a public httpp/*.hpp header — see its comment for why.
+#include "internal/httplib_common.hpp"
 
 #include <fstream>
 #include <memory>
@@ -32,7 +32,7 @@ download_result download(const std::string& url_str, const std::string& dest_pat
         path += "?" + u.query();
     }
 
-    httplib::Client cli(u.host(), u.port());
+    httplib::Client cli(detail::scheme_host_port(u.scheme(), u.host(), u.port()));
     std::unique_ptr<progress::bar> pb;
 
     auto res = cli.Get(

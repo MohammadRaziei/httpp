@@ -3,6 +3,7 @@ requires = [
     "scikit-build-core[pyproject]",
     "cython",
     "cython-cmake",
+    "jsonschema",
 ]
 build-backend = "scikit_build_core.build"
 
@@ -59,6 +60,9 @@ sdist.include = [
     "src/third_party/liburlparser/**/*",
 ]
 
+[tool.scikit-build.install]
+components = ["httpp_wheel"]
+
 [tool.scikit-build.metadata.version]
 provider = "scikit_build_core.metadata.regex"
 input = "include/httpp.h"
@@ -76,7 +80,7 @@ test-command = "pytest {project}/tests"
 test-extras = ["test"]
 
 [tool.cibuildwheel.linux]
-repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
+repair-wheel-command = "cp {wheel} {dest_dir}/"
 
 
 [tool.pytest.ini_options]

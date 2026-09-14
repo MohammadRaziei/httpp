@@ -9,21 +9,22 @@
  *
  * This is NOT a full libcurl replacement: only the commonly used easy-API
  * subset below is implemented, and every curl_easy_setopt() call is
- * forwarded to (and reuses the exact same code as) httpp::curl::request
- * (see include/httpp/curl.hpp, src/core/curl_compat.cpp) — there is no
+ * forwarded to (and reuses the exact same code as) httpp::client::request
+ * (see include/httpp/client.hpp, src/core/curl_compat.cpp) — there is no
  * separate/duplicated HTTP implementation here.
  *
  * Covered: CURLOPT_URL, CURLOPT_CUSTOMREQUEST, CURLOPT_HTTPGET,
  * CURLOPT_POST, CURLOPT_POSTFIELDS(+SIZE), CURLOPT_HTTPHEADER,
- * CURLOPT_WRITEFUNCTION/DATA, CURLOPT_USERAGENT, CURLOPT_TIMEOUT,
- * CURLOPT_FOLLOWLOCATION, curl_slist_*, curl_easy_getinfo
- * (CURLINFO_RESPONSE_CODE), curl_easy_strerror, curl_global_init/cleanup.
+ * CURLOPT_WRITEFUNCTION/DATA, CURLOPT_HEADERFUNCTION/DATA,
+ * CURLOPT_USERAGENT, CURLOPT_TIMEOUT, CURLOPT_FOLLOWLOCATION, curl_slist_*,
+ * curl_easy_getinfo (CURLINFO_RESPONSE_CODE, CURLINFO_CONTENT_TYPE),
+ * curl_easy_strerror, curl_global_init/cleanup.
  *
  * NOT covered (no such option exists here — curl_easy_setopt() returns
  * CURLE_UNKNOWN_OPTION for anything not listed above): proxies, cookies,
  * TLS/certificate options, auth (basic/digest/bearer), multipart forms,
- * response header callbacks, multi/share handles, and everything else in
- * real libcurl's ~300 CURLOPT_* options.
+ * multi/share handles, and everything else in real libcurl's ~300
+ * CURLOPT_* options.
  */
 
 #include "httpp/export.hpp"
@@ -58,6 +59,8 @@ typedef enum {
     CURLOPT_HTTPHEADER,
     CURLOPT_WRITEFUNCTION,
     CURLOPT_WRITEDATA,
+    CURLOPT_HEADERFUNCTION,
+    CURLOPT_HEADERDATA,
     CURLOPT_USERAGENT,
     CURLOPT_TIMEOUT,
     CURLOPT_FOLLOWLOCATION,
@@ -65,10 +68,15 @@ typedef enum {
 } CURLoption;
 
 typedef enum {
-    CURLINFO_RESPONSE_CODE
+    CURLINFO_RESPONSE_CODE,
+    CURLINFO_CONTENT_TYPE /* returns const char*, or NULL if absent */
 } CURLINFO;
 
 typedef size_t (*curl_write_callback)(char* ptr, size_t size, size_t nmemb, void* userdata);
+/* Called once per response header line, formatted "Name: value\r\n" —
+ * matches real libcurl's curl_write_callback signature exactly, since
+ * that's what CURLOPT_HEADERFUNCTION expects there too. */
+typedef curl_write_callback curl_header_callback;
 
 struct curl_slist {
     char* data;

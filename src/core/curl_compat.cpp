@@ -1,5 +1,5 @@
 #include "httpp/curl_compat.h"
-#include "httpp/curl.hpp" // reused directly — no duplicated HTTP logic here
+#include "httpp/client.hpp" // reused directly — no duplicated HTTP logic here
 
 #include <cstdarg>
 #include <cstring>
@@ -9,8 +9,8 @@
 // The real CURL struct definition (opaque to callers via the forward
 // declaration in curl_compat.h). It only ACCUMULATES options set via
 // curl_easy_setopt(); the actual request is built and run through
-// httpp::curl::request inside curl_easy_perform(), which is the same
-// class the plain C++ API (httpp::curl::request) already uses — reusing
+// httpp::client::request inside curl_easy_perform(), which is the same
+// class the plain C++ API (httpp::client::request) already uses — reusing
 // it here means there's exactly one implementation of "run an HTTP
 // request", not two.
 struct CURL {
@@ -21,11 +21,14 @@ struct CURL {
     struct curl_slist* headers = nullptr;
     curl_write_callback write_cb = nullptr;
     void* write_data = nullptr;
+    curl_header_callback header_cb = nullptr;
+    void* header_data = nullptr;
     std::string user_agent;
     long timeout_seconds = 0;
     bool follow_location = false;
 
     long last_response_code = 0;
+    std::string last_content_type;
 };
 
 namespace {
@@ -97,6 +100,12 @@ CURLcode curl_easy_setopt(CURL* curl, CURLoption option, ...) {
         case CURLOPT_WRITEDATA:
             curl->write_data = va_arg(args, void*);
             break;
+        case CURLOPT_HEADERFUNCTION:
+            curl->header_cb = va_arg(args, curl_header_callback);
+            break;
+        case CURLOPT_HEADERDATA:
+            curl->header_data = va_arg(args, void*);
+            break;
         case CURLOPT_USERAGENT: {
             const char* v = va_arg(args, const char*);
             curl->user_agent = v ? v : "";
@@ -124,7 +133,7 @@ CURLcode curl_easy_perform(CURL* curl) {
     if (!curl) return CURLE_BAD_FUNCTION_ARGUMENT;
     if (curl->url.empty()) return CURLE_UNSUPPORTED_PROTOCOL;
 
-    httpp::curl::request req(curl->url);
+    httpp::client::request req(curl->url);
     if (!curl->method.empty()) req.method(curl->method);
     if (curl->has_post_fields) req.data(curl->post_fields);
     if (!curl->user_agent.empty()) req.header("User-Agent", curl->user_agent);
@@ -145,9 +154,17 @@ CURLcode curl_easy_perform(CURL* curl) {
 
     const httpp::response res = req.run();
     curl->last_response_code = res.status;
+    curl->last_content_type = res.header("Content-Type");
 
     if (res.status == 0) {
         return CURLE_COULDNT_CONNECT;
+    }
+
+    if (curl->header_cb) {
+        for (const auto& [name, value] : res.headers) {
+            const std::string line = name + ": " + value + "\r\n";
+            curl->header_cb(const_cast<char*>(line.data()), 1, line.size(), curl->header_data);
+        }
     }
 
     if (curl->write_cb && !res.body.empty()) {
@@ -168,6 +185,11 @@ CURLcode curl_easy_getinfo(CURL* curl, CURLINFO info, ...) {
         case CURLINFO_RESPONSE_CODE: {
             long* out = va_arg(args, long*);
             if (out) *out = curl->last_response_code;
+            break;
+        }
+        case CURLINFO_CONTENT_TYPE: {
+            const char** out = va_arg(args, const char**);
+            if (out) *out = curl->last_content_type.empty() ? nullptr : curl->last_content_type.c_str();
             break;
         }
         default:

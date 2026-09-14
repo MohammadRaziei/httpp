@@ -36,7 +36,7 @@ pip install httpp
 ### Python
 
 ```python
-from httpp import Client, Server, DownloadFile, CurlRequest
+from httpp import Client, Server, DownloadFile, Request
 
 # client
 res = Client.fetch("http://example.com/")
@@ -51,7 +51,7 @@ srv.listen("0.0.0.0", 8000)
 DownloadFile("http://example.com/big.zip").output("big.zip").run()
 
 # a small curl-flavored request builder
-res = CurlRequest("http://example.com/api").method("POST").data("a=1").run()
+res = Request("http://example.com/api").method("POST").data("a=1").run()
 ```
 
 ### CLI
@@ -80,7 +80,7 @@ srv.listen("0.0.0.0", 8000);
 
 httpp::download_file("http://example.com/f.zip").output("f.zip").run();
 
-auto res2 = httpp::curl::request("http://example.com/api")
+auto res2 = httpp::client::request("http://example.com/api")
                 .method("POST")
                 .header("X-Token", "abc")
                 .data("a=1")
@@ -137,17 +137,22 @@ ctest --test-dir build --output-on-failure   # C++, Python, and CMake-integratio
 
 ## Status
 
-- [x] `httpp::client` — GET requests; `.fetch(url)` parses a full URL in one call
+- [x] `httpp::client` — GET requests (with optional headers), response
+      headers (`res.header("Content-Type")`); `.fetch(url)` parses a full
+      URL in one call. HTTP **and HTTPS** (mbedtls-backed).
 - [x] `httpp::server` — route handlers, static directory serving
-- [x] `httpp::curl` — a small curl-flavored fluent request builder (method/headers/data)
-- [x] `httpp::download_file` — fluent download builder with a terminal progress bar
-      (sync `.run()` and async `.run_async()`)
+- [x] `httpp::client::request` — a small curl-flavored fluent request
+      builder (method/headers/data/timeout/redirects), also over HTTPS
+- [x] `httpp::download_file` — fluent download builder with a terminal
+      progress bar (sync `.run()` and async `.run_async()`)
 - [x] `httpp::progress` — `bar` (tqdm-like) and `range` (trange-like)
 - [x] `httpp/curl_compat.h` — a `curl_easy_*` C API subset for migrating
-      existing libcurl code, built directly on `httpp::curl::request`
-- [x] CLI — `server`, `download`, `curl`, `install`/`uninstall`
-- [x] Python bindings for `Client`, `Server`, `DownloadFile`, `CurlRequest`
-- [ ] HTTPS
+      existing libcurl code, including response headers
+      (`CURLOPT_HEADERFUNCTION`) and `CURLINFO_CONTENT_TYPE`, built
+      directly on `httpp::client::request`
+- [x] CLI — `server`, `download`, `curl`, `install`/`uninstall`, `path`
+      (`httpp --cmake-dir` / `httpp path --include-dir`, etc.)
+- [x] Python bindings for `Client`, `Server`, `DownloadFile`, `Request`
 - [ ] Route handlers from Python (directory serving works today; custom
       routes are C++-only for now)
 

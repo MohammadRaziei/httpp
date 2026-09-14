@@ -10,12 +10,15 @@ serving HTTP (Server) — the `httpp` CLI (`httpp server ...`, analogous to
 
 from libcpp.string cimport string
 from libcpp cimport bool as cbool
+from libcpp.vector cimport vector
+from libcpp.pair cimport pair
 
 
 cdef extern from "httpp/client.hpp" namespace "httpp":
     cdef cppclass response:
         int status
         string body
+        vector[pair[string, string]] headers
         cbool ok()
 
     cdef cppclass cpp_client "httpp::client":
@@ -50,8 +53,8 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         download_result run() except + nogil
 
 
-cdef extern from "httpp/curl.hpp" namespace "httpp::curl":
-    cdef cppclass cpp_curl_request "httpp::curl::request":
+cdef extern from "httpp/client.hpp" namespace "httpp::client":
+    cdef cppclass cpp_curl_request "httpp::client::request":
         cpp_curl_request(string url) except +
         cpp_curl_request& method(string m) except +
         cpp_curl_request& header(string name, string value) except +
@@ -61,13 +64,15 @@ cdef extern from "httpp/curl.hpp" namespace "httpp::curl":
 
 
 cdef class Response:
-    """A response to an HTTP request made via Client.get()."""
+    """A response to an HTTP request made via Client.get() / Request.run()."""
     cdef int _status
     cdef bytes _body
+    cdef list _headers  # list of (str, str) tuples, in server order
 
-    def __init__(self, int status, bytes body):
+    def __init__(self, int status, bytes body, list headers=None):
         self._status = status
         self._body = body
+        self._headers = headers or []
 
     @property
     def status(self):
@@ -80,6 +85,28 @@ cdef class Response:
     @property
     def ok(self):
         return 200 <= self._status < 300
+
+    @property
+    def headers(self):
+        """All response headers, as a list of (name, value) tuples."""
+        return list(self._headers)
+
+    def header(self, str name):
+        """Case-insensitive lookup of the first matching header, or None."""
+        lname = name.lower()
+        for k, v in self._headers:
+            if k.lower() == lname:
+                return v
+        return None
+
+
+cdef _make_response(response res):
+    """Convert a C++ httpp::response into a Python Response, headers and all."""
+    cdef list headers = [
+        (h.first.decode("utf-8", errors="replace"), h.second.decode("utf-8", errors="replace"))
+        for h in res.headers
+    ]
+    return Response(res.status, res.body, headers)
 
 
 cdef class Client:
@@ -96,14 +123,14 @@ cdef class Client:
 
     def get(self, str path):
         cdef response res = self._cli.get(path.encode("utf-8"))
-        return Response(res.status, res.body)
+        return _make_response(res)
 
     @staticmethod
     def fetch(str full_url):
         """Parse `full_url` and GET it in one call — no manual URL parsing
         needed on the Python side either (see httpp::client::fetch)."""
         cdef response res = cpp_client.fetch(full_url.encode("utf-8"))
-        return Response(res.status, res.body)
+        return _make_response(res)
 
 
 cdef class Server:
@@ -202,12 +229,12 @@ def download(str url, str dest_path, cbool show_progress=True):
     DownloadFile(url).output(dest_path).run()."""
     return DownloadFile(url).output(dest_path).enable_progress(show_progress).run()
 
-cdef class CurlRequest:
+cdef class Request:
     """A small, curl-flavored fluent request builder — the common cases
     only (-X method, -H headers, -d data). NOT a libcurl-compatible shim;
     see Client for the plain request API this is built on.
 
-        CurlRequest(url).method("PUT").header("X-Token", "abc").data("body").run()
+        Request(url).method("PUT").header("X-Token", "abc").data("body").run()
     """
     cdef cpp_curl_request* _req
 
@@ -238,4 +265,4 @@ cdef class CurlRequest:
         cdef response res
         with nogil:
             res = self._req.run()
-        return Response(res.status, res.body)
+        return _make_response(res)

@@ -72,17 +72,17 @@ int main() {
         check(res.ok() && res.body == "world", "httpp::client::fetch parses a full URL and gets it");
     }
 
-    // 3) httpp::curl::request (fluent builder)
+    // 3) httpp::client::request (fluent builder)
     {
-        httpp::response res = httpp::curl::request(base + "/hello")
+        httpp::response res = httpp::client::request(base + "/hello")
                                    .method("GET")
                                    .header("X-Test", "abc")
                                    .run();
-        check(res.ok() && res.body == "world", "httpp::curl::request GETs with a custom header");
+        check(res.ok() && res.body == "world", "httpp::client::request GETs with a custom header");
     }
     {
-        httpp::response res = httpp::curl::request(base + "/missing").method("DELETE").run();
-        check(res.status == 404, "httpp::curl::request sends a custom DELETE method");
+        httpp::response res = httpp::client::request(base + "/missing").method("DELETE").run();
+        check(res.status == 404, "httpp::client::request sends a custom DELETE method");
     }
 
     // 4) httpp/curl_compat.h (libcurl-style C API)

@@ -44,6 +44,19 @@ set(BUILD_PYTHON OFF CACHE BOOL "" FORCE)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/third_party/liburlparser)
 
+# mbedtls (TLS support for HTTPS, via cpp-httplib's CPPHTTPLIB_MBEDTLS_SUPPORT).
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
+set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+# mbedtls's own install() rules are unconditional unless this is forced ON
+# (its "am I a subproject" auto-detection doesn't reliably suppress them);
+# httpp links it in statically and never re-exports its headers/libs, so
+# nothing from mbedtls itself belongs in the installed wheel.
+set(DISABLE_PACKAGE_CONFIG_AND_INSTALL ON CACHE BOOL "" FORCE)
+add_subdirectory(${PROJECT_SOURCE_DIR}/src/third_party/mbedtls)
+
 add_library(httpp_core SHARED ${HTTPP_CORE_SOURCES})
 add_library(httpp::core ALIAS httpp_core)
 
@@ -76,6 +89,13 @@ target_include_directories(httpp_core
 find_package(Threads REQUIRED)
 target_link_libraries(httpp_core PUBLIC Threads::Threads)
 target_link_libraries(httpp_core PRIVATE url::base)
+
+# HTTPS support: mbedtls is linked PRIVATE and CPPHTTPLIB_MBEDTLS_SUPPORT is
+# only ever defined in src/core/internal/httplib_common.hpp (never in a
+# public header), so consumers of httpp never need mbedtls on their own
+# include/link path — see that file for the shared httplib.h include.
+target_link_libraries(httpp_core PRIVATE mbedtls mbedx509)
+target_compile_definitions(httpp_core PRIVATE CPPHTTPLIB_MBEDTLS_SUPPORT)
 
 target_compile_options(httpp_core PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /EHsc>

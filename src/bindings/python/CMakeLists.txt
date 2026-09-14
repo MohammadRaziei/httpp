@@ -52,9 +52,11 @@ if(DEFINED SKBUILD)
     # Install the compiled extension module + the pure-Python package files
     install(TARGETS httpp_cy
         DESTINATION httpp
+        COMPONENT httpp_wheel
     )
     install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/httpp/
         DESTINATION httpp
+        COMPONENT httpp_wheel
         FILES_MATCHING PATTERN "*.py"
     )
 
@@ -74,17 +76,19 @@ if(DEFINED SKBUILD)
     # (see examples/find_httpp_via_python/ for a full working example.)
     install(TARGETS httpp_core
         EXPORT httppTargets
-        ARCHIVE DESTINATION httpp/lib
-        LIBRARY DESTINATION httpp/lib
-        RUNTIME DESTINATION httpp/lib
+        ARCHIVE DESTINATION httpp/lib COMPONENT httpp_wheel
+        LIBRARY DESTINATION httpp/lib COMPONENT httpp_wheel
+        RUNTIME DESTINATION httpp/lib COMPONENT httpp_wheel
     )
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/
         DESTINATION httpp/include
+        COMPONENT httpp_wheel
     )
     install(EXPORT httppTargets
         FILE httppTargets.cmake
         NAMESPACE httpp::
         DESTINATION httpp/cmake
+        COMPONENT httpp_wheel
     )
 
     include(CMakePackageConfigHelpers)
@@ -102,6 +106,7 @@ if(DEFINED SKBUILD)
         ${CMAKE_CURRENT_BINARY_DIR}/httppConfig.cmake
         ${CMAKE_CURRENT_BINARY_DIR}/httppConfigVersion.cmake
         DESTINATION httpp/cmake
+        COMPONENT httpp_wheel
     )
 
     return()
@@ -123,7 +128,7 @@ ExternalProject_Add(build_python
         -DCMAKE_BUILD_TYPE=Release
         -DCMAKE_INSTALL_PREFIX=${PYTHON_INSTALL_DIR}
 
-    INSTALL_COMMAND ${CMAKE_COMMAND} --build . --target install --config Release --parallel 8
+    INSTALL_COMMAND ${CMAKE_COMMAND} --install . --config Release --component httpp_wheel
     BUILD_ALWAYS 1
 )
 add_dependencies(build_python httpp_core)

@@ -3,7 +3,14 @@
 import os as _os
 import sys as _sys
 
-__version__ = "0.1.0"
+try:
+    # Reads the version scikit-build-core actually wrote into this wheel's
+    # metadata (derived from include/httpp.h at build time) — never
+    # hardcoded here, so it can't drift from a real release version.
+    from importlib.metadata import version as _pkg_version
+    __version__ = _pkg_version("httpp")
+except Exception:
+    __version__ = "0.0.0+unknown"
 
 _pkg_dir = _os.path.dirname(__file__)
 _lib_dir = _os.path.join(_pkg_dir, "lib")
@@ -17,7 +24,7 @@ if _sys.platform == "win32" and hasattr(_os, "add_dll_directory"):
     _os.add_dll_directory(_lib_dir)
 
 # Import the compiled Cython module
-from .httpp_cy import Client, Server, download, DownloadFile, DownloadResult, CurlRequest
+from .httpp_cy import Client, Server, download, DownloadFile, DownloadResult, Request
 
 
 def get_include_dir():
@@ -38,6 +45,6 @@ def get_cmake_dir():
 
 
 __all__ = [
-    "Client", "Server", "download", "DownloadFile", "DownloadResult", "CurlRequest",
+    "Client", "Server", "download", "DownloadFile", "DownloadResult", "Request",
     "get_include_dir", "get_lib_dir", "get_cmake_dir",
 ]

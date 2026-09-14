@@ -99,9 +99,9 @@ def _cmd_uninstall(args):
 
 
 def _cmd_curl(args):
-    from httpp import CurlRequest
+    from httpp import Request
 
-    req = CurlRequest(args.url)
+    req = Request(args.url)
     if args.request:
         req.method(args.request)
     for h in args.header or []:
@@ -125,11 +125,39 @@ def _cmd_curl(args):
     return 0
 
 
+def _cmd_path(args):
+    import httpp as _httpp
+
+    printed = False
+    if args.include_dir:
+        print(_httpp.get_include_dir())
+        printed = True
+    if args.lib_dir:
+        print(_httpp.get_lib_dir())
+        printed = True
+    if args.cmake_dir:
+        print(_httpp.get_cmake_dir())
+        printed = True
+    if not printed:
+        # no flag given: print all three, labeled
+        print(f"include: {_httpp.get_include_dir()}")
+        print(f"lib:     {_httpp.get_lib_dir()}")
+        print(f"cmake:   {_httpp.get_cmake_dir()}")
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="httpp", description="httpp: a lightweight HTTP client + server toolkit."
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    # Top-level path flags (nanobind/pybind11 style: `httpp --cmake-dir`,
+    # same info as `python -c "import httpp; print(httpp.get_cmake_dir())"`)
+    # work standalone, without a subcommand.
+    parser.add_argument("--cmake-dir", action="store_true", help="Print the directory containing httppConfig.cmake and exit.")
+    parser.add_argument("--include-dir", action="store_true", help="Print the directory containing httpp.h and exit.")
+    parser.add_argument("--lib-dir", action="store_true", help="Print the directory containing the compiled httpp library and exit.")
+
+    sub = parser.add_subparsers(dest="command")
 
     p_server = sub.add_parser("server", help="Serve a directory over HTTP, like `python -m http.server`.")
     p_server.add_argument("directory", nargs="?", default=".")
@@ -167,12 +195,27 @@ def build_parser():
     )
     p_uninstall.set_defaults(func=_cmd_uninstall)
 
+    # Same three flags as a subcommand too: `httpp path --cmake-dir`.
+    p_path = sub.add_parser("path", help="Print include/lib/cmake directories (see also the top-level --cmake-dir etc.).")
+    p_path.add_argument("--cmake-dir", action="store_true")
+    p_path.add_argument("--include-dir", action="store_true")
+    p_path.add_argument("--lib-dir", action="store_true")
+    p_path.set_defaults(func=_cmd_path)
+
     return parser
 
 
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # Top-level path flags work with no subcommand: `httpp --cmake-dir`.
+    if getattr(args, "command", None) is None:
+        if args.cmake_dir or args.include_dir or args.lib_dir:
+            return _cmd_path(args)
+        parser.print_help()
+        return 1
+
     return args.func(args) or 0
 
 
