@@ -4,6 +4,7 @@ requires = [
     "cython",
     "cython-cmake",
     "jsonschema",
+    "jinja2",
 ]
 build-backend = "scikit_build_core.build"
 
