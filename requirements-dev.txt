@@ -3,6 +3,7 @@ scikit-build-core[pyproject]
 cython
 cython-cmake
 jsonschema  # needed by mbedtls's own build-time codegen (driver wrappers)
+jinja2  # needed by mbedtls's own build-time codegen (driver wrappers)
 
 # development dependencies
 build
