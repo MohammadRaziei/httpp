@@ -97,6 +97,17 @@ target_link_libraries(httpp_core PRIVATE url::base)
 target_link_libraries(httpp_core PRIVATE mbedtls mbedx509)
 target_compile_definitions(httpp_core PRIVATE CPPHTTPLIB_MBEDTLS_SUPPORT)
 
+# macOS: cpp-httplib (src/third_party/cpp-httplib/httplib.h) reads the
+# system trust store via the Keychain APIs (CPPHTTPLIB_USE_CERTS_FROM_MACOSX_KEYCHAIN),
+# which pulls in CoreFoundation/Security symbols (e.g. SecTrustSettingsCopyCertificates).
+# These aren't linked by default and must be added explicitly, or the final
+# link of libhttpp_core.dylib fails with "symbol(s) not found for architecture".
+if(APPLE)
+    find_library(COREFOUNDATION_LIBRARY CoreFoundation REQUIRED)
+    find_library(SECURITY_LIBRARY Security REQUIRED)
+    target_link_libraries(httpp_core PRIVATE ${COREFOUNDATION_LIBRARY} ${SECURITY_LIBRARY})
+endif()
+
 target_compile_options(httpp_core PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /EHsc>
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>
