@@ -11,9 +11,9 @@ namespace httpp {
 // is done by the vendored liburlparser (src/third_party/liburlparser, a git
 // submodule built from source — no system package). That dependency is
 // used only in src/core/url.cpp and never appears in this public header.
-class HTTPP_API url {
+class url {
 public:
-    static url parse(const std::string& raw);
+    static HTTPP_API url parse(const std::string& raw);
 
     bool valid() const { return valid_; }
     const std::string& scheme() const { return scheme_; }

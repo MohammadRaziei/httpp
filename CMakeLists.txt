@@ -110,9 +110,15 @@ target_include_directories(httpp_core
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:httpp/include>
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/cpp-httplib
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party
+)
+# SYSTEM: these are vendored/third-party headers we don't control (cpp-httplib,
+# indicators, etc.). Marking them SYSTEM tells the compiler their own internal
+# warnings (e.g. indicators.hpp's narrowing-conversion C4244/C4267 on MSVC)
+# aren't ours to fix and shouldn't surface under our own -Wall/-Wextra/-W4
+# below — without patching vendored code to silence its own warnings.
+target_include_directories(httpp_core SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/cpp-httplib
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party
 )
 
 find_package(Threads REQUIRED)

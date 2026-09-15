@@ -13,23 +13,23 @@ namespace httpp::progress {
 // Backed by the vendored `indicators` library (src/third_party/indicators),
 // but that dependency is hidden behind this pointer (see
 // src/core/progressbar.cpp) and never appears in this public header.
-class HTTPP_API bar {
+class bar {
 public:
-    explicit bar(std::size_t total, std::string description = "");
-    ~bar();
+    explicit HTTPP_API bar(std::size_t total, std::string description = "");
+    HTTPP_API ~bar();
 
-    bar(bar&&) noexcept;
-    bar& operator=(bar&&) noexcept;
+    HTTPP_API bar(bar&&) noexcept;
+    HTTPP_API bar& operator=(bar&&) noexcept;
     bar(const bar&) = delete;
     bar& operator=(const bar&) = delete;
 
-    void update(std::size_t n = 1);          // advance by n
-    void set_progress(std::size_t current);  // set an absolute position
-    void finish();                           // jump to total and stop
+    HTTPP_API void update(std::size_t n = 1);          // advance by n
+    HTTPP_API void set_progress(std::size_t current);  // set an absolute position
+    HTTPP_API void finish();                           // jump to total and stop
 
-    std::size_t total() const;
-    std::size_t current() const;
-    bool is_finished() const;
+    HTTPP_API std::size_t total() const;
+    HTTPP_API std::size_t current() const;
+    HTTPP_API bool is_finished() const;
 
 private:
     struct impl;
@@ -40,7 +40,11 @@ private:
 // it by one on every step of the loop, e.g.:
 //
 //   for (auto i : httpp::progressbar::range(100, "working")) { ... }
-class HTTPP_API range {
+//
+// Entirely defined inline here (calls only bar's already-exported members),
+// so — unlike bar itself — this class needs no HTTPP_API at all: nothing
+// about it is compiled into the DLL for a consumer to link against.
+class range {
 public:
     explicit range(std::size_t total, std::string description = "")
         : total_(total), bar_(total, std::move(description)) {}

@@ -7,7 +7,7 @@
 
 namespace httpp {
 
-struct HTTPP_API download_result {
+struct download_result {
     bool ok = false;
     int status = 0;
     std::string error;
@@ -27,16 +27,16 @@ HTTPP_API download_result download(const std::string& url,
 //
 //   auto fut = httpp::download_file(url).output(path).run_async();
 //   download_result res = fut.get();
-class HTTPP_API download_file {
+class download_file {
 public:
-    explicit download_file(std::string url);
+    explicit HTTPP_API download_file(std::string url);
 
-    download_file& output(std::string dest_path);
-    download_file& enable_progress(bool enable = true);
-    download_file& disable_progress();
+    HTTPP_API download_file& output(std::string dest_path);
+    HTTPP_API download_file& enable_progress(bool enable = true);
+    HTTPP_API download_file& disable_progress();
 
-    download_result run() const;
-    std::future<download_result> run_async() const;
+    HTTPP_API download_result run() const;
+    HTTPP_API std::future<download_result> run_async() const;
 
 private:
     std::string url_;

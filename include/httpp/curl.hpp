@@ -14,35 +14,35 @@ namespace httpp::curl {
 // plain request API this is built on). Backed by the same vendored
 // cpp-httplib as the rest of httpp, hidden behind this pointer (see
 // src/core/curl.cpp) and never exposed in this public header.
-class HTTPP_API request {
+class request {
 public:
-    explicit request(std::string url);
-    ~request();
+    explicit HTTPP_API request(std::string url);
+    HTTPP_API ~request();
 
-    request(request&&) noexcept;
-    request& operator=(request&&) noexcept;
+    HTTPP_API request(request&&) noexcept;
+    HTTPP_API request& operator=(request&&) noexcept;
     request(const request&) = delete;
     request& operator=(const request&) = delete;
 
     // -X METHOD (GET/POST/PUT/PATCH/DELETE). If never called, defaults to
     // GET, unless data() was called, in which case it defaults to POST —
     // matching curl's own behavior.
-    request& method(std::string m);
+    HTTPP_API request& method(std::string m);
 
     // -H "Name: value"
-    request& header(std::string name, std::string value);
+    HTTPP_API request& header(std::string name, std::string value);
 
     // -d "body" (sets Content-Type to application/x-www-form-urlencoded
     // unless content_type() overrides it)
-    request& data(std::string body);
+    HTTPP_API request& data(std::string body);
 
-    request& content_type(std::string type);
+    HTTPP_API request& content_type(std::string type);
 
     // -m/--max-time (seconds), -L/--location
-    request& timeout(long seconds);
-    request& follow_redirects(bool enable = true);
+    HTTPP_API request& timeout(long seconds);
+    HTTPP_API request& follow_redirects(bool enable = true);
 
-    response run() const;
+    HTTPP_API response run() const;
 
 private:
     struct impl;
