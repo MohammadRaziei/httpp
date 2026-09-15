@@ -54,6 +54,18 @@ httpp = "src/bindings/python/httpp"
 version = ">=3.21"
 build-type = "Release"
 
+# Stable ABI (abi3), targeted at the oldest Python this project builds for
+# (see CIBW_BUILD in .github/workflows/wheels.yml). This is what makes
+# SKBUILD_SABI_VERSION/SKBUILD_SABI_COMPONENT non-empty in
+# src/bindings/python/CMakeLists.txt, so a single compiled extension
+# (cp39-abi3-<platform>) works unmodified on 3.9 through whatever version
+# is current — one wheel build per platform instead of one per Python
+# minor version. The Cython bindings (httpp_cy.pyx) only wrap plain C++
+# calls with no manual buffer-protocol/PyObject-internals access, so they
+# don't touch anything outside the limited API.
+[tool.scikit-build.wheel]
+py-api = "cp39"
+
 [tool.scikit-build]
 sdist.include = [
     "src/third_party/cpp-httplib/**/*",

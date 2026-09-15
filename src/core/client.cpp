@@ -5,6 +5,8 @@
 // never in a public httpp/*.hpp header — see its comment for why.
 #include "internal/httplib_common.hpp"
 
+#include <cstddef>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -16,7 +18,13 @@ namespace httpp {
 struct client::impl {
     httplib::Client cli;
     impl(const std::string& host, int port, bool use_ssl)
-        : cli(detail::scheme_host_port(use_ssl ? "https" : "http", host, port)) {}
+        : cli(detail::scheme_host_port(use_ssl ? "https" : "http", host, port)) {
+        // get()/fetch() buffer the whole body into response::body, so the
+        // same reasoning as client::request::run() applies: don't let
+        // cpp-httplib's default 100MB cap turn a large but perfectly valid
+        // response into an opaque status-0 failure.
+        cli.set_payload_max_length((std::numeric_limits<std::size_t>::max)());
+    }
 };
 
 client::client(const std::string& host, int port, bool use_ssl)
@@ -72,6 +80,7 @@ struct client::request::impl {
     std::vector<std::pair<std::string, std::string>> headers;
     long timeout_seconds = 0;  // 0 = use httplib's default
     bool follow_redirects = false;
+    std::size_t max_response_size = 0;  // 0 = no limit (see header)
 
     explicit impl(std::string u) : url(std::move(u)) {}
 };
@@ -114,6 +123,11 @@ client::request& client::request::follow_redirects(bool enable) {
     return *this;
 }
 
+client::request& client::request::max_response_size(std::size_t bytes) {
+    impl_->max_response_size = bytes;
+    return *this;
+}
+
 response client::request::run() const {
     response out;
 
@@ -141,9 +155,26 @@ response client::request::run() const {
     }
     cli.set_follow_location(impl_->follow_redirects);
 
+    // cpp-httplib caps a buffered response body at CPPHTTPLIB_PAYLOAD_MAX_LENGTH
+    // (100MB) by default, and exceeding it surfaces as a transport-style
+    // failure that is indistinguishable from a dropped connection. httpp's
+    // contract here is "give me the whole body as a string", so the limit is
+    // opt-in via max_response_size() instead — see the header. Note the cap
+    // only applies to this buffered path; httpp::download() streams to disk
+    // and is unaffected either way.
+    cli.set_payload_max_length(impl_->max_response_size > 0
+                                   ? impl_->max_response_size
+                                   : (std::numeric_limits<std::size_t>::max)());
+
     httplib::Result res;
     if (method == "GET") {
         res = cli.Get(path, hdrs);
+    } else if (method == "HEAD") {
+        // A HEAD response is headers-only by definition; res->body stays
+        // empty, which is correct rather than a failure.
+        res = cli.Head(path, hdrs);
+    } else if (method == "OPTIONS") {
+        res = cli.Options(path, hdrs);
     } else if (method == "POST") {
         res = cli.Post(path, hdrs, impl_->body, impl_->content_type);
     } else if (method == "PUT") {
@@ -163,6 +194,10 @@ response client::request::run() const {
         for (const auto& [key, value] : res->headers) {
             out.headers.emplace_back(key, value);
         }
+    } else if (res.error() == httplib::Error::ExceedMaxPayloadSize) {
+        // Caller-imposed max_response_size was hit. Report it as 413 so it
+        // is distinguishable from a genuine connection failure (status 0).
+        out.status = 413;
     } else {
         out.status = 0; // connection/transport error
     }

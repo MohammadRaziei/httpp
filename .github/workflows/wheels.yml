@@ -57,8 +57,12 @@ jobs:
       env:
         MACOSX_DEPLOYMENT_TARGET: "10.13"
         CIBW_ARCHS_MACOS: universal2
-        CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-*"
-        CIBW_ENVIRONMENT_CP312: "SKBUILD_WHEEL_PY_API=cp312"
+        # abi3 (see [tool.scikit-build.wheel] in pyproject.toml, targeting
+        # cp39) means the cp39 build's wheel is already tagged
+        # cp39-abi3-<platform> and covers every Python 3.9+ interpreter —
+        # building cp310/cp311/cp312 separately would just repeat the same
+        # binary under different tags.
+        CIBW_BUILD: "cp39-*"
         CIBW_SKIP: pp*
 
     - uses: actions/upload-artifact@v7

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -81,9 +82,9 @@ public:
         request(const request&) = delete;
         request& operator=(const request&) = delete;
 
-        // -X METHOD (GET/POST/PUT/PATCH/DELETE). If never called, defaults
-        // to GET, unless data() was called, in which case it defaults to
-        // POST — matching curl's own behavior.
+        // -X METHOD (GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS). If never
+        // called, defaults to GET, unless data() was called, in which case
+        // it defaults to POST — matching curl's own behavior.
         HTTPP_API request& method(std::string m);
 
         // -H "Name: value"
@@ -98,6 +99,15 @@ public:
         // -m/--max-time (seconds), -L/--location
         HTTPP_API request& timeout(long seconds);
         HTTPP_API request& follow_redirects(bool enable = true);
+
+        // Upper bound, in bytes, on the response body this request will
+        // buffer into response::body. 0 (the default) means no limit, which
+        // matches curl/wget: run() hands you the whole body as a string, so
+        // httpp does not second-guess how big that is. Set a non-zero value
+        // to guard against a hostile or runaway server; exceeding it yields
+        // response::status == 413 (Payload Too Large) rather than a silent
+        // transport-style failure.
+        HTTPP_API request& max_response_size(std::size_t bytes);
 
         HTTPP_API response run() const;
 

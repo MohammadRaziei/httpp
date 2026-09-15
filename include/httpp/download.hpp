@@ -14,9 +14,15 @@ struct download_result {
 };
 
 // One-shot free function form.
+//
+// follow_redirects defaults to true: a plain "download this URL to this
+// path" is expected to land the real file, and the common case (GitHub
+// release assets, CDN links, shortened URLs) answers 302 before serving
+// anything. Pass false to treat a 3xx as the final response instead.
 HTTPP_API download_result download(const std::string& url,
                                     const std::string& dest_path,
-                                    bool show_progress = true);
+                                    bool show_progress = true,
+                                    bool follow_redirects = true);
 
 // Fluent builder form:
 //
@@ -35,6 +41,10 @@ public:
     HTTPP_API download_file& enable_progress(bool enable = true);
     HTTPP_API download_file& disable_progress();
 
+    // -L/--location, as on client::request. On by default here (see the
+    // note on download() above).
+    HTTPP_API download_file& follow_redirects(bool enable = true);
+
     HTTPP_API download_result run() const;
     HTTPP_API std::future<download_result> run_async() const;
 
@@ -42,6 +52,7 @@ private:
     std::string url_;
     std::string dest_path_;
     bool show_progress_ = true;
+    bool follow_redirects_ = true;
 };
 
 } // namespace httpp

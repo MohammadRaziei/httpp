@@ -15443,6 +15443,15 @@ inline void ClientImpl::setup_redirect_client(ClientType &client) {
   if (socket_options_) { client.set_socket_options(socket_options_); }
   if (!interface_.empty()) { client.set_interface(interface_); }
 
+  // [httpp patch] Propagate an explicitly-configured response body limit.
+  // Upstream omits this, so a cross-host redirect (e.g. github.com ->
+  // release-assets.githubusercontent.com) silently reverts to the 100MB
+  // CPPHTTPLIB_PAYLOAD_MAX_LENGTH default and a larger-but-valid body fails
+  // as Error::Read. Copied only when the caller actually set a limit, so
+  // the "streaming with no explicit limit is unbounded" rule in
+  // process_request() is preserved untouched.
+  if (has_payload_max_length_) { client.set_payload_max_length(payload_max_length_); }
+
   // Copy logging and headers
   if (logger_) { client.set_logger(logger_); }
   if (error_logger_) { client.set_error_logger(error_logger_); }
@@ -16001,6 +16010,15 @@ inline bool ClientImpl::process_request(Stream &strm, Request &req,
             break;
           case StatusCode::InternalServerError_500:
             error = Error::Compression;
+            break;
+          // [httpp patch] read_content() (detail::read_content, above in
+          // this file) sets content_status to 413 when payload_max_length_
+          // is exceeded, but this switch never mapped it to anything —
+          // it fell through to the generic Error::Read default, making a
+          // deliberate size cap indistinguishable from a dropped
+          // connection.
+          case StatusCode::PayloadTooLarge_413:
+            error = Error::ExceedMaxPayloadSize;
             break;
           default: error = Error::Read; break;
           }
