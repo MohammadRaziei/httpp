@@ -38,7 +38,7 @@
  *============================================================================*/
 
 #define HTTPP_VERSION_MAJOR 0
-#define HTTPP_VERSION_MINOR 4
+#define HTTPP_VERSION_MINOR 5
 #define HTTPP_VERSION_PATCH 0
 
 /*==============================================================================
