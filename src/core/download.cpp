@@ -6,10 +6,9 @@
 // never in a public httpp/*.hpp header — see its comment for why.
 #include "internal/httplib_common.hpp"
 
-#include <filesystem>
+#include <cstdio>
 #include <fstream>
 #include <memory>
-#include <system_error>
 #include <utility>
 
 namespace httpp {
@@ -70,8 +69,7 @@ download_result download(const std::string& url_str, const std::string& dest_pat
     // and a stale partial file also defeats naive resume/skip logic.
     auto discard_partial_file = [&] {
         out.close();
-        std::error_code ec;
-        std::filesystem::remove(dest_path, ec); // best-effort; ignore ec
+        std::remove(dest_path.c_str()); // best-effort; ignore failure
     };
 
     if (!res) {
