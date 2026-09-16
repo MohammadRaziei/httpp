@@ -160,7 +160,7 @@ response client::request::run() const {
     // failure that is indistinguishable from a dropped connection. httpp's
     // contract here is "give me the whole body as a string", so the limit is
     // opt-in via max_response_size() instead — see the header. Note the cap
-    // only applies to this buffered path; httpp::download() streams to disk
+    // only applies to this buffered path; httpp::download(...).run() streams
     // and is unaffected either way.
     cli.set_payload_max_length(impl_->max_response_size > 0
                                    ? impl_->max_response_size

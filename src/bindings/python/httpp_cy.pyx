@@ -42,14 +42,15 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
 cdef extern from "httpp/download.hpp" namespace "httpp":
     cdef cppclass download_result:
         cbool ok
+        cbool skipped
         int status
         string error
 
-    cdef cppclass cpp_download_file "httpp::download_file":
-        cpp_download_file(string url) except +
-        cpp_download_file& output(string dest_path) except +
-        cpp_download_file& enable_progress(cbool enable) except +
-        cpp_download_file& disable_progress() except +
+    cdef cppclass cpp_download "httpp::download":
+        cpp_download(string url, string dest_path) except +
+        cpp_download& output(string dest_path) except +
+        cpp_download& enable_progress(cbool enable) except +
+        cpp_download& disable_progress() except +
         download_result run() except + nogil
 
 
@@ -167,7 +168,7 @@ cdef class Server:
 
 
 cdef class DownloadResult:
-    """Result of DownloadFile.run()."""
+    """Result of Download.run()."""
     cdef cbool _ok
     cdef int _status
     cdef bytes _error
@@ -190,15 +191,16 @@ cdef class DownloadResult:
         return self._error.decode("utf-8", errors="replace")
 
 
-cdef class DownloadFile:
-    """Fluent builder over httpp::download_file:
+cdef class Download:
+    """Fluent builder over httpp::download:
 
-        DownloadFile(url).output(path).enable_progress().run()
+        Download(url, path).run()
+        Download(url).output(path).enable_progress().run()
     """
-    cdef cpp_download_file* _dl
+    cdef cpp_download* _dl
 
-    def __init__(self, str url):
-        self._dl = new cpp_download_file(url.encode("utf-8"))
+    def __init__(self, str url, str dest_path=""):
+        self._dl = new cpp_download(url.encode("utf-8"), dest_path.encode("utf-8"))
 
     def __dealloc__(self):
         if self._dl is not NULL:
@@ -226,8 +228,8 @@ cdef class DownloadFile:
 def download(str url, str dest_path, cbool show_progress=True):
     """Download `url` to `dest_path`, with a tqdm-like terminal progress
     bar unless show_progress=False. Shorthand for
-    DownloadFile(url).output(dest_path).run()."""
-    return DownloadFile(url).output(dest_path).enable_progress(show_progress).run()
+    Download(url, dest_path).enable_progress(show_progress).run()."""
+    return Download(url, dest_path).enable_progress(show_progress).run()
 
 cdef class Request:
     """A small, curl-flavored fluent request builder — the common cases

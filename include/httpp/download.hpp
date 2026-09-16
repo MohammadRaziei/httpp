@@ -10,51 +10,43 @@ namespace httpp {
 struct download_result {
     bool ok = false;
     // true if run() made no request at all because dest_path already held
-    // the complete file (see download_file::resume()). ok is also true in
-    // that case; this just distinguishes "already had it" from "downloaded
-    // it just now" for callers that care (e.g. progress reporting).
+    // the complete file (see download::resume()). ok is also true in that
+    // case; this just distinguishes "already had it" from "downloaded it
+    // just now" for callers that care (e.g. progress reporting).
     bool skipped = false;
     int status = 0;
     std::string error;
 };
 
-// One-shot free function form.
+// Fluent builder — the one way to download a URL to a file in httpp:
 //
-// follow_redirects defaults to true: a plain "download this URL to this
-// path" is expected to land the real file, and the common case (GitHub
-// release assets, CDN links, shortened URLs) answers 302 before serving
-// anything. Pass false to treat a 3xx as the final response instead.
+//   httpp::download("http://x.com/f.zip", "f.zip").run();
 //
-// Always downloads dest_path fresh from byte 0 (no resume, no skip-if-
-// complete) — see download_file below for that.
-HTTPP_API download_result download(const std::string& url,
-                                    const std::string& dest_path,
-                                    bool show_progress = true,
-                                    bool follow_redirects = true);
-
-// Fluent builder form:
-//
-//   httpp::download_file("http://x.com/f.zip")
+//   httpp::download("http://x.com/f.zip")
 //       .output("f.zip")
 //       .enable_progress()
 //       .run();
 //
-//   auto fut = httpp::download_file(url).output(path).run_async();
+//   auto fut = httpp::download(url, path).run_async();
 //   download_result res = fut.get();
-class download_file {
+class download {
 public:
-    explicit HTTPP_API download_file(std::string url);
+    // dest_path can be given here (the common case: url + where to save
+    // it) or filled in later via output() — e.g. when it isn't known yet
+    // at construction time, or alongside other fluent options.
+    explicit HTTPP_API download(std::string url, std::string dest_path = "");
 
-    HTTPP_API download_file& output(std::string dest_path);
-    HTTPP_API download_file& enable_progress(bool enable = true);
-    HTTPP_API download_file& disable_progress();
+    HTTPP_API download& output(std::string dest_path);
+    HTTPP_API download& enable_progress(bool enable = true);
+    HTTPP_API download& disable_progress();
 
-    // -L/--location, as on client::request. On by default here (see the
-    // note on download() above).
-    HTTPP_API download_file& follow_redirects(bool enable = true);
+    // -L/--location. On by default: the common case (GitHub release
+    // assets, CDN links, shortened URLs) answers 302 before serving
+    // anything, and a plain "download this URL" is expected to land the
+    // real file. Pass false to treat a 3xx as the final response instead.
+    HTTPP_API download& follow_redirects(bool enable = true);
 
-    // wget -c-style resume, off by default (matches download()'s
-    // always-fresh behavior unless explicitly opted into):
+    // wget -c-style resume, off by default:
     //   - if dest_path already exists and a HEAD request confirms it's
     //     exactly the full size the server reports, run() makes no request
     //     at all and returns {ok=true, skipped=true}.
@@ -69,13 +61,13 @@ public:
     //   - requires the server to answer HEAD and Range requests; if it
     //     doesn't, resume degrades to the same always-fresh behavior as
     //     when this is off.
-    HTTPP_API download_file& resume(bool enable = true);
+    HTTPP_API download& resume(bool enable = true);
 
     // Ignore any of the above (a complete dest_path, or a partial .part)
     // and always redownload from byte 0. Has no effect unless resume() is
     // also enabled, since that's the only mode that looks at existing
     // files in the first place.
-    HTTPP_API download_file& force(bool enable = true);
+    HTTPP_API download& force(bool enable = true);
 
     HTTPP_API download_result run() const;
     HTTPP_API std::future<download_result> run_async() const;

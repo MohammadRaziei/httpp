@@ -100,15 +100,15 @@ int main() {
         curl_easy_cleanup(curl);
     }
 
-    // 5) httpp::download_file (fluent builder + progress bar plumbing)
+    // 5) httpp::download (fluent builder + progress bar plumbing)
     {
         const std::string dest = "consumer_download_output.txt";
         std::remove(dest.c_str());
-        httpp::download_result res = httpp::download_file(base + "/hello")
+        httpp::download_result res = httpp::download(base + "/hello")
                                           .output(dest)
                                           .disable_progress()
                                           .run();
-        check(res.ok && read_file(dest) == "world", "httpp::download_file downloads to a file");
+        check(res.ok && read_file(dest) == "world", "httpp::download downloads to a file");
         std::remove(dest.c_str());
     }
 

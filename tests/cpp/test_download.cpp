@@ -46,7 +46,7 @@ UTEST(httpp_download, downloads_body_to_a_file) {
     std::remove(dest.c_str());
 
     std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/data";
-    httpp::download_result result = httpp::download(url, dest, /*show_progress=*/false);
+    httpp::download_result result = httpp::download(url, dest).disable_progress().run();
 
     ASSERT_TRUE(result.ok);
     ASSERT_EQ(200, result.status);
@@ -63,7 +63,7 @@ UTEST(httpp_download, reports_failure_for_404) {
     std::remove(dest.c_str());
 
     std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/nope";
-    httpp::download_result result = httpp::download(url, dest, false);
+    httpp::download_result result = httpp::download(url, dest).disable_progress().run();
 
     ASSERT_FALSE(result.ok);
     ASSERT_EQ(404, result.status);
@@ -83,7 +83,7 @@ UTEST(httpp_download, builder_form_works_with_chained_calls) {
     std::remove(dest.c_str());
 
     std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/f";
-    httpp::download_result result = httpp::download_file(url)
+    httpp::download_result result = httpp::download(url)
                                          .output(dest)
                                          .disable_progress()
                                          .run();
@@ -106,7 +106,7 @@ UTEST(httpp_download, run_async_returns_a_future) {
     std::remove(dest.c_str());
 
     std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/f";
-    std::future<httpp::download_result> fut = httpp::download_file(url)
+    std::future<httpp::download_result> fut = httpp::download(url)
                                                    .output(dest)
                                                    .disable_progress()
                                                    .run_async();

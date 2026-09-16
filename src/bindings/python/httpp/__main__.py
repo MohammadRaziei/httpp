@@ -22,11 +22,11 @@ def _cmd_server(args):
 def _cmd_download(args):
     if args.output:
         # Real download to a file, with a terminal progress bar (see
-        # httpp::download_file / httpp::progress::bar) — nothing here
+        # httpp::download / httpp::progress::bar) — nothing here
         # reimplements the request or the progress logic, it's all in C++.
-        from httpp import DownloadFile
+        from httpp import Download
 
-        result = DownloadFile(args.url).output(args.output).enable_progress(not args.quiet).run()
+        result = Download(args.url, args.output).enable_progress(not args.quiet).run()
         if not result.ok:
             print(f"error: {result.error}", file=sys.stderr)
             return 1
