@@ -89,12 +89,12 @@ int server::bind_to_any_port(const std::string& host) {
     return impl_->svr.bind_to_any_port(host);
 }
 
-void server::listen_after_bind() {
-    impl_->svr.listen_after_bind();
+bool server::listen_after_bind() {
+    return impl_->svr.listen_after_bind();
 }
 
-void server::listen(const std::string& host, int port) {
-    impl_->svr.listen(host, port);
+bool server::listen(const std::string& host, int port) {
+    return impl_->svr.listen(host, port);
 }
 
 void server::stop() {

@@ -161,3 +161,39 @@ def test_async_handlers_work():
     with running(app) as url:
         res = Request(url + "/a/1").run()
     assert json.loads(res.body) == {"x": "1", "path": "/a/1"}
+
+
+def test_listen_on_a_taken_port_raises():
+    import socket
+
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen()
+    try:
+        with pytest.raises(OSError):
+            Server().listen("127.0.0.1", blocker.getsockname()[1])
+    finally:
+        blocker.close()
+
+
+def test_ctrl_c_stops_listen():
+    import os
+    import signal
+    import subprocess
+    import sys
+    import textwrap
+
+    code = textwrap.dedent("""
+        from httpp import Server
+        app = Server()
+        print("up", flush=True)
+        app.listen("127.0.0.1", 0)  # port 0: any free port
+        print("clean exit", flush=True)
+    """)
+    p = subprocess.Popen([sys.executable, "-u", "-c", code], stdout=subprocess.PIPE, text=True,
+                         env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)})
+    assert p.stdout.readline().strip() == "up"
+    time.sleep(0.3)
+    p.send_signal(signal.SIGINT)
+    assert p.wait(timeout=5) == 0
+    assert "clean exit" in p.stdout.read()

@@ -28,6 +28,7 @@ import asyncio
 import inspect
 import json
 import re
+import threading
 
 from .httpp_cy import Server as _Server
 
@@ -163,3 +164,29 @@ class Server(_Server):
 
     def delete(self, path):
         return self.route(path, ("DELETE",))
+
+    def listen(self, host="127.0.0.1", port=8000):
+        """Serve until stop() or Ctrl+C. Raises OSError if the port can't be bound.
+
+        The compiled listen() blocks outside the interpreter, so Python never
+        sees Ctrl+C while inside it; run it on a thread and keep the main
+        thread in Python. # ponytail: 0.2s poll; upgrade path is signal.set_wakeup_fd.
+        """
+        failure = []
+
+        def serve():
+            try:
+                _Server.listen(self, host, port)
+            except BaseException as e:
+                failure.append(e)
+
+        th = threading.Thread(target=serve, daemon=True)
+        th.start()
+        try:
+            while th.is_alive():
+                th.join(0.2)
+        except KeyboardInterrupt:
+            self.stop()
+            th.join()
+        if failure:
+            raise failure[0]

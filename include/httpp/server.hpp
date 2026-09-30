@@ -50,8 +50,10 @@ public:
     HTTPP_API void serve_directory(const std::string& mount_path, const std::string& local_dir);
 
     HTTPP_API int bind_to_any_port(const std::string& host);
-    HTTPP_API void listen_after_bind();
-    HTTPP_API void listen(const std::string& host, int port);
+    // Block until stop(). Return false if the socket could not be bound/listened on
+    // (e.g. port already in use), true after a normal stop().
+    HTTPP_API bool listen_after_bind();
+    HTTPP_API bool listen(const std::string& host, int port);
     HTTPP_API void stop();
 
 private:

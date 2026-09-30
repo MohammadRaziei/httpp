@@ -58,7 +58,8 @@ def hello(name):
 def create_item(request):            # ask for `request` by name
     return {"got": request.json()}, 201     # dict -> JSON; (body, status[, headers])
 
-app.listen("0.0.0.0", 8000)          # register routes before listening
+app.listen("0.0.0.0", 8000)          # blocks; Ctrl+C stops it; raises OSError if the port is taken
+                                     # (no uvicorn needed — the server is built in: `python app.py`)
 
 # download a file, with a tqdm-like progress bar
 DownloadFile("http://example.com/big.zip").output("big.zip").run()

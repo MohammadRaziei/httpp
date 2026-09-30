@@ -48,8 +48,8 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         void route(string method, string path, cpp_handler h) except +
         void serve_directory(string mount_path, string local_dir) except +
         int bind_to_any_port(string host) except +
-        void listen_after_bind() except + nogil
-        void listen(string host, int port) except + nogil
+        cbool listen_after_bind() except + nogil
+        cbool listen(string host, int port) except + nogil
         void stop() except +
 
 
@@ -238,13 +238,19 @@ cdef class Server:
         return self._srv.bind_to_any_port(host.encode("utf-8"))
 
     def listen_after_bind(self):
+        cdef cbool ok
         with nogil:
-            self._srv.listen_after_bind()
+            ok = self._srv.listen_after_bind()
+        if not ok:
+            raise OSError("httpp: server failed to listen")
 
     def listen(self, str host, int port):
         cdef string h = host.encode("utf-8")
+        cdef cbool ok
         with nogil:
-            self._srv.listen(h, port)
+            ok = self._srv.listen(h, port)
+        if not ok:
+            raise OSError(f"httpp: could not listen on {host}:{port} (port in use, or no permission?)")
 
     def stop(self):
         self._srv.stop()
