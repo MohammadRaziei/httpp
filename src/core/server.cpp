@@ -21,7 +21,19 @@ struct server::impl {
     httplib::Server svr;
 };
 
-server::server() : impl_(std::make_unique<impl>()) {}
+server::server() : impl_(std::make_unique<impl>()) {
+    // httplib's default is SO_REUSEPORT, which lets a second server bind a port
+    // that is already being served, silently splitting the traffic. SO_REUSEADDR
+    // alone keeps fast restarts (TIME_WAIT) but makes the second bind fail.
+    // Windows: SO_REUSEADDR would allow exactly that hijack, so set nothing there.
+    impl_->svr.set_socket_options([](socket_t sock) {
+#ifndef _WIN32
+        httplib::set_socket_opt(sock, SOL_SOCKET, SO_REUSEADDR, 1);
+#else
+        (void)sock;
+#endif
+    });
+}
 server::~server() = default;
 server::server(server&&) noexcept = default;
 server& server::operator=(server&&) noexcept = default;

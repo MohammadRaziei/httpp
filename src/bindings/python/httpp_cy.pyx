@@ -25,10 +25,10 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
 
     cdef cppclass cpp_client "httpp::client":
         cpp_client(string host, int port) except +
-        response get(string path) except +
+        response get(string path) except + nogil
 
         @staticmethod
-        response fetch(string full_url) except +
+        response fetch(string full_url) except + nogil
 
 
 cdef extern from "httpp/server.hpp" namespace "httpp":
@@ -151,14 +151,20 @@ cdef class Client:
             del self._cli
 
     def get(self, str path):
-        cdef response res = self._cli.get(path.encode("utf-8"))
+        cdef string p = path.encode("utf-8")
+        cdef response res
+        with nogil:  # else a Python-route server in this process can't get the GIL: deadlock
+            res = self._cli.get(p)
         return _make_response(res)
 
     @staticmethod
     def fetch(str full_url):
         """Parse `full_url` and GET it in one call — no manual URL parsing
         needed on the Python side either (see httpp::client::fetch)."""
-        cdef response res = cpp_client.fetch(full_url.encode("utf-8"))
+        cdef string u = full_url.encode("utf-8")
+        cdef response res
+        with nogil:
+            res = cpp_client.fetch(u)
         return _make_response(res)
 
 

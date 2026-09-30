@@ -68,6 +68,8 @@ DownloadFile("http://example.com/big.zip").output("big.zip").run()
 res = Request("http://example.com/api").method("POST").data("a=1").run()
 ```
 
+More runnable, standalone examples (one feature each) are in [`examples/python/`](examples/python).
+
 ### CLI
 
 ```bash

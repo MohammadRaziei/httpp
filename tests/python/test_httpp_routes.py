@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from httpp import Request, Server
+from httpp import Client, Request, Server
 
 
 @contextmanager
@@ -198,3 +198,36 @@ def test_keyboard_interrupt_stops_listen():
     finally:
         watchdog.cancel()
     assert time.time() - started < 3
+
+
+def test_client_can_call_a_python_route_in_the_same_process():
+    """Regression: Client.get used to hold the GIL, so the handler could never run."""
+    app = Server()
+
+    @app.get("/hi")
+    def hi():
+        return "hi"
+
+    port = app.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=app.listen_after_bind)
+    th.start()
+    try:
+        assert Client("127.0.0.1", port).get("/hi").body == "hi"
+        assert Client.fetch(f"http://127.0.0.1:{port}/hi").body == "hi"
+    finally:
+        app.stop()
+        th.join()
+
+
+def test_second_server_on_a_served_port_fails_instead_of_sharing_it():
+    """cpp-httplib's default SO_REUSEPORT let this succeed silently."""
+    first = Server()
+    port = first.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=first.listen_after_bind)
+    th.start()
+    try:
+        with pytest.raises(OSError):
+            Server().listen("127.0.0.1", port)
+    finally:
+        first.stop()
+        th.join()
