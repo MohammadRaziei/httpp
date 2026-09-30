@@ -46,7 +46,12 @@ public:
     // A handler may set a "Content-Type" entry in response::headers
     // (default: text/plain).
     HTTPP_API void route(const std::string& method, const std::string& path, handler h);
+    // Shorthands for route("<METHOD>", ...). `del` because `delete` is a keyword.
     HTTPP_API void get(const std::string& path, handler h);
+    HTTPP_API void post(const std::string& path, handler h);
+    HTTPP_API void put(const std::string& path, handler h);
+    HTTPP_API void patch(const std::string& path, handler h);
+    HTTPP_API void del(const std::string& path, handler h);
     HTTPP_API void serve_directory(const std::string& mount_path, const std::string& local_dir);
 
     HTTPP_API int bind_to_any_port(const std::string& host);

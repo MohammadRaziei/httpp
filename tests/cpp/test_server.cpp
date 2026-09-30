@@ -109,3 +109,21 @@ UTEST(httpp_server, route_rejects_unknown_methods) {
     }
     ASSERT_TRUE(threw);
 }
+
+UTEST(httpp_server, method_shorthands_register_the_matching_method) {
+    httpp::server s;
+    auto echo_method = [](const httpp::request& req, httpp::response& res) { res.body = req.method; };
+    s.get("/m", echo_method);
+    s.post("/m", echo_method);
+    s.put("/m", echo_method);
+    s.patch("/m", echo_method);
+    s.del("/m", echo_method);
+
+    running_server rs(std::move(s));
+    const std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/m";
+    for (const char* method : {"GET", "POST", "PUT", "PATCH", "DELETE"}) {
+        auto res = httpp::client::request(url).method(method).run();
+        ASSERT_EQ(200, res.status);
+        ASSERT_STREQ(method, res.body.c_str());
+    }
+}

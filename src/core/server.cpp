@@ -89,9 +89,11 @@ void server::route(const std::string& method, const std::string& path, handler h
     else throw std::invalid_argument("httpp::server::route: unsupported method '" + method + "'");
 }
 
-void server::get(const std::string& path, handler h) {
-    route("GET", path, std::move(h));
-}
+void server::get(const std::string& path, handler h) { route("GET", path, std::move(h)); }
+void server::post(const std::string& path, handler h) { route("POST", path, std::move(h)); }
+void server::put(const std::string& path, handler h) { route("PUT", path, std::move(h)); }
+void server::patch(const std::string& path, handler h) { route("PATCH", path, std::move(h)); }
+void server::del(const std::string& path, handler h) { route("DELETE", path, std::move(h)); }
 
 void server::serve_directory(const std::string& mount_path, const std::string& local_dir) {
     impl_->svr.set_mount_point(mount_path, local_dir);

@@ -9,7 +9,8 @@
 
 namespace httpp::progress {
 
-// tqdm-like: a terminal progress bar with a known total.
+// tqdm-like: a terminal progress bar with a known total. Drawn on stderr (not
+// stdout), so piping/redirecting a program's output stays clean.
 // Backed by the vendored `indicators` library (src/third_party/indicators),
 // but that dependency is hidden behind this pointer (see
 // src/core/progressbar.cpp) and never appears in this public header.

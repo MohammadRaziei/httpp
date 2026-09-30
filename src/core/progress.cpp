@@ -6,6 +6,8 @@
 // and don't need it on their include path.
 #include <indicators/indicators.hpp>
 
+#include <iostream>
+
 namespace httpp::progress {
 
 struct bar::impl {
@@ -16,7 +18,10 @@ struct bar::impl {
 
     impl(std::size_t total_, std::string description)
         : total(total_),
-          indicator(indicators::option::BarWidth{40},
+          // stderr, like tqdm/curl/pip: progress is diagnostics, so it must not
+          // pollute stdout when a script's output is piped or redirected.
+          indicator(indicators::option::Stream{std::cerr},
+                    indicators::option::BarWidth{40},
                     indicators::option::Start{"["},
                     indicators::option::End{"]"},
                     indicators::option::PrefixText{std::move(description)},
