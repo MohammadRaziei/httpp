@@ -13,6 +13,8 @@ from libcpp cimport bool as cbool
 from libcpp.vector cimport vector
 from libcpp.pair cimport pair
 
+import traceback
+
 
 cdef extern from "httpp/client.hpp" namespace "httpp":
     cdef cppclass response:
@@ -30,13 +32,39 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
 
 
 cdef extern from "httpp/server.hpp" namespace "httpp":
+    cdef cppclass cpp_request "httpp::request":
+        string method
+        string path
+        string body
+        vector[pair[string, string]] headers
+        vector[pair[string, string]] query
+        vector[pair[string, string]] path_params
+
+    cdef cppclass cpp_handler "httpp::handler":
+        pass
+
     cdef cppclass cpp_server "httpp::server":
         cpp_server() except +
+        void route(string method, string path, cpp_handler h) except +
         void serve_directory(string mount_path, string local_dir) except +
         int bind_to_any_port(string host) except +
         void listen_after_bind() except + nogil
         void listen(string host, int port) except + nogil
         void stop() except +
+
+
+# Bridge from a plain C function pointer (+ context) to httpp::handler, which
+# is a std::function Cython can't build itself.
+cdef extern from *:
+    """
+    #include "httpp/server.hpp"
+    typedef void (*httpp_py_trampoline)(void*, const httpp::request&, httpp::response&);
+    static httpp::handler httpp_py_make_handler(httpp_py_trampoline fn, void* ctx) {
+        return [fn, ctx](const httpp::request& q, httpp::response& r) { fn(ctx, q, r); };
+    }
+    """
+    ctypedef void (*trampoline_fn "httpp_py_trampoline")(void*, const cpp_request&, response&) noexcept nogil
+    cpp_handler make_handler "httpp_py_make_handler"(trampoline_fn fn, void* ctx)
 
 
 cdef extern from "httpp/download.hpp" namespace "httpp":
@@ -134,14 +162,59 @@ cdef class Client:
         return _make_response(res)
 
 
+cdef list _pairs(const vector[pair[string, string]]& v):
+    cdef list out = []
+    cdef size_t i
+    for i in range(v.size()):
+        out.append((v[i].first.decode("utf-8", errors="replace"),
+                    v[i].second.decode("utf-8", errors="replace")))
+    return out
+
+
+cdef void _run_handler(object fn, const cpp_request& req, response& res) except *:
+    # fn(method, path, body, headers, query, path_params) -> (status, body, headers)
+    # (httpp/server.py wraps the user's function into exactly this shape.)
+    cdef bytes body_in = req.body
+    cdef string k, v
+    status, body, headers = fn(
+        req.method.decode("utf-8", errors="replace"),
+        req.path.decode("utf-8", errors="replace"),
+        body_in,
+        _pairs(req.headers), _pairs(req.query), _pairs(req.path_params),
+    )
+    res.status = status
+    res.body = <bytes>body
+    for name, value in headers:
+        k = (<str>name).encode("utf-8")
+        v = (<str>value).encode("utf-8")
+        res.headers.push_back(pair[string, string](k, v))
+
+
+cdef void _dispatch(void* ctx, const cpp_request& req, response& res) noexcept nogil:
+    # Called from a cpp-httplib worker thread that Python knows nothing about,
+    # hence the explicit GIL acquire.
+    with gil:
+        try:
+            _run_handler(<object>ctx, req, res)
+        except BaseException:
+            # The traceback goes to stderr for the developer; the client only
+            # ever sees a generic 500 (no internals leaked).
+            traceback.print_exc()
+            res.status = 500
+            res.body = b"Internal Server Error"
+            res.headers.clear()
+
+
 cdef class Server:
     """Minimal HTTP server. Replaces spinning up cpp-httplib/libcurl
     yourself — this is also what `httpp server` (the CLI, similar to
     Python's own `python -m http.server`) is built on."""
     cdef cpp_server* _srv
+    cdef list _handlers  # keeps route callables alive; C++ only holds a borrowed pointer
 
     def __init__(self):
         self._srv = new cpp_server()
+        self._handlers = []
 
     def __dealloc__(self):
         if self._srv is not NULL:
@@ -150,6 +223,16 @@ cdef class Server:
     def serve_directory(self, str mount_path, str local_dir):
         """Serve `local_dir` under `mount_path`, like `python -m http.server`."""
         self._srv.serve_directory(mount_path.encode("utf-8"), local_dir.encode("utf-8"))
+
+    def add_route(self, str method, str path, handler):
+        """Low-level: register `handler` for `method` + `path` ("/users/:id").
+        Use the decorators on httpp.Server (see httpp/server.py) instead.
+        Must be called before listen()."""
+        if not callable(handler):
+            raise TypeError("handler must be callable")
+        self._handlers.append(handler)
+        self._srv.route(method.encode("utf-8"), path.encode("utf-8"),
+                        make_handler(_dispatch, <void*>handler))
 
     def bind_to_any_port(self, str host):
         return self._srv.bind_to_any_port(host.encode("utf-8"))

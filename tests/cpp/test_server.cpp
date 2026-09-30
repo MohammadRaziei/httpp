@@ -3,8 +3,9 @@
 #include "httpp/server.hpp"
 #include "httpp/client.hpp"
 
-#include <thread>
 #include <chrono>
+#include <stdexcept>
+#include <thread>
 
 namespace {
 // small helper: run server on a background thread, stop it after the test
@@ -71,4 +72,40 @@ UTEST(httpp_server, listens_on_a_fixed_requested_port) {
     ASSERT_EQ(404, res.status); // no route registered, but the port answers
     s.stop();
     th.join();
+}
+
+UTEST(httpp_server, route_exposes_path_params_query_headers_and_sets_response_headers) {
+    httpp::server s;
+    s.route("POST", "/users/:id", [](const httpp::request& req, httpp::response& res) {
+        auto find = [](const auto& kv, const std::string& k) {
+            for (const auto& [name, value] : kv) if (name == k) return value;
+            return std::string("?");
+        };
+        res.status = 201;
+        res.body = req.method + " " + find(req.path_params, "id") + " " + find(req.query, "a") + " " + req.body;
+        res.headers.emplace_back("Content-Type", "application/json");
+        res.headers.emplace_back("X-Made", "yes");
+    });
+
+    running_server rs(std::move(s));
+    auto res = httpp::client::request("http://127.0.0.1:" + std::to_string(rs.port) + "/users/42?a=1")
+                   .method("POST")
+                   .data("hi")
+                   .run();
+
+    ASSERT_EQ(201, res.status);
+    ASSERT_STREQ("POST 42 1 hi", res.body.c_str());
+    ASSERT_STREQ("application/json", res.header("Content-Type").c_str());
+    ASSERT_STREQ("yes", res.header("X-Made").c_str());
+}
+
+UTEST(httpp_server, route_rejects_unknown_methods) {
+    httpp::server s;
+    bool threw = false;
+    try {
+        s.route("BREW", "/x", [](const httpp::request&, httpp::response&) {});
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    ASSERT_TRUE(threw);
 }

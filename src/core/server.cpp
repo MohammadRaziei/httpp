@@ -10,6 +10,11 @@
 #endif
 #include <httplib.h>
 
+#include <algorithm>
+#include <cctype>
+#include <cstring>
+#include <stdexcept>
+
 namespace httpp {
 
 struct server::impl {
@@ -21,20 +26,59 @@ server::~server() = default;
 server::server(server&&) noexcept = default;
 server& server::operator=(server&&) noexcept = default;
 
-void server::get(const std::string& path, handler h) {
-    impl_->svr.Get(path, [h](const httplib::Request& hreq, httplib::Response& hres) {
+namespace {
+
+template <class Map>
+std::vector<std::pair<std::string, std::string>> to_pairs(const Map& m) {
+    return {m.begin(), m.end()};
+}
+
+bool ci_equal(const std::string& a, const char* b) {
+    return a.size() == std::strlen(b) &&
+           std::equal(a.begin(), a.end(), b, [](unsigned char x, unsigned char y) {
+               return std::tolower(x) == std::tolower(y);
+           });
+}
+
+} // namespace
+
+void server::route(const std::string& method, const std::string& path, handler h) {
+    auto fn = [h](const httplib::Request& hreq, httplib::Response& hres) {
         request req;
         req.method = hreq.method;
         req.path = hreq.path;
         req.body = hreq.body;
+        req.headers = to_pairs(hreq.headers);
+        req.query = to_pairs(hreq.params);
+        req.path_params = to_pairs(hreq.path_params);
 
         response res;
         res.status = 200;
         h(req, res);
 
         hres.status = res.status;
-        hres.set_content(res.body, "text/plain");
-    });
+        std::string content_type = "text/plain";
+        for (const auto& [name, value] : res.headers) {
+            if (ci_equal(name, "Content-Type")) content_type = value;
+            else hres.set_header(name, value);
+        }
+        hres.set_content(res.body, content_type);
+    };
+
+    std::string m = method;
+    std::transform(m.begin(), m.end(), m.begin(), [](unsigned char c) { return std::toupper(c); });
+    auto& svr = impl_->svr;
+    if (m == "GET") svr.Get(path, fn);
+    else if (m == "POST") svr.Post(path, fn);
+    else if (m == "PUT") svr.Put(path, fn);
+    else if (m == "PATCH") svr.Patch(path, fn);
+    else if (m == "DELETE") svr.Delete(path, fn);
+    else if (m == "OPTIONS") svr.Options(path, fn);
+    else throw std::invalid_argument("httpp::server::route: unsupported method '" + method + "'");
+}
+
+void server::get(const std::string& path, handler h) {
+    route("GET", path, std::move(h));
 }
 
 void server::serve_directory(const std::string& mount_path, const std::string& local_dir) {

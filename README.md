@@ -47,6 +47,19 @@ srv = Server()
 srv.serve_directory("/", "./public")
 srv.listen("0.0.0.0", 8000)
 
+# routes — Flask/FastAPI-style decorators
+app = Server()
+
+@app.get("/hello/{name}")            # "/hello/<name>" works too
+def hello(name):
+    return f"hello {name}"
+
+@app.post("/items")
+def create_item(request):            # ask for `request` by name
+    return {"got": request.json()}, 201     # dict -> JSON; (body, status[, headers])
+
+app.listen("0.0.0.0", 8000)          # register routes before listening
+
 # download a file, with a tqdm-like progress bar
 DownloadFile("http://example.com/big.zip").output("big.zip").run()
 
@@ -153,8 +166,9 @@ ctest --test-dir build --output-on-failure   # C++, Python, and CMake-integratio
 - [x] CLI — `server`, `download`, `curl`, `install`/`uninstall`, `path`
       (`httpp --cmake-dir` / `httpp path --include-dir`, etc.)
 - [x] Python bindings for `Client`, `Server`, `DownloadFile`, `Request`
-- [ ] Route handlers from Python (directory serving works today; custom
-      routes are C++-only for now)
+- [x] Route handlers from Python — `@app.get/post/put/patch/delete/route`
+      decorators with path params, query, headers and JSON responses
+      (sync and `async def` handlers; `int`/`float` path-param annotations)
 
 ## License
 

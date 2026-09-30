@@ -6,6 +6,8 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace httpp {
 
@@ -14,6 +16,10 @@ struct request {
     std::string method;
     std::string path;
     std::string body;
+    // Repeated names are kept (in wire order), like response::headers.
+    std::vector<std::pair<std::string, std::string>> headers;
+    std::vector<std::pair<std::string, std::string>> query;        // ?a=1&b=2
+    std::vector<std::pair<std::string, std::string>> path_params;  // "/users/:id"
 };
 
 using handler = std::function<void(const request&, response&)>;
@@ -34,6 +40,12 @@ public:
     server(const server&) = delete;
     server& operator=(const server&) = delete;
 
+    // `path` may contain ":name" segments ("/users/:id"), captured into
+    // request::path_params. `method` is GET/POST/PUT/PATCH/DELETE/OPTIONS
+    // (case-insensitive); anything else throws std::invalid_argument.
+    // A handler may set a "Content-Type" entry in response::headers
+    // (default: text/plain).
+    HTTPP_API void route(const std::string& method, const std::string& path, handler h);
     HTTPP_API void get(const std::string& path, handler h);
     HTTPP_API void serve_directory(const std::string& mount_path, const std::string& local_dir);
 
