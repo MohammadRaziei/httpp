@@ -1,7 +1,6 @@
 """Tests for decorator-style routes on httpp.Server."""
 
 import json
-import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -177,27 +176,25 @@ def test_listen_on_a_taken_port_raises():
         blocker.close()
 
 
-# ponytail: Windows can't deliver SIGINT to a child via Popen.send_signal (only
-# CTRL_C_EVENT/CTRL_BREAK_EVENT via a console/process group), so this is POSIX-only.
-@pytest.mark.skipif(sys.platform == "win32", reason="Popen.send_signal(SIGINT) unsupported on Windows")
-def test_ctrl_c_stops_listen():
-    import os
-    import signal
-    import subprocess
-    import sys
-    import textwrap
+def test_keyboard_interrupt_stops_listen():
+    """Simulates Ctrl+C with interrupt_main (portable; real SIGINT can't be sent
+    to a child on Windows). If listen() ever blocks the main thread outside
+    Python again, the interrupt is never seen and the watchdog trips the timing
+    assert instead of the test hanging."""
+    import _thread
+    import socket
 
-    code = textwrap.dedent("""
-        from httpp import Server
-        app = Server()
-        print("up", flush=True)
-        app.listen("127.0.0.1", 0)  # port 0: any free port
-        print("clean exit", flush=True)
-    """)
-    p = subprocess.Popen([sys.executable, "-u", "-c", code], stdout=subprocess.PIPE, text=True,
-                         env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)})
-    assert p.stdout.readline().strip() == "up"
-    time.sleep(0.3)
-    p.send_signal(signal.SIGINT)
-    assert p.wait(timeout=5) == 0
-    assert "clean exit" in p.stdout.read()
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+
+    app = Server()
+    threading.Timer(0.3, _thread.interrupt_main).start()
+    watchdog = threading.Timer(5, app.stop)
+    watchdog.start()
+    started = time.time()
+    try:
+        app.listen("127.0.0.1", port)  # must swallow KeyboardInterrupt and return
+    finally:
+        watchdog.cancel()
+    assert time.time() - started < 3
