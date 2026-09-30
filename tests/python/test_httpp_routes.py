@@ -1,6 +1,7 @@
 """Tests for decorator-style routes on httpp.Server."""
 
 import json
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -176,6 +177,9 @@ def test_listen_on_a_taken_port_raises():
         blocker.close()
 
 
+# ponytail: Windows can't deliver SIGINT to a child via Popen.send_signal (only
+# CTRL_C_EVENT/CTRL_BREAK_EVENT via a console/process group), so this is POSIX-only.
+@pytest.mark.skipif(sys.platform == "win32", reason="Popen.send_signal(SIGINT) unsupported on Windows")
 def test_ctrl_c_stops_listen():
     import os
     import signal
