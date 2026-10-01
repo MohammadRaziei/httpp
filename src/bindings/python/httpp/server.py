@@ -16,7 +16,10 @@
 
 A handler may take `request` and/or any of the path parameters by name.
 Annotate a path parameter as int/float and it is converted (a bad value
-answers 422). Handlers may be `async def`. It may return:  str | bytes | dict | list | None,
+answers 422). Handlers may be `async def`: those run on one shared asyncio
+event loop and release their worker thread while they await, so thousands can
+be in flight at once. Plain `def` handlers run on the server's thread pool.
+A handler may return:  str | bytes | dict | list | None,
 optionally as (body, status) or (body, status, headers_dict).
 Raise nothing special for errors: return ("not found", 404). An uncaught
 exception becomes a plain 500 and the traceback goes to stderr.
@@ -29,6 +32,7 @@ import inspect
 import json
 import re
 import threading
+import traceback
 
 from .httpp_cy import Server as _Server
 
@@ -107,14 +111,16 @@ def _to_response(rv):
     return status, body, list(headers.items())
 
 
-def _adapt(fn):
-    """Wrap a user function into the flat signature the compiled core calls."""
-    is_async = inspect.iscoroutinefunction(fn)
+def _prepare(fn):
+    """Build the kwargs for `fn` from a raw request: path params (converted per
+    annotation) plus `request` if asked for. Returns (kwargs, early_response);
+    early_response is a ready (status, body, headers) when the request can't
+    reach the handler (bad path parameter)."""
     params = inspect.signature(fn).parameters
     takes_all = any(p.kind is p.VAR_KEYWORD for p in params.values())
     convert = {n: p.annotation for n, p in params.items() if p.annotation in (int, float)}
 
-    def call(method, path, body, headers, query, path_params):
+    def prepare(method, path, body, headers, query, path_params):
         req = ServerRequest(method, path, body, headers, query, path_params)
         kwargs = {k: v for k, v in req.path_params.items() if takes_all or k in params}
         try:
@@ -122,17 +128,69 @@ def _adapt(fn):
                 if k in kwargs:
                     kwargs[k] = typ(kwargs[k])
         except ValueError:
-            return _to_response(({"error": f"path parameter {k!r} must be {typ.__name__}"}, 422))
+            return None, _to_response(({"error": f"path parameter {k!r} must be {typ.__name__}"}, 422))
         if "request" in params:
             kwargs["request"] = req
-        rv = fn(**kwargs)
-        if is_async:
-            # ponytail: a fresh event loop per request (worker threads have none).
-            # Upgrade path: one long-lived loop thread + run_coroutine_threadsafe.
-            rv = asyncio.run(rv)
-        return _to_response(rv)
+        return kwargs, None
+
+    return prepare
+
+
+def _adapt(fn):
+    """Sync handler -> the flat blocking signature the compiled core calls."""
+    prepare = _prepare(fn)
+
+    def call(*raw):
+        kwargs, early = prepare(*raw)
+        return early if early is not None else _to_response(fn(**kwargs))
 
     return call
+
+
+_loop = None
+_loop_lock = threading.Lock()
+
+
+def _get_loop():
+    """The one event loop all async handlers run on (started on first use)."""
+    global _loop
+    with _loop_lock:
+        if _loop is None:
+            loop = asyncio.new_event_loop()
+
+            def run():
+                asyncio.set_event_loop(loop)
+                loop.run_forever()
+
+            threading.Thread(target=run, name="httpp-asyncio", daemon=True).start()
+            _loop = loop
+        return _loop
+
+
+def _adapt_async(fn):
+    """Async handler -> a dispatcher for the compiled core's non-blocking
+    routes: it returns at once and the response is sent through `done` later."""
+    prepare = _prepare(fn)
+
+    async def call(*raw):
+        kwargs, early = prepare(*raw)
+        return early if early is not None else _to_response(await fn(**kwargs))
+
+    def dispatch(method, path, body, headers, query, path_params, done):
+        loop = _get_loop()
+
+        async def run():
+            try:
+                status, rbody, rheaders = await call(method, path, body, headers, query, path_params)
+            except BaseException:
+                traceback.print_exc()
+                status, rbody, rheaders = 500, b"Internal Server Error", []
+            # Writing can block on a slow client; keep that off the event loop.
+            await loop.run_in_executor(None, done, status, rbody, rheaders)
+
+        asyncio.run_coroutine_threadsafe(run(), loop)
+
+    return dispatch
 
 
 class Server(_Server):
@@ -143,9 +201,12 @@ class Server(_Server):
         pattern = _to_pattern(path)
 
         def register(fn):
-            adapted = _adapt(fn)
+            if inspect.iscoroutinefunction(fn):
+                adapted, add = _adapt_async(fn), self.add_async_route
+            else:
+                adapted, add = _adapt(fn), self.add_route
             for m in methods:
-                self.add_route(m, pattern, adapted)
+                add(m, pattern, adapted)
             return fn  # unchanged, so it stays directly callable / testable
 
         return register

@@ -43,9 +43,18 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
     cdef cppclass cpp_handler "httpp::handler":
         pass
 
+    cdef cppclass cpp_responder "httpp::responder":
+        cpp_responder()
+        cpp_responder(const cpp_responder&)
+        void send(response res) except + nogil
+
+    cdef cppclass cpp_async_handler "httpp::async_handler":
+        pass
+
     cdef cppclass cpp_server "httpp::server":
         cpp_server() except +
         void route(string method, string path, cpp_handler h) except +
+        void route_async(string method, string path, cpp_async_handler h) except +
         void serve_directory(string mount_path, string local_dir) except +
         int bind_to_any_port(string host) except +
         cbool listen_after_bind() except + nogil
@@ -62,9 +71,15 @@ cdef extern from *:
     static httpp::handler httpp_py_make_handler(httpp_py_trampoline fn, void* ctx) {
         return [fn, ctx](const httpp::request& q, httpp::response& r) { fn(ctx, q, r); };
     }
+    typedef void (*httpp_py_async_trampoline)(void*, const httpp::request&, const httpp::responder&);
+    static httpp::async_handler httpp_py_make_async_handler(httpp_py_async_trampoline fn, void* ctx) {
+        return [fn, ctx](const httpp::request& q, httpp::responder r) { fn(ctx, q, r); };
+    }
     """
     ctypedef void (*trampoline_fn "httpp_py_trampoline")(void*, const cpp_request&, response&) noexcept nogil
     cpp_handler make_handler "httpp_py_make_handler"(trampoline_fn fn, void* ctx)
+    ctypedef void (*async_trampoline_fn "httpp_py_async_trampoline")(void*, const cpp_request&, const cpp_responder&) noexcept nogil
+    cpp_async_handler make_async_handler "httpp_py_make_async_handler"(async_trampoline_fn fn, void* ctx)
 
 
 cdef extern from "httpp/download.hpp" namespace "httpp":
@@ -177,23 +192,31 @@ cdef list _pairs(const vector[pair[string, string]]& v):
     return out
 
 
-cdef void _run_handler(object fn, const cpp_request& req, response& res) except *:
-    # fn(method, path, body, headers, query, path_params) -> (status, body, headers)
-    # (httpp/server.py wraps the user's function into exactly this shape.)
+cdef tuple _request_args(const cpp_request& req):
+    # (method, path, body, headers, query, path_params): the shape httpp/server.py expects.
     cdef bytes body_in = req.body
-    cdef string k, v
-    status, body, headers = fn(
+    return (
         req.method.decode("utf-8", errors="replace"),
         req.path.decode("utf-8", errors="replace"),
         body_in,
         _pairs(req.headers), _pairs(req.query), _pairs(req.path_params),
     )
+
+
+cdef void _fill_response(response& res, int status, bytes body, list headers) except *:
+    cdef string k, v
     res.status = status
-    res.body = <bytes>body
+    res.body = body
     for name, value in headers:
         k = (<str>name).encode("utf-8")
         v = (<str>value).encode("utf-8")
         res.headers.push_back(pair[string, string](k, v))
+
+
+cdef void _run_handler(object fn, const cpp_request& req, response& res) except *:
+    # fn(*request_args) -> (status, body, headers)
+    status, body, headers = fn(*_request_args(req))
+    _fill_response(res, status, <bytes>body, <list>headers)
 
 
 cdef void _dispatch(void* ctx, const cpp_request& req, response& res) noexcept nogil:
@@ -209,6 +232,43 @@ cdef void _dispatch(void* ctx, const cpp_request& req, response& res) noexcept n
             res.status = 500
             res.body = b"Internal Server Error"
             res.headers.clear()
+
+
+cdef class _Done:
+    """One-shot handle for an async route: calling it sends the response and
+    closes the connection. Safe to call from any thread; extra calls are ignored.
+    If it is dropped without being called, the connection is closed unanswered."""
+    cdef cpp_responder* _r
+
+    def __cinit__(self):
+        self._r = NULL
+
+    def __dealloc__(self):
+        if self._r != NULL:
+            del self._r
+            self._r = NULL
+
+    def __call__(self, int status, bytes body, list headers):
+        cdef response res
+        _fill_response(res, status, body, headers)
+        with nogil:
+            self._r.send(res)
+
+
+cdef void _dispatch_async(void* ctx, const cpp_request& req, const cpp_responder& r) noexcept nogil:
+    # Runs on a cpp-httplib worker thread, which is released as soon as this
+    # returns; the response is sent later through `done`.
+    with gil:
+        done = _Done.__new__(_Done)
+        (<_Done>done)._r = new cpp_responder(r)
+        try:
+            (<object>ctx)(*_request_args(req), done)
+        except BaseException:
+            traceback.print_exc()
+            try:
+                done(500, b"Internal Server Error", [])
+            except BaseException:
+                pass
 
 
 cdef class Server:
@@ -239,6 +299,17 @@ cdef class Server:
         self._handlers.append(handler)
         self._srv.route(method.encode("utf-8"), path.encode("utf-8"),
                         make_handler(_dispatch, <void*>handler))
+
+    def add_async_route(self, str method, str path, dispatch):
+        """Low-level, like add_route, but non-blocking: `dispatch(method, path,
+        body, headers, query, path_params, done)` must return quickly and
+        arrange for `done(status, body, headers)` to be called later, from any
+        thread. The worker thread is free in the meantime."""
+        if not callable(dispatch):
+            raise TypeError("dispatch must be callable")
+        self._handlers.append(dispatch)
+        self._srv.route_async(method.encode("utf-8"), path.encode("utf-8"),
+                              make_async_handler(_dispatch_async, <void*>dispatch))
 
     def bind_to_any_port(self, str host):
         return self._srv.bind_to_any_port(host.encode("utf-8"))

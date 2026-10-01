@@ -24,6 +24,30 @@ struct request {
 
 using handler = std::function<void(const request&, response&)>;
 
+// Asynchronous ("deferred") responses. An async handler gets a `responder`
+// instead of a response to fill in. It may return immediately: the worker
+// thread is released at once, the connection stays open, and the response is
+// sent whenever `responder::send` is called, from any thread. This is what lets
+// an event loop answer many requests at once without one blocked thread each.
+//
+//  - send() is thread-safe; only the first call has any effect, and it may
+//    happen before the handler has returned.
+//  - The connection is closed after an async response (no keep-alive).
+//  - If the server is destroyed first, pending connections are closed and a
+//    later send() does nothing. Dropping every copy of a responder without
+//    calling send() closes the connection without a response.
+class responder {
+public:
+    HTTPP_API void send(response res) const;
+
+private:
+    friend class server;
+    struct impl;
+    std::shared_ptr<impl> impl_;
+};
+
+using async_handler = std::function<void(const request&, responder)>;
+
 // httpp::server is what replaces "spin up libcurl/httplib yourself" for the
 // server side: register routes or serve a directory (the httpp CLI's
 // `httpp server` command, analogous to `python -m http.server`, is a thin
@@ -52,6 +76,9 @@ public:
     HTTPP_API void put(const std::string& path, handler h);
     HTTPP_API void patch(const std::string& path, handler h);
     HTTPP_API void del(const std::string& path, handler h);
+    // Same as route(), but the handler answers through a `responder` (see above).
+    // An exception thrown by the handler is answered with a plain 500.
+    HTTPP_API void route_async(const std::string& method, const std::string& path, async_handler h);
     HTTPP_API void serve_directory(const std::string& mount_path, const std::string& local_dir);
 
     HTTPP_API int bind_to_any_port(const std::string& host);

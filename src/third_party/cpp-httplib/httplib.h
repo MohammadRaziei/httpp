@@ -1378,6 +1378,8 @@ private:
 };
 
 struct Response;
+class Server;              // httpp patch
+class DetachedResponse;  // httpp patch
 using ResponseHandler = std::function<bool(const Response &response)>;
 
 struct FormData {
@@ -1797,6 +1799,10 @@ struct Response {
                         const std::string &content_type);
   void set_file_content(const std::string &path);
 
+  // httpp patch: see DetachedResponse. Call from a route handler to send this
+  // response later (from any thread) instead of when the handler returns.
+  std::shared_ptr<DetachedResponse> detach();
+
   Response() = default;
   Response(const Response &) = default;
   Response &operator=(const Response &) = default;
@@ -1821,6 +1827,45 @@ struct Response {
   // where the file is opened so that the ETag and the body cannot disagree.
   // `EncodingType::None` for every other kind of response.
   detail::EncodingType file_content_encoding_ = detail::EncodingType::None;
+
+  // httpp patch: set by detach().
+  std::shared_ptr<DetachedResponse> detached_;
+};
+
+// httpp patch: deferred ("detached") responses ------------------------------
+// A route handler may call Response::detach() and then return without filling
+// in the response. The worker thread is released immediately; the connection
+// stays open and the response is written later, from any thread, by
+// DetachedResponse::complete(). This lets an event loop (e.g. Python's asyncio)
+// answer many requests at once without one blocked thread per request.
+//
+// Rules:
+//  - complete() is thread-safe; only its first call has any effect, and it may
+//    even be called before the handler has returned.
+//  - The connection is closed after a detached response (no keep-alive).
+//  - Supported on the plain-HTTP Server only (not SSLServer).
+//  - If the Server is destroyed first, pending connections are closed and a
+//    later complete() does nothing. If the last handle is dropped without
+//    complete(), the connection is closed without a response.
+class DetachedResponse {
+public:
+  DetachedResponse() = default;
+  DetachedResponse(const DetachedResponse &) = delete;
+  DetachedResponse &operator=(const DetachedResponse &) = delete;
+  ~DetachedResponse();
+
+  void complete(Response res);
+
+private:
+  friend class Server;
+
+  std::mutex mutex_;
+  Server *server_ = nullptr; // non-null only while attached to a live Server
+  socket_t sock_ = INVALID_SOCKET;
+  Request req_;
+  bool attached_ = false;
+  bool completed_ = false;
+  std::unique_ptr<Response> pending_; // completed before the handler returned
 };
 
 enum class Error {
@@ -2253,7 +2298,14 @@ protected:
                        int local_port, bool close_connection,
                        bool &connection_closed,
                        const std::function<void(Request &)> &setup_request,
-                       bool *websocket_upgraded = nullptr);
+                       bool *websocket_upgraded = nullptr,
+                       bool *detached_out = nullptr); // httpp patch
+
+  // httpp patch: deferred responses (see DetachedResponse).
+  friend class DetachedResponse;
+  bool attach_detached(Stream &strm, Request &req, Response &res);
+  void write_detached(DetachedResponse &d, Response &res);
+  void abandon_detached();
 
   // Runs the per-connection serving loop and stops an exception thrown by a
   // user callback from escaping the worker thread.
@@ -2285,6 +2337,12 @@ protected:
   }
 
   std::atomic<socket_t> svr_sock_{INVALID_SOCKET};
+
+  // httpp patch: connections whose response is still pending (weak: a handle
+  // that is gone needs no bookkeeping). Pruned lazily, amortized O(1).
+  std::mutex detached_mutex_;
+  std::vector<std::weak_ptr<DetachedResponse>> detached_;
+  size_t detached_prune_at_ = 64;
 
   std::vector<std::string> trusted_proxies_;
 
@@ -12661,7 +12719,98 @@ inline Server::Server()
 #endif
 }
 
-inline Server::~Server() = default;
+inline Server::~Server() { abandon_detached(); } // httpp patch
+
+// httpp patch: deferred responses ------------------------------------------
+inline std::shared_ptr<DetachedResponse> Response::detach() {
+  if (!detached_) { detached_ = std::make_shared<DetachedResponse>(); }
+  return detached_;
+}
+
+inline void DetachedResponse::complete(Response res) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (completed_) { return; }
+  completed_ = true;
+  if (!attached_) {
+    // The handler has not returned yet: process_request() will send this.
+    pending_.reset(new Response(std::move(res)));
+    return;
+  }
+  if (server_ == nullptr) { return; } // server already gone, socket closed
+  server_->write_detached(*this, res);
+}
+
+inline DetachedResponse::~DetachedResponse() {
+  // Attached, never completed, server still alive: nobody will answer, so at
+  // least do not leak the connection.
+  if (attached_ && !completed_ && server_ != nullptr &&
+      sock_ != INVALID_SOCKET) {
+    detail::drain_and_close_socket(sock_);
+  }
+}
+
+// Returns true if the connection was taken over (the response will be sent
+// later). Returns false if complete() already happened: `res` then holds the
+// final response and the caller writes it the normal way.
+inline bool Server::attach_detached(Stream &strm, Request &req, Response &res) {
+  auto d = res.detached_;
+  {
+    std::lock_guard<std::mutex> lock(d->mutex_);
+    if (d->completed_) {
+      res = std::move(*d->pending_);
+      return false;
+    }
+    d->server_ = this;
+    d->sock_ = strm.socket();
+    d->req_ = std::move(req);
+    d->attached_ = true;
+  }
+
+  std::lock_guard<std::mutex> lock(detached_mutex_);
+  if (detached_.size() >= detached_prune_at_) {
+    detached_.erase(std::remove_if(detached_.begin(), detached_.end(),
+                                   [](const std::weak_ptr<DetachedResponse> &w) {
+                                     return w.expired();
+                                   }),
+                    detached_.end());
+    detached_prune_at_ = (std::max)(size_t(64), detached_.size() * 2);
+  }
+  detached_.push_back(d);
+  return true;
+}
+
+// Called with d.mutex_ held.
+inline void Server::write_detached(DetachedResponse &d, Response &res) {
+  if (res.status == -1) { res.status = StatusCode::OK_200; }
+  {
+    detail::SocketStream strm(d.sock_, read_timeout_sec_, read_timeout_usec_,
+                              write_timeout_sec_, write_timeout_usec_);
+    serve_guarded([&]() {
+      return write_response_with_content(strm, true, d.req_, res);
+    });
+  }
+  detail::drain_and_close_socket(d.sock_);
+  d.sock_ = INVALID_SOCKET;
+}
+
+inline void Server::abandon_detached() {
+  std::vector<std::weak_ptr<DetachedResponse>> pending;
+  {
+    std::lock_guard<std::mutex> lock(detached_mutex_);
+    pending.swap(detached_);
+  }
+  for (auto &w : pending) {
+    if (auto d = w.lock()) {
+      std::lock_guard<std::mutex> lock(d->mutex_);
+      if (d->attached_ && !d->completed_ && d->sock_ != INVALID_SOCKET) {
+        detail::drain_and_close_socket(d->sock_);
+        d->sock_ = INVALID_SOCKET;
+      }
+      d->completed_ = true;
+      d->server_ = nullptr;
+    }
+  }
+}
 
 inline std::unique_ptr<detail::MatcherBase>
 Server::make_matcher(const std::string &pattern) {
@@ -14121,7 +14270,7 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
                         int local_port, bool close_connection,
                         bool &connection_closed,
                         const std::function<void(Request &)> &setup_request,
-                        bool *websocket_upgraded) {
+                        bool *websocket_upgraded, bool *detached_out) {
   std::array<char, 2048> buf{};
 
   detail::stream_line_reader line_reader(strm, buf.data(), buf.size());
@@ -14357,6 +14506,7 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
   try {
     routed = routing(req, res, strm);
   } catch (std::exception &) {
+    res.detached_.reset(); // httpp patch
     if (exception_handler_) {
       auto ep = std::current_exception();
       exception_handler_(req, res, ep);
@@ -14365,6 +14515,7 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
       res.status = StatusCode::InternalServerError_500;
     }
   } catch (...) {
+    res.detached_.reset(); // httpp patch
     if (exception_handler_) {
       auto ep = std::current_exception();
       exception_handler_(req, res, ep);
@@ -14374,6 +14525,23 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
     }
   }
 #endif
+
+  // httpp patch: the handler took over the response via Response::detach().
+  if (res.detached_) {
+    if (routed && detached_out) {
+      if (attach_detached(strm, req, res)) {
+        connection_closed = true;
+        *detached_out = true;
+        return true; // worker thread is free; complete() writes the response
+      }
+      // complete() already ran: `res` is final, write it the normal way.
+    } else {
+      // Cannot defer here (e.g. TLS): fail visibly rather than hang.
+      res.detached_.reset();
+      res.status = StatusCode::InternalServerError_500;
+    }
+  }
+
   auto ret = false;
   if (routed) {
     if (res.status == -1) {
@@ -14455,6 +14623,7 @@ inline bool Server::process_and_close_socket(socket_t sock) {
   detail::get_local_ip_and_port(sock, local_addr, local_port);
 
   bool websocket_upgraded = false;
+  bool detached = false; // httpp patch
   auto ret = serve_guarded([&]() {
     return detail::process_server_socket(
         svr_sock_, sock, keep_alive_max_count_, keep_alive_timeout_sec_,
@@ -14464,11 +14633,12 @@ inline bool Server::process_and_close_socket(socket_t sock) {
           return process_request(strm, remote_addr, remote_port, local_addr,
                                  local_port, close_connection,
                                  connection_closed, nullptr,
-                                 &websocket_upgraded);
+                                 &websocket_upgraded, &detached);
         });
   });
 
-  detail::drain_and_close_socket(sock);
+  // httpp patch: a detached connection is closed by DetachedResponse.
+  if (!detached) { detail::drain_and_close_socket(sock); }
   return ret;
 }
 

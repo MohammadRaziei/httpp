@@ -50,6 +50,8 @@ has to be installed system-wide (no `apt`, `brew` or `choco`).
 - **Decorator-style routing in Python**, in the spirit of Flask and FastAPI: path parameters, typed
   conversion, JSON responses, `async def` handlers.
 - **Built-in server.** No ASGI/WSGI layer and no separate process to launch.
+- **Real async.** `async def` handlers run on one shared asyncio event loop and release their
+  worker thread while they `await`, so hundreds of slow requests can be in flight at once.
 - **Python, C++ and a CLI from the same wheel.** One binary core, three front ends.
 - **HTTP and HTTPS** on the client (mbedtls, vendored).
 - **Downloads** with a tqdm-style progress bar (drawn on stderr, so piped output stays clean).
@@ -72,6 +74,7 @@ Requires Python 3.8 or newer. Building the C++ side on its own needs CMake 3.21+
 Register handlers with decorators, then call `listen()`:
 
 ```python
+import asyncio
 from httpp import Server
 
 app = Server()
@@ -89,8 +92,8 @@ def create_item(request):              # ask for `request` by name
     return {"got": request.json()}, 201, {"Location": "/items/1"}
 
 @app.get("/slow")
-async def slow():                      # async handlers work too
-    ...
+async def slow():                      # async handlers: no thread is held while awaiting
+    await asyncio.sleep(1)
     return "done"
 
 app.listen("127.0.0.1", 8000)
@@ -148,9 +151,18 @@ if __name__ == "__main__":
 - It blocks until `stop()` is called or you press **Ctrl+C**.
 - It raises `OSError` if the address cannot be bound (for example, the port is already taken).
   Two httpp servers cannot share a port.
-- Requests are handled on a thread pool. Plain `def` handlers run on those worker threads.
-  Each `async def` request gets its own event loop on its worker thread, so `await` works but requests
-  are not multiplexed onto one shared loop.
+- Plain `def` handlers run on the server's thread pool (at most a few dozen threads, depending on the
+  machine), so a handler that blocks holds its thread for as long as it blocks.
+- `async def` handlers run on **one shared asyncio event loop** (a background thread, started on first
+  use) and give their worker thread back as soon as they start. While they `await`, no thread is held,
+  so far more requests can be in flight than there are threads: on a 1-core test machine, 400
+  concurrent requests that each `await asyncio.sleep(0.5)` all finish in about 0.7 s. Because every
+  request shares the same loop, loop-bound objects (an `aiohttp.ClientSession`, an async DB pool) can be
+  created once and reused.
+- An async response is written and the connection is then closed (no HTTP keep-alive for async routes).
+- CPU-bound handlers are still limited by the GIL, async or not.
+- The core is still a thread-per-connection HTTP/1.1 server: a connection that is open but idle (a
+  keep-alive connection to a sync route, a slow client) holds a worker thread until its timeout.
 
 There is no ASGI/WSGI interface, so servers such as uvicorn or gunicorn do not apply, and there is no
 auto-reload or multi-process mode.
@@ -225,6 +237,8 @@ The same server, client and download builder are available natively. Include the
 
 ```cpp
 #include <httpp.h>
+#include <chrono>
+#include <thread>
 
 // Server
 httpp::server srv;
@@ -239,6 +253,18 @@ srv.post("/users/:id", [](const httpp::request& req, httpp::response& res) {
     res.status = 201;
     res.headers.emplace_back("Content-Type", "application/json");
     res.body = R"({"ok": true})";
+});
+
+// Async: the handler gets a `responder` and may return at once, releasing the worker
+// thread; call send() later, from any thread (an event loop, a timer, a callback).
+srv.route_async("GET", "/slow", [](const httpp::request&, httpp::responder r) {
+    std::thread([r] {                                 // stand-in for "wait for something"
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        httpp::response res;
+        res.status = 200;
+        res.body = "done";
+        r.send(res);                                  // thread-safe; first call wins
+    }).detach();
 });
 
 srv.serve_directory("/static", "./public");
@@ -262,7 +288,14 @@ auto result = httpp::download("http://example.com/f.zip").output("f.zip").resume
 `get`, `post`, `put`, `patch` and `del` (`delete` is a C++ keyword) are shorthands for the general
 `route(method, path, handler)`, which accepts `GET`, `POST`, `PUT`, `PATCH`, `DELETE` and `OPTIONS`
 (case-insensitive) and throws `std::invalid_argument` for anything else. `:name` segments in the path are captured into
-`request::path_params`. The Python decorators are a thin layer on top of this same `route()`.
+`request::path_params`.
+
+`route_async()` is the non-blocking variant: its handler receives a `responder` instead of a `response&`.
+An exception thrown by it is answered with a plain 500; dropping every copy of the `responder` without
+calling `send()` closes the connection unanswered; and if the server is destroyed first, pending
+connections are closed and a later `send()` does nothing.
+
+The Python decorators are a thin layer on top of these same `route()` / `route_async()` calls.
 
 ## Migrating from libcurl
 
@@ -342,7 +375,11 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
 
 - The Python `Request` builder supports method, headers, body and content type; timeouts, redirect
   control, resumable downloads and async downloads are C++-only for now.
-- `async def` handlers get a fresh event loop per request (see [Running the server](#running-the-server)).
+- Async handlers free their thread while waiting, but the core is a thread-per-connection HTTP/1.1
+  server (see [Running the server](#running-the-server)): idle connections still cost a thread, and
+  async responses are not kept alive.
+- The vendored `cpp-httplib` carries one small patch (deferred responses, which makes the above
+  possible); see [`HTTPP_PATCHES.md`](src/third_party/cpp-httplib/HTTPP_PATCHES.md).
 - The libcurl compatibility layer covers a subset of `curl_easy_*`.
 - No ASGI/WSGI interface, auto-reload or multi-process workers.
 
