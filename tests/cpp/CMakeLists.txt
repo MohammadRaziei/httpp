@@ -23,7 +23,9 @@ target_include_directories(test_httpp_cpp PRIVATE ${PROJECT_SOURCE_DIR}/src/core
 target_include_directories(test_httpp_cpp SYSTEM PRIVATE ${HTTPP_ASIO_INCLUDE_DIR})
 target_compile_definitions(test_httpp_cpp PRIVATE ASIO_STANDALONE ASIO_NO_DEPRECATED)
 if(WIN32)
-    target_compile_definitions(test_httpp_cpp PRIVATE _WIN32_WINNT=0x0A00)
+    # utest.h includes <Windows.h>; keep it from dragging in the legacy <winsock.h>, which conflicts
+    # with <winsock2.h> (used by test_event_loop.cpp and by Asio).
+    target_compile_definitions(test_httpp_cpp PRIVATE _WIN32_WINNT=0x0A00 WIN32_LEAN_AND_MEAN NOMINMAX)
     target_link_libraries(test_httpp_cpp PRIVATE ws2_32 mswsock)
 endif()
 if(MSVC)

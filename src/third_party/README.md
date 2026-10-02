@@ -2,7 +2,24 @@
 
 Vendored dependencies. Each is either a committed file (`cpp-httplib`,
 `indicators`) or a git submodule built from source (`mbedtls`,
-`liburlparser`) — never a system package.
+`liburlparser`, `asio`) — never a system package.
+
+## asio
+
+A git submodule (`asio/`, <https://github.com/chriskohlhoff/asio>) pinned to the tag
+`asio-1-34-2`. It is header-only and used unmodified, for the event loop in
+`src/core/event_loop.cpp` (epoll on Linux, kqueue on macOS, IOCP on Windows), built with
+`ASIO_STANDALONE`. Boost Software License 1.0.
+
+The top-level `CMakeLists.txt` looks for Asio in this order:
+
+1. `-DHTTPP_ASIO_INCLUDE_DIR=<directory containing asio.hpp>` (offline builds, packagers)
+2. this submodule: `src/third_party/asio/asio/include` (or a plain copy in `src/third_party/asio/include`)
+3. otherwise it downloads Asio 1.34.2 at configure time (about 3 MB, pinned by SHA-256), so a source
+   tree without submodules, such as an sdist, still builds.
+
+To move to another Asio version, check out its tag in the submodule and commit the new pointer (also
+update `HTTPP_ASIO_VERSION` / `HTTPP_ASIO_SHA256` in `CMakeLists.txt`, which only matter for step 3).
 
 ## indicators (not wired up yet)
 

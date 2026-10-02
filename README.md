@@ -381,7 +381,7 @@ with `git clone --depth 1 --recurse-submodules --shallow-submodules`.
 [Asio](https://think-async.com/Asio/) (header-only, used unmodified) is found in this order:
 `-DHTTPP_ASIO_INCLUDE_DIR=<dir containing asio.hpp>`, then a copy in `src/third_party/asio` (for example a
 git submodule), then it is downloaded at configure time (about 3 MB, pinned to 1.34.2 by SHA-256). Offline
-builds should pass the first option. See [`src/third_party/ASIO.md`](src/third_party/ASIO.md).
+builds should pass the first option. See [`src/third_party/README.md`](src/third_party/README.md#asio).
 
 ## Status
 

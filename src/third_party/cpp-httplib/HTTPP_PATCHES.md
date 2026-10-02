@@ -88,5 +88,6 @@ httplib's own `listen()` / accept loop is left untouched and simply unused by ht
   connections stall for tens of seconds (in a test, 44.9 s for the first request after 300 simultaneous
   connections). The Asio loop listens with the OS maximum, and the test `httpp_event_loop.*` /
   `idle_connections_do_not_occupy_worker_threads` cover it.
-- Asio (1.34.2, standalone, header-only) is used unmodified and is not stored in the repository: CMake takes a copy from
-  `src/third_party/asio` (e.g. a submodule) or downloads it, pinned by SHA-256. See `src/third_party/asio/README.md`.
+- Asio (1.34.2, standalone, header-only) is used unmodified. It is a git submodule at `src/third_party/asio`
+  (pinned to `asio-1-34-2`); if the submodule is missing, CMake downloads it, pinned by SHA-256. See
+  `src/third_party/README.md`.
