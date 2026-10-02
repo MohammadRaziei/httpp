@@ -1833,6 +1833,19 @@ struct Response {
 };
 
 // httpp patch: deferred ("detached") responses ------------------------------
+// Passed to Server::process_request: `remaining` in (how many more requests this
+// connection may serve), `detached` out (the connection was taken over).
+struct DetachContext {
+  size_t remaining = 0;
+  bool detached = false;
+};
+
+// Result of Server::serve_one().
+struct ServeResult {
+  bool keep = false;     // the connection is still open and may serve another request
+  bool detached = false; // a handler took the connection over (see DetachedResponse)
+};
+
 // A route handler may call Response::detach() and then return without filling
 // in the response. The worker thread is released immediately; the connection
 // stays open and the response is written later, from any thread, by
@@ -1842,7 +1855,9 @@ struct Response {
 // Rules:
 //  - complete() is thread-safe; only its first call has any effect, and it may
 //    even be called before the handler has returned.
-//  - The connection is closed after a detached response (no keep-alive).
+//  - The connection is closed after a detached response, unless a connection
+//    releaser is installed (Server::set_connection_releaser) and the client
+//    allows keep-alive: then it is handed back for its next request.
 //  - Supported on the plain-HTTP Server only (not SSLServer).
 //  - If the Server is destroyed first, pending connections are closed and a
 //    later complete() does nothing. If the last handle is dropped without
@@ -1863,6 +1878,7 @@ private:
   Server *server_ = nullptr; // non-null only while attached to a live Server
   socket_t sock_ = INVALID_SOCKET;
   Request req_;
+  size_t remaining_ = 0; // further requests the connection may serve
   bool attached_ = false;
   bool completed_ = false;
   std::unique_ptr<Response> pending_; // completed before the handler returned
@@ -2250,6 +2266,22 @@ public:
 
   Server &set_keep_alive_max_count(size_t count);
   Server &set_keep_alive_timeout(time_t sec);
+
+  // httpp patch: serving connections owned by an EXTERNAL event loop (which
+  // does the accepting and watches idle connections) instead of listen().
+  // serve_one() runs on a worker thread: it puts an accepted socket into
+  // blocking mode, serves exactly one request on it, and tells the caller
+  // whether the connection is still usable. The caller owns the socket
+  // again afterwards (close it, or watch it for the next request) unless
+  // `detached` is set. `remaining` is how many requests it may still serve.
+  ServeResult serve_one(socket_t sock, size_t remaining);
+  void prepare_socket(socket_t sock); // blocking mode, timeouts, TCP_NODELAY
+  // Called when a deferred response completes and the connection may be kept
+  // alive; return true if the loop took the socket back, false to have it closed.
+  Server &set_connection_releaser(std::function<bool(socket_t, size_t)> fn);
+  // Tell the server that an external loop is (or is no longer) running, so that
+  // streamed response bodies are not mistaken for a server that is shutting down.
+  Server &set_external_loop(bool running);
   template <class Rep, class Period>
   Server &
   set_keep_alive_timeout(const std::chrono::duration<Rep, Period> &duration);
@@ -2299,11 +2331,12 @@ protected:
                        bool &connection_closed,
                        const std::function<void(Request &)> &setup_request,
                        bool *websocket_upgraded = nullptr,
-                       bool *detached_out = nullptr); // httpp patch
+                       DetachContext *detach_ctx = nullptr); // httpp patch
 
   // httpp patch: deferred responses (see DetachedResponse).
   friend class DetachedResponse;
-  bool attach_detached(Stream &strm, Request &req, Response &res);
+  bool attach_detached(Stream &strm, Request &req, Response &res,
+                       size_t remaining);
   void write_detached(DetachedResponse &d, Response &res);
   void abandon_detached();
 
@@ -2343,6 +2376,8 @@ protected:
   std::mutex detached_mutex_;
   std::vector<std::weak_ptr<DetachedResponse>> detached_;
   size_t detached_prune_at_ = 64;
+  std::function<bool(socket_t, size_t)> releaser_;
+  std::atomic<bool> external_loop_{false};
 
   std::vector<std::string> trusted_proxies_;
 
@@ -12721,6 +12756,58 @@ inline Server::Server()
 
 inline Server::~Server() { abandon_detached(); } // httpp patch
 
+inline Server &Server::set_connection_releaser(
+    std::function<bool(socket_t, size_t)> fn) {
+  releaser_ = std::move(fn);
+  return *this;
+}
+
+inline Server &Server::set_external_loop(bool running) {
+  external_loop_ = running;
+  return *this;
+}
+
+inline void Server::prepare_socket(socket_t sock) {
+  detail::set_nonblocking(sock, false); // an async loop may have left it non-blocking
+  detail::set_socket_opt_time(sock, SOL_SOCKET, SO_RCVTIMEO, read_timeout_sec_,
+                              read_timeout_usec_);
+  detail::set_socket_opt_time(sock, SOL_SOCKET, SO_SNDTIMEO, write_timeout_sec_,
+                              write_timeout_usec_);
+  if (tcp_nodelay_) { set_socket_opt(sock, IPPROTO_TCP, TCP_NODELAY, 1); }
+}
+
+inline ServeResult Server::serve_one(socket_t sock, size_t remaining) {
+  prepare_socket(sock);
+
+  std::string remote_addr;
+  int remote_port = 0;
+  detail::get_remote_ip_and_port(sock, remote_addr, remote_port);
+
+  std::string local_addr;
+  int local_port = 0;
+  detail::get_local_ip_and_port(sock, local_addr, local_port);
+
+  DetachContext detach_ctx;
+  detach_ctx.remaining = remaining;
+  ServeResult result;
+  serve_guarded([&]() {
+    detail::SocketStream strm(sock, read_timeout_sec_, read_timeout_usec_,
+                              write_timeout_sec_, write_timeout_usec_);
+    strm.set_readable_hint();
+    const auto close_connection = remaining <= 1;
+    auto connection_closed = false;
+    const auto ok = process_request(strm, remote_addr, remote_port, local_addr,
+                                    local_port, close_connection,
+                                    connection_closed, nullptr, nullptr,
+                                    &detach_ctx);
+    result.keep = ok && !connection_closed && !close_connection &&
+                  !detach_ctx.detached;
+    return ok;
+  });
+  result.detached = detach_ctx.detached;
+  return result;
+}
+
 // httpp patch: deferred responses ------------------------------------------
 inline std::shared_ptr<DetachedResponse> Response::detach() {
   if (!detached_) { detached_ = std::make_shared<DetachedResponse>(); }
@@ -12752,7 +12839,8 @@ inline DetachedResponse::~DetachedResponse() {
 // Returns true if the connection was taken over (the response will be sent
 // later). Returns false if complete() already happened: `res` then holds the
 // final response and the caller writes it the normal way.
-inline bool Server::attach_detached(Stream &strm, Request &req, Response &res) {
+inline bool Server::attach_detached(Stream &strm, Request &req, Response &res,
+                                    size_t remaining) {
   auto d = res.detached_;
   {
     std::lock_guard<std::mutex> lock(d->mutex_);
@@ -12763,6 +12851,7 @@ inline bool Server::attach_detached(Stream &strm, Request &req, Response &res) {
     d->server_ = this;
     d->sock_ = strm.socket();
     d->req_ = std::move(req);
+    d->remaining_ = remaining;
     d->attached_ = true;
   }
 
@@ -12782,12 +12871,20 @@ inline bool Server::attach_detached(Stream &strm, Request &req, Response &res) {
 // Called with d.mutex_ held.
 inline void Server::write_detached(DetachedResponse &d, Response &res) {
   if (res.status == -1) { res.status = StatusCode::OK_200; }
+  const auto may_keep = d.remaining_ > 1 && static_cast<bool>(releaser_);
+  auto written = false;
   {
     detail::SocketStream strm(d.sock_, read_timeout_sec_, read_timeout_usec_,
                               write_timeout_sec_, write_timeout_usec_);
-    serve_guarded([&]() {
-      return write_response_with_content(strm, true, d.req_, res);
+    written = serve_guarded([&]() {
+      return write_response_with_content(strm, !may_keep, d.req_, res);
     });
+  }
+  if (written && may_keep &&
+      !detail::has_header_token(res.headers, "Connection", "close") &&
+      releaser_(d.sock_, d.remaining_ - 1)) {
+    d.sock_ = INVALID_SOCKET; // the event loop owns it again
+    return;
   }
   detail::drain_and_close_socket(d.sock_);
   d.sock_ = INVALID_SOCKET;
@@ -13367,7 +13464,9 @@ Server::write_content_with_provider(Stream &strm, const Request &req,
                                     Response &res, const std::string &boundary,
                                     const std::string &content_type) {
   auto is_shutting_down = [this]() {
-    return this->svr_sock_ == INVALID_SOCKET;
+    // httpp patch: with an external event loop svr_sock_ is never set, so also
+    // consult the loop's flag or every content-provider body (static files) is cut off.
+    return this->svr_sock_ == INVALID_SOCKET && !this->external_loop_;
   };
 
   if (res.content_length_ > 0) {
@@ -14270,7 +14369,7 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
                         int local_port, bool close_connection,
                         bool &connection_closed,
                         const std::function<void(Request &)> &setup_request,
-                        bool *websocket_upgraded, bool *detached_out) {
+                        bool *websocket_upgraded, DetachContext *detach_ctx) {
   std::array<char, 2048> buf{};
 
   detail::stream_line_reader line_reader(strm, buf.data(), buf.size());
@@ -14528,10 +14627,10 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
 
   // httpp patch: the handler took over the response via Response::detach().
   if (res.detached_) {
-    if (routed && detached_out) {
-      if (attach_detached(strm, req, res)) {
+    if (routed && detach_ctx) {
+      if (attach_detached(strm, req, res, detach_ctx->remaining)) {
         connection_closed = true;
-        *detached_out = true;
+        detach_ctx->detached = true;
         return true; // worker thread is free; complete() writes the response
       }
       // complete() already ran: `res` is final, write it the normal way.
@@ -14623,7 +14722,7 @@ inline bool Server::process_and_close_socket(socket_t sock) {
   detail::get_local_ip_and_port(sock, local_addr, local_port);
 
   bool websocket_upgraded = false;
-  bool detached = false; // httpp patch
+  DetachContext detach_ctx; // httpp patch
   auto ret = serve_guarded([&]() {
     return detail::process_server_socket(
         svr_sock_, sock, keep_alive_max_count_, keep_alive_timeout_sec_,
@@ -14633,12 +14732,12 @@ inline bool Server::process_and_close_socket(socket_t sock) {
           return process_request(strm, remote_addr, remote_port, local_addr,
                                  local_port, close_connection,
                                  connection_closed, nullptr,
-                                 &websocket_upgraded, &detached);
+                                 &websocket_upgraded, &detach_ctx);
         });
   });
 
   // httpp patch: a detached connection is closed by DetachedResponse.
-  if (!detached) { detail::drain_and_close_socket(sock); }
+  if (!detach_ctx.detached) { detail::drain_and_close_socket(sock); }
   return ret;
 }
 

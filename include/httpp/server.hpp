@@ -32,7 +32,8 @@ using handler = std::function<void(const request&, response&)>;
 //
 //  - send() is thread-safe; only the first call has any effect, and it may
 //    happen before the handler has returned.
-//  - The connection is closed after an async response (no keep-alive).
+//  - On POSIX the connection is kept alive after an async response (if the
+//    client allows it); on Windows it is closed after each async response.
 //  - If the server is destroyed first, pending connections are closed and a
 //    later send() does nothing. Dropping every copy of a responder without
 //    calling send() closes the connection without a response.
@@ -86,6 +87,8 @@ public:
     // (e.g. port already in use), true after a normal stop().
     HTTPP_API bool listen_after_bind();
     HTTPP_API bool listen(const std::string& host, int port);
+    // Seconds an idle keep-alive connection is kept open (default 5).
+    HTTPP_API void set_keep_alive_timeout(int seconds);
     HTTPP_API void stop();
 
 private:

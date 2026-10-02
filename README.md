@@ -25,8 +25,8 @@ app.listen("127.0.0.1", 8000)   # that's it — no separate server process neede
 ```
 
 `pip install httpp` gives you a Python package, a command-line tool, and a compiled C++ library with
-headers and a CMake config. Every third-party component is vendored and built from source, so nothing
-has to be installed system-wide (no `apt`, `brew` or `choco`).
+headers and a CMake config. Every third-party component is built from source, so nothing has to be
+installed system-wide (no `apt`, `brew` or `choco`).
 
 ## Contents
 
@@ -51,12 +51,15 @@ has to be installed system-wide (no `apt`, `brew` or `choco`).
   conversion, JSON responses, `async def` handlers.
 - **Built-in server.** No ASGI/WSGI layer and no separate process to launch.
 - **Real async.** `async def` handlers run on one shared asyncio event loop and release their
-  worker thread while they `await`, so hundreds of slow requests can be in flight at once.
+  worker thread while they `await`. Idle connections wait in an event loop too (epoll, kqueue or IOCP,
+  via [Asio](https://think-async.com/Asio/)), so thousands of slow or idle requests cost
+  almost no threads.
 - **Python, C++ and a CLI from the same wheel.** One binary core, three front ends.
 - **HTTP and HTTPS** on the client (mbedtls, vendored).
 - **Downloads** with a tqdm-style progress bar (drawn on stderr, so piped output stays clean).
 - **A migration path for `libcurl` code**: `httpp/curl_compat.h` provides a `curl_easy_*` subset.
-- **Zero system dependencies.**
+- **No system dependencies.** Nothing to install system-wide; the only build-time download is the
+  header-only Asio (about 3 MB, pinned by hash), which can be supplied locally instead.
 
 ## Install
 
@@ -159,10 +162,16 @@ if __name__ == "__main__":
   concurrent requests that each `await asyncio.sleep(0.5)` all finish in about 0.7 s. Because every
   request shares the same loop, loop-bound objects (an `aiohttp.ClientSession`, an async DB pool) can be
   created once and reused.
-- An async response is written and the connection is then closed (no HTTP keep-alive for async routes).
+- **Connections are event-driven** on every platform: idle connections, including HTTP keep-alive
+  ones, wait in an Asio event loop (epoll on Linux, kqueue on macOS, IOCP on Windows) on the listening
+  thread and cost no worker thread. A worker is used only while a request is actually being read and
+  answered, then the connection goes back to the loop. On Linux, 3000 idle connections were held by that
+  one thread and a request still took 0.2 ms, the same as with none. This also applies to async routes.
+- Keep-alive after a response needs the loop to take the socket back, which Windows supports from 8.1 on.
+  On older Windows (and under Wine) the loop notices this and answers `Connection: close`: requests are
+  still served and idle connections still cost no thread, there is just no connection reuse.
 - CPU-bound handlers are still limited by the GIL, async or not.
-- The core is still a thread-per-connection HTTP/1.1 server: a connection that is open but idle (a
-  keep-alive connection to a sync route, a slow client) holds a worker thread until its timeout.
+- A request that has only partly arrived holds a worker thread until it completes or times out.
 
 There is no ASGI/WSGI interface, so servers such as uvicorn or gunicorn do not apply, and there is no
 auto-reload or multi-process mode.
@@ -365,9 +374,14 @@ cmake --build build -j4
 ctest --test-dir build --output-on-failure   # C++, Python and CMake-integration tests
 ```
 
-Dependencies are vendored as git submodules. The full history of the `mbedtls` submodule is large; if
-you only need the source, clone with
-`git clone --depth 1 --recurse-submodules --shallow-submodules`.
+Most dependencies are vendored (`cpp-httplib`, which carries two patches) or git submodules (`mbedtls`,
+`liburlparser`). The full history of the `mbedtls` submodule is large; if you only need the source, clone
+with `git clone --depth 1 --recurse-submodules --shallow-submodules`.
+
+[Asio](https://think-async.com/Asio/) (header-only, used unmodified) is found in this order:
+`-DHTTPP_ASIO_INCLUDE_DIR=<dir containing asio.hpp>`, then a copy in `src/third_party/asio` (for example a
+git submodule), then it is downloaded at configure time (about 3 MB, pinned to 1.34.2 by SHA-256). Offline
+builds should pass the first option. See [`src/third_party/asio/README.md`](src/third_party/asio/README.md).
 
 ## Status
 
@@ -375,11 +389,17 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
 
 - The Python `Request` builder supports method, headers, body and content type; timeouts, redirect
   control, resumable downloads and async downloads are C++-only for now.
-- Async handlers free their thread while waiting, but the core is a thread-per-connection HTTP/1.1
-  server (see [Running the server](#running-the-server)): idle connections still cost a thread, and
-  async responses are not kept alive.
-- The vendored `cpp-httplib` carries one small patch (deferred responses, which makes the above
-  possible); see [`HTTPP_PATCHES.md`](src/third_party/cpp-httplib/HTTPP_PATCHES.md).
+- A request that has only partly arrived (a slow client still sending its headers or body) holds a
+  worker thread until it completes or times out; only *idle* connections are free. HTTP/1.1 only; the
+  server does not speak TLS.
+- Platforms: the connection layer is tested on Linux (including under ThreadSanitizer). It is compiled
+  for Windows with mingw-w64 and its Windows code path was exercised under Wine, which only covers the
+  no-keep-alive fallback; macOS is untested by the author. CI on Windows and macOS is the real check.
+- There is no ASGI or WSGI interface (see above), so ASGI/WSGI applications such as FastAPI or Flask
+  cannot be mounted on it yet.
+- The vendored `cpp-httplib` carries two small patches (deferred responses, and hooks for the external
+  Asio event loop), which make the above possible; see
+  [`HTTPP_PATCHES.md`](src/third_party/cpp-httplib/HTTPP_PATCHES.md).
 - The libcurl compatibility layer covers a subset of `curl_easy_*`.
 - No ASGI/WSGI interface, auto-reload or multi-process workers.
 

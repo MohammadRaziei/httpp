@@ -1,6 +1,7 @@
 """Tests for decorator-style routes on httpp.Server."""
 
 import json
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -345,3 +346,67 @@ def test_server_can_be_dropped_while_an_async_request_is_pending():
     client.join(5)
     assert not client.is_alive()
     time.sleep(0.7)  # the coroutine finishes afterwards and must find nothing to answer
+
+
+# ---- event-driven connections (all platforms) --------------------------------
+
+def test_idle_connections_do_not_block_other_requests():
+    """300 connections that never send a byte must not use up the worker pool."""
+    import socket
+
+    try:  # POSIX only; Windows has no per-process fd limit to raise
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (min(hard, 4096) if hard != resource.RLIM_INFINITY else 4096, hard))
+    except ImportError:
+        pass
+
+    app = Server()
+
+    @app.get("/k")
+    def k():
+        return "ok"
+
+    idle = []
+    try:
+        with running(app) as url:
+            port = int(url.rsplit(":", 1)[1])
+            idle = [socket.create_connection(("127.0.0.1", port)) for _ in range(300)]
+            started = time.time()
+            res = Client("127.0.0.1", port).get("/k")
+            elapsed = time.time() - started
+        assert res.status == 200
+        assert elapsed < 1.0
+    finally:
+        for s in idle:
+            s.close()
+
+
+def test_keep_alive_connection_is_reused_for_sync_and_async_routes():
+    import asyncio
+    import http.client
+
+    app = Server()
+
+    @app.get("/sync")
+    def sync_():
+        return "sync"
+
+    @app.get("/async")
+    async def async_():
+        await asyncio.sleep(0.01)
+        return "async"
+
+    with running(app) as url:
+        port = int(url.rsplit(":", 1)[1])
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        sock = None
+        for path, want in (("/sync", "sync"), ("/async", "async"), ("/sync", "sync"), ("/async", "async")):
+            conn.request("GET", path)
+            resp = conn.getresponse()
+            assert resp.read().decode() == want
+            assert conn.sock is not None, "server closed the connection"  # http.client drops it on Connection: close
+            sock = sock or conn.sock
+            assert conn.sock is sock  # same TCP connection every time
+        conn.close()

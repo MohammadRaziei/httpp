@@ -131,6 +131,52 @@ target_link_libraries(httpp_core PRIVATE url::base)
 # include/link path — see that file for the shared httplib.h include.
 target_link_libraries(httpp_core PRIVATE mbedtls mbedx509)
 target_compile_definitions(httpp_core PRIVATE CPPHTTPLIB_MBEDTLS_SUPPORT)
+# Asio (standalone, header-only, vendored) drives httpp::server's connection
+# loop: epoll on Linux, kqueue on macOS, IOCP/select on Windows. It is only
+# ever included from src/core/event_loop.cpp.
+# Where Asio comes from, in order:
+#   1. -DHTTPP_ASIO_INCLUDE_DIR=<directory containing asio.hpp>  (offline builds, packagers)
+#   2. src/third_party/asio, if it holds a copy: a git submodule (<dir>/asio/include)
+#      or a plain copy (<dir>/include)
+#   3. downloaded at configure time, pinned by version and SHA-256 (about 3 MB)
+set(HTTPP_ASIO_VERSION 1.34.2)
+set(HTTPP_ASIO_SHA256 f3bac015305fbb700545bd2959fbc52d75a1ec2e05f9c7f695801273ceb78cf5)
+set(HTTPP_ASIO_INCLUDE_DIR "" CACHE PATH "Directory containing asio.hpp (empty: auto-detect, else download)")
+if(NOT HTTPP_ASIO_INCLUDE_DIR)
+    foreach(_candidate
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/asio/asio/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/asio/include)
+        if(EXISTS "${_candidate}/asio.hpp")
+            set(HTTPP_ASIO_INCLUDE_DIR "${_candidate}" CACHE PATH "" FORCE)
+            break()
+        endif()
+    endforeach()
+endif()
+if(NOT HTTPP_ASIO_INCLUDE_DIR)
+    include(FetchContent)
+    if(POLICY CMP0135)
+        cmake_policy(SET CMP0135 NEW) # extracted files get the time of extraction
+    endif()
+    string(REPLACE "." "-" _asio_tag "asio-${HTTPP_ASIO_VERSION}")
+    FetchContent_Declare(httpp_asio
+        URL https://codeload.github.com/chriskohlhoff/asio/tar.gz/refs/tags/${_asio_tag}
+        URL_HASH SHA256=${HTTPP_ASIO_SHA256})
+    FetchContent_MakeAvailable(httpp_asio) # Asio has no CMakeLists.txt: this only downloads and extracts
+    set(HTTPP_ASIO_INCLUDE_DIR "${httpp_asio_SOURCE_DIR}/asio/include" CACHE PATH "" FORCE)
+endif()
+message(STATUS "Asio ${HTTPP_ASIO_VERSION}: ${HTTPP_ASIO_INCLUDE_DIR}")
+
+target_include_directories(httpp_core SYSTEM PRIVATE ${HTTPP_ASIO_INCLUDE_DIR})
+target_compile_definitions(httpp_core PRIVATE ASIO_STANDALONE ASIO_NO_DEPRECATED)
+if(WIN32)
+    # Asio wants the target Windows version spelled out (Windows 10 and later).
+    target_compile_definitions(httpp_core PRIVATE _WIN32_WINNT=0x0A00)
+    target_link_libraries(httpp_core PRIVATE ws2_32 mswsock)
+endif()
+if(MSVC)
+    # Asio's templates produce very large object files.
+    set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/event_loop.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
+endif()
 
 # macOS: cpp-httplib (src/third_party/cpp-httplib/httplib.h) reads the
 # system trust store via the Keychain APIs (CPPHTTPLIB_USE_CERTS_FROM_MACOSX_KEYCHAIN),

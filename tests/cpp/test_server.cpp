@@ -4,12 +4,30 @@
 #include "httpp/client.hpp"
 
 #include <atomic>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <chrono>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <vector>
+
+namespace {
+struct Joiner {
+    std::vector<std::thread> v;
+    ~Joiner() { for (auto& t : v) if (t.joinable()) t.join(); }
+};
+} // namespace
+
+#ifndef _WIN32
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/resource.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 namespace {
 // small helper: run server on a background thread, stop it after the test
@@ -136,7 +154,8 @@ UTEST(httpp_server, method_shorthands_register_the_matching_method) {
 
 UTEST(httpp_server, route_async_answers_later_from_another_thread) {
     httpp::server s;
-    std::vector<std::thread> workers;
+    Joiner workers_guard;
+    auto& workers = workers_guard.v;
     s.route_async("POST", "/later/:id", [&](const httpp::request& req, httpp::responder r) {
         std::string id = req.path_params.at(0).second;
         workers.emplace_back([r, id] {
@@ -196,7 +215,8 @@ UTEST(httpp_server, route_async_does_not_hold_a_worker_thread_while_waiting) {
     constexpr int N = 100;
     httpp::server s;
     std::mutex m;
-    std::vector<std::thread> timers;
+    Joiner timers_guard;
+    auto& timers = timers_guard.v;
     s.route_async("GET", "/wait", [&](const httpp::request&, httpp::responder r) {
         std::lock_guard<std::mutex> lock(m);
         timers.emplace_back([r] {
@@ -253,4 +273,170 @@ UTEST(httpp_server, destroying_the_server_with_a_pending_async_response_is_safe)
     httpp::response late;
     late.status = 200;
     stash.send(late); // server is gone: must be a harmless no-op
+}
+
+// ---- event-driven connections (POSIX) -------------------------------------
+#ifndef _WIN32
+namespace {
+
+int connect_raw(int port) {
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<uint16_t>(port));
+    ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) { ::close(fd); return -1; }
+    timeval tv{3, 0};
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)); // a hang must fail the test, not stall it
+    return fd;
+}
+
+// Reads one HTTP response (headers + Content-Length body). "" if the peer closed first.
+std::string read_response(int fd) {
+    std::string buf;
+    char tmp[4096];
+    size_t header_end = std::string::npos, total = 0;
+    while (true) {
+        if (header_end == std::string::npos) {
+            header_end = buf.find("\r\n\r\n");
+            if (header_end != std::string::npos) {
+                auto pos = buf.find("Content-Length: ");
+                size_t len = pos == std::string::npos ? 0 : std::stoul(buf.substr(pos + 16));
+                total = header_end + 4 + len;
+            }
+        }
+        if (header_end != std::string::npos && buf.size() >= total) return buf;
+        auto n = ::recv(fd, tmp, sizeof(tmp), 0);
+        if (n <= 0) return "";
+        buf.append(tmp, static_cast<size_t>(n));
+    }
+}
+
+bool peer_closed(int fd) { // true once recv() sees EOF
+    char c;
+    return ::recv(fd, &c, 1, 0) == 0;
+}
+
+const char* kGet = "GET /k HTTP/1.1\r\nHost: x\r\n\r\n";
+
+} // namespace
+
+UTEST(httpp_server, idle_connections_do_not_occupy_worker_threads) {
+    rlimit rl{};
+    ::getrlimit(RLIMIT_NOFILE, &rl);
+    rl.rlim_cur = rl.rlim_max < 4096 ? rl.rlim_max : 4096;
+    ::setrlimit(RLIMIT_NOFILE, &rl);
+
+    httpp::server s;
+    s.get("/k", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+    running_server rs(std::move(s));
+
+    // 300 connections that never send a byte. One worker thread each would exhaust the
+    // pool (a few dozen threads) and the next real request would sit in the queue until
+    // the idle connections time out (5 s).
+    std::vector<int> idle;
+    for (int i = 0; i < 300; i++) idle.push_back(connect_raw(rs.port));
+
+    auto t0 = std::chrono::steady_clock::now();
+    auto res = httpp::client::fetch("http://127.0.0.1:" + std::to_string(rs.port) + "/k");
+    double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    for (int fd : idle) ::close(fd);
+
+    ASSERT_EQ(200, res.status);
+    ASSERT_LT(seconds, 1.0);
+}
+
+UTEST(httpp_server, keep_alive_serves_several_requests_on_one_connection) {
+    httpp::server s;
+    s.get("/k", [](const httpp::request&, httpp::response& res) { res.body = "sync"; });
+    Joiner workers_guard;
+    auto& workers = workers_guard.v;
+    s.route_async("GET", "/ka", [&](const httpp::request&, httpp::responder r) {
+        workers.emplace_back([r] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            httpp::response res;
+            res.status = 200;
+            res.body = "async";
+            r.send(res);
+        });
+    });
+    {
+        running_server rs(std::move(s));
+        int fd = connect_raw(rs.port);
+        ASSERT_TRUE(fd >= 0);
+        // sync, async, sync, async -- all on the SAME socket
+        for (const char* path : {"/k", "/ka", "/k", "/ka"}) {
+            std::string req = std::string("GET ") + path + " HTTP/1.1\r\nHost: x\r\n\r\n";
+            ASSERT_EQ(static_cast<ssize_t>(req.size()), ::send(fd, req.data(), req.size(), 0));
+            std::string resp = read_response(fd);
+            ASSERT_TRUE(resp.find("200 OK") != std::string::npos);
+            ASSERT_TRUE(resp.find("Connection: close") == std::string::npos);
+            ASSERT_TRUE(resp.find(std::string(path) == "/k" ? "sync" : "async") != std::string::npos);
+        }
+        ::close(fd);
+    }
+    for (auto& w : workers) w.join();
+}
+
+UTEST(httpp_server, connection_close_request_header_is_honoured) {
+    httpp::server s;
+    s.get("/k", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+    running_server rs(std::move(s));
+    int fd = connect_raw(rs.port);
+    const char* req = "GET /k HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n";
+    ::send(fd, req, std::strlen(req), 0);
+    ASSERT_TRUE(read_response(fd).find("200 OK") != std::string::npos);
+    ASSERT_TRUE(peer_closed(fd));
+    ::close(fd);
+}
+
+UTEST(httpp_server, idle_connection_is_closed_after_the_keep_alive_timeout) {
+    httpp::server s;
+    s.set_keep_alive_timeout(1);
+    s.get("/k", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+    running_server rs(std::move(s));
+    int fd = connect_raw(rs.port);
+    ::send(fd, kGet, std::strlen(kGet), 0);
+    ASSERT_TRUE(read_response(fd).find("200 OK") != std::string::npos);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1600));
+    ASSERT_TRUE(peer_closed(fd)); // the loop closed it; nobody was holding a thread
+    ::close(fd);
+}
+
+UTEST(httpp_server, a_request_split_across_packets_is_still_served) {
+    httpp::server s;
+    s.get("/k", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+    running_server rs(std::move(s));
+    int fd = connect_raw(rs.port);
+    ::send(fd, "GET /k HT", 9, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    const char* rest = "TP/1.1\r\nHost: x\r\n\r\n";
+    ::send(fd, rest, std::strlen(rest), 0);
+    ASSERT_TRUE(read_response(fd).find("200 OK") != std::string::npos);
+    ::close(fd);
+}
+#endif
+
+// Regression: static files are streamed through httplib's content-provider loop, which
+// stops as soon as httplib believes the server is shutting down. With an external
+// event loop that must not be mistaken for a shutdown, or the body is cut off.
+UTEST(httpp_server, serve_directory_streams_a_file_larger_than_the_socket_buffers) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "httpp_static_test";
+    fs::create_directories(dir);
+    const std::string content(6'000'000, 'z');
+    { std::ofstream(dir / "big.bin", std::ios::binary) << content; }
+
+    httpp::server s;
+    s.serve_directory("/files", dir.string());
+    {
+        running_server rs(std::move(s));
+        const std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/files/big.bin";
+        for (int i = 0; i < 2; i++) { // twice: the connection must also stay healthy afterwards
+            auto res = httpp::client::fetch(url);
+            ASSERT_EQ(200, res.status);
+            ASSERT_EQ(content.size(), res.body.size());
+        }
+    }
+    fs::remove_all(dir);
 }

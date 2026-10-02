@@ -5,12 +5,19 @@
 #ifdef _WIN32
 // Must come before <httplib.h> (which pulls in <winsock2.h>): without this,
 // <windows.h> drags in the legacy <winsock.h> first and the two conflict.
-#  define WIN32_LEAN_AND_MEAN
-#  define NOMINMAX
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
 #endif
 #include <httplib.h>
 
+#include "internal/event_loop.hpp"
+
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstring>
 #include <stdexcept>
@@ -19,19 +26,41 @@ namespace httpp {
 
 struct server::impl {
     httplib::Server svr;
+    // Accepts connections and watches idle ones (Asio). Worker threads only ever
+    // see a connection while one of its requests is being read and answered.
+    std::unique_ptr<detail::event_loop> loop;
+    std::atomic<httplib::TaskQueue*> pool{nullptr}; // alive only while listening
+
+    // Runs on a worker thread: serve one request, then hand the connection back
+    // to the loop (keep-alive) or close it.
+    void serve(socket_t sock, std::size_t remaining) {
+        const auto result = svr.serve_one(sock, remaining);
+        if (result.detached) return; // a deferred response owns the socket now
+        if (result.keep && loop->give_back(static_cast<detail::native_socket>(sock), remaining - 1)) return;
+        httplib::detail::drain_and_close_socket(sock);
+    }
 };
 
 server::server() : impl_(std::make_unique<impl>()) {
-    // httplib's default is SO_REUSEPORT, which lets a second server bind a port
-    // that is already being served, silently splitting the traffic. SO_REUSEADDR
-    // alone keeps fast restarts (TIME_WAIT) but makes the second bind fail.
-    // Windows: SO_REUSEADDR would allow exactly that hijack, so set nothing there.
-    impl_->svr.set_socket_options([](socket_t sock) {
-#ifndef _WIN32
-        httplib::set_socket_opt(sock, SOL_SOCKET, SO_REUSEADDR, 1);
-#else
-        (void)sock;
-#endif
+    impl* im = impl_.get();
+    detail::event_loop::options opt;
+    opt.keep_alive_timeout_sec = CPPHTTPLIB_KEEPALIVE_TIMEOUT_SECOND;
+    opt.keep_alive_max = CPPHTTPLIB_KEEPALIVE_MAX_COUNT;
+    im->loop = std::make_unique<detail::event_loop>(
+        opt,
+        [im](detail::native_socket fd, std::size_t remaining) {
+            const auto sock = static_cast<socket_t>(fd);
+            auto* queue = im->pool.load();
+            if (!queue || !queue->enqueue([im, sock, remaining] { im->serve(sock, remaining); })) {
+                httplib::detail::drain_and_close_socket(sock);
+            }
+        },
+        [im] {
+            if (auto* queue = im->pool.load()) queue->on_idle(); // let the pool shrink again
+        });
+    // A deferred (async) response may keep its connection alive too.
+    im->svr.set_connection_releaser([im](socket_t sock, std::size_t remaining) {
+        return im->loop->give_back(static_cast<detail::native_socket>(sock), remaining);
     });
 }
 server::~server() = default;
@@ -133,24 +162,38 @@ void server::put(const std::string& path, handler h) { route("PUT", path, std::m
 void server::patch(const std::string& path, handler h) { route("PATCH", path, std::move(h)); }
 void server::del(const std::string& path, handler h) { route("DELETE", path, std::move(h)); }
 
+void server::set_keep_alive_timeout(int seconds) {
+    impl_->svr.set_keep_alive_timeout(seconds);
+    impl_->loop->set_keep_alive_timeout(seconds);
+}
+
 void server::serve_directory(const std::string& mount_path, const std::string& local_dir) {
     impl_->svr.set_mount_point(mount_path, local_dir);
 }
 
 int server::bind_to_any_port(const std::string& host) {
-    return impl_->svr.bind_to_any_port(host);
+    return impl_->loop->bind(host, 0);
 }
 
 bool server::listen_after_bind() {
-    return impl_->svr.listen_after_bind();
+    std::unique_ptr<httplib::TaskQueue> queue(impl_->svr.new_task_queue());
+    impl_->pool = queue.get();
+    impl_->svr.set_external_loop(true); // else httplib thinks it is shutting down and cuts off streamed bodies
+    const bool ok = impl_->loop->run(); // returns after stop()
+    impl_->svr.set_external_loop(false);
+    queue->shutdown();                  // joins the workers; they may still hand sockets back (refused now)
+    impl_->pool = nullptr;
+    return ok;
 }
 
 bool server::listen(const std::string& host, int port) {
-    return impl_->svr.listen(host, port);
+    if (impl_->loop->bind(host, port) < 0) return false;
+    return listen_after_bind();
 }
 
 void server::stop() {
-    impl_->svr.stop();
+    impl_->svr.set_external_loop(false); // in-flight streamed bodies stop promptly
+    impl_->loop->stop();
 }
 
 } // namespace httpp

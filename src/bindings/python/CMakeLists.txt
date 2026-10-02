@@ -125,6 +125,7 @@ ExternalProject_Add(build_python
     CMAKE_ARGS
         --no-warn-unused-cli
         -DSKBUILD=2
+        -DHTTPP_ASIO_INCLUDE_DIR=${HTTPP_ASIO_INCLUDE_DIR}
         -DCMAKE_BUILD_TYPE=Release
         -DCMAKE_INSTALL_PREFIX=${PYTHON_INSTALL_DIR}
 

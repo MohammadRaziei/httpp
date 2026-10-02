@@ -69,6 +69,7 @@ py-api = "cp39"
 [tool.scikit-build]
 sdist.include = [
     "src/third_party/cpp-httplib/**/*",
+    "src/third_party/asio/**/*",
     "src/third_party/mbedtls/**/*",
     "src/third_party/liburlparser/**/*",
 ]
