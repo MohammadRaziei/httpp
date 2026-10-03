@@ -1,6 +1,21 @@
 // Exercises the internal Asio event loop on its own, with plain sockets standing in
 // for the worker pool. It runs on every platform (epoll / kqueue / IOCP), so it is
 // what tells us the connection layer really works on Linux, macOS and Windows.
+// Windows: with WIN32_LEAN_AND_MEAN (set for the test target in CMake) <Windows.h>, which utest.h
+// includes, no longer pulls in any socket header, and without it the Windows SDK drags in the legacy
+// <winsock.h>, which clashes with <winsock2.h>. So this file includes <winsock2.h> itself, and does
+// so before utest.h.
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
+#endif
+
 #include "internal/event_loop.hpp"
 
 #include "utest/utest.h"
