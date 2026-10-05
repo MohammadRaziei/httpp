@@ -21,11 +21,25 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         int status
         string body
         vector[pair[string, string]] headers
+        string error_message
         cbool ok()
+        const char* error_name()
 
     cdef cppclass cpp_client "httpp::client":
-        cpp_client(string host, int port) except +
+        cpp_client(string host, int port, cbool use_ssl) except +
+        cpp_client(string base_url) except +
         response get(string path) except + nogil
+        response send(string method, string path, vector[pair[string, string]] headers,
+                      string body, string content_type) except + nogil
+        cpp_client& set_header(string name, string value) except +
+        cpp_client& set_timeout(long seconds) except +
+        cpp_client& set_follow_redirects(cbool enable) except +
+        cpp_client& set_basic_auth(string user, string password) except +
+        cpp_client& set_bearer_token(string token) except +
+        cpp_client& set_proxy(string host, int port) except +
+        cpp_client& set_verify(cbool enable) except +
+        cpp_client& set_ca_file(string path) except +
+        cpp_client& set_keep_alive(cbool enable) except +
 
         @staticmethod
         response fetch(string full_url) except + nogil
@@ -104,31 +118,143 @@ cdef extern from "httpp/client.hpp" namespace "httpp::client":
         cpp_curl_request& header(string name, string value) except +
         cpp_curl_request& data(string body) except +
         cpp_curl_request& content_type(string type) except +
+        cpp_curl_request& param(string name, string value) except +
+        cpp_curl_request& json(string document) except +
+        cpp_curl_request& form(vector[pair[string, string]] fields) except +
+        cpp_curl_request& basic_auth(string user, string password) except +
+        cpp_curl_request& bearer(string token) except +
+        cpp_curl_request& cookie(string name, string value) except +
+        cpp_curl_request& timeout(long seconds) except +
+        cpp_curl_request& follow_redirects(cbool enable) except +
+        cpp_curl_request& verify(cbool enable) except +
+        cpp_curl_request& ca_file(string path) except +
+        cpp_curl_request& proxy(string host, int port) except +
+        cpp_curl_request& max_response_size(size_t bytes) except +
         response run() except + nogil
 
 
+import json as _json
+from urllib.parse import quote as _quote, urlencode as _urlencode
+
+
+cdef bytes _to_bytes(object value):
+    """str -> UTF-8, bytes-like -> bytes. (Request/response bodies are bytes on the wire.)"""
+    if isinstance(value, str):
+        return (<str>value).encode("utf-8")
+    return bytes(value)
+
+
+def _encode_query(object params):
+    """{'a': 1, 'b': ['x', 'y']} or [('a', 1)] -> 'a=1&b=x&b=y', percent-encoded (spaces as %20)."""
+    if hasattr(params, "items"):
+        params = params.items()
+    pairs = []
+    for key, value in params:
+        if isinstance(value, (list, tuple)):
+            pairs.extend((key, item) for item in value)
+        else:
+            pairs.append((key, value))
+    return _urlencode(pairs, quote_via=_quote)
+
+
+def _with_params(str path, object params):
+    if not params:
+        return path
+    query = _encode_query(params)
+    return path + ("&" if "?" in path else "?") + query
+
+
+cdef vector[pair[string, string]] _header_pairs(object headers):
+    cdef vector[pair[string, string]] out
+    if headers:
+        items = headers.items() if hasattr(headers, "items") else headers
+        for name, value in items:
+            out.push_back(pair[string, string]((<str>name).encode("utf-8"), (<str>value).encode("utf-8")))
+    return out
+
+
 cdef class Response:
-    """A response to an HTTP request made via Client.get() / Request.run()."""
+    """A response to an HTTP request made via Client / Request / the module-level get(), post(), ...
+
+    status, ok, headers, header(name); the body as .content (bytes), .text (str) and .json().
+    A request that produced no HTTP response at all (nobody listening, a timeout, a failed TLS
+    handshake, ...) has status 0 and .error set to the reason; .raise_for_status() turns that
+    (or a 4xx/5xx status) into an exception.
+    """
     cdef int _status
     cdef bytes _body
     cdef list _headers  # list of (str, str) tuples, in server order
+    cdef str _error
+    cdef str _error_message
 
-    def __init__(self, int status, bytes body, list headers=None):
+    def __init__(self, int status, bytes body, list headers=None, str error=None, str error_message=""):
         self._status = status
         self._body = body
         self._headers = headers or []
+        self._error = error
+        self._error_message = error_message
 
     @property
     def status(self):
         return self._status
 
     @property
+    def content(self):
+        """The body as bytes, exactly as received."""
+        return self._body
+
+    @property
+    def text(self):
+        """The body decoded with the charset from Content-Type (UTF-8 if there is none)."""
+        cdef str ctype = self.header("content-type") or ""
+        charset = "utf-8"
+        for part in ctype.split(";")[1:]:
+            name, _, value = part.strip().partition("=")
+            if name.lower() == "charset" and value:
+                charset = value.strip().strip('"')
+        try:
+            return self._body.decode(charset, errors="replace")
+        except LookupError:
+            return self._body.decode("utf-8", errors="replace")
+
+    @property
     def body(self):
-        return self._body.decode("utf-8", errors="replace")
+        """Same as .text (kept for compatibility); prefer .content for binary data."""
+        return self.text
+
+    def json(self):
+        """The body parsed as JSON."""
+        return _json.loads(self._body)
 
     @property
     def ok(self):
         return 200 <= self._status < 300
+
+    @property
+    def error(self):
+        """None, or why no HTTP response arrived: 'connection', 'timeout', 'tls', 'too_many_redirects',
+        'too_large', 'invalid_url', 'unsupported_method', 'canceled' or 'other'."""
+        return self._error
+
+    @property
+    def error_message(self):
+        return self._error_message
+
+    @property
+    def failed(self):
+        """True if there is no HTTP response (see .error). A 404 is a response, not a failure."""
+        return self._error is not None
+
+    def raise_for_status(self):
+        """Raise httpp.RequestError (or a subclass) if there was no response, httpp.HTTPError for a
+        4xx/5xx status; return the response itself otherwise, so calls can be chained."""
+        import importlib
+        errors = importlib.import_module("httpp.errors")
+        if self._error is not None:
+            raise errors.request_error(self._error, self._error_message, self)
+        if self._status >= 400:
+            raise errors.HTTPError(f"HTTP {self._status}", self)
+        return self
 
     @property
     def headers(self):
@@ -143,6 +269,11 @@ cdef class Response:
                 return v
         return None
 
+    def __repr__(self):
+        if self._error is not None:
+            return f"<Response failed: {self._error}: {self._error_message}>"
+        return f"<Response [{self._status}]>"
+
 
 cdef _make_response(response res):
     """Convert a C++ httpp::response into a Python Response, headers and all."""
@@ -150,27 +281,104 @@ cdef _make_response(response res):
         (h.first.decode("utf-8", errors="replace"), h.second.decode("utf-8", errors="replace"))
         for h in res.headers
     ]
-    return Response(res.status, res.body, headers)
+    cdef str error = (<bytes>res.error_name()).decode("ascii")
+    return Response(res.status, res.body, headers,
+                    None if error == "none" else error,
+                    res.error_message.decode("utf-8", errors="replace"))
 
 
 cdef class Client:
-    """Minimal HTTP client. Replaces reaching for libcurl/requests for
-    simple request/response use cases."""
+    """A small HTTP client session. It keeps its connection alive between calls, so repeated requests
+    to one server skip the TCP/TLS handshake. Calls on one Client take turns (it may be shared
+    between threads); use several, or AsyncClient, to run requests in parallel.
+
+        c = Client("http://localhost:8000/api", headers={"X-Token": "abc"}, timeout=10)
+        c.get("/items", params={"page": 2}).json()
+        c.post("/items", json={"name": "apple"}).raise_for_status()
+
+    `Client(host, port, ssl=False)` also works. Network failures do not raise: look at
+    response.error, or call response.raise_for_status().
+    """
     cdef cpp_client* _cli
 
-    def __init__(self, str host, int port):
-        self._cli = new cpp_client(host.encode("utf-8"), port)
+    def __init__(self, str host_or_url, port=None, cbool ssl=False, *, headers=None, timeout=None,
+                 cbool follow_redirects=False, auth=None, token=None, cbool verify=True, str ca_file=None,
+                 proxy=None):
+        if port is None:
+            self._cli = new cpp_client(host_or_url.encode("utf-8"))
+        else:
+            self._cli = new cpp_client(host_or_url.encode("utf-8"), <int>port, ssl)
+        if headers:
+            for name, value in (headers.items() if hasattr(headers, "items") else headers):
+                self._cli.set_header((<str>name).encode("utf-8"), (<str>value).encode("utf-8"))
+        if timeout is not None:
+            self._cli.set_timeout(max(1, int(round(timeout))))
+        if follow_redirects:
+            self._cli.set_follow_redirects(True)
+        if auth is not None:
+            self._cli.set_basic_auth((<str>auth[0]).encode("utf-8"), (<str>auth[1]).encode("utf-8"))
+        if token is not None:
+            self._cli.set_bearer_token((<str>token).encode("utf-8"))
+        if not verify:
+            self._cli.set_verify(False)
+        if ca_file is not None:
+            self._cli.set_ca_file(ca_file.encode("utf-8"))
+        if proxy is not None:
+            self._cli.set_proxy((<str>proxy[0]).encode("utf-8"), <int>proxy[1])
 
     def __dealloc__(self):
         if self._cli is not NULL:
             del self._cli
 
-    def get(self, str path):
-        cdef string p = path.encode("utf-8")
+    def request(self, str method, str path, *, params=None, headers=None, data=None, json=None, form=None,
+                str content_type=None):
+        """Send one request. `json` (any JSON-serializable value), `form` (a dict) and `data`
+        (str or bytes) set the body; they exclude each other."""
+        cdef string m = method.encode("utf-8")
+        cdef string p = _with_params(path, params).encode("utf-8")
+        cdef string body
+        cdef string ctype
+        cdef vector[pair[string, string]] hdrs = _header_pairs(headers)
         cdef response res
+        if json is not None:
+            body = _json.dumps(json).encode("utf-8")
+            ctype = b"application/json"
+        elif form is not None:
+            body = _encode_query(form).encode("utf-8")
+            ctype = b"application/x-www-form-urlencoded"
+        elif data is not None:
+            body = _to_bytes(data)
+        if content_type is not None:
+            ctype = content_type.encode("utf-8")
         with nogil:  # else a Python-route server in this process can't get the GIL: deadlock
-            res = self._cli.get(p)
+            res = self._cli.send(m, p, hdrs, body, ctype)
         return _make_response(res)
+
+    def get(self, str path, **kwargs):
+        return self.request("GET", path, **kwargs)
+
+    def head(self, str path, **kwargs):
+        return self.request("HEAD", path, **kwargs)
+
+    def options(self, str path, **kwargs):
+        return self.request("OPTIONS", path, **kwargs)
+
+    def post(self, str path, **kwargs):
+        return self.request("POST", path, **kwargs)
+
+    def put(self, str path, **kwargs):
+        return self.request("PUT", path, **kwargs)
+
+    def patch(self, str path, **kwargs):
+        return self.request("PATCH", path, **kwargs)
+
+    def delete(self, str path, **kwargs):
+        return self.request("DELETE", path, **kwargs)
+
+    def set_header(self, str name, str value):
+        """Send this header with every request from now on."""
+        self._cli.set_header(name.encode("utf-8"), value.encode("utf-8"))
+        return self
 
     @staticmethod
     def fetch(str full_url):
@@ -398,11 +606,11 @@ def download(str url, str dest_path, cbool show_progress=True):
     return Download(url, dest_path).enable_progress(show_progress).run()
 
 cdef class Request:
-    """A small, curl-flavored fluent request builder — the common cases
-    only (-X method, -H headers, -d data). NOT a libcurl-compatible shim;
-    see Client for the plain request API this is built on.
+    """A small, curl-flavored fluent request builder, for one-off requests where a Client session
+    is overkill. NOT a libcurl-compatible shim.
 
-        Request(url).method("PUT").header("X-Token", "abc").data("body").run()
+        Request(url).method("PUT").header("X-Token", "abc").json({"a": 1}).timeout(10).run()
+        await Request(url).params({"q": "x"}).run_async()
     """
     cdef cpp_curl_request* _req
 
@@ -421,12 +629,81 @@ cdef class Request:
         self._req.header(name.encode("utf-8"), value.encode("utf-8"))
         return self
 
-    def data(self, str body):
-        self._req.data(body.encode("utf-8"))
+    def param(self, str name, value):
+        """Add one query parameter (percent-encoded)."""
+        self._req.param(name.encode("utf-8"), str(value).encode("utf-8"))
+        return self
+
+    def params(self, mapping):
+        """Add query parameters from a dict or a list of pairs; a list value repeats the name."""
+        items = mapping.items() if hasattr(mapping, "items") else mapping
+        for name, value in items:
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    self.param(name, item)
+            else:
+                self.param(name, value)
+        return self
+
+    def data(self, body):
+        """The request body, str or bytes."""
+        self._req.data(_to_bytes(body))
+        return self
+
+    def json(self, value):
+        """Send `value` as a JSON body (sets Content-Type)."""
+        self._req.json(_json.dumps(value).encode("utf-8"))
+        return self
+
+    def form(self, mapping):
+        """Send a urlencoded form body from a dict or a list of pairs."""
+        cdef vector[pair[string, string]] fields
+        for name, value in (mapping.items() if hasattr(mapping, "items") else mapping):
+            fields.push_back(pair[string, string](str(name).encode("utf-8"), str(value).encode("utf-8")))
+        self._req.form(fields)
         return self
 
     def content_type(self, str type_):
         self._req.content_type(type_.encode("utf-8"))
+        return self
+
+    def basic_auth(self, str user, str password):
+        self._req.basic_auth(user.encode("utf-8"), password.encode("utf-8"))
+        return self
+
+    def bearer(self, str token):
+        self._req.bearer(token.encode("utf-8"))
+        return self
+
+    def cookie(self, str name, str value):
+        self._req.cookie(name.encode("utf-8"), value.encode("utf-8"))
+        return self
+
+    def timeout(self, seconds):
+        """Give up after this many seconds (connect, read and write each)."""
+        self._req.timeout(max(1, int(round(seconds))))
+        return self
+
+    def follow_redirects(self, cbool enable=True):
+        self._req.follow_redirects(enable)
+        return self
+
+    def verify(self, cbool enable):
+        """https: verify the server certificate (default True)."""
+        self._req.verify(enable)
+        return self
+
+    def ca_file(self, str path):
+        """https: trust this CA bundle instead of the system's."""
+        self._req.ca_file(path.encode("utf-8"))
+        return self
+
+    def proxy(self, str host, int port):
+        self._req.proxy(host.encode("utf-8"), port)
+        return self
+
+    def max_response_size(self, size_t nbytes):
+        self._req.max_response_size(nbytes)
         return self
 
     def run(self):
@@ -434,3 +711,10 @@ cdef class Request:
         with nogil:
             res = self._req.run()
         return _make_response(res)
+
+    def run_async(self):
+        """Run the request without blocking the event loop; `await` the result. The blocking call
+        runs on the loop's default executor (a bounded thread pool), so this scales to tens of
+        concurrent requests rather than thousands."""
+        import asyncio
+        return asyncio.get_running_loop().run_in_executor(None, self.run)

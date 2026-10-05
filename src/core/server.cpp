@@ -19,7 +19,11 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <limits>
 #include <stdexcept>
 
 namespace httpp {
@@ -30,6 +34,8 @@ struct server::impl {
     // see a connection while one of its requests is being read and answered.
     std::unique_ptr<detail::event_loop> loop;
     std::atomic<httplib::TaskQueue*> pool{nullptr}; // alive only while listening
+    std::atomic<int> async_timeout{60};
+    server::exception_hook exception_hook; // also used by route_async handlers
 
     // Runs on a worker thread: serve one request, then hand the connection back
     // to the loop (keep-alive) or close it.
@@ -99,7 +105,43 @@ void fill(httplib::Response& hres, const response& res) {
         if (ci_equal(name, "Content-Type")) content_type = value;
         else hres.set_header(name, value);
     }
-    hres.set_content(res.body, content_type);
+    if (!res.file.empty()) {
+        // Known length, read from disk as the response is written (so it also works for async
+        // responses, which are written later from another thread).
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(res.file, ec);
+        auto in = std::make_shared<std::ifstream>(res.file, std::ios::binary);
+        if (ec || !*in) {
+            hres.status = 404;
+            hres.set_content("Not Found", "text/plain");
+            return;
+        }
+        hres.set_content_provider(static_cast<std::size_t>(size), content_type,
+                                  [in](std::size_t offset, std::size_t length, httplib::DataSink& sink) {
+                                      std::string buf(std::min<std::size_t>(length, 64 * 1024), '\0');
+                                      in->clear();
+                                      in->seekg(static_cast<std::streamoff>(offset));
+                                      in->read(&buf[0], static_cast<std::streamsize>(buf.size()));
+                                      const auto got = static_cast<std::size_t>(in->gcount());
+                                      return got > 0 && sink.write(buf.data(), got);
+                                  });
+    } else if (res.stream) {
+        auto next = res.stream;
+        hres.set_chunked_content_provider(content_type, [next](std::size_t offset, httplib::DataSink& sink) {
+            std::string chunk;
+            bool more = false;
+            try {
+                more = next(offset, chunk);
+            } catch (...) {
+                return false; // abort the response; the connection is dropped
+            }
+            if (!chunk.empty() && !sink.write(chunk.data(), chunk.size())) return false;
+            if (!more) sink.done();
+            return true;
+        });
+    } else {
+        hres.set_content(res.body, content_type);
+    }
 }
 
 using http_fn = std::function<void(const httplib::Request&, httplib::Response&)>;
@@ -140,17 +182,43 @@ void server::route(const std::string& method, const std::string& path, handler h
 }
 
 void server::route_async(const std::string& method, const std::string& path, async_handler h) {
-    register_route(impl_->svr, method, path, [h](const httplib::Request& hreq, httplib::Response& hres) {
+    impl* im = impl_.get();
+    register_route(impl_->svr, method, path, [im, h](const httplib::Request& hreq, httplib::Response& hres) {
         request req = to_request(hreq);
         responder r;
         r.impl_ = std::make_shared<responder::impl>();
         r.impl_->detached = hres.detach(); // from here on, `hres` is no longer ours to fill in
+
+        // If nobody answers in time, answer 504 ourselves. The timer holds only a weak reference,
+        // so a response that was sent (and dropped) in the meantime costs nothing.
+        const int timeout = im->async_timeout.load();
+        if (timeout > 0) {
+            std::weak_ptr<responder::impl> weak = r.impl_;
+            im->loop->after(std::chrono::seconds(timeout), [im, weak] {
+                auto strong = weak.lock();
+                if (!strong) return;
+                responder late;
+                late.impl_ = strong;
+                auto answer = [late] {
+                    response err;
+                    err.status = 504;
+                    err.body = "Gateway Timeout";
+                    late.send(err); // no-op if it was answered after all
+                };
+                // The write may block on a slow client: do it on a worker, not on the loop thread.
+                if (auto* queue = im->pool.load(); !queue || !queue->enqueue(answer)) answer();
+            });
+        }
+
         try {
             h(req, r);
         } catch (...) {
             response err;
             err.status = 500;
             err.body = "Internal Server Error";
+            if (im->exception_hook) {
+                try { im->exception_hook(req, err, std::current_exception()); } catch (...) {}
+            }
             r.send(err); // no-op if the handler had already answered
         }
     });
@@ -162,9 +230,90 @@ void server::put(const std::string& path, handler h) { route("PUT", path, std::m
 void server::patch(const std::string& path, handler h) { route("PATCH", path, std::move(h)); }
 void server::del(const std::string& path, handler h) { route("DELETE", path, std::move(h)); }
 
-void server::set_keep_alive_timeout(int seconds) {
+void server::get_async(const std::string& path, async_handler h) { route_async("GET", path, std::move(h)); }
+void server::post_async(const std::string& path, async_handler h) { route_async("POST", path, std::move(h)); }
+void server::put_async(const std::string& path, async_handler h) { route_async("PUT", path, std::move(h)); }
+void server::patch_async(const std::string& path, async_handler h) { route_async("PATCH", path, std::move(h)); }
+void server::del_async(const std::string& path, async_handler h) { route_async("DELETE", path, std::move(h)); }
+
+server& server::before(before_hook hook) {
+    impl_->svr.set_pre_routing_handler(
+        [hook](const httplib::Request& hreq, httplib::Response& hres) {
+            response out;
+            out.status = 0;
+            if (!hook(to_request(hreq), out)) return httplib::Server::HandlerResponse::Unhandled;
+            fill(hres, out);
+            return httplib::Server::HandlerResponse::Handled;
+        });
+    return *this;
+}
+
+server& server::after(after_hook hook) {
+    impl_->svr.set_post_routing_handler([hook](const httplib::Request& hreq, httplib::Response& hres) {
+        response out; // status and headers only: the body is not copied (it may be huge or streamed)
+        out.status = hres.status;
+        out.headers = to_pairs(hres.headers);
+        hook(to_request(hreq), out);
+        hres.status = out.status;
+        hres.headers.clear();
+        for (const auto& [name, value] : out.headers) hres.headers.emplace(name, value);
+    });
+    return *this;
+}
+
+server& server::set_error_handler(error_hook hook) {
+    httplib::Server::Handler handler = [hook](const httplib::Request& hreq, httplib::Response& hres) {
+        // cpp-httplib calls this for EVERY 4xx/5xx, including ones a route handler produced on
+        // purpose (e.g. {"error": "not found"}, 404). Only errors the server made itself, which have
+        // no body yet, are ours to dress up.
+        if (!hres.body.empty()) return;
+        response out;
+        out.status = hres.status;
+        hook(to_request(hreq), out);
+        fill(hres, out);
+    };
+    impl_->svr.set_error_handler(std::move(handler));
+    return *this;
+}
+
+server& server::set_exception_handler(exception_hook hook) {
+    impl_->exception_hook = hook;
+    impl_->svr.set_exception_handler(
+        [hook](const httplib::Request& hreq, httplib::Response& hres, std::exception_ptr ep) {
+            response out;
+            out.status = 500;
+            out.body = "Internal Server Error";
+            hook(to_request(hreq), out, ep);
+            fill(hres, out);
+        });
+    return *this;
+}
+
+server& server::set_thread_pool(std::size_t base, std::size_t max) {
+    if (base == 0) base = 1;
+    if (max < base) max = base * 4;
+    impl_->svr.new_task_queue = [base, max] { return new httplib::ThreadPool(base, max); };
+    return *this;
+}
+server& server::set_read_timeout(int seconds) { impl_->svr.set_read_timeout(seconds); return *this; }
+server& server::set_write_timeout(int seconds) { impl_->svr.set_write_timeout(seconds); return *this; }
+server& server::set_keep_alive_timeout(int seconds) {
     impl_->svr.set_keep_alive_timeout(seconds);
     impl_->loop->set_keep_alive_timeout(seconds);
+    return *this;
+}
+server& server::set_keep_alive_max(std::size_t requests) {
+    impl_->svr.set_keep_alive_max_count(requests == 0 ? 1 : requests);
+    impl_->loop->set_keep_alive_max(requests);
+    return *this;
+}
+server& server::set_max_body(std::size_t bytes) {
+    impl_->svr.set_payload_max_length(bytes == 0 ? (std::numeric_limits<std::size_t>::max)() : bytes);
+    return *this;
+}
+server& server::set_async_timeout(int seconds) {
+    impl_->async_timeout = seconds < 0 ? 0 : seconds;
+    return *this;
 }
 
 void server::serve_directory(const std::string& mount_path, const std::string& local_dir) {

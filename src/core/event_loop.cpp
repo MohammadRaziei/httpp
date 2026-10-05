@@ -114,6 +114,8 @@ struct event_loop::impl {
     asio::steady_timer ticker{io};
     std::atomic<int> keep_alive_sec;
     std::atomic<bool> keep_alive_ok{true};
+    std::atomic<std::size_t> keep_alive_max;
+    std::unordered_set<std::shared_ptr<asio::steady_timer>> timers; // loop thread only
 
     // Touched only on the loop thread.
     std::unordered_set<std::shared_ptr<idle_conn>> idle;
@@ -128,7 +130,7 @@ struct event_loop::impl {
     bool stop_requested = false;
 
     impl(options o, readable_fn r, tick_fn t)
-        : opt(o), on_readable(std::move(r)), on_tick(std::move(t)), keep_alive_sec(o.keep_alive_timeout_sec) {}
+        : opt(o), on_readable(std::move(r)), on_tick(std::move(t)), keep_alive_sec(o.keep_alive_timeout_sec), keep_alive_max(o.keep_alive_max) {}
 
     void begin_close() {
         if (closing) return;
@@ -137,6 +139,8 @@ struct event_loop::impl {
         acceptor.close(ec);
         backoff.cancel();
         ticker.cancel();
+        for (auto& t : timers) t->cancel();
+        timers.clear();
         auto all = std::move(idle);
         idle.clear();
         for (auto& c : all) {
@@ -160,7 +164,7 @@ struct event_loop::impl {
             if (!ec) {
                 std::error_code ignore;
                 s.set_option(tcp::no_delay(true), ignore);
-                watch(std::make_shared<idle_conn>(io, std::move(s), opt.keep_alive_max));
+                watch(std::make_shared<idle_conn>(io, std::move(s), keep_alive_max.load()));
                 accept_next();
                 return;
             }
@@ -210,6 +214,24 @@ event_loop::~event_loop() = default;
 void event_loop::set_keep_alive_timeout(int seconds) { impl_->keep_alive_sec = seconds; }
 
 bool event_loop::keep_alive_supported() const { return impl_->keep_alive_ok; }
+
+void event_loop::set_keep_alive_max(std::size_t requests) { impl_->keep_alive_max = requests == 0 ? 1 : requests; }
+
+void event_loop::after(std::chrono::milliseconds delay, std::function<void()> fn) {
+    auto& m = *impl_;
+    std::lock_guard<std::mutex> lock(m.mu);
+    if (!m.running) return;
+    asio::post(m.io, [&m, delay, fn = std::move(fn)]() mutable {
+        if (m.closing) return;
+        auto timer = std::make_shared<asio::steady_timer>(m.io);
+        m.timers.insert(timer);
+        timer->expires_after(delay);
+        timer->async_wait([&m, timer, fn = std::move(fn)](std::error_code ec) {
+            m.timers.erase(timer);
+            if (!ec) fn();
+        });
+    });
+}
 
 int event_loop::bind(const std::string& host, int port) {
     auto& m = *impl_;

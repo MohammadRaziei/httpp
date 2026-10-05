@@ -3,6 +3,8 @@
 #include "httpp/export.hpp"
 
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace httpp {
 
@@ -14,6 +16,12 @@ namespace httpp {
 class url {
 public:
     static HTTPP_API url parse(const std::string& raw);
+
+    // Percent-encode one URL component (RFC 3986: everything except letters, digits and "-._~"
+    // becomes %XX; a space becomes %20). `build_query` joins encoded pairs as "a=1&b=x%20y".
+    static HTTPP_API std::string encode_component(const std::string& text);
+    static HTTPP_API std::string build_query(const std::vector<std::pair<std::string, std::string>>& params);
+    static HTTPP_API std::string decode_component(const std::string& text); // %XX -> byte; "+" stays "+"
 
     bool valid() const { return valid_; }
     const std::string& scheme() const { return scheme_; }

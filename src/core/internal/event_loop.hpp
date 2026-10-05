@@ -13,6 +13,7 @@
 // This header deliberately includes neither Asio nor cpp-httplib (both pull in
 // the Windows socket headers, which conflict if mixed in one translation unit).
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -59,6 +60,12 @@ public:
     bool give_back(native_socket sock, std::size_t remaining);
 
     void set_keep_alive_timeout(int seconds);
+    void set_keep_alive_max(std::size_t requests); // applies to connections accepted from now on
+
+    // Thread-safe. Runs `fn` on the loop thread after `delay` (so `fn` must not block: hand real
+    // work to a pool). Pending timers are dropped when the loop stops. Does nothing if the loop
+    // is not running.
+    void after(std::chrono::milliseconds delay, std::function<void()> fn);
 
     // False once the platform turned out unable to take a socket back into the
     // loop (Windows older than 8.1, or Wine): from then on every connection is told
