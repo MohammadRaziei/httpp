@@ -21,7 +21,6 @@
 #include <cctype>
 #include <chrono>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
@@ -108,10 +107,12 @@ void fill(httplib::Response& hres, const response& res) {
     if (!res.file.empty()) {
         // Known length, read from disk as the response is written (so it also works for async
         // responses, which are written later from another thread).
-        std::error_code ec;
-        const auto size = std::filesystem::file_size(res.file, ec);
-        auto in = std::make_shared<std::ifstream>(res.file, std::ios::binary);
-        if (ec || !*in) {
+        // ponytail: size via ifstream (no <filesystem>: it needs macOS >= 10.15 and the wheels target 10.13).
+        auto in = std::make_shared<std::ifstream>(res.file, std::ios::binary | std::ios::ate);
+        const std::streamoff size = *in ? static_cast<std::streamoff>(in->tellg()) : -1;
+        if (size >= 0) in->seekg(0);
+        // a directory opens fine but cannot be read: peek turns that into a 404
+        if (size < 0 || (size > 0 && in->peek() == std::ifstream::traits_type::eof())) {
             hres.status = 404;
             hres.set_content("Not Found", "text/plain");
             return;
