@@ -11,11 +11,14 @@ import pytest
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "python"
 ALL = sorted(EXAMPLES.glob("[0-9][0-9]_*.py"))
-OFFLINE = ["09_client.py", "10_request_builder.py", "11_download.py"]
+OFFLINE = [
+    "09_client.py", "10_request_builder.py", "11_download.py", "12_hooks_and_settings.py",
+    "13_streaming_and_files.py", "14_async_client.py", "15_progress_and_url.py",
+]
 
 
 def test_examples_are_found():
-    assert len(ALL) >= 11
+    assert len(ALL) >= 15
 
 
 @pytest.mark.parametrize("path", ALL, ids=lambda p: p.name)

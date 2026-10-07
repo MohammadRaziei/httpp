@@ -33,8 +33,8 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - [Features](#features)
 - [Install](#install)
 - [Python](#python)
-  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [Running the server](#running-the-server)
-  - [Client](#client) · [Request builder](#request-builder) · [Downloads](#downloads)
+  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [Streaming and files](#streaming-and-files) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Running the server](#running-the-server)
+  - [Client](#client) · [Errors](#errors) · [Request builder](#request-builder) · [Sessions and async](#sessions-and-async) · [Downloads](#downloads) · [Progress bars and URLs](#progress-bars-and-urls)
 - [Command line](#command-line)
 - [C++](#c)
 - [Migrating from libcurl](#migrating-from-libcurl)
@@ -56,7 +56,12 @@ installed system-wide (no `apt`, `brew` or `choco`).
   almost no threads.
 - **Python, C++ and a CLI from the same wheel.** One binary core, three front ends.
 - **HTTP and HTTPS** on the client (mbedtls, vendored).
-- **Downloads** with a tqdm-style progress bar (drawn on stderr, so piped output stays clean).
+- **Hooks, streaming and files** on the server: `before_request` / `after_request`, error and exception
+  handlers, generators as streamed bodies, files sent from disk, cookies and redirects.
+- **A client with a real error model**: `res.json()`, `res.error`, `raise_for_status()`, typed
+  exceptions, sessions, an `AsyncClient`, timeouts, redirects, TLS verification.
+- **Downloads** that can resume, with a tqdm-style progress bar (drawn on stderr, so piped output
+  stays clean). The features above exist in both C++ and Python, with similar APIs.
 - **A migration path for `libcurl` code**: `httpp/curl_compat.h` provides a `curl_easy_*` subset.
 - **No system dependencies.** Nothing to install system-wide; the only build-time download is the
   header-only Asio (about 3 MB, pinned by hash), which can be supplied locally instead.
@@ -122,7 +127,9 @@ A handler may declare any of its path parameters by name, plus `request`. It ret
 | `dict` / `list` | `200`, `application/json` |
 | `None` | `200`, empty body |
 | `(body, status)` | same, with your status code |
-| `(body, status, headers)` | same, with extra headers (a `Content-Type` you set wins) |
+| `(body, status, headers)` | same, with extra headers: a dict, or a list of `(name, value)` pairs when a name repeats, e.g. several `Set-Cookie` (a `Content-Type` you set wins) |
+| a generator / async generator | `200`, sent in chunks as it produces `str` or `bytes` pieces (see [Streaming and files](#streaming-and-files)) |
+| `httpp.file(path)` | `200`, the file streamed from disk, `Content-Type` guessed from its extension |
 
 The `request` object:
 
@@ -133,6 +140,7 @@ The `request` object:
 | `headers` | `dict`, names lower-cased (`request.headers["x-token"]`) |
 | `query` | `dict` of `?a=1` parameters |
 | `path_params` | `dict` of captured path parameters (all `str`) |
+| `cookies` | `dict` parsed from the `Cookie` header (first value wins) |
 
 For repeated headers or query names the first value wins.
 
@@ -141,6 +149,105 @@ Error behavior:
 - Return a status yourself for expected failures: `return {"error": "not found"}, 404`.
 - A path parameter annotated `int`/`float` that does not parse answers **422** automatically.
 - An uncaught exception answers a generic **500**; the traceback goes to stderr, never to the client.
+  `@app.exception_handler(...)` and `@app.error_handler(...)` let you shape these answers (see
+  [Hooks and error handling](#hooks-and-error-handling)).
+- A response header whose name or value contains a line break is refused (a 500), never sent.
+
+### Streaming and files
+
+```python
+import asyncio, httpp
+
+@app.get("/events")
+async def events():
+    async def pieces():
+        for n in range(3):
+            await asyncio.sleep(1)
+            yield f"data: {n}\n\n"            # str or bytes
+    return pieces(), 200, {"Content-Type": "text/event-stream"}
+
+@app.get("/report")
+def report():
+    return httpp.file("/srv/reports/latest.pdf")      # streamed from disk, length known
+
+@app.get("/old")
+def old():
+    return httpp.redirect("/new", 301)                # default status 302
+
+@app.get("/login")
+def login():
+    return "welcome", 200, [httpp.set_cookie("session", token, max_age=3600, same_site="lax"),
+                            httpp.set_cookie("theme", "dark", http_only=False)]
+```
+
+- A **generator** (or **async generator**, in a plain or an `async def` route) is sent chunked, one
+  piece at a time, so the whole body never sits in memory. Without a `Content-Type` of yours it is
+  `text/plain; charset=utf-8`. A generator that raises midway **drops the connection**: the client sees a
+  truncated body rather than a clean end, and the traceback goes to stderr. If the client hangs up, the
+  generator is released.
+- `httpp.file(path)` takes an optional `content_type`. A missing or unreadable file answers **404**.
+  `path` is trusted: never build it from user input (path traversal); use `serve_directory` for that.
+- `httpp.set_cookie` defaults to `Path=/; HttpOnly`, like the C++ helper. A name or value that is not
+  cookie-safe raises `ValueError` (percent-encode spaces, quotes, commas and semicolons yourself).
+
+### Settings
+
+```python
+app = Server(threads=8, read_timeout=10, max_body=5_000_000, handler_timeout=30)
+```
+
+| Argument | Meaning (leave it out to keep the default) |
+|---|---|
+| `threads`, `max_threads` | worker threads for plain `def` handlers: `threads` are kept, up to `max_threads` are used under load. Default: about one per core, at least 8, growing to 4x that |
+| `read_timeout`, `write_timeout`, `keep_alive_timeout` | seconds to read a request, write a response, keep an idle connection (default 5 each) |
+| `keep_alive_max` | requests served per connection (default 100) |
+| `max_body` | largest request body in bytes, refused above it with a **413** (a client still sending a huge body may see the connection closed instead); `0` = no limit |
+| `handler_timeout` | seconds an `async def` handler may take (default **60**, `None` = never): after that the coroutine is **cancelled** and the client gets a **504** |
+
+`handler_timeout` only covers `async def` handlers: a plain `def` handler cannot be cancelled. The time
+spent streaming the body afterwards is not counted. The same settings exist as methods
+(`app.set_read_timeout(10)`, ...), each returning `app`, mirroring the C++ `httpp::server`.
+
+### Hooks and error handling
+
+```python
+@app.on_startup
+def starting():
+    print("about to listen")
+
+@app.before_request
+def require_key(request):
+    if request.headers.get("x-key") != "secret":
+        return {"error": "forbidden"}, 403          # answers here; the route never runs
+
+@app.after_request
+def stamp(request, response):
+    response.set_header("X-Served-By", "httpp")      # status and headers only
+
+@app.error_handler(404)
+def not_found(request):
+    return {"error": "no such page", "path": request.path}
+
+@app.exception_handler(ValueError)
+def bad_value(request, exc):
+    return {"error": str(exc)}, 400
+```
+
+- `before_request` returns `None` to carry on, or anything a route may return to answer right there.
+  `after_request` gets a `ResponseHead` (`status`, `headers` as a list of pairs, plus `header()`,
+  `set_header()`, `add_header()`); the body is not passed, because it may be a huge file or a stream.
+- Both run for **every** request, static files and unknown paths included, and you can register several:
+  they run in registration order. Hooks may be `async def`, but they hold their worker thread while they
+  await. A hook that raises answers a **500**.
+- `error_handler(404, ...)` dresses only errors **the server** makes itself (no such route, body too
+  large, ...), never a response a route returned on purpose, and it keeps the original status unless
+  you return another. A handler that raises leaves the plain error as it was.
+- `exception_handler(Exc, ...)` runs when a route raises; the most specific class wins, the status
+  defaults to 500, and an exception nobody handles is still the generic 500. A handler that raises
+  itself is a generic 500 too.
+- `on_startup` / `on_shutdown` (plain or `async def`) run around `listen()`: startup before the server
+  listens, shutdown after it stopped, in reverse order. A failing startup hook stops the launch; a failing
+  shutdown hook is logged and the others still run.
 
 ### Running the server
 
@@ -154,14 +261,15 @@ if __name__ == "__main__":
 - It blocks until `stop()` is called or you press **Ctrl+C**.
 - It raises `OSError` if the address cannot be bound (for example, the port is already taken).
   Two httpp servers cannot share a port.
-- Plain `def` handlers run on the server's thread pool (at most a few dozen threads, depending on the
-  machine), so a handler that blocks holds its thread for as long as it blocks.
+- Plain `def` handlers run on the server's thread pool (see [Settings](#settings)), so a handler that
+  blocks holds its thread for as long as it blocks.
 - `async def` handlers run on **one shared asyncio event loop** (a background thread, started on first
   use) and give their worker thread back as soon as they start. While they `await`, no thread is held,
   so far more requests can be in flight than there are threads: on a 1-core test machine, 400
   concurrent requests that each `await asyncio.sleep(0.5)` all finish in about 0.7 s. Because every
   request shares the same loop, loop-bound objects (an `aiohttp.ClientSession`, an async DB pool) can be
-  created once and reused.
+  created once and reused. A blocking call inside an `async def` handler blocks **every** async route,
+  since they all share that loop.
 - **Connections are event-driven** on every platform: idle connections, including HTTP keep-alive
   ones, wait in an Asio event loop (epoll on Linux, kqueue on macOS, IOCP on Windows) on the listening
   thread and cost no worker thread. A worker is used only while a request is actually being read and
@@ -179,23 +287,47 @@ auto-reload or multi-process mode.
 ### Client
 
 ```python
-from httpp import Client
+import httpp
 
-res = Client.fetch("http://example.com/")          # full URL in one call
-print(res.status, res.ok)                          # 200 True
-print(res.body)                                    # body as str
-print(res.header("content-type"))                  # case-insensitive, or None
-print(res.headers)                                 # [(name, value), ...]
+res = httpp.get("http://example.com/items", params={"page": 2}, timeout=10)
+res = httpp.post("http://localhost:8000/items", json={"name": "apple"}, token="abc")
 
-client = Client("example.com", 80)                 # or host + port
-print(client.get("/index.html").status)
+print(res.status, res.ok)                  # 200 True
+print(res.json())                          # parsed body; res.text is str, res.content is bytes
+print(res.header("content-type"))          # case-insensitive, or None
+print(res.headers)                         # [(name, value), ...]
 ```
 
-A non-2xx status is not an exception; check `res.ok` or `res.status`.
+`httpp.get`, `head`, `options`, `post`, `put`, `patch`, `delete` and `httpp.request(method, url, ...)`
+take the same options: `params`, `headers`, `data`, `json`, `form`, `content_type`, `timeout`,
+`follow_redirects`, `auth=(user, password)`, `token`, `cookies`, `verify`, `ca_file`, `proxy=(host, port)`.
+
+- Timeouts are whole seconds (rounded, minimum 1). Redirects are **not** followed unless you ask
+  (`follow_redirects=True`); downloads, by contrast, do follow them.
+- `https://` verifies the certificate by default; `verify=False` or `ca_file="ca.pem"` change that.
+- `Client.fetch(url)` and `Client(host, port).get(path)` still work.
+
+### Errors
+
+A non-2xx status is a response, not an error, and nothing raises unless you ask:
+
+```python
+res = httpp.get(url, timeout=5)
+if res.failed:                              # no HTTP response at all
+    print(res.error, res.error_message)     # 'connection', 'timeout', 'tls', ...
+
+data = httpp.get(url).raise_for_status().json()   # raises, or returns res so calls chain
+```
+
+`res.error` is `None` or one of `connection`, `timeout`, `tls`, `too_many_redirects`, `too_large`,
+`invalid_url`, `unsupported_method`, `canceled`, `other`; `res.status` is `0` when there was no response.
+`raise_for_status()` raises `httpp.HTTPError` for a 4xx/5xx (with `.response`) and, when nothing
+arrived, `httpp.RequestError` or its subclass `Timeout`, `TLSError`, `TooManyRedirects`, `InvalidURL`
+(also a `ValueError`). All derive from `httpp.Error`.
 
 ### Request builder
 
-A small, curl-flavored fluent builder for the common cases (`-X`, `-H`, `-d`):
+A fluent builder for one-off requests, with the common curl options (`-X`, `-H`, `-d`, `-u`, `-L`, `-k`, ...):
 
 ```python
 from httpp import Request
@@ -204,26 +336,84 @@ res = (
     Request("http://example.com/api")
     .method("POST")
     .header("X-Token", "abc")
-    .content_type("application/json")
-    .data('{"a": 1}')
+    .param("v", "2")
+    .json({"a": 1})
+    .bearer(token)
+    .timeout(10)
+    .follow_redirects()
     .run()
 )
+res = await Request(url).run_async()
 ```
 
-Without `.content_type()`, data is sent as `application/x-www-form-urlencoded`, like `curl -d`.
+Methods: `method`, `header`, `param` / `params`, `data`, `json`, `form`, `content_type`, `basic_auth`,
+`bearer`, `cookie`, `timeout`, `follow_redirects`, `verify`, `ca_file`, `proxy`, `max_response_size`,
+then `run()` or `run_async()`. Without `.content_type()`, `data` is sent as
+`application/x-www-form-urlencoded`, like `curl -d`.
+
+### Sessions and async
+
+```python
+client = httpp.Client("http://localhost:8000/api", headers={"X-Token": "abc"}, timeout=10)
+client.get("/items", params={"page": 2}).json()
+client.post("/items", json={"name": "apple"}).raise_for_status()
+
+async with httpp.AsyncClient("http://localhost:8000", max_connections=16) as c:
+    replies = await asyncio.gather(*(c.get(f"/items/{i}") for i in range(100)))
+```
+
+A `Client` keeps its connection alive between calls (no new TCP/TLS handshake) and its calls take turns.
+`AsyncClient` is a pool of such clients, at most `max_connections`, each request waiting its turn.
+
+**What "async" means here:** every blocking call runs on the event loop's default thread pool
+(`Request.run_async()` and `Download.run_async()` too). The loop is never blocked, but this is *not*
+non-blocking socket I/O, so expect tens of concurrent requests, not thousands. The C++ `async_client`
+works the same way.
 
 ### Downloads
 
 ```python
 from httpp import download, Download
 
-result = download("http://example.com/big.zip", "big.zip")      # progress bar on stderr
-result = download(url, "big.zip", show_progress=False)
-result = Download(url).output("big.zip").disable_progress().run()
+result = download("http://example.com/big.zip", "big.zip")        # progress bar on stderr
+result = Download(url, "big.zip").resume().disable_progress().run()
+result = await Download(url, "big.zip").resume().run_async()      # doesn't block the event loop
 
 if not result.ok:
     print(result.status, result.error)
 ```
+
+| Builder method | Effect |
+|---|---|
+| `output(path)` | where to save (or pass it to `Download(url, path)`) |
+| `enable_progress()` / `disable_progress()` | the progress bar (on by default) |
+| `follow_redirects(False)` | treat a 3xx as the final answer; redirects are followed by default |
+| `resume()` | `wget -c`: a complete `dest` is **skipped** (`result.skipped`, only a HEAD request is sent); otherwise bytes go to `dest.part`, continued with a `Range` request if it already has some, and renamed to `dest` only when complete, so `dest` is never left partial. A server that ignores `Range` gets a full restart; one that can't answer HEAD and Range degrades to a fresh download |
+| `force()` | with `resume()`: ignore existing files and start from byte 0 |
+
+`result` has `ok`, `status` (`0` when no response arrived), `error` and `skipped`. A failed download leaves
+no file at `dest`. There is no timeout option on downloads yet, in C++ or Python.
+
+### Progress bars and URLs
+
+```python
+from httpp import URL, progress
+
+for i in progress.range(100, "working"):          # like tqdm.trange, drawn on stderr
+    ...
+
+bar = progress.bar(total, "copying")
+bar.update(n)            # or bar.set_progress(position); bar.finish()
+
+u = URL.parse("https://example.com:8443/a/b?x=1")
+u.valid, u.scheme, u.host, u.port, u.path, u.query       # parsing never raises: check .valid
+URL.encode_component("a b/é")                  # 'a%20b%2F%C3%A9'
+URL.decode_component("a%20b+c")                # 'a b+c'  ("+" stays "+")
+URL.build_query({"q": "x y", "n": 2})          # 'q=x%20y&n=2'
+```
+
+`URL` is the same parser the client uses; `build_query` takes a dict or a list of pairs
+(values `str`, `bytes`, `int` or `float`).
 
 ## Command line
 
@@ -360,8 +550,12 @@ only `pip install httpp`.
 | [`09_client.py`](examples/python/09_client.py) | `Client.get` and `Client.fetch` |
 | [`10_request_builder.py`](examples/python/10_request_builder.py) | method, headers, body |
 | [`11_download.py`](examples/python/11_download.py) | downloads and progress |
+| [`12_hooks_and_settings.py`](examples/python/12_hooks_and_settings.py) | settings, `before`/`after` hooks, error and exception handlers, startup/shutdown |
+| [`13_streaming_and_files.py`](examples/python/13_streaming_and_files.py) | generators, `httpp.file`, redirects, cookies |
+| [`14_async_client.py`](examples/python/14_async_client.py) | `AsyncClient`, awaitable downloads, the handler timeout (504) |
+| [`15_progress_and_url.py`](examples/python/15_progress_and_url.py) | `progress.range` / `progress.bar` and `URL` |
 
-The client examples (09 to 11) start their own local server, so they run offline.
+The client examples (09 to 15) start their own local server, so they run offline.
 
 ## Build from source
 
@@ -387,8 +581,9 @@ builds should pass the first option. See [`src/third_party/README.md`](src/third
 
 httpp is **alpha**: the API can still change between minor versions. Current limitations:
 
-- The Python `Request` builder supports method, headers, body and content type; timeouts, redirect
-  control, resumable downloads and async downloads are C++-only for now.
+- The async client is backed by a thread pool, not non-blocking sockets (see
+  [Sessions and async](#sessions-and-async)); downloads have no timeout option; the server's hooks hold
+  a worker thread while they await; a plain `def` handler cannot be cancelled by `handler_timeout`.
 - A request that has only partly arrived (a slow client still sending its headers or body) holds a
   worker thread until it completes or times out; only *idle* connections are free. HTTP/1.1 only; the
   server does not speak TLS.

@@ -152,7 +152,39 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         cpp_download& output(string dest_path) except +
         cpp_download& enable_progress(cbool enable) except +
         cpp_download& disable_progress() except +
+        cpp_download& follow_redirects(cbool enable) except +
+        cpp_download& resume(cbool enable) except +
+        cpp_download& force(cbool enable) except +
         download_result run() except + nogil
+
+
+cdef extern from "httpp/progress.hpp" namespace "httpp::progress":
+    cdef cppclass cpp_bar "httpp::progress::bar":
+        cpp_bar(size_t total, string description) except +
+        void update(size_t n) except +
+        void set_progress(size_t current) except +
+        void finish() except +
+        size_t total()
+        size_t current()
+        cbool is_finished()
+
+
+cdef extern from "httpp/url.hpp" namespace "httpp":
+    cdef cppclass cpp_url "httpp::url":
+        @staticmethod
+        cpp_url parse(const string& raw) except +
+        @staticmethod
+        string encode_component(const string& text) except +
+        @staticmethod
+        string decode_component(const string& text) except +
+        @staticmethod
+        string build_query(const vector[pair[string, string]]& params) except +
+        cbool valid()
+        const string& scheme()
+        const string& host()
+        int port()
+        const string& path()
+        const string& query()
 
 
 cdef extern from "httpp/client.hpp" namespace "httpp::client":
@@ -745,15 +777,22 @@ cdef class Server:
 
 
 cdef class DownloadResult:
-    """Result of Download.run()."""
+    """Result of Download.run(): ok, status (0 if no response), error (text, empty when ok),
+    skipped (True when resume() found the complete file and made no transfer; ok is True too)."""
     cdef cbool _ok
+    cdef cbool _skipped
     cdef int _status
     cdef bytes _error
 
-    def __init__(self, cbool ok, int status, bytes error):
+    def __init__(self, cbool ok, int status, bytes error, cbool skipped=False):
         self._ok = ok
         self._status = status
         self._error = error
+        self._skipped = skipped
+
+    @property
+    def skipped(self):
+        return self._skipped
 
     @property
     def ok(self):
@@ -773,6 +812,12 @@ cdef class Download:
 
         Download(url, path).run()
         Download(url).output(path).enable_progress().run()
+        Download(url, path).resume().run()      # wget -c: skip a complete file, continue a .part
+        await Download(url, path).run_async()   # doesn't block the event loop
+
+    follow_redirects (on by default; off = a 3xx is the final answer), resume (off by default;
+    needs a server that answers HEAD and Range, else it quietly degrades to a fresh download),
+    force (with resume: ignore existing files and start from byte 0).
     """
     cdef cpp_download* _dl
 
@@ -795,11 +840,135 @@ cdef class Download:
         self._dl.disable_progress()
         return self
 
+    def follow_redirects(self, cbool enable=True):
+        self._dl.follow_redirects(enable)
+        return self
+
+    def resume(self, cbool enable=True):
+        self._dl.resume(enable)
+        return self
+
+    def force(self, cbool enable=True):
+        self._dl.force(enable)
+        return self
+
     def run(self):
         cdef download_result res
         with nogil:
             res = self._dl.run()
-        return DownloadResult(res.ok, res.status, res.error)
+        return DownloadResult(res.ok, res.status, res.error, res.skipped)
+
+    def run_async(self):
+        """Run the download without blocking the event loop; `await` the DownloadResult. Like
+        Request.run_async, the blocking call runs on the loop's default thread-pool executor."""
+        import asyncio
+        return asyncio.get_running_loop().run_in_executor(None, self.run)
+
+
+cdef class Bar:
+    """tqdm-like terminal progress bar with a known total, drawn on stderr (so piping a program's
+    output stays clean). Also available as httpp.progress.bar:
+
+        bar = httpp.progress.bar(100, "working")
+        bar.update()            # advance by 1 (or update(n))
+        bar.set_progress(50)    # absolute position, clamped to total
+        bar.finish()
+    """
+    cdef cpp_bar* _bar
+
+    def __init__(self, size_t total, str description=""):
+        self._bar = new cpp_bar(total, description.encode("utf-8"))
+
+    def __dealloc__(self):
+        if self._bar is not NULL:
+            del self._bar
+
+    def update(self, size_t n=1):
+        self._bar.update(n)
+
+    def set_progress(self, size_t current):
+        self._bar.set_progress(current)
+
+    def finish(self):
+        self._bar.finish()
+
+    @property
+    def total(self):
+        return self._bar.total()
+
+    @property
+    def current(self):
+        return self._bar.current()
+
+    @property
+    def finished(self):
+        return self._bar.is_finished()
+
+
+cdef bytes _query_text(object value):
+    if isinstance(value, str):
+        return value.encode("utf-8")
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, (int, float)):
+        return str(value).encode("utf-8")
+    raise TypeError(f"a query name or value must be str, bytes, int or float, not {type(value).__name__}")
+
+
+cdef class URL:
+    """httpp's view of an http(s) URL (the same parser the client uses), plus the percent-encoding
+    helpers:
+
+        u = httpp.URL.parse("https://example.com:8443/a/b?x=1")
+        u.valid, u.scheme, u.host, u.port, u.path, u.query
+        httpp.URL.encode_component("a b/é")        # 'a%20b%2F%C3%A9'
+        httpp.URL.decode_component("a%20b+c")      # 'a b+c'  ("+" stays "+")
+        httpp.URL.build_query({"q": "x y", "n": 2})  # 'q=x%20y&n=2'
+
+    Parsing never raises: check `valid`.
+    """
+    cdef readonly bint valid
+    cdef readonly str scheme
+    cdef readonly str host
+    cdef readonly int port
+    cdef readonly str path
+    cdef readonly str query
+
+    def __init__(self, str raw):
+        cdef cpp_url u = cpp_url.parse(raw.encode("utf-8"))
+        self.valid = u.valid()
+        self.scheme = u.scheme().decode("utf-8", "replace")
+        self.host = u.host().decode("utf-8", "replace")
+        self.port = u.port()
+        self.path = u.path().decode("utf-8", "replace")
+        self.query = u.query().decode("utf-8", "replace")
+
+    @staticmethod
+    def parse(str raw):
+        return URL(raw)
+
+    @staticmethod
+    def encode_component(str text):
+        """Percent-encode one component: all but letters, digits and "-._~" becomes %XX."""
+        return cpp_url.encode_component(text.encode("utf-8")).decode("ascii")
+
+    @staticmethod
+    def decode_component(str text):
+        """%XX -> byte, read as UTF-8 (a byte that isn't valid UTF-8 becomes U+FFFD)."""
+        return cpp_url.decode_component(text.encode("utf-8")).decode("utf-8", "replace")
+
+    @staticmethod
+    def build_query(params):
+        """dict or iterable of (name, value) -> 'a=1&b=x%20y', each part encoded."""
+        cdef vector[pair[string, string]] pairs
+        for name, value in (params.items() if hasattr(params, "items") else params):
+            pairs.push_back(pair[string, string](_query_text(name), _query_text(value)))
+        return cpp_url.build_query(pairs).decode("ascii")
+
+    def __repr__(self):
+        if not self.valid:
+            return "<URL invalid>"
+        return f"<URL {self.scheme}://{self.host}:{self.port}{self.path}{'?' + self.query if self.query else ''}>"
 
 
 def download(str url, str dest_path, cbool show_progress=True):

@@ -4,6 +4,7 @@ import asyncio
 import socket
 import threading
 import time
+import weakref
 from contextlib import contextmanager
 
 import pytest
@@ -518,19 +519,27 @@ def test_a_stream_that_fails_midway_drops_the_connection_instead_of_ending_clean
 
 
 def test_a_streamed_generator_is_released_when_the_response_ends_or_the_client_hangs_up():
-    closed = []
+    # What must hold is that the generator object is dropped. Its `finally` can only run if its body
+    # ever started: a client that hangs up right after the headers means the server never pulls a
+    # piece, and a generator that never started is simply discarded (so `finally` is no signal).
+    info = {}
     app = Server()
 
     def tracked(name, endless):
+        state = info[name] = {"started": False, "finally": False, "freed": threading.Event()}
+
         def gen():
+            state["started"] = True
             try:
                 yield "a;"
                 while endless:
                     yield "x" * 65536
             finally:
-                closed.append(name)  # runs when the generator is closed / dropped
+                state["finally"] = True
 
-        return gen()
+        g = gen()
+        weakref.finalize(g, state["freed"].set)
+        return g
 
     app.get("/done")(lambda: tracked("done", False))
     app.get("/endless")(lambda: tracked("endless", True))
@@ -544,14 +553,17 @@ def test_a_streamed_generator_is_released_when_the_response_ends_or_the_client_h
         sock = socket.create_connection(("127.0.0.1", port), timeout=3)
         sock.sendall(b"GET /endless HTTP/1.1\r\nHost: x\r\n\r\n")
         sock.recv(100_000)
-        sock.close()  # hang up in the middle of an endless body
-        deadline = time.monotonic() + 10
-        while len(closed) < 2 and time.monotonic() < deadline:
-            time.sleep(0.05)
+        sock.close()  # hang up (often before the first piece was even pulled)
+        for name in ("done", "endless"):
+            assert info[name]["freed"].wait(10), f"the {name} generator was never released"
+        deadline = time.monotonic() + 5  # weakref callbacks fire just before the generator is closed
+        while info["endless"]["started"] and not info["endless"]["finally"] and time.monotonic() < deadline:
+            time.sleep(0.02)
     finally:
         app.stop()
         th.join()
-    assert sorted(closed) == ["done", "endless"]
+    assert info["done"]["started"] and info["done"]["finally"]
+    assert not info["endless"]["started"] or info["endless"]["finally"]
 
 
 # --- timeouts and cancellation ---------------------------------------------------------------

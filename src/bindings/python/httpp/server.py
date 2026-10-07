@@ -430,7 +430,8 @@ class Server(_Server):
     threads / max_threads: worker threads for sync handlers (default: about one per core, at
     least 8; under load up to max_threads, default 4 x threads).  read_timeout / write_timeout /
     keep_alive_timeout: seconds (defaults 5).  keep_alive_max: requests per connection (100).
-    max_body: largest request body in bytes, 413 above it (0 = no limit).  handler_timeout:
+    max_body: largest request body in bytes, refused above it with a 413 (a client still
+    sending a huge body may see the connection closed instead); 0 = no limit.  handler_timeout:
     seconds an async handler may take before it is cancelled and answered with a 504 (default 60,
     None = never).  Everything left as None keeps the C++ default.
     """
