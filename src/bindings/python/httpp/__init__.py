@@ -25,7 +25,7 @@ if _sys.platform == "win32" and hasattr(_os, "add_dll_directory"):
 
 # Import the compiled Cython module
 from .httpp_cy import Client, download, Download, DownloadResult, Request, Response
-from .server import Server, ServerRequest
+from .server import Server, ServerRequest, ResponseHead, file, redirect, set_cookie
 from ._http import AsyncClient, request, get, head, options, post, put, patch, delete
 from .errors import Error, HTTPError, RequestError, Timeout, TLSError, TooManyRedirects, InvalidURL
 
@@ -49,7 +49,7 @@ def get_cmake_dir():
 
 __all__ = [
     "Client", "AsyncClient", "Request", "Response", "request", "get", "head", "options", "post", "put",
-    "patch", "delete", "Server", "ServerRequest", "download", "Download", "DownloadResult",
+    "patch", "delete", "Server", "ServerRequest", "ResponseHead", "file", "redirect", "set_cookie", "download", "Download", "DownloadResult",
     "Error", "HTTPError", "RequestError", "Timeout", "TLSError", "TooManyRedirects", "InvalidURL",
     "get_include_dir", "get_lib_dir", "get_cmake_dir",
 ]

@@ -12,7 +12,10 @@ from libcpp.string cimport string
 from libcpp cimport bool as cbool
 from libcpp.vector cimport vector
 from libcpp.pair cimport pair
+from libc.stddef cimport size_t
+from cpython.ref cimport Py_INCREF, Py_DECREF
 
+import os
 import traceback
 
 
@@ -22,6 +25,7 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         string body
         vector[pair[string, string]] headers
         string error_message
+        string file  # server side: stream the body from this path
         cbool ok()
         const char* error_name()
 
@@ -65,11 +69,25 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
     cdef cppclass cpp_async_handler "httpp::async_handler":
         pass
 
+    cdef cppclass cpp_before_hook "httpp::server::before_hook":
+        pass
+
     cdef cppclass cpp_server "httpp::server":
         cpp_server() except +
         void route(string method, string path, cpp_handler h) except +
         void route_async(string method, string path, cpp_async_handler h) except +
         void serve_directory(string mount_path, string local_dir) except +
+        # after_hook / error_hook are the same std::function type as handler, so cpp_handler stands for them.
+        cpp_server& before(cpp_before_hook h) except +
+        cpp_server& after(cpp_handler h) except +
+        cpp_server& set_error_handler(cpp_handler h) except +
+        cpp_server& set_thread_pool(size_t base, size_t max) except +
+        cpp_server& set_read_timeout(int seconds) except +
+        cpp_server& set_write_timeout(int seconds) except +
+        cpp_server& set_keep_alive_timeout(int seconds) except +
+        cpp_server& set_keep_alive_max(size_t requests) except +
+        cpp_server& set_max_body(size_t nbytes) except +
+        cpp_server& set_async_timeout(int seconds) except +
         int bind_to_any_port(string host) except +
         cbool listen_after_bind() except + nogil
         cbool listen(string host, int port) except + nogil
@@ -81,6 +99,26 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
 cdef extern from *:
     """
     #include "httpp/server.hpp"
+    #include <memory>
+    #include <stdexcept>
+    typedef bool (*httpp_py_before_trampoline)(void*, const httpp::request&, httpp::response&);
+    static httpp::server::before_hook httpp_py_make_before(httpp_py_before_trampoline fn, void* ctx) {
+        return [fn, ctx](const httpp::request& q, httpp::response& r) { return fn(ctx, q, r); };
+    }
+    // Body pulled piece by piece from Python. `ctx` is an owned reference: the shared_ptr (copied along
+    // with the std::function) releases it once the last copy is gone, wherever that happens.
+    // next(): 1 = piece in `chunk`, 0 = done, <0 = failed (-> throw -> httpp drops the connection).
+    typedef int (*httpp_py_stream_fn)(void*, std::size_t, std::string&);
+    typedef void (*httpp_py_release_fn)(void*);
+    static void httpp_py_set_stream(httpp::response& res, httpp_py_stream_fn next, httpp_py_release_fn release, void* ctx) {
+        std::shared_ptr<void> keep(ctx, release);
+        res.stream = [next, keep](std::size_t offset, std::string& chunk) {
+            const int r = next(keep.get(), offset, chunk);
+            if (r < 0) throw std::runtime_error("python stream failed");
+            return r > 0;
+        };
+    }
+    static void httpp_py_reset(httpp::response& res) { res = httpp::response(); }
     typedef void (*httpp_py_trampoline)(void*, const httpp::request&, httpp::response&);
     static httpp::handler httpp_py_make_handler(httpp_py_trampoline fn, void* ctx) {
         return [fn, ctx](const httpp::request& q, httpp::response& r) { fn(ctx, q, r); };
@@ -94,6 +132,12 @@ cdef extern from *:
     cpp_handler make_handler "httpp_py_make_handler"(trampoline_fn fn, void* ctx)
     ctypedef void (*async_trampoline_fn "httpp_py_async_trampoline")(void*, const cpp_request&, const cpp_responder&) noexcept nogil
     cpp_async_handler make_async_handler "httpp_py_make_async_handler"(async_trampoline_fn fn, void* ctx)
+    ctypedef cbool (*before_trampoline_fn "httpp_py_before_trampoline")(void*, const cpp_request&, response&) noexcept nogil
+    cpp_before_hook make_before "httpp_py_make_before"(before_trampoline_fn fn, void* ctx)
+    ctypedef int (*stream_fn "httpp_py_stream_fn")(void*, size_t, string&) noexcept nogil
+    ctypedef void (*release_fn "httpp_py_release_fn")(void*) noexcept nogil
+    void reset_response "httpp_py_reset"(response& res)
+    void set_stream "httpp_py_set_stream"(response& res, stream_fn next, release_fn release, void* ctx)
 
 
 cdef extern from "httpp/download.hpp" namespace "httpp":
@@ -411,20 +455,60 @@ cdef tuple _request_args(const cpp_request& req):
     )
 
 
-cdef void _fill_response(response& res, int status, bytes body, list headers) except *:
+cdef void _push_headers(response& res, object headers) except *:
     cdef string k, v
-    res.status = status
-    res.body = body
     for name, value in headers:
         k = (<str>name).encode("utf-8")
         v = (<str>value).encode("utf-8")
         res.headers.push_back(pair[string, string](k, v))
 
 
+cdef int _stream_next(void* ctx, size_t offset, string& chunk) noexcept nogil:
+    # The provider returns the next piece (bytes) or None at the end. Runs on whatever thread is
+    # writing the response, which Python knows nothing about.
+    with gil:
+        try:
+            piece = (<object>ctx)()
+            if piece is None:
+                return 0
+            chunk = piece  # bytes only; anything else raises TypeError -> -1
+        except BaseException:
+            traceback.print_exc()
+            return -1
+        return 1
+
+
+cdef void _stream_release(void* ctx) noexcept nogil:
+    with gil:
+        Py_DECREF(<object>ctx)
+
+
+cdef void _fill_response(response& res, int status, object body, object headers) except *:
+    # body: bytes (as is) | str (path of a file to stream, trusted) | callable (stream provider).
+    if isinstance(body, bytes):
+        res.body = <bytes>body
+    elif isinstance(body, str):
+        res.file = os.fsencode(body)
+    elif callable(body):
+        Py_INCREF(body)  # owned by the C++ side now, dropped by _stream_release
+        set_stream(res, _stream_next, _stream_release, <void*>body)
+    else:
+        raise TypeError("response body must be bytes, a file path (str) or a stream provider")
+    res.status = status
+    _push_headers(res, headers)
+
+
+cdef void _fail(response& res) noexcept:
+    # Drops whatever was half-filled (body, file, stream, headers) and answers a plain 500.
+    reset_response(res)
+    res.status = 500
+    res.body = b"Internal Server Error"
+
+
 cdef void _run_handler(object fn, const cpp_request& req, response& res) except *:
     # fn(*request_args) -> (status, body, headers)
     status, body, headers = fn(*_request_args(req))
-    _fill_response(res, status, <bytes>body, <list>headers)
+    _fill_response(res, status, body, headers)
 
 
 cdef void _dispatch(void* ctx, const cpp_request& req, response& res) noexcept nogil:
@@ -437,9 +521,50 @@ cdef void _dispatch(void* ctx, const cpp_request& req, response& res) noexcept n
             # The traceback goes to stderr for the developer; the client only
             # ever sees a generic 500 (no internals leaked).
             traceback.print_exc()
+            _fail(res)
+
+
+cdef cbool _dispatch_before(void* ctx, const cpp_request& req, response& res) noexcept nogil:
+    # hook(*request_args) -> None (go on to the route) | (status, body, headers) (answer it here)
+    with gil:
+        try:
+            out = (<object>ctx)(*_request_args(req))
+            if out is None:
+                return False
+            status, body, headers = out
+            _fill_response(res, status, body, headers)
+            return True
+        except BaseException:
+            traceback.print_exc()
+            _fail(res)
+            return True
+
+
+cdef void _dispatch_after(void* ctx, const cpp_request& req, response& res) noexcept nogil:
+    # hook(*request_args, status, headers) -> None | (status, headers). A failing hook makes it a 500.
+    with gil:
+        try:
+            out = (<object>ctx)(*_request_args(req), res.status, _pairs(res.headers))
+            if out is not None:
+                status, headers = out
+                res.status = status
+                res.headers.clear()
+                _push_headers(res, headers)
+        except BaseException:
+            traceback.print_exc()
             res.status = 500
-            res.body = b"Internal Server Error"
-            res.headers.clear()
+
+
+cdef void _dispatch_error(void* ctx, const cpp_request& req, response& res) noexcept nogil:
+    # hook(*request_args, status) -> None (keep the plain error) | (status, body, headers)
+    with gil:
+        try:
+            out = (<object>ctx)(*_request_args(req), res.status)
+            if out is not None:
+                status, body, headers = out
+                _fill_response(res, status, body, headers)
+        except BaseException:
+            traceback.print_exc()
 
 
 cdef class _Done:
@@ -456,7 +581,7 @@ cdef class _Done:
             del self._r
             self._r = NULL
 
-    def __call__(self, int status, bytes body, list headers):
+    def __call__(self, int status, object body, list headers):
         cdef response res
         _fill_response(res, status, body, headers)
         with nogil:
@@ -477,6 +602,12 @@ cdef void _dispatch_async(void* ctx, const cpp_request& req, const cpp_responder
                 done(500, b"Internal Server Error", [])
             except BaseException:
                 pass
+
+
+cdef int _check_seconds(int seconds) except -1:
+    if seconds < 0:
+        raise ValueError("a timeout can't be negative")
+    return 0
 
 
 cdef class Server:
@@ -500,6 +631,9 @@ cdef class Server:
 
     def add_route(self, str method, str path, handler):
         """Low-level: register `handler` for `method` + `path` ("/users/:id").
+        `handler(method, path, body, headers, query, path_params)` returns (status, body, headers):
+        body is bytes, or a str = path of a file to stream (trusted, never from user input), or a
+        callable returning the next bytes piece / None when done (chunked). headers: list of pairs.
         Use the decorators on httpp.Server (see httpp/server.py) instead.
         Must be called before listen()."""
         if not callable(handler):
@@ -518,6 +652,75 @@ cdef class Server:
         self._handlers.append(dispatch)
         self._srv.route_async(method.encode("utf-8"), path.encode("utf-8"),
                               make_async_handler(_dispatch_async, <void*>dispatch))
+
+    # --- Hooks. Each one replaces the previous (like the C++ setters); httpp/server.py chains several. ---
+    def set_before_hook(self, hook):
+        """hook(method, path, body, headers, query, path_params) -> None | (status, body, headers):
+        a tuple answers the request without calling the route."""
+        if not callable(hook):
+            raise TypeError("hook must be callable")
+        self._handlers.append(hook)
+        self._srv.before(make_before(_dispatch_before, <void*>hook))
+        return self
+
+    def set_after_hook(self, hook):
+        """hook(method, path, body, headers, query, path_params, status, resp_headers) -> None |
+        (status, resp_headers). Status and headers only; the body is never passed."""
+        if not callable(hook):
+            raise TypeError("hook must be callable")
+        self._handlers.append(hook)
+        self._srv.after(make_handler(_dispatch_after, <void*>hook))
+        return self
+
+    def set_error_hook(self, hook):
+        """hook(method, path, body, headers, query, path_params, status) -> None | (status, body,
+        headers), for 4xx/5xx the server made itself (404, 405, 413, ...)."""
+        if not callable(hook):
+            raise TypeError("hook must be callable")
+        self._handlers.append(hook)
+        self._srv.set_error_handler(make_handler(_dispatch_error, <void*>hook))
+        return self
+
+    # --- Settings; call them before listening. Each returns self. ---
+    def set_thread_pool(self, size_t base, size_t max_threads=0):
+        """Worker threads for sync handlers: `base` are kept, up to `max_threads` used under load
+        (0 = 4 x base)."""
+        if base == 0:
+            raise ValueError("the thread pool needs at least 1 thread")
+        if 0 < max_threads < base:
+            raise ValueError("max_threads can't be smaller than threads")
+        self._srv.set_thread_pool(base, max_threads)
+        return self
+
+    def set_read_timeout(self, int seconds):
+        _check_seconds(seconds)
+        self._srv.set_read_timeout(seconds)
+        return self
+
+    def set_write_timeout(self, int seconds):
+        _check_seconds(seconds)
+        self._srv.set_write_timeout(seconds)
+        return self
+
+    def set_keep_alive_timeout(self, int seconds):
+        _check_seconds(seconds)
+        self._srv.set_keep_alive_timeout(seconds)
+        return self
+
+    def set_keep_alive_max(self, size_t requests):
+        self._srv.set_keep_alive_max(requests)
+        return self
+
+    def set_max_body(self, size_t nbytes):
+        """Largest request body accepted (413 above it); 0 = no limit."""
+        self._srv.set_max_body(nbytes)
+        return self
+
+    def set_async_timeout(self, int seconds):
+        """add_async_route: answer 504 if `done` isn't called within this; 0 = never."""
+        _check_seconds(seconds)
+        self._srv.set_async_timeout(seconds)
+        return self
 
     def bind_to_any_port(self, str host):
         return self._srv.bind_to_any_port(host.encode("utf-8"))
