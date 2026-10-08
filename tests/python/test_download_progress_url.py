@@ -145,23 +145,32 @@ def test_failures_report_why_and_leave_no_file(tmp_path):
     assert (res.ok, res.status) == (False, 0) and res.error
 
 
-def slow_route(app):
+def slow_route(app, state):
+    """GET /slow streams for about 0.4 s; state["peak"] records how many were streaming at once."""
+    lock = threading.Lock()
+    state.update(now=0, peak=0)
+
     @app.get("/slow")
     def slow():
         def pieces():
-            for _ in range(8):  # about 0.4 s in total
-                time.sleep(0.05)
-                yield b"x" * 1000
+            with lock:
+                state["now"] += 1
+                state["peak"] = max(state["peak"], state["now"])
+            try:
+                for _ in range(8):
+                    time.sleep(0.05)
+                    yield b"x" * 1000
+            finally:
+                with lock:
+                    state["now"] -= 1
 
         return pieces()
 
 
-def test_run_async_does_not_block_the_event_loop_and_runs_downloads_concurrently(tmp_path):
-    # The downloads must take long enough to be observable: on localhost a plain file is done in
-    # a few ms, before a 5 ms ticker could even fire. A synchronous run() inside the coroutine
-    # gives ticks == 0 and ~1.2 s here (checked by hand); run_async gives ~75 ticks and ~0.4 s.
-    log = []
-    with file_server(tmp_path, log=log, extra=slow_route) as url:
+def run_slow_downloads(tmp_path, sequential):
+    """-> (results, event-loop ticks during the downloads, peak requests streaming at once)."""
+    log, state = [], {}
+    with file_server(tmp_path, log=log, extra=lambda app: slow_route(app, state)) as url:
 
         async def main():
             ticks = 0
@@ -173,18 +182,36 @@ def test_run_async_does_not_block_the_event_loop_and_runs_downloads_concurrently
                     ticks += 1
 
             task = asyncio.ensure_future(ticker())
-            t0 = time.monotonic()
-            results = await asyncio.gather(
-                *(dl(f"{url}/slow", tmp_path / f"a{i}.bin").run_async() for i in range(3)))
-            took = time.monotonic() - t0
+            jobs = [dl(f"{url}/slow", tmp_path / f"a{i}.bin").run_async for i in range(3)]
+            if sequential:
+                results = [await job() for job in jobs]
+            else:
+                results = await asyncio.gather(*(job() for job in jobs))
             task.cancel()
-            return results, ticks, took
+            return results, ticks
 
-        results, ticks, took = asyncio.run(main())
+        results, ticks = asyncio.run(main())
+    return results, ticks, state["peak"]
+
+
+def test_run_async_does_not_block_the_event_loop_and_runs_downloads_concurrently(tmp_path):
+    # Two properties, each measured directly instead of against a wall-clock limit (a loaded CI
+    # runner is slow, but it cannot make a serialized run look concurrent):
+    #  - the loop keeps running: a synchronous run() inside the coroutine gives ticks == 0 here
+    #    (checked by hand), run_async gives ~75 (so the threshold only has to beat 0);
+    #  - the downloads overlap: the server sees several of them streaming at the same moment.
+    results, ticks, peak = run_slow_downloads(tmp_path, sequential=False)
     assert all(r.ok for r in results)
     assert all((tmp_path / f"a{i}.bin").stat().st_size == 8000 for i in range(3))
-    assert ticks >= 15, f"the event loop was starved ({ticks} ticks)"
-    assert took < 1.0, f"the downloads ran one after the other ({took:.2f}s)"
+    assert ticks >= 5, f"the event loop was starved ({ticks} ticks)"
+    assert peak >= 2, f"the downloads never overlapped (at most {peak} streaming at once)"
+
+
+def test_the_overlap_check_can_tell_concurrent_from_sequential_downloads(tmp_path):
+    # Control for the test above: awaiting the same downloads one by one must read as peak == 1.
+    results, _, peak = run_slow_downloads(tmp_path, sequential=True)
+    assert all(r.ok for r in results)
+    assert peak == 1
 
 
 def test_run_async_needs_a_running_loop(tmp_path):
