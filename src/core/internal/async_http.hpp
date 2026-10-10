@@ -8,7 +8,7 @@
 // auth/cookies, the keep-alive pool.
 // Every exchange currently sends `Connection: close`.
 //
-// Like event_loop.hpp this header includes neither Asio nor cpp-httplib.
+// Like async_server.hpp this header includes neither Asio nor cpp-httplib.
 
 #include "httpp/client.hpp"
 

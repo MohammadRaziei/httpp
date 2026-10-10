@@ -4,12 +4,24 @@ Vendored dependencies. Each is either a committed file (`cpp-httplib`,
 `indicators`) or a git submodule built from source (`mbedtls`,
 `liburlparser`, `asio`) — never a system package.
 
+## cpp-httplib
+
+`cpp-httplib/httplib.h` is the **unmodified** upstream file, version 0.54.1, MIT. Only the synchronous
+client (`src/core/client.cpp`) uses it; the server and the async client do not. To restore or bump it:
+
+```sh
+wget -O src/third_party/cpp-httplib/httplib.h \
+  https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.54.1/httplib.h
+```
+
+It is to be retired once the synchronous client is also ours.
+
 ## asio
 
 A git submodule (`asio/`, <https://github.com/chriskohlhoff/asio>) pinned to the tag
 `asio-1-34-2`. It is header-only and used unmodified, for the event loop in
-`src/core/event_loop.cpp` (epoll on Linux, kqueue on macOS, IOCP on Windows), built with
-`ASIO_STANDALONE`. Boost Software License 1.0.
+`src/core/async_server.cpp` and `src/core/async_http.cpp` (epoll on Linux, kqueue on macOS,
+IOCP on Windows), built with `ASIO_STANDALONE`. Boost Software License 1.0.
 
 The top-level `CMakeLists.txt` looks for Asio in this order:
 

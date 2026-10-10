@@ -16,9 +16,9 @@ target_include_directories(test_httpp_cpp PRIVATE
 # so no httplib include path or windows.h/winsock macro juggling is needed.
 target_link_libraries(test_httpp_cpp PRIVATE httpp::core)
 
-# test_event_loop.cpp drives the internal event loop directly. That class is not
-# exported from the shared library (hidden visibility), so compile it in.
-target_sources(test_httpp_cpp PRIVATE ${PROJECT_SOURCE_DIR}/src/core/event_loop.cpp ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/tls_session.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp)
+# The engine tests (test_async_*.cpp) drive internal classes directly. Those are not
+# exported from the shared library (hidden visibility), so compile them in.
+target_sources(test_httpp_cpp PRIVATE ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/tls_session.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp)
 target_link_libraries(test_httpp_cpp PRIVATE httpp_llhttp mbedtls mbedx509)
 if(WIN32)
     target_link_libraries(test_httpp_cpp PRIVATE crypt32)
@@ -28,12 +28,12 @@ target_include_directories(test_httpp_cpp SYSTEM PRIVATE ${HTTPP_ASIO_INCLUDE_DI
 target_compile_definitions(test_httpp_cpp PRIVATE ASIO_STANDALONE ASIO_NO_DEPRECATED)
 if(WIN32)
     # utest.h includes <Windows.h>; keep it from dragging in the legacy <winsock.h>, which conflicts
-    # with <winsock2.h> (used by test_event_loop.cpp and by Asio).
+    # with <winsock2.h> (used by the engine tests and by Asio).
     target_compile_definitions(test_httpp_cpp PRIVATE _WIN32_WINNT=0x0A00 WIN32_LEAN_AND_MEAN NOMINMAX)
     target_link_libraries(test_httpp_cpp PRIVATE ws2_32 mswsock)
 endif()
 if(MSVC)
-    set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/event_loop.cpp ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
+    set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
 endif()
 
 add_test(NAME test_httpp_cpp COMMAND $<TARGET_FILE:test_httpp_cpp>)

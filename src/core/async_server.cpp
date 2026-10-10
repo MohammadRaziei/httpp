@@ -366,6 +366,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     void send(wire_response r) {
         if (closed || !answering) return;
         answering = false;
+        if (r.status == 0) return close(); // convention: no answer at all (a handler that gave up)
         const bool bodyless = req_head || r.status < 200 || r.status == 204 || r.status == 304;
         bool keep = req_keep && remaining > 1 && !r.close && !srv.closing;
         const bool streaming = static_cast<bool>(r.next);

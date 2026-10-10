@@ -28,7 +28,7 @@ struct http_request {
 
 // What the engine writes back. It adds Content-Length / Transfer-Encoding, Connection and Date.
 struct wire_response {
-    int status = 200;
+    int status = 200;                       // 0 = send nothing and close the connection
     std::vector<std::pair<std::string, std::string>> headers;
     std::string body;                       // used when `next` is empty
     // Streaming body: `next` appends the next piece to its argument and returns true while there

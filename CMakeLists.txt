@@ -146,9 +146,10 @@ target_link_libraries(httpp_core PRIVATE url::base httpp_llhttp)
 # include/link path — see that file for the shared httplib.h include.
 target_link_libraries(httpp_core PRIVATE mbedtls mbedx509)
 target_compile_definitions(httpp_core PRIVATE CPPHTTPLIB_MBEDTLS_SUPPORT)
-# Asio (standalone, header-only, vendored) drives httpp::server's connection
-# loop: epoll on Linux, kqueue on macOS, IOCP/select on Windows. It is only
-# ever included from src/core/event_loop.cpp.
+# Asio (standalone, header-only, vendored) runs the async engines: the server's
+# connection loop and the non-blocking client (epoll on Linux, kqueue on macOS,
+# IOCP on Windows). It is only ever included from src/core/async_server.cpp and
+# src/core/async_http.cpp, never together with httplib.h.
 # Where Asio comes from, in order:
 #   1. -DHTTPP_ASIO_INCLUDE_DIR=<directory containing asio.hpp>  (offline builds, packagers)
 #   2. src/third_party/asio, if it holds a copy: a git submodule (<dir>/asio/include)
@@ -190,7 +191,7 @@ if(WIN32)
 endif()
 if(MSVC)
     # Asio's templates produce very large object files.
-    set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/event_loop.cpp ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
+    set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
 endif()
 
 # macOS: cpp-httplib (src/third_party/cpp-httplib/httplib.h) reads the
