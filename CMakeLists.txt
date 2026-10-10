@@ -190,7 +190,7 @@ if(WIN32)
 endif()
 if(MSVC)
     # Asio's templates produce very large object files.
-    set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/event_loop.cpp ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
+    set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/event_loop.cpp ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
 endif()
 
 # macOS: cpp-httplib (src/third_party/cpp-httplib/httplib.h) reads the
