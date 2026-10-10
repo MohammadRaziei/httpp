@@ -18,8 +18,11 @@ target_link_libraries(test_httpp_cpp PRIVATE httpp::core)
 
 # test_event_loop.cpp drives the internal event loop directly. That class is not
 # exported from the shared library (hidden visibility), so compile it in.
-target_sources(test_httpp_cpp PRIVATE ${PROJECT_SOURCE_DIR}/src/core/event_loop.cpp ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp)
-target_link_libraries(test_httpp_cpp PRIVATE httpp_llhttp)
+target_sources(test_httpp_cpp PRIVATE ${PROJECT_SOURCE_DIR}/src/core/event_loop.cpp ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/tls_session.cpp)
+target_link_libraries(test_httpp_cpp PRIVATE httpp_llhttp mbedtls mbedx509)
+if(WIN32)
+    target_link_libraries(test_httpp_cpp PRIVATE crypt32)
+endif()
 target_include_directories(test_httpp_cpp PRIVATE ${PROJECT_SOURCE_DIR}/src/core)
 target_include_directories(test_httpp_cpp SYSTEM PRIVATE ${HTTPP_ASIO_INCLUDE_DIR})
 target_compile_definitions(test_httpp_cpp PRIVATE ASIO_STANDALONE ASIO_NO_DEPRECATED)

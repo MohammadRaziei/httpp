@@ -186,7 +186,7 @@ target_compile_definitions(httpp_core PRIVATE ASIO_STANDALONE ASIO_NO_DEPRECATED
 if(WIN32)
     # Asio wants the target Windows version spelled out (Windows 10 and later).
     target_compile_definitions(httpp_core PRIVATE _WIN32_WINNT=0x0A00)
-    target_link_libraries(httpp_core PRIVATE ws2_32 mswsock)
+    target_link_libraries(httpp_core PRIVATE ws2_32 mswsock crypt32)
 endif()
 if(MSVC)
     # Asio's templates produce very large object files.

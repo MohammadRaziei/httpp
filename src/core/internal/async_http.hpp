@@ -4,7 +4,8 @@
 // llhttp parses the response. One thread runs every exchange, so thousands of requests can be
 // in flight without a thread each (unlike the blocking client, which needs one thread per request).
 //
-// Not done yet (see doc/status): TLS, redirects, proxy, auth/cookies, the keep-alive pool.
+// HTTPS goes through tls_session (mbedtls) on the same loop. Not done yet: redirects, proxy,
+// auth/cookies, the keep-alive pool.
 // Every exchange currently sends `Connection: close`.
 //
 // Like event_loop.hpp this header includes neither Asio nor cpp-httplib.
@@ -23,6 +24,9 @@ namespace httpp::detail {
 struct async_job {
     std::string host;
     int port = 80;
+    bool tls = false;                   // https: port is usually 443
+    bool verify = true;                 // check the server certificate and host name
+    std::string ca_file;                // PEM; only trust this (default: the system roots)
     std::string method = "GET";
     std::string target = "/"; // path and query, already percent-encoded
     std::vector<std::pair<std::string, std::string>> headers;

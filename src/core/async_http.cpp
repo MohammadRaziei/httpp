@@ -13,12 +13,15 @@
 #endif
 #include <asio.hpp>
 
+#include "internal/tls_session.hpp"
 #include "llhttp.h"
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <map>
 #include <thread>
+#include <tuple>
 #include <unordered_set>
 
 namespace httpp::detail {
@@ -56,6 +59,18 @@ struct async_http::impl {
 
     struct exchange;
     std::unordered_set<std::shared_ptr<exchange>> live; // loop thread only
+    // Trust settings per (verify, ca_file). The system roots take tens of ms to parse: do it once.
+    // ponytail: never evicted; a program uses a handful of ca_file values. Upgrade: LRU if that changes.
+    std::map<std::tuple<bool, std::string>, std::shared_ptr<const tls_context>> tls_contexts; // loop thread only
+
+    std::shared_ptr<const tls_context> context_for(bool verify, const std::string& ca_file, std::string& error) {
+        auto key = std::make_tuple(verify, verify ? ca_file : std::string());
+        auto it = tls_contexts.find(key);
+        if (it != tls_contexts.end()) return it->second;
+        auto c = make_tls_context(verify, ca_file, error);
+        if (c) tls_contexts.emplace(std::move(key), c);
+        return c;
+    }
 
     impl() : thread([this] { io.run(); }) {}
 
@@ -70,6 +85,10 @@ struct async_http::impl {
         asio::steady_timer timer;
         std::string out;          // the request bytes
         std::string rbuf = std::string(16384, '\0');
+        std::unique_ptr<tls_session> tls; // set for https
+        bool tls_ready = false;
+        std::string wire;                  // ciphertext being written
+        std::string plain;                 // decrypted bytes just read
 
         llhttp_t parser;
         llhttp_settings_t settings;
@@ -183,7 +202,7 @@ struct async_http::impl {
             out = job.method + " " + job.target + " HTTP/1.1\r\n";
             if (!has_header(job, "Host")) {
                 out += "Host: " + job.host;
-                if (job.port != 80) out += ":" + std::to_string(job.port);
+                if (job.port != (job.tls ? 443 : 80)) out += ":" + std::to_string(job.port);
                 out += "\r\n";
             }
             for (const auto& h : job.headers) out += h.first + ": " + h.second + "\r\n";
@@ -195,6 +214,13 @@ struct async_http::impl {
             out += "\r\n";
             out += job.body;
 
+            if (job.tls) {
+                std::string err;
+                auto ctx = owner.context_for(job.verify, job.ca_file, err);
+                if (!ctx) return fail(error_kind::tls, err);
+                tls = std::make_unique<tls_session>(std::move(ctx), job.host);
+                if (!tls->ok()) return fail(error_kind::tls, tls->error());
+            }
             arm();
             resolver.async_resolve(job.host, std::to_string(job.port),
                 [self = shared_from_this()](std::error_code ec, tcp::resolver::results_type eps) {
@@ -210,6 +236,7 @@ struct async_http::impl {
                 [self = shared_from_this()](std::error_code ec, const tcp::endpoint&) {
                     if (self->finished) return;
                     if (ec) return self->fail(error_kind::connection, "cannot connect: " + ec.message());
+                    if (self->tls) return self->tls_pump();
                     self->send();
                 });
         }
@@ -233,23 +260,90 @@ struct async_http::impl {
                 });
         }
 
-        void on_read(std::error_code ec, std::size_t n) {
-            if (n > 0) {
-                llhttp_errno_t r = llhttp_execute(&parser, rbuf.data(), n);
-                if (finished) return; // too_large already reported from the body callback
-                if (r != HPE_OK && r != HPE_PAUSED_UPGRADE) {
-                    return fail(error_kind::other, std::string("malformed response: ") + llhttp_errno_name(r));
-                }
-                if (message_done) return succeed();
+        // Plaintext HTTP bytes into llhttp. Returns false once the exchange is over (done or failed).
+        bool feed_parser(const char* data, std::size_t n) {
+            llhttp_errno_t r = llhttp_execute(&parser, data, n);
+            if (finished) return false; // too_large already reported from the body callback
+            if (r != HPE_OK && r != HPE_PAUSED_UPGRADE) {
+                fail(error_kind::other, std::string("malformed response: ") + llhttp_errno_name(r));
+                return false;
             }
-            if (!ec) return read();
+            if (message_done) { succeed(); return false; }
+            return true;
+        }
+
+        // The peer closed the connection: a body that ends there is legal, a cut-off one is not.
+        void on_eof() {
             disarm();
-            if (ec == asio::error::eof) { // a body that ends at connection close is legal
-                llhttp_errno_t r = llhttp_finish(&parser);
-                if (r == HPE_OK && (message_done || res.status != 0)) return succeed();
-                return fail(error_kind::connection, "connection closed before the response was complete");
-            }
+            llhttp_errno_t r = llhttp_finish(&parser);
+            if (r == HPE_OK && (message_done || res.status != 0)) return succeed();
+            fail(error_kind::connection, "connection closed before the response was complete");
+        }
+
+        void on_read(std::error_code ec, std::size_t n) {
+            if (n > 0 && !feed_parser(rbuf.data(), n)) return;
+            if (!ec) return read();
+            if (ec == asio::error::eof) return on_eof();
+            disarm();
             fail(error_kind::connection, "read failed: " + ec.message());
+        }
+
+        // ---- https: the same exchange, with tls_session between the socket and llhttp ----
+
+        // Runs the TLS state machine as far as it goes without the socket, then does socket I/O.
+        void tls_pump() {
+            for (;;) {
+                if (!tls_ready) {
+                    auto r = tls->handshake();
+                    if (r == tls_session::result::failed) return fail(error_kind::tls, tls->error());
+                    if (r == tls_session::result::more) break;
+                    tls_ready = true; // handshake done: the request goes out as application data
+                    if (tls->write(out) == tls_session::result::failed) return fail(error_kind::tls, tls->error());
+                    out.clear();
+                    continue;
+                }
+                plain.clear();
+                auto r = tls->read(plain);
+                if (r == tls_session::result::ok) {
+                    if (!feed_parser(plain.data(), plain.size())) return;
+                    continue;
+                }
+                if (r == tls_session::result::closed) return on_eof();
+                if (r == tls_session::result::failed) return fail(error_kind::tls, tls->error());
+                break; // needs more ciphertext
+            }
+            tls_flush();
+        }
+
+        void tls_flush() {
+            wire = tls->take_output();
+            if (wire.empty()) return tls_read();
+            arm();
+            asio::async_write(sock, asio::buffer(wire),
+                [self = shared_from_this()](std::error_code ec, std::size_t) {
+                    if (self->finished) return;
+                    if (ec) return self->fail(self->tls_ready ? error_kind::connection : error_kind::tls,
+                                              "write failed: " + ec.message());
+                    self->tls_read();
+                });
+        }
+
+        void tls_read() {
+            arm();
+            sock.async_read_some(asio::buffer(rbuf),
+                [self = shared_from_this()](std::error_code ec, std::size_t n) {
+                    if (self->finished) return;
+                    if (n > 0) self->tls->feed(self->rbuf.data(), n);
+                    if (!ec) return self->tls_pump();
+                    if (n > 0) { // decrypt what arrived together with the EOF first
+                        self->tls_pump();
+                        if (self->finished) return;
+                    }
+                    if (!self->tls_ready) return self->fail(error_kind::tls, "connection closed during the TLS handshake");
+                    if (ec == asio::error::eof) return self->on_eof();
+                    self->disarm();
+                    self->fail(error_kind::connection, "read failed: " + ec.message());
+                });
         }
     };
 };
