@@ -86,6 +86,21 @@ endif()
 set(DISABLE_PACKAGE_CONFIG_AND_INSTALL ON CACHE BOOL "" FORCE)
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/third_party/mbedtls)
 
+# llhttp (vendored release C sources, kept in src/ not third_party/: it is an interim parser for the async client and goes away with cpp-httplib, no Node needed): the HTTP/1.x parser for
+# the async client. Own C static target so the generated code is built without
+# httpp's -Wall -Wextra -Wpedantic; see src/llhttp/VENDORED.md.
+enable_language(C)
+add_library(httpp_llhttp STATIC
+    ${PROJECT_SOURCE_DIR}/src/llhttp/src/llhttp.c
+    ${PROJECT_SOURCE_DIR}/src/llhttp/src/api.c
+    ${PROJECT_SOURCE_DIR}/src/llhttp/src/http.c)
+target_include_directories(httpp_llhttp PUBLIC
+    ${PROJECT_SOURCE_DIR}/src/llhttp/include)
+set_target_properties(httpp_llhttp PROPERTIES
+    LINKER_LANGUAGE C POSITION_INDEPENDENT_CODE ON C_VISIBILITY_PRESET hidden)
+target_compile_options(httpp_llhttp PRIVATE
+    $<IF:$<C_COMPILER_ID:MSVC>,/w,-w>)
+
 add_library(httpp_core SHARED ${HTTPP_CORE_SOURCES})
 add_library(httpp::core ALIAS httpp_core)
 
@@ -123,7 +138,7 @@ target_include_directories(httpp_core SYSTEM PRIVATE
 
 find_package(Threads REQUIRED)
 target_link_libraries(httpp_core PUBLIC Threads::Threads)
-target_link_libraries(httpp_core PRIVATE url::base)
+target_link_libraries(httpp_core PRIVATE url::base httpp_llhttp)
 
 # HTTPS support: mbedtls is linked PRIVATE and CPPHTTPLIB_MBEDTLS_SUPPORT is
 # only ever defined in src/core/internal/httplib_common.hpp (never in a
@@ -175,7 +190,7 @@ if(WIN32)
 endif()
 if(MSVC)
     # Asio's templates produce very large object files.
-    set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/event_loop.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
+    set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/event_loop.cpp ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
 endif()
 
 # macOS: cpp-httplib (src/third_party/cpp-httplib/httplib.h) reads the
