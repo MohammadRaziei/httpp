@@ -307,6 +307,23 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
 
 Issues and pull requests are welcome.
 
+## Logging
+
+The library logs through AixLog, privately (it never touches `std::clog` or your own logging). By default
+warnings and errors go to stderr, e.g. a handler that throws with no exception handler installed.
+
+```cpp
+httpp::set_log_level(httpp::log_level::debug);       // trace, debug, info, warning (default), error, off
+httpp::set_log_file("httpp.log");                    // instead of stderr; "" goes back
+httpp::set_log_callback([](httpp::log_level, const std::string& where, const std::string& message) { /* your logger */ });
+```
+
+```python
+httpp.set_log_level("debug")       # same levels, as strings
+httpp.set_log_file("httpp.log")
+httpp.set_log_callback(lambda level, where, message: ...)   # called from library threads
+```
+
 ## License
 
 [MIT](LICENSE.txt)

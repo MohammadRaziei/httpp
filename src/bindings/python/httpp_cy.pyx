@@ -1090,3 +1090,90 @@ cdef class Request:
         concurrent requests rather than thousands."""
         import asyncio
         return asyncio.get_running_loop().run_in_executor(None, self.run)
+
+
+# ---------------------------------------------------------------------------------------------
+# Library logging (httpp/log.hpp). The C++ core logs from its own threads, so the callback form
+# takes the GIL; the setters release it, because they wait for the core's log lock, which a core
+# thread may hold while it waits for the GIL.
+# ---------------------------------------------------------------------------------------------
+
+cdef extern from "httpp/log.hpp" namespace "httpp":
+    cdef enum class log_level:
+        trace
+        debug
+        info
+        warning
+        error
+        off
+    void cpp_set_log_level "httpp::set_log_level"(log_level) except + nogil
+    cbool cpp_set_log_file "httpp::set_log_file"(const string&) except + nogil
+
+cdef extern from *:
+    """
+    #include "httpp/log.hpp"
+    typedef void (*httpp_py_log_fn)(void*, int, const std::string&, const std::string&);
+    static void httpp_py_set_log_callback(void* ctx, httpp_py_log_fn fn) {
+        if (!fn) { httpp::set_log_callback({}); return; }
+        httpp::set_log_callback([ctx, fn](httpp::log_level l, const std::string& where, const std::string& msg) {
+            fn(ctx, static_cast<int>(l), where, msg);
+        });
+    }
+    """
+    ctypedef void (*log_fn "httpp_py_log_fn")(void*, int, const string&, const string&) noexcept nogil
+    void httpp_py_set_log_callback(void*, log_fn) except + nogil
+
+_LOG_LEVELS = ("trace", "debug", "info", "warning", "error", "off")
+_log_callback = None  # keeps the Python callable alive while the core may call it
+
+
+def set_log_level(level):
+    """Set the library's log level: "trace", "debug", "info", "warning" (the default), "error" or "off"."""
+    if level not in _LOG_LEVELS:
+        raise ValueError("log level must be one of %s, not %r" % (", ".join(_LOG_LEVELS), level))
+    cdef int idx = _LOG_LEVELS.index(level)
+    cdef log_level lv = <log_level>idx
+    with nogil:
+        cpp_set_log_level(lv)
+
+
+def set_log_file(path):
+    """Write the library's log to `path` (truncated) instead of stderr; "" goes back to stderr."""
+    cdef string p = os.fsencode(path) if path else b""
+    cdef cbool ok
+    with nogil:
+        ok = cpp_set_log_file(p)
+    if not ok:
+        raise OSError("cannot open log file %r" % (path,))
+
+
+cdef void _log_trampoline(void* ctx, int level, const string& where, const string& msg) noexcept nogil:
+    with gil:
+        try:
+            (<object>ctx)(_LOG_LEVELS[level], where.decode("utf-8", "replace"), msg.decode("utf-8", "replace"))
+        except BaseException:
+            pass  # a failing log callback must never take a library thread down
+
+
+def set_log_callback(callback):
+    """Send the library's log lines to `callback(level, where, message)` (strings) instead of stderr.
+    It is called from library threads, one call at a time; it must not call into httpp. Pass None to
+    go back to stderr. Example: bridge to the standard logging module:
+
+        import logging
+        httpp.set_log_callback(lambda level, where, msg:
+            logging.getLogger("httpp").log({"trace": 5, "debug": 10, "info": 20, "warning": 30, "error": 40}[level], "%s: %s", where, msg))
+    """
+    global _log_callback
+    if callback is None:
+        with nogil:
+            httpp_py_set_log_callback(NULL, NULL)
+        _log_callback = None
+        return
+    if not callable(callback):
+        raise TypeError("callback must be callable or None")
+    previous = _log_callback
+    _log_callback = callback  # reference first, so it outlives the registration below
+    with nogil:
+        httpp_py_set_log_callback(<void*>callback, <log_fn>_log_trampoline)
+    del previous

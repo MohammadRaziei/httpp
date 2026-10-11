@@ -4,9 +4,10 @@
 // llhttp parses the response. One thread runs every exchange, so thousands of requests can be
 // in flight without a thread each (unlike the blocking client, which needs one thread per request).
 //
-// HTTPS goes through tls_session (mbedtls) on the same loop. Not done yet: redirects, proxy,
-// auth/cookies, the keep-alive pool.
-// Every exchange currently sends `Connection: close`.
+// HTTPS goes through tls_session (mbedtls) on the same loop. Connections can be kept alive and
+// reused (job.keep_alive), and an HTTP proxy is supported (plain http through it, https via CONNECT).
+// Redirects, auth and cookies are NOT here: they are policy for the layer above (client.cpp), which
+// builds one async_job per hop.
 //
 // Like async_server.hpp this header includes neither Asio nor cpp-httplib.
 
@@ -33,6 +34,14 @@ struct async_job {
     std::string body;
     long timeout_sec = 0;               // per step (resolve, connect, write, each read); 0 = none
     std::size_t max_response_size = 0;  // body bytes; 0 = no limit
+    // Keep the connection for the next request to the same place, and reuse an idle one if there is one.
+    // A reused connection the server had already closed is retried once on a fresh one, but only for
+    // idempotent methods (GET, HEAD, OPTIONS, PUT, DELETE) and only if no response byte arrived.
+    bool keep_alive = false;
+    // HTTP proxy. http:// targets are sent in absolute form; https:// targets are tunnelled with CONNECT.
+    std::string proxy_host;
+    int proxy_port = 0;
+    std::string proxy_authorization;    // value for Proxy-Authorization (e.g. "Basic ..."), or empty
 };
 
 class async_http {

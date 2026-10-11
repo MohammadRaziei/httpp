@@ -133,6 +133,7 @@ target_include_directories(httpp_core
 # below — without patching vendored code to silence its own warnings.
 target_include_directories(httpp_core SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/cpp-httplib
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/aixlog
     ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party
 )
 

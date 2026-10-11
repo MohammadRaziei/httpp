@@ -16,6 +16,15 @@ wget -O src/third_party/cpp-httplib/httplib.h \
 
 It is to be retired once the synchronous client is also ours.
 
+## aixlog
+
+`aixlog/aixlog.hpp` is the single-header AixLog v1.5.0 (<https://github.com/badaix/aixlog>, MIT), the logging
+back end. It carries **one patch**, marked `[httpp patch]` in the file: upstream's `Log` constructor points
+`std::clog` at itself for the whole process, which a library must not do, so it writes through a private
+stream instead (the `LOG(...)` macros, which write to `std::clog`, therefore no longer reach the sinks;
+httpp does not use them). Only `src/core/log.cpp` includes the header, because it defines global macros
+(`LOG`, `TAG`, `ERROR`, `DEBUG`, ...). To upgrade: take the new upstream file and redo that one change.
+
 ## asio
 
 A git submodule (`asio/`, <https://github.com/chriskohlhoff/asio>) pinned to the tag

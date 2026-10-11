@@ -1,4 +1,5 @@
 #include "internal/async_server.hpp"
+#include "internal/log.hpp"
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -262,6 +263,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
 
     void close() {
         if (closed.exchange(true)) return;
+        HTTPP_LOG(trace) << "connection closed";
         auto self = shared_from_this();
         ++armed;
         std::error_code ec;
@@ -340,6 +342,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
 
     // The engine's own error answers (400, 413, 414, 431): always close afterwards.
     void refuse(int status) {
+        HTTPP_LOG(debug) << "refusing a request with " << status << " " << reason(status);
         disarm();
         answering = true;
         wire_response r;
@@ -428,9 +431,15 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
 
     void piece_ready(const std::shared_ptr<stream_state>& st, std::string piece, bool more, bool failed) {
         if (closed || stream != st) return;
-        if (failed) return close(); // never end a broken stream cleanly: the client must see it fail
+        if (failed) {
+            HTTPP_LOG(warning) << "a response body generator threw: dropping the connection";
+            return close(); // never end a broken stream cleanly: the client must see it fail
+        }
         st->sent += static_cast<long long>(piece.size());
-        if (st->length >= 0 && (st->sent > st->length || (!more && st->sent != st->length))) return close();
+        if (st->length >= 0 && (st->sent > st->length || (!more && st->sent != st->length))) {
+            HTTPP_LOG(warning) << "a response body produced " << st->sent << " bytes but announced " << st->length << ": dropping the connection";
+            return close();
+        }
         std::string out;
         if (!piece.empty()) {
             if (st->chunked) {
@@ -505,6 +514,7 @@ void async_server::impl::accept_next() {
         }
         if (ec == asio::error::operation_aborted) return;
         if (!acceptor.is_open()) { // the listener is gone: nothing left to accept on
+            HTTPP_LOG(error) << "listener failed: " << ec.message();
             failed = true;
             begin_close();
             return;
@@ -512,6 +522,7 @@ void async_server::impl::accept_next() {
         // Transient (aborted handshake) or resource exhaustion (out of fds): pause briefly, keep accepting.
         const bool exhausted = ec == asio::error::no_descriptors || ec == asio::error::no_buffer_space ||
                                ec == asio::error::no_memory;
+        if (exhausted) HTTPP_LOG(warning) << "accept failed (" << ec.message() << "): out of resources, retrying";
         backoff.expires_after(std::chrono::milliseconds(exhausted ? 20 : 1));
         backoff.async_wait([this](std::error_code e) {
             if (!e && !closing) accept_next();

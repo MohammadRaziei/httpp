@@ -5,6 +5,7 @@
 // cpp-httplib: this translation unit does not include it.
 
 #include "internal/async_server.hpp"
+#include "internal/log.hpp"
 #include "internal/worker_pool.hpp"
 
 #include <algorithm>
@@ -121,6 +122,16 @@ long long file_size(const std::string& path) {
     in.seekg(0);
     if (size > 0 && in.peek() == std::ifstream::traits_type::eof()) return -1;
     return static_cast<long long>(size);
+}
+
+std::string describe(std::exception_ptr ep) {
+    try {
+        if (ep) std::rethrow_exception(ep);
+    } catch (const std::exception& e) {
+        return e.what();
+    } catch (...) {
+    }
+    return "unknown exception";
 }
 
 // ---------------------------------------------------------------- the server
@@ -286,7 +297,9 @@ struct server::impl {
                         res.body = std::move(dressed.body);
                         res.file = std::move(dressed.file);
                         res.stream = std::move(dressed.stream);
-                    } catch (...) {} // a broken error handler keeps the plain error
+                    } catch (...) { // a broken error handler keeps the plain error
+                        HTTPP_LOG(warning) << "error handler threw (" << describe(std::current_exception()) << "); keeping the plain " << res.status << " for " << req->method << ' ' << req->path;
+                    }
                 }
                 if (c->after) {
                     response out; // status and headers only: the body may be huge or streamed
@@ -298,6 +311,7 @@ struct server::impl {
                 }
                 w = to_wire(std::move(res), offset, length);
             } catch (...) {
+                HTTPP_LOG(warning) << "after hook or response building failed (" << describe(std::current_exception()) << ") for " << req->method << ' ' << req->path << ": answering 500";
                 w = failure(500, "Internal Server Error");
             }
             answer(std::move(w));
@@ -309,7 +323,17 @@ struct server::impl {
         out.status = 500;
         out.body = "Internal Server Error";
         if (cfg->exception) {
-            try { cfg->exception(*req, out, ep); } catch (...) {}
+            HTTPP_LOG(debug) << "handler for " << req->method << ' ' << req->path << " threw (" << describe(ep) << "); exception handler runs";
+            try {
+                cfg->exception(*req, out, ep);
+            } catch (...) {
+                HTTPP_LOG(warning) << "exception handler threw (" << describe(std::current_exception()) << "): answering 500";
+                out = response{};
+                out.status = 500;
+                out.body = "Internal Server Error";
+            }
+        } else {
+            HTTPP_LOG(warning) << "handler for " << req->method << ' ' << req->path << " threw: " << describe(ep);
         }
         send(std::move(out), 0, -1);
     }
@@ -416,7 +440,10 @@ struct server::impl {
     void handle(detail::http_request hr, detail::async_server::answer_fn answer) {
         auto req = std::make_shared<request>();
         std::string raw_path;
-        if (!make_request(hr, *req, raw_path)) return answer(failure(400, "Bad Request"));
+        if (!make_request(hr, *req, raw_path)) {
+            HTTPP_LOG(debug) << "bad request target: " << hr.target.substr(0, 100);
+            return answer(failure(400, "Bad Request"));
+        }
         const send_fn send = make_sender(req, answer);
 
         bool handled = false;
@@ -468,10 +495,11 @@ struct server::impl {
         const int timeout = async_timeout.load();
         if (timeout > 0) {
             std::weak_ptr<responder::impl> weak = state;
-            engine->after(std::chrono::seconds(timeout), [this, weak] {
+            engine->after(std::chrono::seconds(timeout), [this, weak, req, timeout] {
                 auto strong = weak.lock();
                 if (!strong) return;
-                auto answer_504 = [strong] {
+                auto answer_504 = [strong, req, timeout] {
+                    if (!strong->answered.load()) HTTPP_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " did not answer within " << timeout << " s: answering 504";
                     responder late;
                     late.impl_ = strong;
                     response err;
@@ -490,8 +518,18 @@ struct server::impl {
             response err;
             err.status = 500;
             err.body = "Internal Server Error";
+            const std::exception_ptr ep = std::current_exception();
             if (cfg->exception) {
-                try { cfg->exception(*req, err, std::current_exception()); } catch (...) {}
+                try {
+                    cfg->exception(*req, err, ep);
+                } catch (...) {
+                    HTTPP_LOG(warning) << "exception handler threw (" << describe(std::current_exception()) << "): answering 500";
+                    err = response{};
+                    err.status = 500;
+                    err.body = "Internal Server Error";
+                }
+            } else {
+                HTTPP_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " threw: " << describe(ep);
             }
             rsp.send(std::move(err)); // no-op if the handler had already answered
         }
@@ -579,7 +617,10 @@ bool server::listen_after_bind() {
 }
 
 bool server::listen(const std::string& host, int port) {
-    if (impl_->engine->bind(host, port) < 0) return false;
+    if (impl_->engine->bind(host, port) < 0) {
+        HTTPP_LOG(error) << "cannot listen on " << host << ':' << port;
+        return false;
+    }
     return listen_after_bind();
 }
 
