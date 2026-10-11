@@ -63,4 +63,9 @@ private:
     std::unique_ptr<impl> impl_;
 };
 
+// One engine (one loop thread) for the whole process, created on first use. Intentionally never
+// destroyed: joining the loop thread during static destruction (or while an embedding interpreter is
+// shutting down) is a classic way to hang at exit. The OS reclaims it with the process.
+async_http& shared_async_http();
+
 } // namespace httpp::detail

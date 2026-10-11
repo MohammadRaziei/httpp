@@ -646,4 +646,9 @@ void async_http::submit(async_job job, done_fn done) {
     });
 }
 
+async_http& shared_async_http() {
+    static async_http* instance = new async_http; // see the header: leaked on purpose
+    return *instance;
+}
+
 } // namespace httpp::detail

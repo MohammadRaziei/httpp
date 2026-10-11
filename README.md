@@ -286,16 +286,41 @@ with `git clone --depth 1 --recurse-submodules --shallow-submodules`.
 git submodule), then it is downloaded at configure time (about 3 MB, pinned to 1.34.2 by SHA-256). Offline
 builds should pass the first option. See [`src/third_party/README.md`](src/third_party/README.md#asio).
 
+### Sessions and async
+
+Requests made from asyncio code run on the library's own non-blocking network thread (Asio + llhttp, with
+TLS and proxy support): no thread per request, keep-alive connections are pooled and reused, so thousands
+can be in flight.
+
+```python
+import asyncio, httpp
+
+async def main():
+    # one request
+    r = await httpp.Request("https://example.com/api").params({"q": "x"}).run_async()
+
+    # many requests to one server; at most 16 in flight at once, the rest wait their turn
+    async with httpp.AsyncClient("https://example.com", max_connections=16, headers={"X-Token": "abc"}) as c:
+        replies = await asyncio.gather(*(c.get(f"/items/{i}") for i in range(1000)))
+
+asyncio.run(main())
+```
+
+Redirects are off by default (`follow_redirects=True` follows up to 20 hops; `Authorization` and `Cookie`
+are not sent to a different origin). A cancelled `await` stops waiting, but the request itself keeps
+running until it finishes. In C++: `request::run_async()` returns a `std::future`, or takes a callback
+that runs on the network thread; `async_client` is the session form.
+
 ## Status
 
 httpp is **alpha**: the API can still change between minor versions. Current limitations:
 
-- The async client is backed by a thread pool, not non-blocking sockets (see
-  [Sessions and async](#sessions-and-async)); downloads have no timeout option; the server's hooks hold
-  a worker thread while they await; a plain `def` handler cannot be cancelled by `handler_timeout`.
-- A request that has only partly arrived (a slow client still sending its headers or body) holds a
-  worker thread until it completes or times out; only *idle* connections are free. HTTP/1.1 only; the
-  server does not speak TLS.
+- Awaitable downloads (`Download.run_async`) still run on the event loop's thread pool; downloads have no
+  timeout option; the server's hooks hold a worker thread while they await; a plain `def` handler cannot
+  be cancelled by `handler_timeout`; `async def` handlers still run on a Python `asyncio` thread (the
+  GIL-free C++ loop for them is not written yet).
+- HTTP/1.1 only; the server does not speak TLS; a cancelled `await` stops waiting but the request itself
+  keeps running until it finishes.
 - Platforms: the connection layer is tested on Linux. Windows and macOS are untested by the author; CI
   on those platforms is the real check.
 - There is no ASGI or WSGI interface (see above), so ASGI/WSGI applications such as FastAPI or Flask

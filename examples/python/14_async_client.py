@@ -2,9 +2,9 @@
 
 Runs offline: it serves itself, calls itself, and exits.
 
-Be honest about what "async" means here: the client keeps a pool of keep-alive connections and
-runs each blocking call on the event loop's thread pool. The loop is never blocked, but this is
-not non-blocking socket I/O, so think tens of concurrent requests, not thousands.
+Requests run on the library's non-blocking network thread (Asio + llhttp): no thread per request,
+keep-alive connections are reused, and `max_connections` caps how many are in flight at once.
+Awaitable downloads are the exception: they still run on the event loop's thread pool.
 
     python 14_async_client.py
 """

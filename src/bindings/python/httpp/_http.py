@@ -6,7 +6,7 @@ API too (httpp::client::request, httpp::client, httpp::async_client).
 
 import asyncio
 
-from .httpp_cy import Client, Request
+from .httpp_cy import Client, Request, _AsyncClientCore
 
 
 def request(method, url, *, params=None, headers=None, data=None, json=None, form=None,
@@ -83,42 +83,21 @@ class AsyncClient:
         async with httpp.AsyncClient("http://localhost:8000", max_connections=16) as c:
             replies = await asyncio.gather(*(c.get(f"/items/{i}") for i in range(100)))
 
-    It keeps a pool of keep-alive Clients (at most `max_connections`; extra requests wait their
-    turn). Each request runs its blocking call on the event loop's default thread pool, so the
-    loop is never blocked, but concurrency is bounded by that pool and by max_connections: this
-    is not non-blocking socket I/O. The C++ counterpart is httpp::async_client.
+    Requests run on the C++ network thread (non-blocking sockets, Asio + llhttp): no thread per
+    request, connections are kept alive and reused, and at most `max_connections` requests are in
+    flight (extra ones wait their turn). The C++ counterpart is httpp::async_client.
+
+    `**client_options` are the same as for Client: headers, timeout, follow_redirects, auth, token,
+    verify, ca_file, proxy.
     """
 
     def __init__(self, base_url, *, max_connections=8, **client_options):
         if max_connections < 1:
             raise ValueError("max_connections must be at least 1")
-        self._base_url = base_url
-        self._options = client_options
-        self._max = max_connections
-        self._free = [Client(base_url, **client_options)]  # validates the URL now
-        self._created = 1
-        self._slots = None  # created on first use, inside the running loop
-
-    async def _acquire(self):
-        if self._slots is None:
-            self._slots = asyncio.Semaphore(self._max)
-        await self._slots.acquire()
-        if self._free:
-            return self._free.pop()
-        self._created += 1
-        return Client(self._base_url, **self._options)
-
-    def _release(self, client):
-        self._free.append(client)
-        self._slots.release()
+        self._core = _AsyncClientCore(base_url, max_connections, **client_options)  # validates the URL now
 
     async def request(self, method, path, **kwargs):
-        client = await self._acquire()
-        try:
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, lambda: client.request(method, path, **kwargs))
-        finally:
-            self._release(client)
+        return await self._core.request(method, path, **kwargs)
 
     async def get(self, path, **kwargs):
         return await self.request("GET", path, **kwargs)
@@ -142,7 +121,7 @@ class AsyncClient:
         return await self.request("DELETE", path, **kwargs)
 
     async def aclose(self):
-        self._free.clear()
+        pass  # connections belong to the shared network thread's pool and close when idle too long
 
     async def __aenter__(self):
         return self

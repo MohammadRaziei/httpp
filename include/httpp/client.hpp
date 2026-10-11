@@ -228,9 +228,15 @@ public:
         HTTPP_API request& max_response_size(std::size_t bytes);
 
         HTTPP_API response run() const;
-        // Runs the request on a small shared worker pool and returns at once. The pool is bounded,
-        // so this scales to tens of concurrent requests; it is not non-blocking socket I/O.
+        // Starts the request on the library's non-blocking network thread and returns at once. No
+        // thread is used per request, so thousands can be in flight. Connections are kept alive and
+        // reused across requests to the same place; redirects (if enabled), TLS and the proxy all run
+        // on that thread too.
         HTTPP_API std::future<response> run_async() const;
+        // Same, but instead of a future `done` is called with the response, on the library's network
+        // thread: it must be quick and must not block (hand real work to your own thread or loop).
+        // A request that cannot even start (bad URL, unknown method) calls it at once, on this thread.
+        HTTPP_API void run_async(std::function<void(response)> done) const;
 
     private:
         struct impl;
@@ -243,9 +249,9 @@ private:
     std::unique_ptr<impl> impl_;
 };
 
-// A pool of keep-alive connections to one server, for many concurrent requests. Every call
-// returns a future at once; the requests run on the shared worker pool, each on its own pooled
-// connection (up to `max_connections` at a time, the rest wait their turn). Configure it before
+// Many concurrent requests to one server. Every call returns a future at once; the requests run on
+// the library's non-blocking network thread over pooled keep-alive connections, at most
+// `max_connections` in flight at a time (the rest wait their turn). Configure it before
 // the first request.
 class async_client {
 public:
@@ -271,6 +277,10 @@ public:
     HTTPP_API std::future<response> send(const std::string& method, const std::string& path,
                                          const headers_t& headers = {}, const std::string& body = "",
                                          const std::string& content_type = "");
+    // Callback form of send(): see request::run_async(done) for the rules `done` must follow.
+    HTTPP_API void send(const std::string& method, const std::string& path, const headers_t& headers,
+                        const std::string& body, const std::string& content_type,
+                        std::function<void(response)> done);
 
     HTTPP_API async_client& set_header(std::string name, std::string value);
     HTTPP_API async_client& set_timeout(long seconds);
@@ -279,6 +289,7 @@ public:
     HTTPP_API async_client& set_bearer_token(const std::string& token);
     HTTPP_API async_client& set_verify(bool enable);
     HTTPP_API async_client& set_ca_file(const std::string& path);
+    HTTPP_API async_client& set_proxy(const std::string& host, int port);
 
 private:
     struct impl;
