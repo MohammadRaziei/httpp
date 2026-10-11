@@ -416,8 +416,14 @@ def _adapt_async(fn, app):
             except BaseException:
                 traceback.print_exc()
                 result = (500, b"Internal Server Error", [])
-            # Writing can block on a slow client; keep that off the event loop.
-            await loop.run_in_executor(None, done, *result)
+            # done() only posts the write to the C++ loop (it never waits on the client), so with no
+            # hooks it is safe, and cheaper, to call it right here. after/error hooks run inside
+            # done() on the calling thread, and an `async def` one would wait on this very loop.
+            # ponytail: executor fallback whenever such hooks exist; upgrade path: await the hooks here.
+            if app._after or app._error_handlers:
+                await loop.run_in_executor(None, done, *result)
+            else:
+                done(*result)
 
         asyncio.run_coroutine_threadsafe(run(), loop)
 

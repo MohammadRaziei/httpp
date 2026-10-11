@@ -797,3 +797,39 @@ def test_a_failing_startup_hook_stops_everything_and_a_failing_shutdown_hook_doe
         pass
     assert events == ["good"]  # `bad` ran first (reverse order) and did not stop `good`
     assert "shutdown failed" in capsys.readouterr().err
+
+
+def test_async_route_answers_many_concurrent_requests_without_hooks():
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    app = Server()
+
+    @app.get("/n/:i")
+    async def n(i):
+        await asyncio.sleep(0.01)
+        return f"n{i}"
+
+    with running(app) as url:
+        with ThreadPoolExecutor(16) as pool:
+            got = list(pool.map(lambda i: Request(f"{url}/n/{i}").run().text, range(64)))
+    assert got == [f"n{i}" for i in range(64)]
+
+
+def test_async_route_with_an_async_after_hook_does_not_deadlock_the_loop():
+    import asyncio
+
+    app = Server()
+
+    @app.after_request
+    async def tag(request, response):
+        await asyncio.sleep(0)  # a real await: this would wait on the loop if run on the loop thread
+        response.headers.append(("X-Tag", "yes"))
+
+    @app.get("/a")
+    async def a():
+        return "a"
+
+    with running(app) as url:
+        res = Request(url + "/a").run()
+    assert (res.status, res.header("X-Tag")) == (200, "yes")
