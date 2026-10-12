@@ -50,10 +50,11 @@ import json
 import mimetypes
 import os
 import re
+import socket
 import threading
 import traceback
 
-from .httpp_cy import Server as _Server
+from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox
 
 _PARAM = re.compile(r"[{<]([^}>]*)[}>]")
 
@@ -359,20 +360,46 @@ def _call(fn, *args, **kwargs):
 
 _loop = None
 _loop_lock = threading.Lock()
+_wake = None  # (reader, writer) socket pair kept alive for the loop's whole life
+_tasks = set()  # the loop only holds weak references to tasks; this keeps running handlers alive
 
 
 def _get_loop():
-    """The one event loop all async handlers run on (started on first use)."""
-    global _loop
+    """The one event loop all async handlers run on (started on first use).
+
+    Requests for `async def` routes arrive through the C++ inbox: a C++ thread queues the request
+    and pokes `_wake`, this loop wakes up and dispatches the whole burst while holding the GIL once.
+    """
+    global _loop, _wake
     with _loop_lock:
         if _loop is None:
-            loop = asyncio.new_event_loop()
+            # A selector loop on every platform: the default Proactor loop on Windows has no add_reader.
+            loop = asyncio.SelectorEventLoop()
+            reader, writer = socket.socketpair()
+            reader.setblocking(False)
+            writer.setblocking(False)
+
+            def drain():
+                if _drain_inbox():  # a big burst: let the loop breathe, then go on
+                    loop.call_soon(drain)
+
+            def on_wake():
+                try:
+                    reader.recv(4096)  # the byte only means "look at the inbox"
+                except BlockingIOError:
+                    pass
+                drain()
+
+            loop.add_reader(reader.fileno(), on_wake)  # fine before run_forever: the loop isn't running yet
+            _wake = (reader, writer)
+            _attach_inbox(writer.fileno())
 
             def run():
                 asyncio.set_event_loop(loop)
                 loop.run_forever()
 
             threading.Thread(target=run, name="httpp-asyncio", daemon=True).start()
+            loop.call_soon_threadsafe(drain)  # requests queued before the inbox was attached
             _loop = loop
         return _loop
 
@@ -398,10 +425,11 @@ def _adapt_async(fn, app):
             return _to_response(rv, 500)
 
     def dispatch(method, path, body, headers, query, path_params, done):
-        loop = _get_loop()
+        # Runs on the loop thread (see _get_loop), so it only has to start the task.
         raw = (method, path, body, headers, query, path_params)
 
         async def run():
+            loop = asyncio.get_running_loop()
             result = None
             try:
                 task = asyncio.ensure_future(call(*raw))
@@ -425,7 +453,9 @@ def _adapt_async(fn, app):
             else:
                 done(*result)
 
-        asyncio.run_coroutine_threadsafe(run(), loop)
+        task = asyncio.get_running_loop().create_task(run())
+        _tasks.add(task)
+        task.add_done_callback(_tasks.discard)
 
     return dispatch
 
@@ -464,6 +494,7 @@ class Server(_Server):
         if handler_timeout is not None and handler_timeout < 0:
             raise ValueError("handler_timeout can't be negative")
         self._handler_timeout = handler_timeout or None  # 0 and None both mean "never"
+        self._has_async = False  # set by the first `async def` route
         # The C++ timer is only the backstop for the Python one (it can't cancel the coroutine).
         # ponytail: fixed 5 s grace.
         self.set_async_timeout(int(handler_timeout) + 5 if handler_timeout else 0)
@@ -474,7 +505,8 @@ class Server(_Server):
 
         def register(fn):
             if inspect.iscoroutinefunction(fn):
-                adapted, add = _adapt_async(fn, self), self.add_async_route
+                adapted, add = _adapt_async(fn, self), self.add_loop_route
+                self._has_async = True
             else:
                 adapted, add = _adapt(fn, self), self.add_route
             for m in methods:
@@ -592,6 +624,8 @@ class Server(_Server):
 
     @contextlib.contextmanager
     def _lifecycle(self):
+        if self._has_async:
+            _get_loop()  # the inbox must be draining before the first request can arrive
         for fn in self._startup:
             _call(fn)
         try:
@@ -634,3 +668,9 @@ class Server(_Server):
                 th.join()
         if failure:
             raise failure[0]
+
+    def run(self, host="127.0.0.1", port=8000, **options):
+        """The usual entry point: `if __name__ == "__main__": app.run()`. Same as httpp.run(app, ...)."""
+        from ._run import run
+
+        return run(self, host, port, **options)

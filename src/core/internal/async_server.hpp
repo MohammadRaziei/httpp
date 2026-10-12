@@ -83,6 +83,9 @@ public:
     void set_keep_alive_timeout(int seconds);
     void set_keep_alive_max(std::size_t requests);
     void set_max_body(std::size_t bytes);
+    // Several processes may listen on the same port and the kernel spreads connections between
+    // them (Linux SO_REUSEPORT). bind() fails where that is not available.
+    void set_reuse_port(bool on);
 
 private:
     struct impl;

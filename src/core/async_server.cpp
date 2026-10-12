@@ -134,6 +134,7 @@ struct async_server::impl {
 
     std::mutex mu; // lifecycle flags
     bool bound = false, running = false, stop_requested = false;
+    bool reuse_port = false;
 
     struct conn;
     std::unordered_set<std::shared_ptr<conn>> conns; // loop thread only
@@ -540,6 +541,7 @@ void async_server::set_write_timeout(int seconds) { impl_->write_to = seconds; }
 void async_server::set_keep_alive_timeout(int seconds) { impl_->ka_to = seconds; }
 void async_server::set_keep_alive_max(std::size_t requests) { impl_->ka_max = requests == 0 ? 1 : requests; }
 void async_server::set_max_body(std::size_t bytes) { impl_->max_body = bytes; }
+void async_server::set_reuse_port(bool on) { impl_->reuse_port = on; }
 
 void async_server::after(std::chrono::milliseconds delay, std::function<void()> fn) {
     auto& m = *impl_;
@@ -583,6 +585,20 @@ int async_server::bind(const std::string& host, int port) {
     // Fast restart after a stop (TIME_WAIT), but a second server cannot bind a port that is already listened on.
     m.acceptor.set_option(asio::socket_base::reuse_address(true), ec);
 #endif
+    if (m.reuse_port) {
+        // Not SO_REUSEADDR: on Windows that would let anyone take over the port. Only Linux spreads
+        // connections between the listeners fairly, so that is the one platform we claim.
+#if defined(SO_REUSEPORT) && !defined(_WIN32)
+        const int on = 1;
+        if (::setsockopt(m.acceptor.native_handle(), SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on)) != 0) {
+            m.acceptor.close(ec);
+            return -1;
+        }
+#else
+        m.acceptor.close(ec);
+        return -1;
+#endif
+    }
     m.acceptor.bind(endpoint, ec);
     if (!ec) m.acceptor.listen(asio::socket_base::max_listen_connections, ec);
     if (ec) {

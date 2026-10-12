@@ -591,6 +591,7 @@ server& server::set_write_timeout(int seconds) { impl_->engine->set_write_timeou
 server& server::set_keep_alive_timeout(int seconds) { impl_->engine->set_keep_alive_timeout(seconds); return *this; }
 server& server::set_keep_alive_max(std::size_t requests) { impl_->engine->set_keep_alive_max(requests); return *this; }
 server& server::set_max_body(std::size_t bytes) { impl_->engine->set_max_body(bytes); return *this; }
+server& server::set_reuse_port(bool on) { impl_->engine->set_reuse_port(on); return *this; }
 server& server::set_async_timeout(int seconds) {
     impl_->async_timeout = seconds < 0 ? 0 : seconds;
     return *this;

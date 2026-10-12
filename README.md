@@ -249,22 +249,58 @@ def bad_value(request, exc):
   listens, shutdown after it stopped, in reverse order. A failing startup hook stops the launch; a failing
   shutdown hook is logged and the others still run.
 
+### Free-threaded Python (3.13t, 3.14t)
+
+There are two kinds of wheel: one `cp39-abi3` wheel per platform for every ordinary Python 3.9+, and
+version-specific `cp313-cp313t` / `cp314-cp314t` wheels for the free-threaded builds, which have no
+stable ABI yet (it arrives with 3.15 as `abi3t`; we will move to it once Cython and
+scikit-build-core support it). The extension declares itself free-threading compatible, so importing
+httpp keeps the GIL off. On such an interpreter plain `def` handlers on the server's pool threads
+are meant to run in parallel, in one process. What is verified so far: the whole Python test suite
+and a mixed sync/async/client stress test pass on 3.14t with the GIL off, on a single-core machine;
+speed-up on several cores is not measured yet, and the classifier says "Unstable" until it is.
+Your own handler code must be thread-safe: shared dicts, counters and globals now really are
+touched by several threads at once.
+
 ### Running the server
 
-`listen()` is the launcher: `python app.py` is all it takes.
+`app.run()` is the launcher: `python app.py` is all it takes. The same app also runs from the shell
+with `httpp run main:app`.
 
 ```python
 if __name__ == "__main__":
-    app.listen("0.0.0.0", 8000)
+    app.run(host="0.0.0.0", port=8000)     # defaults: 127.0.0.1, 8000
 ```
+
+```sh
+httpp run main:app --host 0.0.0.0 --port 8000
+httpp run main:app --workers 4             # four processes sharing the port (Linux only)
+```
+
+- `run()` stops on **Ctrl+C or SIGTERM**, gracefully: in-flight work ends and `on_shutdown` hooks run.
+  `httpp.run(app_or_"module:attr", ...)` is the same function; `listen()` stays as the low-level call.
+- **`--workers N` (`workers=N`) is how you get past the GIL.** Python code in a handler needs the GIL
+  whatever the server does, so one process runs at most one handler's Python at a time. N processes
+  each have their own GIL and share one port (`SO_REUSEPORT`; the kernel spreads connections). Each
+  worker is a fresh process that imports the app itself, which is why `workers > 1` needs an import
+  string (`"main:app"`), like uvicorn and gunicorn; module-level state is therefore per worker.
+  Linux only for now. If a worker dies, the supervisor stops the others and exits with code 1 (let
+  systemd or Docker restart it); it does not respawn workers yet. Keep the supervisor alive: killing it
+  with SIGKILL leaves its workers running.
+- `reuse_port=True` / `--reuse-port` lets separately started httpp processes share a port the same way.
+  It is off by default, because it also lets an unrelated process of the same user bind the port silently.
 
 - It blocks until `stop()` is called or you press **Ctrl+C**.
 - It raises `OSError` if the address cannot be bound (for example, the port is already taken).
   Two httpp servers cannot share a port.
 - Plain `def` handlers run on the server's thread pool (see [Settings](#settings)), so a handler that
   blocks holds its thread for as long as it blocks.
-- `async def` handlers run on **one shared asyncio event loop** (a background thread, started on first
-  use) and give their worker thread back as soon as they start. While they `await`, no thread is held,
+- `async def` handlers run on **one shared asyncio event loop** (a background thread, started when the
+  server starts listening). The C++ side hands them requests without taking the GIL itself: it queues the
+  request and pokes the loop through a socket, and the loop thread takes the GIL once per burst of
+  requests, not once per request. (On a 1-core test machine, with a trivial handler and a Python load
+  generator, this was about 60% more requests per second than the previous thread-hop path. That shows
+  the per-request overhead went down, not what a real application will get.) While they `await`, no thread is held,
   so far more requests can be in flight than there are threads: on a 1-core test machine, 400
   concurrent requests that each `await asyncio.sleep(0.5)` all finish in about 0.7 s. Because every
   request shares the same loop, loop-bound objects (an `aiohttp.ClientSession`, an async DB pool) can be
@@ -317,8 +353,9 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
 
 - Awaitable downloads (`Download.run_async`) still run on the event loop's thread pool; downloads have no
   timeout option; the server's hooks hold a worker thread while they await; a plain `def` handler cannot
-  be cancelled by `handler_timeout`; `async def` handlers still run on a Python `asyncio` thread (the
-  GIL-free C++ loop for them is not written yet).
+  be cancelled by `handler_timeout`. Handler code is Python, so it still needs the GIL: `async def`
+  handlers share one loop thread, plain `def` handlers take the GIL on pool threads (set `threads=` to
+  fit your blocking calls), and real parallelism needs `--workers` or a free-threaded Python (below).
 - HTTP/1.1 only; the server does not speak TLS; a cancelled `await` stops waiting but the request itself
   keeps running until it finishes.
 - Platforms: the connection layer is tested on Linux. Windows and macOS are untested by the author; CI
@@ -328,7 +365,7 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
 - `cpp-httplib` (unmodified) now serves only the synchronous client; the server and the async engine are
   our own (Asio + llhttp). It is planned to retire it once the synchronous client is ours too.
 - The libcurl compatibility layer covers a subset of `curl_easy_*`.
-- No ASGI/WSGI interface, auto-reload or multi-process workers.
+- No ASGI/WSGI interface or auto-reload. `--workers` is Linux only and does not respawn dead workers.
 
 Issues and pull requests are welcome.
 

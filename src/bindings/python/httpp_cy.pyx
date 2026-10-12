@@ -1,5 +1,5 @@
 # distutils: language = c++
-# cython: language_level=3
+# cython: language_level=3, freethreading_compatible=True
 
 """
 Cython bindings over the httpp C++ core (include/httpp.h). This is what
@@ -88,6 +88,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cpp_server& set_keep_alive_max(size_t requests) except +
         cpp_server& set_max_body(size_t nbytes) except +
         cpp_server& set_async_timeout(int seconds) except +
+        cpp_server& set_reuse_port(cbool on) except +
         int bind_to_any_port(string host) except +
         cbool listen_after_bind() except + nogil
         cbool listen(string host, int port) except + nogil
@@ -620,20 +621,117 @@ cdef class _Done:
             self._r.send(res)
 
 
-cdef void _dispatch_async(void* ctx, const cpp_request& req, const cpp_responder& r) noexcept nogil:
-    # Runs on a cpp-httplib worker thread, which is released as soon as this
-    # returns; the response is sent later through `done`.
-    with gil:
-        done = _Done.__new__(_Done)
-        (<_Done>done)._r = new cpp_responder(r)
+cdef void _start_dispatch(void* ctx, const cpp_request& req, const cpp_responder& r) noexcept:
+    # GIL held. Hands the request to the route's `dispatch`, which must return quickly; the
+    # response is sent later through `done`. Never raises: a failing dispatch answers 500.
+    done = _Done.__new__(_Done)
+    (<_Done>done)._r = new cpp_responder(r)
+    try:
+        (<object>ctx)(*_request_args(req), done)
+    except BaseException:
+        traceback.print_exc()
         try:
-            (<object>ctx)(*_request_args(req), done)
+            done(500, b"Internal Server Error", [])
         except BaseException:
-            traceback.print_exc()
-            try:
-                done(500, b"Internal Server Error", [])
-            except BaseException:
-                pass
+            pass
+
+
+cdef void _dispatch_async(void* ctx, const cpp_request& req, const cpp_responder& r) noexcept nogil:
+    # Runs on a pool thread that Python knows nothing about, hence the explicit GIL acquire.
+    with gil:
+        _start_dispatch(ctx, req, r)
+
+
+# The "loop inbox": requests for `async def` routes go from the C++ side to the asyncio loop thread
+# WITHOUT the C++ thread ever touching the GIL. The C++ thread queues the request and writes one byte
+# to a socket the loop is watching; the loop thread wakes up, takes the GIL once and drains the whole
+# burst (see httpp/server.py `_get_loop`). A wake byte is only written when the queue goes from
+# empty to non-empty, so a burst costs one wake-up, not one per request.
+cdef extern from *:
+    """
+    #include <atomic>
+    #include <cerrno>
+    #include <deque>
+    #include <mutex>
+    #ifdef _WIN32
+    #include <winsock2.h>
+    #else
+    #include <sys/socket.h>
+    #endif
+    struct httpp_py_item { void* ctx; httpp::request req; httpp::responder rsp; };
+    struct httpp_py_inbox {
+        std::mutex mu;
+        std::deque<httpp_py_item> q;
+        bool armed = false;               // a wake byte is on its way (or the loop is draining)
+        std::atomic<long long> wake_fd{-1};
+    };
+    // Leaked on purpose: a late push during interpreter exit must still find it alive.
+    static httpp_py_inbox& httpp_py_box() { static httpp_py_inbox* b = new httpp_py_inbox; return *b; }
+    static void httpp_py_inbox_attach(int fd) { httpp_py_box().wake_fd = fd; }
+    static void httpp_py_inbox_push(void* ctx, const httpp::request& q, const httpp::responder& r) {
+        auto& b = httpp_py_box();
+        bool wake = false;
+        {
+            std::lock_guard<std::mutex> lock(b.mu);
+            b.q.push_back(httpp_py_item{ctx, q, r});
+            if (!b.armed) b.armed = wake = true;
+        }
+        const long long fd = b.wake_fd.load();
+        if (!wake || fd < 0) return; // not attached yet: the attaching side drains once itself
+        const char one = 1;
+        const long long n = ::send(static_cast<decltype(::socket(0, 0, 0))>(fd), &one, 1, 0);
+        // A full socket buffer (EAGAIN) means wake bytes are already waiting; any other failure
+        // must not leave the inbox "armed" forever.
+        if (n < 0) {
+    #ifdef _WIN32
+            const bool full = WSAGetLastError() == WSAEWOULDBLOCK;
+    #else
+            const bool full = errno == EAGAIN || errno == EWOULDBLOCK;
+    #endif
+            if (!full) { std::lock_guard<std::mutex> lock(b.mu); b.armed = false; }
+        }
+    }
+    // false (and disarmed, atomically with the emptiness check) when nothing is left.
+    static bool httpp_py_inbox_pop(httpp_py_item& out) {
+        auto& b = httpp_py_box();
+        std::lock_guard<std::mutex> lock(b.mu);
+        if (b.q.empty()) { b.armed = false; return false; }
+        out = std::move(b.q.front());
+        b.q.pop_front();
+        return true;
+    }
+    """
+    cdef cppclass inbox_item "httpp_py_item":
+        void* ctx
+        cpp_request req
+        cpp_responder rsp
+        inbox_item()
+    void inbox_attach "httpp_py_inbox_attach"(int fd) nogil
+    void inbox_push "httpp_py_inbox_push"(void* ctx, const cpp_request& req, const cpp_responder& r) nogil
+    cbool inbox_pop "httpp_py_inbox_pop"(inbox_item& out) nogil
+
+
+cdef void _dispatch_inbox(void* ctx, const cpp_request& req, const cpp_responder& r) noexcept nogil:
+    inbox_push(ctx, req, r)
+
+
+def _attach_inbox(int wake_fd):
+    """Tell the inbox which socket to poke when requests arrive (the loop watches its other end)."""
+    inbox_attach(wake_fd)
+
+
+def _drain_inbox(int budget=256):
+    """Loop thread, GIL held: dispatch up to `budget` queued requests. True if some may remain, so
+    the caller should call again after letting other callbacks run (a huge burst must not starve them).
+    The pop is done WITH the GIL held on purpose: the mutex is only ever held for a moment and never
+    by anyone waiting for the GIL, and letting go of the GIL per request would invite a thread switch."""
+    cdef inbox_item item
+    while budget > 0:
+        if not inbox_pop(item):
+            return False
+        _start_dispatch(item.ctx, item.req, item.rsp)
+        budget -= 1
+    return True
 
 
 cdef int _check_seconds(int seconds) except -1:
@@ -684,6 +782,16 @@ cdef class Server:
         self._handlers.append(dispatch)
         self._srv.route_async(method.encode("utf-8"), path.encode("utf-8"),
                               make_async_handler(_dispatch_async, <void*>dispatch))
+
+    def add_loop_route(self, str method, str path, dispatch):
+        """Like add_async_route, but `dispatch` runs on the asyncio loop thread that drains the inbox
+        (see httpp/server.py), not on a pool thread, and the C++ side never takes the GIL for it. Needs
+        _attach_inbox() and a loop calling _drain_inbox(); httpp.Server arranges both when it listens."""
+        if not callable(dispatch):
+            raise TypeError("dispatch must be callable")
+        self._handlers.append(dispatch)
+        self._srv.route_async(method.encode("utf-8"), path.encode("utf-8"),
+                              make_async_handler(_dispatch_inbox, <void*>dispatch))
 
     # --- Hooks. Each one replaces the previous (like the C++ setters); httpp/server.py chains several. ---
     def set_before_hook(self, hook):
@@ -752,6 +860,12 @@ cdef class Server:
         """add_async_route: answer 504 if `done` isn't called within this; 0 = never."""
         _check_seconds(seconds)
         self._srv.set_async_timeout(seconds)
+        return self
+
+    def set_reuse_port(self, cbool on):
+        """Several processes may listen on one port, the kernel balancing between them (Linux only;
+        listen() then fails elsewhere). Used by `run(workers=N)`."""
+        self._srv.set_reuse_port(on)
         return self
 
     def bind_to_any_port(self, str host):

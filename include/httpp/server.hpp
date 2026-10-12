@@ -162,6 +162,10 @@ public:
     HTTPP_API server& set_keep_alive_max(std::size_t requests); // requests per connection (default 100)
     HTTPP_API server& set_max_body(std::size_t bytes);      // largest request body accepted; 0 = no limit
     HTTPP_API server& set_async_timeout(int seconds);       // route_async: answer within this or 504; 0 = never
+    // Let several processes listen on the same port, the kernel balancing connections between them
+    // (SO_REUSEPORT: Linux only; elsewhere listening fails). Off by default, because it also lets an
+    // unrelated process of the same user bind the port silently.
+    HTTPP_API server& set_reuse_port(bool on);
 
 private:
     struct impl;

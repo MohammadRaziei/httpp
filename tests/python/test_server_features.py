@@ -833,3 +833,55 @@ def test_async_route_with_an_async_after_hook_does_not_deadlock_the_loop():
     with running(app) as url:
         res = Request(url + "/a").run()
     assert (res.status, res.header("X-Tag")) == (200, "yes")
+
+
+def test_async_handlers_run_on_the_loop_thread_not_on_a_pool_thread():
+    app = Server()
+
+    @app.get("/who")
+    async def who():
+        return threading.current_thread().name
+
+    @app.get("/who-sync")
+    def who_sync():
+        return threading.current_thread().name
+
+    with running(app) as url:
+        assert Request(url + "/who").run().text == "httpp-asyncio"
+        assert Request(url + "/who-sync").run().text != "httpp-asyncio"
+
+
+def test_a_burst_that_piles_up_while_the_loop_is_busy_is_served_in_full():
+    """The loop thread is blocked on purpose, so every request lands in the C++ inbox and the drain
+    must go past its per-round budget (256) and continue."""
+    import socket
+
+    app = Server()
+
+    @app.get("/block")
+    async def block():
+        time.sleep(0.5)  # blocks the loop thread, which is the point
+        return "b"
+
+    @app.get("/n/:i")
+    async def n(i):
+        return f"n{i}"
+
+    count = 700
+    with running(app) as url:
+        port = int(url.rsplit(":", 1)[1])
+        blocker = threading.Thread(target=lambda: Request(url + "/block").run())
+        blocker.start()
+        time.sleep(0.15)  # the loop is now inside /block
+        socks = []
+        for i in range(count):
+            s = socket.create_connection(("127.0.0.1", port), timeout=20)
+            s.sendall(f"GET /n/{i} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n".encode())
+            socks.append(s)
+        for i, s in enumerate(socks):
+            data = b""
+            while chunk := s.recv(4096):
+                data += chunk
+            s.close()
+            assert data.startswith(b"HTTP/1.1 200") and data.endswith(f"n{i}".encode()), (i, data[:80])
+        blocker.join()

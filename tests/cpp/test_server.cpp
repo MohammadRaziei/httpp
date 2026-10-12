@@ -96,6 +96,27 @@ UTEST(httpp_server, listens_on_a_fixed_requested_port) {
     th.join();
 }
 
+#ifdef __linux__
+UTEST(httpp_server, reuse_port_lets_servers_share_a_port_only_when_both_ask) {
+    httpp::server a, b, plain;
+    a.set_reuse_port(true);
+    const int port = a.bind_to_any_port("127.0.0.1");
+    ASSERT_TRUE(port > 0);
+
+    ASSERT_FALSE(plain.listen("127.0.0.1", port)); // did not ask: refused, and it returns at once
+
+    b.set_reuse_port(true);
+    std::atomic<int> state{0}; // 0 = still serving, 1 = listen failed, 2 = listen ended after stop()
+    std::thread th([&] { state = b.listen("127.0.0.1", port) ? 2 : 1; });
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    const int while_serving = state.load();
+    b.stop();
+    th.join();
+    ASSERT_EQ(0, while_serving);
+    ASSERT_EQ(2, state.load());
+}
+#endif
+
 UTEST(httpp_server, route_exposes_path_params_query_headers_and_sets_response_headers) {
     httpp::server s;
     s.route("POST", "/users/:id", [](const httpp::request& req, httpp::response& res) {

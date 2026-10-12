@@ -19,6 +19,16 @@ def _cmd_server(args):
         srv.stop()
 
 
+def _cmd_run(args):
+    from httpp import run
+
+    try:
+        return run(args.app, args.host, args.port, workers=args.workers, reuse_port=args.reuse_port, log_level=args.log_level)
+    except (ValueError, TypeError, OSError) as e:
+        print(f"httpp: error: {e}", file=sys.stderr)
+        return 1
+
+
 def _cmd_download(args):
     if args.output:
         # Real download to a file, with a terminal progress bar (see
@@ -164,6 +174,15 @@ def build_parser():
     p_server.add_argument("--host", default="0.0.0.0")
     p_server.add_argument("--port", "-p", type=int, default=8000)
     p_server.set_defaults(func=_cmd_server)
+
+    p_run = sub.add_parser("run", help="Run an httpp app: `httpp run main:app`.")
+    p_run.add_argument("app", help="import string 'module:attribute' of an httpp.Server")
+    p_run.add_argument("--host", default="127.0.0.1", help="default 127.0.0.1; use 0.0.0.0 to listen on every interface")
+    p_run.add_argument("--port", "-p", type=int, default=8000)
+    p_run.add_argument("--workers", "-w", type=int, default=1, help="processes sharing the port (Linux only); gets past the GIL")
+    p_run.add_argument("--reuse-port", action="store_true", help="let other httpp processes share the port (Linux only)")
+    p_run.add_argument("--log-level", choices=("trace", "debug", "info", "warning", "error", "off"), default=None)
+    p_run.set_defaults(func=_cmd_run)
 
     p_download = sub.add_parser("download", help="Download a URL (to stdout, or a file with -o).")
     p_download.add_argument("url")
