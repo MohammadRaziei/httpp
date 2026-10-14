@@ -39,9 +39,9 @@
     - [ ] خروج از handler
     - [ ] دسترسی به state
     - [ ] validate پارامتر
-    - [ ] ساختن شیء پایتونی (امروز: ۶ شیء + یک `ServerRequest` برای هر درخواست)
+    - [x] ساختن شیء پایتونی: فقط آنچه handler خواسته ساخته می‌شود (`RawRequest` مشترک با C++، `ServerRequest` تنبل)
 - [ ] سهم مرز = Σ (هزینه × تعداد)
-- [x] async: چند پرش داری؟ **`def`: یک پرش (Asio ← pool)؛ `async def`: دو پرش (Asio ← pool ← حلقهٔ asyncio).** تعداد پرش دانسته است؛ هزینهٔ هر پرش هنوز اندازه‌گیری نشده.
+- [x] async: چند پرش داری؟ **`def`: یک پرش (Asio ← pool)؛ `async def`: یک پرش (Asio ← حلقهٔ asyncio) بدون `before_request`، دو پرش با آن.** پرش دوم حذف شد (گزینهٔ B)؛ اندازه‌گیری: `async def` از حدود ۲۲٫۵k به حدود ۵۷٫۶k رسید (یک هسته، همان اجرا؛ uvicorn حدود ۴۱k). تک‌هسته است و ادعای چندهسته‌ای نیست.
 
 ### خروجی
 
@@ -150,7 +150,9 @@
 - [ ] timeout هدر و محدودیت درخواست‌های کند
 - [ ] timeout هر route
 - [ ] تست slowloris (تا ساخته‌شدن این‌ها شکست انتظاری)
-- [ ] ThreadSanitizer/ASan روی موتور سرور و inbox
+- [x] ThreadSanitizer روی موتور سرور و مسیر io: بدون گزارش
+- [ ] ThreadSanitizer روی کلاینت TLS: data race داخل mbedtls (بدون `MBEDTLS_THREADING_C`) — نیاز به تصمیم
+- [ ] AddressSanitizer
 
 ---
 

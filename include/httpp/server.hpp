@@ -89,12 +89,22 @@ private:
 
 using async_handler = std::function<void(const request&, responder)>;
 
+// Handlers that get their request by shared pointer, so they can keep it (hand it to another
+// thread, queue it) without copying it.
+//  - shared_handler: a normal handler (runs on a worker thread, may block) that fills in a response.
+//  - io_handler: runs directly on the single I/O thread that reads and parses requests, answers
+//    through a responder like an async handler. It MUST return at once and never block, never take
+//    a lock someone may hold for long, never wait for a thread that could be waiting for the I/O
+//    thread. It exists to hand the request to an event loop that lives elsewhere (the Python
+//    asyncio loop is one), skipping the extra thread hop an async_handler costs.
+using shared_handler = std::function<void(std::shared_ptr<const request>, response&)>;
+using io_handler = std::function<void(std::shared_ptr<const request>, responder)>;
+
 // httpp::server is what replaces "spin up libcurl/httplib yourself" for the
 // server side: register routes or serve a directory (the httpp CLI's
 // `httpp server` command, analogous to `python -m http.server`, is a thin
-// wrapper around this class). Backed by vendored cpp-httplib, but that
-// dependency is hidden behind this pointer (see src/core/server.cpp) and
-// never appears in this public header.
+// wrapper around this class). It runs on our own Asio + llhttp engine (see
+// src/core/server.cpp); that engine never appears in this public header.
 class server {
 public:
     HTTPP_API server();
@@ -127,6 +137,13 @@ public:
     HTTPP_API void put_async(const std::string& path, async_handler h);
     HTTPP_API void patch_async(const std::string& path, async_handler h);
     HTTPP_API void del_async(const std::string& path, async_handler h);
+    // Like route(), but the handler gets the request by shared pointer (see shared_handler).
+    HTTPP_API void route_shared(const std::string& method, const std::string& path, shared_handler h);
+    // Like route_async(), but the handler runs on the I/O thread (see io_handler). Everything else
+    // is the same: the 504 timeout, the exception handler, the hooks, a late send() from any thread.
+    // A before hook (it may block) or a mounted directory that has the file still runs first, on a
+    // worker thread, and then the handler runs there instead.
+    HTTPP_API void route_io(const std::string& method, const std::string& path, io_handler h);
     HTTPP_API void serve_directory(const std::string& mount_path, const std::string& local_dir);
 
     HTTPP_API int bind_to_any_port(const std::string& host);

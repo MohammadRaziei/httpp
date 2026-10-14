@@ -62,20 +62,68 @@ _PARAM = re.compile(r"[{<]([^}>]*)[}>]")
 class ServerRequest:
     """What a route handler receives as `request`.
 
-    headers: dict, lower-cased names.  query: dict of ?a=1 params (cpp-httplib
-    also merges urlencoded form bodies in here).  path_params: dict of str.
-    For repeated names the first value wins.  # ponytail: multi-dict if needed
+    headers: dict, lower-cased names.  query: dict of ?a=1 params (urlencoded form bodies are
+    merged in here too).  path_params: dict of str.  For repeated names the first value wins.
+    # ponytail: multi-dict if needed
+
+    Inside a route this is a view on the request as C++ holds it: each field is read (and turned
+    into a Python object) the first time it is used, so a handler pays only for what it touches.
+    The fields are read-only.
     """
 
-    __slots__ = ("method", "path", "body", "headers", "query", "path_params")
+    __slots__ = ("_raw", "_method", "_path", "_body", "_headers", "_query", "_path_params")
 
     def __init__(self, method, path, body, headers, query, path_params):
-        self.method = method
-        self.path = path
-        self.body = body  # bytes
-        self.headers = _first_wins(headers, str.lower)
-        self.query = _first_wins(query)
-        self.path_params = dict(path_params)
+        self._raw = None
+        self._method = method
+        self._path = path
+        self._body = body  # bytes
+        self._headers = _first_wins(headers, str.lower)
+        self._query = _first_wins(query)
+        self._path_params = dict(path_params)
+
+    @classmethod
+    def _from_raw(cls, raw):
+        self = cls.__new__(cls)
+        self._raw = raw
+        self._method = self._path = self._body = self._headers = self._query = self._path_params = None
+        return self
+
+    @property
+    def method(self):
+        if self._method is None:
+            self._method = self._raw.method
+        return self._method
+
+    @property
+    def path(self):
+        if self._path is None:
+            self._path = self._raw.path
+        return self._path
+
+    @property
+    def body(self):
+        if self._body is None:
+            self._body = self._raw.body
+        return self._body
+
+    @property
+    def headers(self):
+        if self._headers is None:
+            self._headers = _first_wins(self._raw.headers(), str.lower)
+        return self._headers
+
+    @property
+    def query(self):
+        if self._query is None:
+            self._query = _first_wins(self._raw.query())
+        return self._query
+
+    @property
+    def path_params(self):
+        if self._path_params is None:
+            self._path_params = self._raw.path_params()
+        return self._path_params
 
     @property
     def text(self):
@@ -301,37 +349,75 @@ def _to_response(rv, default_status=200):
     return status, body, headers
 
 
+_NO_ARGS = ({}, None)
+
+
 def _prepare(fn):
-    """Build the kwargs for `fn` from a raw request: path params (converted per
-    annotation) plus `request` if asked for. Returns (kwargs, early_response);
-    early_response is a ready (status, body, headers) when the request can't
-    reach the handler (bad path parameter)."""
+    """Build the kwargs for `fn` from a RawRequest: path params (converted per annotation) plus
+    `request` if asked for, and nothing else. Returns (kwargs, early_response); early_response is a
+    ready (status, body, headers) when the request can't reach the handler (bad path parameter).
+    What `fn` asks for is worked out once, here, not per request."""
     params = inspect.signature(fn).parameters
     takes_all = any(p.kind is p.VAR_KEYWORD for p in params.values())
+    wants_request = "request" in params
+    wanted = tuple(n for n in params if n != "request")
     convert = {n: p.annotation for n, p in params.items() if p.annotation in (int, float)}
 
-    def prepare(method, path, body, headers, query, path_params):
-        req = ServerRequest(method, path, body, headers, query, path_params)
-        kwargs = {k: v for k, v in req.path_params.items() if takes_all or k in params}
+    if not (takes_all or wants_request or wanted):
+        return lambda raw: _NO_ARGS
+
+    def prepare(raw):
+        if takes_all:
+            kwargs = raw.path_params()
+        elif wanted:
+            found = raw.path_params()
+            kwargs = {n: found[n] for n in wanted if n in found}
+        else:
+            kwargs = {}
         try:
             for k, typ in convert.items():
                 if k in kwargs:
                     kwargs[k] = typ(kwargs[k])
         except ValueError:
             return None, _to_response(({"error": f"path parameter {k!r} must be {typ.__name__}"}, 422))
-        if "request" in params:
-            kwargs["request"] = req
+        if wants_request:
+            kwargs["request"] = ServerRequest._from_raw(raw)
         return kwargs, None
 
     return prepare
 
 
+class _FlatRaw:
+    """The RawRequest interface over the six plain values the C++ hooks (before / error) are given."""
+
+    __slots__ = ("method", "path", "body", "_headers", "_query", "_params")
+
+    def __init__(self, method, path, body, headers, query, path_params):
+        self.method, self.path, self.body = method, path, body
+        self._headers, self._query, self._params = headers, query, path_params
+
+    def headers(self):
+        return self._headers
+
+    def query(self):
+        return self._query
+
+    def path_params(self):
+        return _first_wins(self._params)
+
+
+def _prepare_flat(fn):
+    """_prepare for the hooks: called with the six values, not with a RawRequest."""
+    prepare = _prepare(fn)
+    return lambda *flat: prepare(_FlatRaw(*flat))
+
+
 def _adapt(fn, app):
-    """Sync handler -> the flat blocking signature the compiled core calls."""
+    """Sync handler -> what the compiled core calls on a worker thread: raw request in, (status, body, headers) out."""
     prepare = _prepare(fn)
 
-    def call(*raw):
-        kwargs, early = prepare(*raw)
+    def call(raw):
+        kwargs, early = prepare(raw)
         if early is not None:
             return early
         try:
@@ -340,7 +426,7 @@ def _adapt(fn, app):
             handler = app._exception_handler_for(exc)
             if handler is None:
                 raise  # the compiled core logs it and answers a plain 500
-            return _to_response(_call(handler, ServerRequest(*raw), exc), 500)
+            return _to_response(_call(handler, ServerRequest._from_raw(raw), exc), 500)
 
     return call
 
@@ -405,57 +491,63 @@ def _get_loop():
 
 
 def _adapt_async(fn, app):
-    """Async handler -> a dispatcher for the compiled core's non-blocking
-    routes: it returns at once and the response is sent through `done` later."""
+    """Async handler -> a dispatcher for the compiled core's loop routes: `dispatch(raw, done)` runs on
+    the loop thread, returns at once, and the response is sent through `done` when the handler is finished.
+    One task per request does everything: the handler, its exception handler and the timeout."""
     prepare = _prepare(fn)
 
-    async def call(*raw):
-        kwargs, early = prepare(*raw)
-        if early is not None:
-            return early
+    async def run(raw, done):
+        task = asyncio.current_task()
+        loop = asyncio.get_running_loop()
+        timeout = app._handler_timeout
+        timed_out = False
+        timer = None
+        if timeout:
+
+            def expire():
+                nonlocal timed_out
+                timed_out = True
+                task.cancel()  # frees the coroutine; its answer would be too late anyway
+
+            timer = loop.call_later(timeout, expire)
         try:
-            return _to_response(await fn(**kwargs))
-        except Exception as exc:
-            handler = app._exception_handler_for(exc)
-            if handler is None:
-                raise  # run() logs it and answers a plain 500
-            rv = handler(ServerRequest(*raw), exc)
-            if inspect.isawaitable(rv):
-                rv = await rv
-            return _to_response(rv, 500)
-
-    def dispatch(method, path, body, headers, query, path_params, done):
-        # Runs on the loop thread (see _get_loop), so it only has to start the task.
-        raw = (method, path, body, headers, query, path_params)
-
-        async def run():
-            loop = asyncio.get_running_loop()
-            result = None
-            try:
-                task = asyncio.ensure_future(call(*raw))
-                timeout = app._handler_timeout
-                if timeout:
-                    finished, _ = await asyncio.wait({task}, timeout=timeout)
-                    if not finished:
-                        task.cancel()  # frees the coroutine; its answer would be too late anyway
-                        result = (504, b"Gateway Timeout", [])
-                if result is None:
-                    result = await task
-            except BaseException:
-                traceback.print_exc()
-                result = (500, b"Internal Server Error", [])
-            # done() only posts the write to the C++ loop (it never waits on the client), so with no
-            # hooks it is safe, and cheaper, to call it right here. after/error hooks run inside
-            # done() on the calling thread, and an `async def` one would wait on this very loop.
-            # ponytail: executor fallback whenever such hooks exist; upgrade path: await the hooks here.
-            if app._after or app._error_handlers:
-                await loop.run_in_executor(None, done, *result)
+            kwargs, early = prepare(raw)
+            if early is not None:
+                result = early
             else:
-                done(*result)
+                try:
+                    result = _to_response(await fn(**kwargs))
+                except Exception as exc:
+                    handler = app._exception_handler_for(exc)
+                    if handler is None:
+                        raise  # answered with a plain 500 below
+                    rv = handler(ServerRequest._from_raw(raw), exc)
+                    if inspect.isawaitable(rv):
+                        rv = await rv
+                    result = _to_response(rv, 500)
+        except asyncio.CancelledError:
+            if not timed_out:
+                raise  # the loop is shutting down: `done` is dropped and the connection closes unanswered
+            result = (504, b"Gateway Timeout", [])
+        except BaseException:
+            traceback.print_exc()
+            result = (500, b"Internal Server Error", [])
+        finally:
+            if timer is not None:
+                timer.cancel()
+            _tasks.discard(task)
+        # done() only posts the write to the C++ loop (it never waits on the client), so with no
+        # hooks it is safe, and cheaper, to call it right here. after/error hooks run inside
+        # done() on the calling thread, and an `async def` one would wait on this very loop.
+        # ponytail: executor fallback whenever such hooks exist; upgrade path: await the hooks here.
+        if app._after or app._error_handlers:
+            await loop.run_in_executor(None, done, *result)
+        else:
+            done(*result)
 
-        task = asyncio.get_running_loop().create_task(run())
-        _tasks.add(task)
-        task.add_done_callback(_tasks.discard)
+    def dispatch(raw, done):
+        task = asyncio.get_running_loop().create_task(run(raw, done))
+        _tasks.add(task)  # the loop only keeps weak references to tasks
 
     return dispatch
 
@@ -505,10 +597,10 @@ class Server(_Server):
 
         def register(fn):
             if inspect.iscoroutinefunction(fn):
-                adapted, add = _adapt_async(fn, self), self.add_loop_route
+                adapted, add = _adapt_async(fn, self), self._add_raw_loop_route
                 self._has_async = True
             else:
-                adapted, add = _adapt(fn, self), self.add_route
+                adapted, add = _adapt(fn, self), self._add_raw_route
             for m in methods:
                 add(m, pattern, adapted)
             return fn  # unchanged, so it stays directly callable / testable
@@ -537,7 +629,7 @@ class Server(_Server):
         route may return) to answer right here without calling the route."""
         if not self._before:
             self.set_before_hook(self._run_before)
-        self._before.append((fn, _prepare(fn)))
+        self._before.append((fn, _prepare_flat(fn)))
         return fn
 
     def after_request(self, fn):
@@ -559,7 +651,7 @@ class Server(_Server):
             if not self._error_handlers:
                 self.set_error_hook(self._run_error)
             for status in statuses:
-                self._error_handlers[status] = (fn, _prepare(fn))
+                self._error_handlers[status] = (fn, _prepare_flat(fn))
             return fn
 
         return register
@@ -650,22 +742,27 @@ class Server(_Server):
         thread in Python. # ponytail: 0.2s poll; upgrade path is signal.set_wakeup_fd.
         """
         failure = []
+        done = threading.Event()
 
         def serve():
             try:
                 _Server.listen(self, host, port)
             except BaseException as e:
                 failure.append(e)
+            finally:
+                done.set()
 
         with self._lifecycle():
-            th = threading.Thread(target=serve, daemon=True)
-            th.start()
+            threading.Thread(target=serve, daemon=True).start()
             try:
-                while th.is_alive():
-                    th.join(0.2)
+                while not done.wait(0.2):
+                    pass
             except KeyboardInterrupt:
-                self.stop()
-                th.join()
+                # stop() does nothing until the port is bound, so repeat it until the server is
+                # really done. An Event, not Thread.join(): a KeyboardInterrupt inside join() can
+                # make a running thread look dead on some CPython versions.
+                while not done.wait(0.05):
+                    self.stop()
         if failure:
             raise failure[0]
 

@@ -159,3 +159,95 @@ def test_free_threaded_build_keeps_the_gil_off_after_importing_httpp():
     if not sysconfig.get_config_var("Py_GIL_DISABLED") or os.environ.get("PYTHON_GIL") == "1":
         pytest.skip("not a free-threaded interpreter, or the GIL was forced on")
     assert not sys._is_gil_enabled()
+
+
+# ---- --workers auto ------------------------------------------------------------------------------
+
+
+def test_cpu_count_honours_the_affinity_mask_and_a_container_cpu_limit(monkeypatch, tmp_path):
+    from httpp import _run
+
+    monkeypatch.setattr(os, "sched_getaffinity", lambda pid: set(range(8)), raising=False)
+    monkeypatch.setattr(_run, "_CGROUP_V2_CPU_MAX", str(tmp_path / "missing"))
+    monkeypatch.setattr(_run, "_CGROUP_V1_QUOTA", str(tmp_path / "missing"))
+    monkeypatch.setattr(_run, "_CGROUP_V1_PERIOD", str(tmp_path / "missing"))
+    assert _run._cpu_count() == 8  # no limit file: the affinity mask decides
+
+    v2 = tmp_path / "cpu.max"
+    monkeypatch.setattr(_run, "_CGROUP_V2_CPU_MAX", str(v2))
+    v2.write_text("200000 100000\n")
+    assert _run._cpu_count() == 2  # two CPUs of quota on an 8-CPU host
+    v2.write_text("150000 100000\n")
+    assert _run._cpu_count() == 1  # 1.5 CPUs: round down, so the quota does not throttle the workers
+    v2.write_text("50000 100000\n")
+    assert _run._cpu_count() == 1  # never below one
+    v2.write_text("max 100000\n")
+    assert _run._cpu_count() == 8  # "max" means no limit
+    v2.write_text("garbage")
+    assert _run._cpu_count() == 8  # unreadable: ignore it rather than crash
+
+    v2.unlink()
+    (tmp_path / "quota").write_text("400000\n")
+    (tmp_path / "period").write_text("100000\n")
+    monkeypatch.setattr(_run, "_CGROUP_V1_QUOTA", str(tmp_path / "quota"))
+    monkeypatch.setattr(_run, "_CGROUP_V1_PERIOD", str(tmp_path / "period"))
+    assert _run._cpu_count() == 4  # cgroup v1
+    (tmp_path / "quota").write_text("-1\n")
+    assert _run._cpu_count() == 8  # -1 means no limit
+
+
+def test_cpu_count_without_sched_getaffinity(monkeypatch):
+    from httpp import _run
+
+    monkeypatch.delattr(os, "sched_getaffinity", raising=False)
+    monkeypatch.setattr(os, "cpu_count", lambda: 6)
+    monkeypatch.setattr(_run, "_cgroup_cpu_limit", lambda: None)
+    assert _run._cpu_count() == 6
+    monkeypatch.setattr(os, "cpu_count", lambda: None)
+    assert _run._cpu_count() == 1
+
+
+def test_resolve_workers(monkeypatch):
+    from httpp import _run
+
+    monkeypatch.setattr(_run, "_cpu_count", lambda: 4)
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert _run._resolve_workers("auto") == 4
+    assert _run._resolve_workers(3) == 3
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert _run._resolve_workers("auto") == 1  # processes sharing a port are Linux-only
+    assert _run._resolve_workers(3) == 3  # an explicit number is the caller's call (run() then refuses it)
+    for bad in (0, -1, "many", "AUTO ", 2.5, None):
+        with pytest.raises(ValueError, match="workers"):
+            _run._resolve_workers(bad)
+
+
+def test_workers_auto_with_an_app_object_runs_one_process_and_serves(monkeypatch):
+    from httpp import _run
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(_run, "_cpu_count", lambda: 4)  # would mean 4 processes, which an object cannot do
+    app = Server()
+    seen = []
+    monkeypatch.setattr(app, "listen", lambda host, port: seen.append((host, port)))
+    httpp.run(app, port=free_port(), workers="auto")
+    assert len(seen) == 1
+
+
+def test_cli_accepts_workers_auto_and_rejects_nonsense(app_dir):
+    out = subprocess.run([sys.executable, "-m", "httpp", "run", "myapp:app", "--workers", "many"], cwd=app_dir,
+                         env=child_env(BYE_DIR=str(app_dir)), capture_output=True, text=True, timeout=30)
+    assert out.returncode == 2 and "workers" in out.stderr
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGTERM")
+def test_cli_workers_auto_serves_and_stops_gracefully(app_dir):
+    port = free_port()
+    sup = start(app_dir, "--port", str(port), "--workers", "auto")
+    try:
+        assert wait_for(lambda: get_pid(port)) > 0
+        sup.send_signal(signal.SIGTERM)
+        assert sup.wait(20) == 0
+    finally:
+        if sup.poll() is None:
+            sup.kill()

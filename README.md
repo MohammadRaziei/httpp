@@ -33,15 +33,10 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - [Features](#features)
 - [Install](#install)
 - [Python](#python)
-  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [Streaming and files](#streaming-and-files) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Running the server](#running-the-server)
-  - [Client](#client) · [Errors](#errors) · [Request builder](#request-builder) · [Sessions and async](#sessions-and-async) · [Downloads](#downloads) · [Progress bars and URLs](#progress-bars-and-urls)
-- [Command line](#command-line)
-- [C++](#c)
-- [Migrating from libcurl](#migrating-from-libcurl)
-- [Using httpp from CMake](#using-httpp-from-cmake)
-- [Examples](#examples)
+  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [Streaming and files](#streaming-and-files) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async)
 - [Build from source](#build-from-source)
 - [Status](#status)
+- [Logging](#logging)
 - [License](#license)
 
 ## Features
@@ -251,8 +246,9 @@ def bad_value(request, exc):
 
 ### Free-threaded Python (3.13t, 3.14t)
 
-There are two kinds of wheel: one `cp39-abi3` wheel per platform for every ordinary Python 3.9+, and
-version-specific `cp313-cp313t` / `cp314-cp314t` wheels for the free-threaded builds, which have no
+There are three kinds of wheel: a `cp39-abi3` wheel per platform for every ordinary Python 3.9+, a
+`cp313-abi3` wheel per platform that pip prefers on Python 3.13+ (it is built against the newer stable ABI),
+and version-specific `cp313-cp313t` / `cp314-cp314t` wheels for the free-threaded builds, which have no
 stable ABI yet (it arrives with 3.15 as `abi3t`; we will move to it once Cython and
 scikit-build-core support it). The extension declares itself free-threading compatible, so importing
 httpp keeps the GIL off. On such an interpreter plain `def` handlers on the server's pool threads
@@ -275,6 +271,7 @@ if __name__ == "__main__":
 ```sh
 httpp run main:app --host 0.0.0.0 --port 8000
 httpp run main:app --workers 4             # four processes sharing the port (Linux only)
+httpp run main:app --workers auto          # one per usable CPU
 ```
 
 - `run()` stops on **Ctrl+C or SIGTERM**, gracefully: in-flight work ends and `on_shutdown` hooks run.
@@ -287,40 +284,39 @@ httpp run main:app --workers 4             # four processes sharing the port (Li
   Linux only for now. If a worker dies, the supervisor stops the others and exits with code 1 (let
   systemd or Docker restart it); it does not respawn workers yet. Keep the supervisor alive: killing it
   with SIGKILL leaves its workers running.
+- `workers="auto"` / `--workers auto` starts one worker per CPU the process can use: its affinity mask,
+  capped by a container CPU quota (rounded down, at least 1). It runs a single process on one CPU, off
+  Linux, and when `app` is an object rather than an import string (it says so).
 - `reuse_port=True` / `--reuse-port` lets separately started httpp processes share a port the same way.
   It is off by default, because it also lets an unrelated process of the same user bind the port silently.
 
 - It blocks until `stop()` is called or you press **Ctrl+C**.
 - It raises `OSError` if the address cannot be bound (for example, the port is already taken).
-  Two httpp servers cannot share a port.
+  Two httpp servers cannot share a port unless both set `reuse_port` (above).
 - Plain `def` handlers run on the server's thread pool (see [Settings](#settings)), so a handler that
   blocks holds its thread for as long as it blocks.
 - `async def` handlers run on **one shared asyncio event loop** (a background thread, started when the
-  server starts listening). The C++ side hands them requests without taking the GIL itself: it queues the
-  request and pokes the loop through a socket, and the loop thread takes the GIL once per burst of
-  requests, not once per request. (On a 1-core test machine, with a trivial handler and a Python load
-  generator, this was about 60% more requests per second than the previous thread-hop path. That shows
-  the per-request overhead went down, not what a real application will get.) While they `await`, no thread is held,
-  so far more requests can be in flight than there are threads: on a 1-core test machine, 400
-  concurrent requests that each `await asyncio.sleep(0.5)` all finish in about 0.7 s. Because every
-  request shares the same loop, loop-bound objects (an `aiohttp.ClientSession`, an async DB pool) can be
-  created once and reused. A blocking call inside an `async def` handler blocks **every** async route,
-  since they all share that loop.
+  server starts listening). The server's I/O thread parses the request, matches the route and queues it
+  for the loop right there, without taking the GIL and without a thread-pool hop (a `before_request` hook,
+  which may block, still goes through the pool first). It pokes the loop through a socket, and the loop
+  thread takes the GIL once per burst of requests, not once per request. Each request is one asyncio task,
+  and a handler that does not take `request` never gets one built. While they `await`, no thread is held,
+  so far more requests can be in flight than there are threads. Because every request shares the same
+  loop, loop-bound objects (an `aiohttp.ClientSession`, an async DB pool) can be created once and reused.
+  A blocking call inside an `async def` handler blocks **every** async route, since they all share that
+  loop.
+- **Speed.** `benchmarks/bench.py` measures requests per second against uvicorn (a bare ASGI app, uvloop,
+  httptools) with `oha`. On one core, with the server and the load generator sharing it, in one run, plain
+  `def` and `async def` routes did about 1.3 to 1.5 times the requests per second of uvicorn in all four
+  scenarios (hello, a path parameter with a JSON body, reading a header, and the last of 300 routes). Run to
+  run the numbers move by 10 to 30 percent on that machine, so only comparisons inside one run mean anything.
+  This is CPU cost per request on one core, not multi-core scaling (not measured yet), and a real
+  handler's own work is not in it. Finding a route takes the same time with 6 routes or 600.
 - **The server is event-driven** on every platform: all socket I/O (accepting, reading, keep-alive idle
   connections, timeouts, writing) runs on one Asio thread (epoll on Linux, kqueue on macOS, IOCP on
   Windows), and requests are parsed by llhttp. Idle connections cost no worker thread. A worker is used
   only while your handler (or a file/stream body piece) is actually running, never while waiting for the
   network. This also applies to async routes. Keep-alive works on every platform.
-```
-
-Most dependencies are vendored (`cpp-httplib`, unmodified; `llhttp`, unmodified) or git submodules
-(`mbedtls`, `liburlparser`, `asio`). The full history of the `mbedtls` submodule is large; if you only need the source, clone
-with `git clone --depth 1 --recurse-submodules --shallow-submodules`.
-
-[Asio](https://think-async.com/Asio/) (header-only, used unmodified) is found in this order:
-`-DHTTPP_ASIO_INCLUDE_DIR=<dir containing asio.hpp>`, then a copy in `src/third_party/asio` (for example a
-git submodule), then it is downloaded at configure time (about 3 MB, pinned to 1.34.2 by SHA-256). Offline
-builds should pass the first option. See [`src/third_party/README.md`](src/third_party/README.md#asio).
 
 ### Sessions and async
 
@@ -347,6 +343,23 @@ are not sent to a different origin). A cancelled `await` stops waiting, but the 
 running until it finishes. In C++: `request::run_async()` returns a `std::future`, or takes a callback
 that runs on the network thread; `async_client` is the session form.
 
+## Build from source
+
+Most dependencies are vendored (`cpp-httplib`, unmodified; `llhttp`, unmodified) or git submodules
+(`mbedtls`, `liburlparser`, `asio`). The full history of the `mbedtls` submodule is large; if you only need the source, clone
+with `git clone --depth 1 --recurse-submodules --shallow-submodules`.
+
+[Asio](https://think-async.com/Asio/) (header-only, used unmodified) is found in this order:
+`-DHTTPP_ASIO_INCLUDE_DIR=<dir containing asio.hpp>`, then a copy in `src/third_party/asio` (for example a
+git submodule), then it is downloaded at configure time (about 3 MB, pinned to 1.34.2 by SHA-256). Offline
+builds should pass the first option. See [`src/third_party/README.md`](src/third_party/README.md#asio).
+
+```sh
+cmake -B build -G Ninja -DHTTPP_BUILD_TESTS=ON && ninja -C build   # the C++ library and its tests
+build/tests/cpp/test_httpp_cpp
+pip install .                                                       # the Python package
+```
+
 ## Status
 
 httpp is **alpha**: the API can still change between minor versions. Current limitations:
@@ -365,7 +378,7 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
 - `cpp-httplib` (unmodified) now serves only the synchronous client; the server and the async engine are
   our own (Asio + llhttp). It is planned to retire it once the synchronous client is ours too.
 - The libcurl compatibility layer covers a subset of `curl_easy_*`.
-- No ASGI/WSGI interface or auto-reload. `--workers` is Linux only and does not respawn dead workers.
+- No auto-reload. `--workers` is Linux only and does not respawn dead workers.
 
 Issues and pull requests are welcome.
 

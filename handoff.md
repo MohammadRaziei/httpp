@@ -17,8 +17,75 @@ level, WebSocket backpressure, cross-platform strategy) without asking the owner
 in `agent.md` section 1 (options, trade-offs, your recommendation). Non-critical steps: just do them and
 report. TDD applies: tests before code.
 
-**Current state of the conversation:** the owner asked to *stop* and write this hand-off. They have **not**
-yet confirmed the priority order in section 6. Do not start section 6 work until they say which item.
+**Current state of the conversation (updated):** the owner has since decided **option B + C** for the hot
+path (items 1 and 2 of section 6), and told me not to worry about implementation cost: choose the best, most
+principled way, no laziness. Both are **done** (see "Update: hot path rebuilt" below). They have **not**
+confirmed the order of the remaining items (3 onward in section 6). Items that are critical architecture
+decisions (the open risks) still need the `agent.md` question format before any code.
+
+## Update: hot path rebuilt (B + C), measured
+
+What changed (all with tests first):
+
+- **C++ API:** `server::route_io(method, path, io_handler)` runs the handler **on the I/O thread** and
+  `server::route_shared(...)` is a normal worker route whose handler gets `std::shared_ptr<const request>`
+  (so it can keep the request without a copy). `io_handler` must return at once and never block.
+- **I/O-thread dispatch** (`server.cpp::on_request`): when the app has io routes and no `before` hook, the
+  request is parsed and matched right on the I/O thread; an io route runs there (no pool hop), everything
+  else goes to the pool already parsed and matched. A mounted directory that may hold the file, or a `before`
+  hook, still takes the old worker path first. If an io handler answers on the spot and after/error hooks
+  exist, `make_sender` moves the hooks to a worker (they may be Python and wait for the GIL).
+- **One timer for all waiting requests** (`server::impl::waiting`): the per-request 504 timer was the biggest
+  cost found (profile: ~1/3 of the I/O thread's active time; without it async went 13k → 33k). Requests that
+  wait for a `route_async`/`route_io` answer now sit in an arrival-ordered map and one sweep timer expires
+  them. Entries are dropped when answered (`responder::impl::settle`), so nothing keeps a request alive.
+  The timeout is meant to be set before listening (deadlines are assumed to come in order).
+- **Python:** `RawRequest` (Cython, shares the C++ request, reads fields on demand), `ServerRequest._from_raw`
+  (lazy, read-only fields), `_prepare` works out once what the handler asks for and builds only that, one
+  task per `async def` request (the timeout is a `call_later` that cancels it), the `done` call is direct
+  unless after/error hooks exist. `Server.add_loop_route` is now a thin shim over `_add_raw_loop_route`.
+  Hooks (`before_request`, `error_handler`) still receive the six copied values through `_FlatRaw`.
+- **Benchmark:** `benchmarks/bench.py` (needs `oha`; `pip install uvicorn httptools uvloop`). Single core,
+  server and `oha` share it, 32 connections, 4 s x 3, median req/s, same run:
+
+| scenario | uvicorn (bare ASGI) | httpp `def` | httpp `async def` |
+|---|---|---|---|
+| hello | 43.2k | 62.8k | 64.4k |
+| item (path param, JSON) | 38.3k | 52.9k | 51.0k |
+| agent (reads a header) | 40.7k | 54.4k | 54.0k |
+| many (last of 300 routes) | 41.8k | 61.3k | 59.5k |
+
+  (Final run, after the router index below. An earlier run of the same code before the router had `def` at
+  44.8k and `async def` at 57.6k with uvicorn at 41.1k; an A/B on one binary showed the router is not what
+  moved `def` for hello, and I could not explain that jump: this machine drifts 10-30% between runs.)
+  Before this work, same tool and machine: `def` 41.7k, `async def` 22.5k, uvicorn 41.9k. The machine is noisy
+  (uvicorn varied 33k-42k between runs), so only same-run ratios mean anything. **Still a single core with
+  the load generator on it: this is total CPU per request, not the multi-core story.** No multi-core number.
+- **Router index** (`server.cpp::route_index`): routes made only of literal segments are found by one hash
+  lookup, the rest by scanning only the parametric routes with the same method and segment count, always
+  "the first route in registration order that fits". Characterization tests (incl. 250 random cases against
+  the old linear algorithm) are in `tests/cpp/test_server_routing.cpp`. A/B on one binary: with 300 routes
+  and a request to the last one, +20% (`def`) / +26% (`async def`); lookup time is now flat in the number of routes.
+- **`--workers auto`** (`httpp run --workers auto`, `run(workers="auto")`): one worker per CPU the process can use
+  (affinity mask, capped by a cgroup v1/v2 CPU quota, rounded down, min 1); one process off Linux or when
+  `app` is an object.
+- **README** repaired: the table of contents listed sections that `db16384` removed (client docs, CLI, C++,
+  CMake, examples); it now lists what exists, the stray code fence and misplaced build paragraph are fixed.
+  **Not restored:** the removed sections are still in `git show 9521d6a:README.md`; restoring them is the
+  owner's call.
+- **Why async is now faster than `def`:** an io route skips the pool hop that `def` still pays. Making `def`
+  cheaper is a separate, open question (it must run on a worker because it may block).
+- **Tests:** C++ 201 (was 179), Python 174 passed + 1 skipped (was 155 + 1). New files:
+  `tests/cpp/test_server_io_routes.cpp`, `tests/cpp/test_server_routing.cpp`, `tests/python/test_server_raw_request.py`.
+- **ThreadSanitizer** (build with `-fsanitize=thread`, `-DHTTPP_BUILD_PYTHON=OFF`): server, io-route and
+  engine suites are clean. **Open finding, not from this work:** the `async_pool` suite (TLS client) reports
+  data races inside **mbedtls** (`mbedtls_mpi_mul_mod`, `mbedtls_ssl_free`): mbedtls is built without
+  `MBEDTLS_THREADING_C`, and the client pool uses it from several threads. Needs a decision (enable
+  threading support with pthreads, and what to do on Windows) before the TLS client is called thread-safe.
+- **Wheels:** `wheels.yml` has a second step for a `cp313-abi3` wheel (`wheel.py-api=cp313`), uploaded with
+  the others. The generated C++ was checked to compile with `Py_LIMITED_API` for 3.9; the 3.13 floor can only
+  be checked in CI (this sandbox has 3.12 headers). Free-threaded wheels stay as they are. `release_template.md`
+  still lists per-version wheels and is stale.
 
 ## 0. Get the project (do this first)
 
@@ -96,20 +163,22 @@ src/bindings/python/
 tests/cpp/            +1 test (reuse_port); tests/python/test_run.py NEW; test_server_features.py +4 tests
 ```
 
-Request paths today (this is the key to the performance picture in section 5):
+Request paths today (after the hot-path work; section 5 holds the older numbers):
 
-- **Sync `def` route:** Asio loop thread → C++ worker pool thread → takes the GIL → runs `_prepare` + handler
-  → `done`. One thread hop.
-- **`async def` route:** Asio loop thread → worker pool thread (routing, before-hooks run there) →
-  `inbox_push` (no GIL; writes one wake byte only when the queue goes empty→non-empty) → the single asyncio
-  loop thread wakes, takes the GIL once per burst, `_drain_inbox` (budget 256 per round, then `call_soon`
-  re-arm) → `create_task` → handler → `done(...)` called directly on the loop thread. Two thread hops.
+- **Sync `def` route:** Asio loop thread (parse + route match) → C++ worker pool thread → takes the GIL → runs
+  `_prepare` + handler → `done`. One thread hop. (If the app has no `async def` route and no io route, the
+  worker parses the request itself, as before.)
+- **`async def` route:** Asio loop thread (parse + match + `route_io` handler) → `inbox_push` (no GIL, no copy;
+  a wake byte only when the queue goes empty→non-empty) → the single asyncio loop thread wakes, takes the GIL
+  once per burst, `_drain_inbox` → `create_task` → handler → `done(...)` called directly on the loop thread.
+  One thread hop. With a `before_request` hook it goes through the pool first (two hops) because that hook
+  may block.
 - If the app has any `after_request` or `error_handler`, `done` goes through `run_in_executor` instead,
   because those hooks run *inside* `done()` on the calling thread and an `async def` hook would wait on the
   very loop that called it (deadlock; proven by forcing the direct path). `# ponytail:` marked; upgrade path:
   await the hooks inside the coroutine.
-- Python request objects: `_request_args(req)` builds 6 Python objects per request and `_prepare` builds a
-  `ServerRequest` for **every** request even when the handler does not take `request`.
+- Python request objects: handlers get a `RawRequest` shared with C++; `ServerRequest` is built only if the
+  handler takes `request` (or an exception handler runs), and its fields are read on first use.
 
 ## 4. Build and test
 
@@ -118,10 +187,10 @@ pip install -r requirements-dev.txt
 pip install cmake ninja --break-system-packages     # sandbox: they land in /usr/local/bin
 export PATH=$PATH:/usr/local/bin:$HOME/.local/bin
 cmake -B build -G Ninja -DHTTPP_BUILD_TESTS=ON -DHTTPP_BUILD_PYTHON=OFF && ninja -C build
-build/tests/cpp/test_httpp_cpp                      # 179 tests
+build/tests/cpp/test_httpp_cpp                      # 201 tests
 
 cmake -B build-py -G Ninja -DHTTPP_BUILD_PYTHON=ON -DHTTPP_BUILD_TESTS=OFF && ninja -C build-py
-PYTHONPATH=build-py/python/install python3 -m pytest tests/python -q     # 155 passed, 1 skipped
+PYTHONPATH=build-py/python/install python3 -m pytest tests/python -q     # 174 passed, 1 skipped
 ```
 
 Real wheels (what CI builds), with the sandbox's `uv`:
@@ -192,12 +261,9 @@ scikit-build-core ignores `py-api` for `t` builds, so the existing `py-api = "cp
 
 Scores are importance/effort out of 10.
 
-1. **Remove one thread hop for `async def`** (7/5): route-match on the Asio thread and push straight to the
-   inbox when the route is async and the app has no `before_request` hook; today `server.cpp::handle` runs on
-   the pool first. Measure with the benchmark above (target: close the gap to uvicorn; do not promise numbers).
-2. **Build only what the handler asks for** (6/3): `_prepare` always builds a `ServerRequest`, `_request_args`
-   always builds 6 objects. Decide at call time (exception handlers may be registered after the route and
-   need the raw request). Measure before/after.
+1. ~~Remove one thread hop for `async def`~~ **done** (see "Update: hot path rebuilt").
+2. ~~Build only what the handler asks for~~ **done**. Possible follow-ups, not started: moving `before_request` onto the
+   fast path, a cheaper `def` path, coalescing the inbox wake byte per I/O batch, response building in C++.
 3. **`--workers auto`** (6/1): `os.cpu_count()` on a normal interpreter; on a free-threaded one, one process
    (threads run in parallel). Detect with `sysconfig.get_config_var("Py_GIL_DISABLED")`.
 4. **Shared state across workers, `app.shared`** (7/8). The owner considers it the most important item.
@@ -221,8 +287,8 @@ Scores are importance/effort out of 10.
     (TLS, WebSocket, compression, multipart, request body streaming, client-disconnect detection, access
     log, HTTP/2), real request cancellation, cookie jar for sessions, thread-free name resolution.
 11. Verification not done: CI for **macOS and Windows** (system roots, `crypt32`, and the wake-socket code
-    for the loop inbox are written but never run), ThreadSanitizer/ASan on server and engine, running the
-    new `wheels.yml` matrix.
+    for the loop inbox are written but never run), ASan on server and engine (ThreadSanitizer: done for server/engine, see the update), running the
+    new `wheels.yml` matrix, the mbedtls threading finding.
 12. Small items: stale comments in `progress.hpp` (~lines 16, 43); 404-vs-405 for a wrong method; no symlink
     protection in static serving; no `Server:` header; example of TLS client use.
 

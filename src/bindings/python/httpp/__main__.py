@@ -7,6 +7,19 @@ import sys
 from pathlib import Path
 
 
+def _workers_arg(text):
+    """argparse type for --workers: a positive integer or 'auto'."""
+    if text == "auto":
+        return "auto"
+    try:
+        n = int(text)
+    except ValueError:
+        n = 0
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"workers must be an integer >= 1 or 'auto', not {text!r}")
+    return n
+
+
 def _cmd_server(args):
     from httpp import Server
 
@@ -179,7 +192,9 @@ def build_parser():
     p_run.add_argument("app", help="import string 'module:attribute' of an httpp.Server")
     p_run.add_argument("--host", default="127.0.0.1", help="default 127.0.0.1; use 0.0.0.0 to listen on every interface")
     p_run.add_argument("--port", "-p", type=int, default=8000)
-    p_run.add_argument("--workers", "-w", type=int, default=1, help="processes sharing the port (Linux only); gets past the GIL")
+    p_run.add_argument("--workers", "-w", type=_workers_arg, default=1, metavar="N|auto",
+                       help="processes sharing the port (Linux only); gets past the GIL. "
+                            "'auto' = one per usable CPU (default 1)")
     p_run.add_argument("--reuse-port", action="store_true", help="let other httpp processes share the port (Linux only)")
     p_run.add_argument("--log-level", choices=("trace", "debug", "info", "warning", "error", "off"), default=None)
     p_run.set_defaults(func=_cmd_run)

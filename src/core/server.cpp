@@ -14,9 +14,15 @@
 #include <chrono>
 #include <cstring>
 #include <fstream>
+#include <charconv>
+#include <cstdint>
 #include <limits>
+#include <map>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 namespace httpp {
 namespace {
@@ -146,8 +152,18 @@ struct config { // read-only once listening; shared with answers that may outliv
 struct route_entry {
     std::string method;
     std::vector<std::string> segs; // ":name" segments capture
-    handler h;
+    handler h;          // exactly one of these four is set
+    shared_handler sh;
     async_handler ah;
+    io_handler ih;
+};
+
+// A request that is parsed (and maybe already matched to a route), on its way to be run.
+struct prepared {
+    std::shared_ptr<request> req;
+    std::string raw_path;                // the path as sent, still percent-encoded
+    const route_entry* route = nullptr;  // valid when `matched`; null = no route fits
+    bool matched = false;
 };
 
 struct mount_entry {
@@ -162,35 +178,91 @@ using send_fn = std::function<void(response, long long /*file offset*/, long lon
 struct responder::impl {
     std::function<void(response)> sender;
     std::function<void()> abandon;
+    std::function<void()> settle; // forget this request (it no longer waits for an answer); runs once
     std::atomic<bool> answered{false};
+    std::atomic<bool> settled{false};
+    void settle_once() {
+        if (settle && !settled.exchange(true)) settle();
+    }
     ~impl() {
         if (!answered.load() && abandon) abandon(); // every copy dropped without an answer: close, say nothing
+        settle_once();
     }
 };
 
 void responder::send(response res) const {
     if (!impl_ || impl_->answered.exchange(true)) return; // only the first answer counts
     impl_->sender(std::move(res));
+    impl_->settle_once();
 }
 
 struct server::impl {
     std::shared_ptr<config> cfg = std::make_shared<config>();
     std::vector<route_entry> routes;
+
+    // How a request finds its route without scanning them all (the answer is still "the first route, in
+    // registration order, that fits"). Kept up to date by add_route().
+    struct route_index {
+        // The first route made only of literal segments, by method + path.
+        std::unordered_map<std::string, std::size_t> literal;
+        // The routes with a ":param", in registration order, by method + number of segments.
+        std::unordered_map<std::string, std::vector<std::size_t>> parametric;
+    } index;
+
+    static bool is_param(const std::string& seg) { return seg.size() > 1 && seg[0] == ':'; }
+
+    // Each segment is length-prefixed, so a decoded segment that contains a '/' cannot be mistaken for two.
+    template <class Segs>
+    static void literal_key(std::string& key, const std::string& method, const Segs& segs) {
+        key.assign(method);
+        char num[24];
+        for (const auto& seg : segs) {
+            const auto end = std::to_chars(num, num + sizeof num, seg.size()).ptr;
+            key.push_back('/');
+            key.append(num, end);
+            key.push_back(':');
+            key.append(seg);
+        }
+    }
+    static void shape_key(std::string& key, const std::string& method, std::size_t count) {
+        key.assign(method);
+        key.push_back('#');
+        char num[24];
+        key.append(num, std::to_chars(num, num + sizeof num, count).ptr);
+    }
     std::vector<mount_entry> mounts;
     std::size_t pool_base = std::max<std::size_t>(8, std::thread::hardware_concurrency());
     std::size_t pool_max = 0; // 0 = 4 x base
     std::atomic<int> async_timeout{60};
+
+    // Requests that wait for the answer of a route_async / route_io handler, oldest first. They all have
+    // the same timeout, so they expire in the order they came in and ONE timer can watch them all. (A
+    // timer per request, which this used to be, left hundreds of thousands of live timers under load,
+    // and that alone cost more than the whole rest of the request.)
+    struct waiting {
+        struct entry {
+            std::weak_ptr<responder::impl> state;
+            std::shared_ptr<const request> req; // for the log line only; dropped when answered
+            std::chrono::steady_clock::time_point deadline;
+            int timeout_s;
+        };
+        std::mutex mu;
+        std::map<std::uint64_t, entry> by_arrival; // key = arrival number
+        std::uint64_t next = 0;
+        bool armed = false; // a sweep is scheduled
+    };
+    std::shared_ptr<waiting> wait = std::make_shared<waiting>();
+
     std::unique_ptr<detail::async_server> engine;
     std::atomic<detail::worker_pool*> pool{nullptr}; // alive only while listening
+    std::size_t io_route_count = 0;                  // routes added with route_io (set before listening)
+    std::atomic<std::thread::id> io_thread{};        // the thread running the engine while listening
 
     impl() {
         engine = std::make_unique<detail::async_server>(
             detail::async_server::options{},
             [this](detail::http_request r, detail::async_server::answer_fn answer) {
-                auto* p = pool.load();
-                return p && p->enqueue([this, r = std::move(r), answer = std::move(answer)]() mutable {
-                    handle(std::move(r), std::move(answer));
-                });
+                return on_request(std::move(r), std::move(answer));
             },
             [this](std::function<void()> job) {
                 auto* p = pool.load();
@@ -199,10 +271,11 @@ struct server::impl {
     }
 
     // ---- request ----
-    static bool make_request(const detail::http_request& hr, request& req, std::string& raw_path) {
-        req.method = hr.method;
-        req.body = hr.body;
-        req.headers = hr.headers;
+    // Takes the method, body and headers out of `hr` (it is the engine's copy, nobody needs it after).
+    static bool make_request(detail::http_request& hr, request& req, std::string& raw_path) {
+        req.method = std::move(hr.method);
+        req.body = std::move(hr.body);
+        req.headers = std::move(hr.headers);
         std::string target = hr.target;
         const std::size_t hash = target.find('#');
         if (hash != std::string::npos) target.resize(hash);
@@ -283,6 +356,16 @@ struct server::impl {
         return [this, weak, req, answer = std::move(answer)](response res, long long offset, long long length) {
             auto c = weak.lock();
             if (!c) return; // the server is gone
+            if ((c->error || c->after) && std::this_thread::get_id() == io_thread.load()) {
+                // A route_io handler answered on the spot. The hooks may block (Python code waits for
+                // the GIL), and the I/O thread must never do that: a worker finishes the job.
+                auto* p = pool.load();
+                auto job = [this, weak, req, answer, res = std::move(res), offset, length]() mutable {
+                    make_sender(req, answer)(std::move(res), offset, length);
+                };
+                if (p && p->enqueue(job)) return;
+                // no pool (shutting down): carry on here rather than lose the answer
+            }
             detail::wire_response w;
             try {
                 if (res.status <= 0) res.status = 200;
@@ -346,25 +429,39 @@ struct server::impl {
         if (raw_path.empty() || raw_path[0] != '/') return nullptr;
         std::vector<std::string> parts = split_path(raw_path);
         for (auto& part : parts) part = percent_decode(part, false);
-        for (const auto& r : routes) {
-            if (r.method != method || r.segs.size() != parts.size()) continue;
-            std::vector<std::pair<std::string, std::string>> found;
-            bool ok = true;
-            for (std::size_t i = 0; i < parts.size() && ok; ++i) {
-                const std::string& seg = r.segs[i];
-                if (seg.size() > 1 && seg[0] == ':') {
-                    if (parts[i].empty()) ok = false;
-                    else found.emplace_back(seg.substr(1), parts[i]);
-                } else {
-                    ok = seg == parts[i];
+
+        thread_local std::string key; // reused, so a lookup does not allocate once it is warm
+        constexpr std::size_t none = static_cast<std::size_t>(-1);
+        std::size_t best = none; // the literal route, if any: a parameter route registered earlier still beats it
+        if (!index.literal.empty()) {
+            literal_key(key, method, parts);
+            if (auto it = index.literal.find(key); it != index.literal.end()) best = it->second;
+        }
+        shape_key(key, method, parts.size());
+        if (auto it = index.parametric.find(key); it != index.parametric.end()) {
+            for (const std::size_t i : it->second) { // ascending: the first fit wins
+                if (i > best) break;
+                const route_entry& r = routes[i];
+                std::vector<std::pair<std::string, std::string>> found;
+                bool ok = true;
+                for (std::size_t k = 0; k < parts.size() && ok; ++k) {
+                    const std::string& seg = r.segs[k];
+                    if (is_param(seg)) {
+                        if (parts[k].empty()) ok = false;
+                        else found.emplace_back(seg.substr(1), parts[k]);
+                    } else {
+                        ok = seg == parts[k];
+                    }
+                }
+                if (ok) {
+                    params = std::move(found);
+                    return &r;
                 }
             }
-            if (ok) {
-                params = std::move(found);
-                return &r;
-            }
         }
-        return nullptr;
+        if (best == none) return nullptr;
+        params.clear();
+        return &routes[best];
     }
 
     // ---- static files ----
@@ -392,11 +489,20 @@ struct server::impl {
         return end < start ? range_result::none : range_result::ok;
     }
 
+    static bool under_prefix(const std::string& p, const std::string& prefix) {
+        return p.compare(0, prefix.size(), prefix) == 0 && (p.size() == prefix.size() || p[prefix.size()] == '/'); // "/filesX" is not under "/files"
+    }
+    // A GET/HEAD for this path might be answered from a mounted directory (which means reading the disk).
+    bool may_be_static(const request& req) const {
+        if (req.method != "GET" && req.method != "HEAD") return false;
+        for (const auto& m : mounts) if (under_prefix(req.path, m.prefix)) return true;
+        return false;
+    }
+
     bool serve_static(const request& req, const send_fn& send) {
         for (const auto& m : mounts) {
             const std::string& p = req.path;
-            if (p.compare(0, m.prefix.size(), m.prefix) != 0) continue;
-            if (p.size() > m.prefix.size() && p[m.prefix.size()] != '/') continue; // "/filesX" is not under "/files"
+            if (!under_prefix(p, m.prefix)) continue;
             const std::string rel = p.substr(m.prefix.size()); // "" or "/a/b"
             if (rel.find('\\') != std::string::npos) continue;
             bool safe = true;
@@ -436,14 +542,117 @@ struct server::impl {
         return false;
     }
 
-    // Runs on a pool thread.
+    // ---- the 504 backstop ----
+
+    void track(const std::shared_ptr<responder::impl>& state, const std::shared_ptr<request>& req, int timeout_s) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_s);
+        std::uint64_t id;
+        bool arm = false;
+        auto w = wait;
+        {
+            std::lock_guard<std::mutex> lock(w->mu);
+            id = w->next++;
+            w->by_arrival.emplace_hint(w->by_arrival.end(), id, waiting::entry{state, req, deadline, timeout_s});
+            if (!w->armed) w->armed = arm = true;
+        }
+        // erasing an id that a sweep already took out is harmless
+        state->settle = [w, id] {
+            std::lock_guard<std::mutex> lock(w->mu);
+            w->by_arrival.erase(id);
+        };
+        if (arm) arm_sweep(deadline);
+    }
+
+    void arm_sweep(std::chrono::steady_clock::time_point at) {
+        auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(at - std::chrono::steady_clock::now());
+        if (delay < std::chrono::milliseconds(10)) delay = std::chrono::milliseconds(10);
+        engine->after(delay, [this] { sweep(); });
+    }
+
+    // On the loop thread. Takes the expired requests out of the queue and answers them 504 (on a worker:
+    // the hooks and the write may block), then schedules the next sweep for the oldest one still waiting.
+    void sweep() {
+        std::vector<std::pair<std::shared_ptr<responder::impl>, waiting::entry>> late;
+        bool more = false;
+        std::chrono::steady_clock::time_point next;
+        {
+            std::lock_guard<std::mutex> lock(wait->mu);
+            const auto now = std::chrono::steady_clock::now();
+            auto it = wait->by_arrival.begin();
+            for (; it != wait->by_arrival.end() && it->second.deadline <= now; ++it) {
+                if (auto st = it->second.state.lock()) late.emplace_back(std::move(st), std::move(it->second));
+            }
+            wait->by_arrival.erase(wait->by_arrival.begin(), it);
+            more = !wait->by_arrival.empty();
+            if (more) next = wait->by_arrival.begin()->second.deadline;
+            wait->armed = more;
+        }
+        if (more) arm_sweep(next);
+        for (auto& item : late) {
+            auto answer_504 = [st = std::move(item.first), req = std::move(item.second.req), timeout = item.second.timeout_s] {
+                if (!st->answered.load()) HTTPP_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " did not answer within " << timeout << " s: answering 504";
+                responder late_responder;
+                late_responder.impl_ = st;
+                response err;
+                err.status = 504;
+                err.body = "Gateway Timeout";
+                late_responder.send(std::move(err)); // no-op if it was answered after all
+            };
+            if (auto* p = pool.load(); !p || !p->enqueue(answer_504)) answer_504();
+        }
+    }
+
+    // ---- running a request ----
+
+    // Runs on the I/O thread for every complete request, and must not block. Requests that need a worker
+    // (everything but a route_io route) are handed to the pool, already parsed and matched.
+    bool on_request(detail::http_request hr, detail::async_server::answer_fn answer) {
+        auto* p = pool.load();
+        if (!p) return false;
+        // A before hook may block and may answer first, and without route_io routes there is nothing to
+        // gain: the whole request is handled on a worker, which parses it there.
+        if (io_route_count == 0 || cfg->before) {
+            return p->enqueue([this, hr = std::move(hr), answer = std::move(answer)]() mutable {
+                handle(std::move(hr), std::move(answer));
+            });
+        }
+        prepared pr;
+        pr.req = std::make_shared<request>();
+        if (!make_request(hr, *pr.req, pr.raw_path)) {
+            HTTPP_LOG(debug) << "bad request target: " << hr.target.substr(0, 100);
+            answer(failure(400, "Bad Request"));
+            return true;
+        }
+        if (!may_be_static(*pr.req)) { // else the worker looks at the disk first, then matches
+            const std::string method = pr.req->method == "HEAD" ? "GET" : pr.req->method; // HEAD runs the GET route
+            pr.route = match(method, pr.raw_path, pr.req->path_params);
+            pr.matched = true;
+            if (pr.route && pr.route->ih) { // right here: such a handler must not block
+                run(std::move(pr), std::move(answer));
+                return true;
+            }
+        }
+        return p->enqueue([this, pr = std::move(pr), answer = std::move(answer)]() mutable {
+            run(std::move(pr), std::move(answer));
+        });
+    }
+
+    // Runs on a pool thread: nothing is parsed yet.
     void handle(detail::http_request hr, detail::async_server::answer_fn answer) {
-        auto req = std::make_shared<request>();
-        std::string raw_path;
-        if (!make_request(hr, *req, raw_path)) {
+        prepared pr;
+        pr.req = std::make_shared<request>();
+        if (!make_request(hr, *pr.req, pr.raw_path)) {
             HTTPP_LOG(debug) << "bad request target: " << hr.target.substr(0, 100);
             return answer(failure(400, "Bad Request"));
         }
+        run(std::move(pr), std::move(answer));
+    }
+
+    // Before hook, mounted directories, route, handler. On a pool thread, except for a route_io route
+    // that on_request() ran straight on the I/O thread: that has no before hook and no file to read.
+    // (If such a handler answers on the spot, make_sender moves the after/error hooks to a worker.)
+    void run(prepared pr, detail::async_server::answer_fn answer) {
+        const std::shared_ptr<request>& req = pr.req;
         const send_fn send = make_sender(req, answer);
 
         bool handled = false;
@@ -460,19 +669,23 @@ struct server::impl {
 
         if ((req->method == "GET" || req->method == "HEAD") && serve_static(*req, send)) return;
 
-        const std::string method = req->method == "HEAD" ? "GET" : req->method; // HEAD runs the GET route; the engine drops the body
-        const route_entry* r = match(method, raw_path, req->path_params);
+        const route_entry* r = pr.route;
+        if (!pr.matched) {
+            const std::string method = req->method == "HEAD" ? "GET" : req->method; // HEAD runs the GET route; the engine drops the body
+            r = match(method, pr.raw_path, req->path_params);
+        }
         if (!r) {
             response nf;
             nf.status = 404;
             return send(std::move(nf), 0, -1);
         }
 
-        if (!r->ah) {
+        if (r->h || r->sh) {
             response res;
             res.status = 200;
             try {
-                r->h(*req, res);
+                if (r->sh) r->sh(req, res);
+                else r->h(*req, res);
             } catch (...) {
                 return on_exception(req, send, std::current_exception());
             }
@@ -490,30 +703,13 @@ struct server::impl {
         responder rsp;
         rsp.impl_ = state;
 
-        // If nobody answers in time, answer 504 ourselves. The timer only holds a weak reference, so a
-        // response that was sent (and dropped) in the meantime costs nothing.
+        // If nobody answers in time, answer 504 ourselves (see `waiting`).
         const int timeout = async_timeout.load();
-        if (timeout > 0) {
-            std::weak_ptr<responder::impl> weak = state;
-            engine->after(std::chrono::seconds(timeout), [this, weak, req, timeout] {
-                auto strong = weak.lock();
-                if (!strong) return;
-                auto answer_504 = [strong, req, timeout] {
-                    if (!strong->answered.load()) HTTPP_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " did not answer within " << timeout << " s: answering 504";
-                    responder late;
-                    late.impl_ = strong;
-                    response err;
-                    err.status = 504;
-                    err.body = "Gateway Timeout";
-                    late.send(std::move(err)); // no-op if it was answered after all
-                };
-                // Hooks and the write may block: do it on a worker, not on the loop thread.
-                if (auto* p = pool.load(); !p || !p->enqueue(answer_504)) answer_504();
-            });
-        }
+        if (timeout > 0) track(state, req, timeout);
 
         try {
-            r->ah(*req, rsp);
+            if (r->ih) r->ih(req, rsp);
+            else r->ah(*req, rsp);
         } catch (...) {
             response err;
             err.status = 500;
@@ -535,16 +731,23 @@ struct server::impl {
         }
     }
 
-    void add_route(const std::string& method, const std::string& path, handler h, async_handler ah) {
+    void add_route(const std::string& method, const std::string& path, route_entry r) {
         std::string m = method;
         std::transform(m.begin(), m.end(), m.begin(), [](unsigned char c) { return std::toupper(c); });
         if (m != "GET" && m != "POST" && m != "PUT" && m != "PATCH" && m != "DELETE" && m != "OPTIONS")
             throw std::invalid_argument("httpp::server::route: unsupported method '" + method + "'");
-        route_entry r;
         r.method = std::move(m);
         r.segs = split_path(!path.empty() && path[0] == '/' ? path : "/" + path);
-        r.h = std::move(h);
-        r.ah = std::move(ah);
+        if (r.ih) ++io_route_count;
+        const std::size_t at = routes.size();
+        std::string key;
+        if (std::any_of(r.segs.begin(), r.segs.end(), is_param)) {
+            shape_key(key, r.method, r.segs.size());
+            index.parametric[key].push_back(at);
+        } else {
+            literal_key(key, r.method, r.segs);
+            index.literal.emplace(key, at); // emplace keeps the first one if the same route is added twice
+        }
         routes.push_back(std::move(r));
     }
 };
@@ -555,11 +758,24 @@ server::server(server&&) noexcept = default;
 server& server::operator=(server&&) noexcept = default;
 
 void server::route(const std::string& method, const std::string& path, handler h) {
-    impl_->add_route(method, path, std::move(h), nullptr);
+    route_entry r;
+    r.h = std::move(h);
+    impl_->add_route(method, path, std::move(r));
+}
+void server::route_shared(const std::string& method, const std::string& path, shared_handler h) {
+    route_entry r;
+    r.sh = std::move(h);
+    impl_->add_route(method, path, std::move(r));
 }
 void server::route_async(const std::string& method, const std::string& path, async_handler h) {
-    // An empty `handler` marks nothing here: the async handler is what makes the route async.
-    impl_->add_route(method, path, nullptr, std::move(h));
+    route_entry r;
+    r.ah = std::move(h);
+    impl_->add_route(method, path, std::move(r));
+}
+void server::route_io(const std::string& method, const std::string& path, io_handler h) {
+    route_entry r;
+    r.ih = std::move(h);
+    impl_->add_route(method, path, std::move(r));
 }
 
 void server::get(const std::string& path, handler h) { route("GET", path, std::move(h)); }
@@ -611,7 +827,14 @@ bool server::listen_after_bind() {
     const std::size_t max = impl_->pool_max ? impl_->pool_max : base * 4;
     detail::worker_pool pool(base, max);
     impl_->pool = &pool;
+    impl_->io_thread = std::this_thread::get_id(); // the engine's loop runs on this very thread
+    {
+        std::lock_guard<std::mutex> lock(impl_->wait->mu); // a previous run's timer died with its loop
+        impl_->wait->by_arrival.clear();
+        impl_->wait->armed = false;
+    }
     const bool ok = impl_->engine->run(); // returns after stop()
+    impl_->io_thread = std::thread::id{};
     impl_->pool = nullptr;
     pool.shutdown(); // joins the workers
     return ok;

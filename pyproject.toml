@@ -64,6 +64,10 @@ build-type = "Release"
 # minor version. The Cython bindings (httpp_cy.pyx) only wrap plain C++
 # calls with no manual buffer-protocol/PyObject-internals access, so they
 # don't touch anything outside the limited API.
+#
+# CI builds a second abi3 flavour for Python 3.13+ from the same sources, with
+# `wheel.py-api=cp313` passed as a config setting (see wheels.yml); that wheel is
+# tagged cp313-abi3 and pip prefers it on 3.13+ over this cp39-abi3 one.
 [tool.scikit-build.wheel]
 py-api = "cp39"
 

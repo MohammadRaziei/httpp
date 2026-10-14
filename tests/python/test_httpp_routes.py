@@ -201,6 +201,46 @@ def test_keyboard_interrupt_stops_listen():
     assert time.time() - started < 3
 
 
+def test_interrupt_before_the_port_is_bound_still_stops_listen(monkeypatch):
+    """Regression (flaky on a cold, slow start): Ctrl+C that arrives before the compiled listen()
+    has bound its socket used to be lost (stop() is a no-op until bound). Also, on some CPython
+    versions a KeyboardInterrupt inside Thread.join() makes the thread look dead, so listen()
+    returned while the server was still running. Binding is delayed on purpose: listen() must
+    return only after the serving thread really finished, and must not wait for the watchdog."""
+    import _thread
+    import socket
+
+    import httpp.server as server_module
+
+    real = server_module._Server
+    served = []
+
+    class SlowBind(real):  # a subclass, because Server.__init__ calls the same name
+        def listen(self, host, port):
+            time.sleep(0.6)
+            try:
+                return real.listen(self, host, port)
+            finally:
+                served.append("finished")
+
+    monkeypatch.setattr(server_module, "_Server", SlowBind)
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+
+    app = Server()
+    threading.Timer(0.2, _thread.interrupt_main).start()
+    watchdog = threading.Timer(5, app.stop)
+    watchdog.start()
+    started = time.time()
+    try:
+        app.listen("127.0.0.1", port)
+    finally:
+        watchdog.cancel()
+    assert served == ["finished"]  # listen() returned only after the server thread was done
+    assert time.time() - started < 3
+
+
 def test_client_can_call_a_python_route_in_the_same_process():
     """Regression: Client.get used to hold the GIL, so the handler could never run."""
     app = Server()

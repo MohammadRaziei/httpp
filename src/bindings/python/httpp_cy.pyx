@@ -12,6 +12,8 @@ from libcpp.string cimport string
 from libcpp cimport bool as cbool
 from libcpp.vector cimport vector
 from libcpp.pair cimport pair
+from libcpp.memory cimport shared_ptr
+from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
 from cpython.ref cimport Py_INCREF, Py_DECREF
 
@@ -69,6 +71,12 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
     cdef cppclass cpp_async_handler "httpp::async_handler":
         pass
 
+    cdef cppclass cpp_shared_handler "httpp::shared_handler":
+        pass
+
+    cdef cppclass cpp_io_handler "httpp::io_handler":
+        pass
+
     cdef cppclass cpp_before_hook "httpp::server::before_hook":
         pass
 
@@ -76,6 +84,8 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cpp_server() except +
         void route(string method, string path, cpp_handler h) except +
         void route_async(string method, string path, cpp_async_handler h) except +
+        void route_shared(string method, string path, cpp_shared_handler h) except +
+        void route_io(string method, string path, cpp_io_handler h) except +
         void serve_directory(string mount_path, string local_dir) except +
         # after_hook / error_hook are the same std::function type as handler, so cpp_handler stands for them.
         cpp_server& before(cpp_before_hook h) except +
@@ -128,11 +138,23 @@ cdef extern from *:
     static httpp::async_handler httpp_py_make_async_handler(httpp_py_async_trampoline fn, void* ctx) {
         return [fn, ctx](const httpp::request& q, httpp::responder r) { fn(ctx, q, r); };
     }
+    typedef void (*httpp_py_shared_trampoline)(void*, std::shared_ptr<const httpp::request>, httpp::response&);
+    static httpp::shared_handler httpp_py_make_shared_handler(httpp_py_shared_trampoline fn, void* ctx) {
+        return [fn, ctx](std::shared_ptr<const httpp::request> q, httpp::response& r) { fn(ctx, std::move(q), r); };
+    }
+    typedef void (*httpp_py_io_trampoline)(void*, std::shared_ptr<const httpp::request>, const httpp::responder&);
+    static httpp::io_handler httpp_py_make_io_handler(httpp_py_io_trampoline fn, void* ctx) {
+        return [fn, ctx](std::shared_ptr<const httpp::request> q, httpp::responder r) { fn(ctx, std::move(q), r); };
+    }
     """
     ctypedef void (*trampoline_fn "httpp_py_trampoline")(void*, const cpp_request&, response&) noexcept nogil
     cpp_handler make_handler "httpp_py_make_handler"(trampoline_fn fn, void* ctx)
     ctypedef void (*async_trampoline_fn "httpp_py_async_trampoline")(void*, const cpp_request&, const cpp_responder&) noexcept nogil
     cpp_async_handler make_async_handler "httpp_py_make_async_handler"(async_trampoline_fn fn, void* ctx)
+    ctypedef void (*shared_trampoline_fn "httpp_py_shared_trampoline")(void*, shared_ptr[const cpp_request], response&) noexcept nogil
+    cpp_shared_handler make_shared_handler "httpp_py_make_shared_handler"(shared_trampoline_fn fn, void* ctx)
+    ctypedef void (*io_trampoline_fn "httpp_py_io_trampoline")(void*, shared_ptr[const cpp_request], const cpp_responder&) noexcept nogil
+    cpp_io_handler make_io_handler "httpp_py_make_io_handler"(io_trampoline_fn fn, void* ctx)
     ctypedef cbool (*before_trampoline_fn "httpp_py_before_trampoline")(void*, const cpp_request&, response&) noexcept nogil
     cpp_before_hook make_before "httpp_py_make_before"(before_trampoline_fn fn, void* ctx)
     ctypedef int (*stream_fn "httpp_py_stream_fn")(void*, size_t, string&) noexcept nogil
@@ -488,6 +510,54 @@ cdef tuple _request_args(const cpp_request& req):
     )
 
 
+cdef class RawRequest:
+    """A request the way C++ holds it, read on demand. Nothing is turned into Python objects until it is
+    asked for, so a handler that wants one path parameter pays for one string, not for the whole request.
+    It shares the C++ request (no copy) and keeps it alive for as long as it exists."""
+    cdef shared_ptr[const cpp_request] _req
+
+    @property
+    def method(self):
+        return self._req.get().method.decode("utf-8", errors="replace")
+
+    @property
+    def path(self):
+        return self._req.get().path.decode("utf-8", errors="replace")
+
+    @property
+    def body(self):
+        cdef bytes b = self._req.get().body
+        return b
+
+    def headers(self):
+        """[(name, value), ...] in wire order."""
+        return _pairs(self._req.get().headers)
+
+    def query(self):
+        return _pairs(self._req.get().query)
+
+    def path_params(self):
+        """{name: value}; for a repeated name the first one wins."""
+        cdef const cpp_request* r = self._req.get()
+        cdef dict out = {}
+        cdef size_t i
+        for i in range(r.path_params.size()):
+            name = r.path_params[i].first.decode("utf-8", errors="replace")
+            if name not in out:
+                out[name] = r.path_params[i].second.decode("utf-8", errors="replace")
+        return out
+
+    def _args(self):
+        """The old flat shape (method, path, body, headers, query, path_params-as-pairs)."""
+        return _request_args(deref(self._req.get()))
+
+
+cdef RawRequest _new_raw(shared_ptr[const cpp_request] req):
+    cdef RawRequest raw = RawRequest.__new__(RawRequest)
+    raw._req = req
+    return raw
+
+
 cdef void _push_headers(response& res, object headers) except *:
     cdef string k, v
     for name, value in headers:
@@ -553,6 +623,17 @@ cdef void _dispatch(void* ctx, const cpp_request& req, response& res) noexcept n
         except BaseException:
             # The traceback goes to stderr for the developer; the client only
             # ever sees a generic 500 (no internals leaked).
+            traceback.print_exc()
+            _fail(res)
+
+
+cdef void _dispatch_raw(void* ctx, shared_ptr[const cpp_request] req, response& res) noexcept nogil:
+    # Like _dispatch, but the handler gets a RawRequest (shared with C++, built on demand).
+    with gil:
+        try:
+            status, body, headers = (<object>ctx)(_new_raw(req))
+            _fill_response(res, status, body, headers)
+        except BaseException:
             traceback.print_exc()
             _fail(res)
 
@@ -658,7 +739,7 @@ cdef extern from *:
     #else
     #include <sys/socket.h>
     #endif
-    struct httpp_py_item { void* ctx; httpp::request req; httpp::responder rsp; };
+    struct httpp_py_item { void* ctx; std::shared_ptr<const httpp::request> req; httpp::responder rsp; };
     struct httpp_py_inbox {
         std::mutex mu;
         std::deque<httpp_py_item> q;
@@ -668,12 +749,12 @@ cdef extern from *:
     // Leaked on purpose: a late push during interpreter exit must still find it alive.
     static httpp_py_inbox& httpp_py_box() { static httpp_py_inbox* b = new httpp_py_inbox; return *b; }
     static void httpp_py_inbox_attach(int fd) { httpp_py_box().wake_fd = fd; }
-    static void httpp_py_inbox_push(void* ctx, const httpp::request& q, const httpp::responder& r) {
+    static void httpp_py_inbox_push(void* ctx, std::shared_ptr<const httpp::request> q, const httpp::responder& r) {
         auto& b = httpp_py_box();
         bool wake = false;
         {
             std::lock_guard<std::mutex> lock(b.mu);
-            b.q.push_back(httpp_py_item{ctx, q, r});
+            b.q.push_back(httpp_py_item{ctx, std::move(q), r});
             if (!b.armed) b.armed = wake = true;
         }
         const long long fd = b.wake_fd.load();
@@ -703,16 +784,32 @@ cdef extern from *:
     """
     cdef cppclass inbox_item "httpp_py_item":
         void* ctx
-        cpp_request req
+        shared_ptr[const cpp_request] req
         cpp_responder rsp
         inbox_item()
     void inbox_attach "httpp_py_inbox_attach"(int fd) nogil
-    void inbox_push "httpp_py_inbox_push"(void* ctx, const cpp_request& req, const cpp_responder& r) nogil
+    void inbox_push "httpp_py_inbox_push"(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r) nogil
     cbool inbox_pop "httpp_py_inbox_pop"(inbox_item& out) nogil
 
 
-cdef void _dispatch_inbox(void* ctx, const cpp_request& req, const cpp_responder& r) noexcept nogil:
+cdef void _dispatch_inbox(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r) noexcept nogil:
+    # Runs on the I/O thread (route_io): queue the request for the asyncio loop. No GIL, no copy.
     inbox_push(ctx, req, r)
+
+
+cdef void _start_raw(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r) noexcept:
+    # GIL held, on the loop thread. Hands the request to the route's `dispatch(raw, done)`, which must
+    # return quickly; the response is sent later through `done`. Never raises: a failing dispatch answers 500.
+    done = _Done.__new__(_Done)
+    (<_Done>done)._r = new cpp_responder(r)
+    try:
+        (<object>ctx)(_new_raw(req), done)
+    except BaseException:
+        traceback.print_exc()
+        try:
+            done(500, b"Internal Server Error", [])
+        except BaseException:
+            pass
 
 
 def _attach_inbox(int wake_fd):
@@ -729,7 +826,7 @@ def _drain_inbox(int budget=256):
     while budget > 0:
         if not inbox_pop(item):
             return False
-        _start_dispatch(item.ctx, item.req, item.rsp)
+        _start_raw(item.ctx, item.req, item.rsp)
         budget -= 1
     return True
 
@@ -789,9 +886,26 @@ cdef class Server:
         _attach_inbox() and a loop calling _drain_inbox(); httpp.Server arranges both when it listens."""
         if not callable(dispatch):
             raise TypeError("dispatch must be callable")
+        self._add_raw_loop_route(method, path, lambda raw, done: dispatch(*raw._args(), done))
+
+    def _add_raw_route(self, str method, str path, fn):
+        """What httpp.Server uses for `def` routes: `fn(raw)` -> (status, body, headers), where `raw` is a
+        RawRequest (built on demand). Runs on a worker thread, with the GIL."""
+        if not callable(fn):
+            raise TypeError("handler must be callable")
+        self._handlers.append(fn)
+        self._srv.route_shared(method.encode("utf-8"), path.encode("utf-8"),
+                               make_shared_handler(_dispatch_raw, <void*>fn))
+
+    def _add_raw_loop_route(self, str method, str path, dispatch):
+        """What httpp.Server uses for `async def` routes: `dispatch(raw, done)` runs on the asyncio loop
+        thread, fed through the inbox straight from the I/O thread (one thread hop, no GIL on the C++
+        side), and must return quickly; `done(status, body, headers)` sends the answer, from any thread."""
+        if not callable(dispatch):
+            raise TypeError("dispatch must be callable")
         self._handlers.append(dispatch)
-        self._srv.route_async(method.encode("utf-8"), path.encode("utf-8"),
-                              make_async_handler(_dispatch_inbox, <void*>dispatch))
+        self._srv.route_io(method.encode("utf-8"), path.encode("utf-8"),
+                           make_io_handler(_dispatch_inbox, <void*>dispatch))
 
     # --- Hooks. Each one replaces the previous (like the C++ setters); httpp/server.py chains several. ---
     def set_before_hook(self, hook):

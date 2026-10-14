@@ -37,13 +37,62 @@ def load(target):
     return obj
 
 
+_CGROUP_V2_CPU_MAX = "/sys/fs/cgroup/cpu.max"
+_CGROUP_V1_QUOTA = "/sys/fs/cgroup/cpu/cpu.cfs_quota_us"
+_CGROUP_V1_PERIOD = "/sys/fs/cgroup/cpu/cpu.cfs_period_us"
+
+
+def _cgroup_cpu_limit():
+    """The CPU quota of this container in whole CPUs (rounded down, at least 1), or None for no limit.
+    A process may run on every CPU of the host and still be throttled to a fraction of them."""
+    try:
+        with open(_CGROUP_V2_CPU_MAX) as f:
+            quota, period = f.read().split()[:2]
+        if quota != "max":
+            return max(1, int(quota) // int(period))
+    except (OSError, ValueError, ZeroDivisionError):
+        pass
+    try:
+        with open(_CGROUP_V1_QUOTA) as f:
+            quota = int(f.read())
+        with open(_CGROUP_V1_PERIOD) as f:
+            period = int(f.read())
+        if quota > 0 and period > 0:
+            return max(1, quota // period)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _cpu_count():
+    """How many CPUs this process can really use: its affinity mask, capped by a container CPU quota."""
+    try:
+        n = len(os.sched_getaffinity(0))
+    except AttributeError:  # macOS, Windows
+        n = os.cpu_count() or 1
+    limit = _cgroup_cpu_limit()
+    return max(1, min(n, limit) if limit else n)
+
+
+def _resolve_workers(workers):
+    """An int >= 1, or "auto" (one worker per usable CPU; one process where several can't share a port)."""
+    if workers == "auto" and isinstance(workers, str):
+        return _cpu_count() if sys.platform.startswith("linux") else 1
+    if isinstance(workers, int) and not isinstance(workers, bool) and workers >= 1:
+        return workers
+    raise ValueError('workers must be an integer >= 1 or "auto"')
+
+
 def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_level=None):
     """Serve `app` (an httpp.Server, or an import string 'module:attr') until Ctrl+C or SIGTERM.
 
     Shutdown is graceful: in-flight work ends and the app's on_shutdown hooks run.
     workers > 1 starts that many processes sharing the port (Linux only), which is how a
     Python server gets past the GIL; it needs an import string, because each worker imports
-    the app itself. reuse_port lets separate httpp processes share one port the same way.
+    the app itself. workers="auto" means one per CPU this process can use (the affinity mask,
+    capped by a container CPU quota): one process on a single CPU, off Linux, or when `app`
+    is an object rather than an import string. reuse_port lets separate httpp processes
+    share one port the same way.
     """
     from .server import Server
 
@@ -51,8 +100,11 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
         raise ValueError("host must be a non-empty string")
     if not (isinstance(port, int) and 1 <= port <= 65535):
         raise ValueError("port must be an integer from 1 to 65535")
-    if not (isinstance(workers, int) and workers >= 1):
-        raise ValueError("workers must be an integer >= 1")
+    auto = workers == "auto"
+    workers = _resolve_workers(workers)
+    if auto and workers > 1 and not isinstance(app, str):
+        _say("workers=auto needs an import string like 'main:app' to start several processes; running one")
+        workers = 1
     if log_level is not None:
         from . import set_log_level
 

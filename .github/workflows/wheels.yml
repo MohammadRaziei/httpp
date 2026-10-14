@@ -63,6 +63,8 @@ jobs:
         # building cp310/cp311/cp312 separately would just repeat the same
         # binary under different tags.
         #
+        # (A second step below builds the cp313-abi3 flavour for 3.13+.)
+        #
         # Free-threaded Python (3.13t, 3.14t) has no stable ABI yet (abi3t starts with 3.15 and
         # needs Cython and scikit-build-core support), so those get one version-specific wheel each
         # (cp313-cp313t, cp314-cp314t). scikit-build-core ignores py-api for them, and
@@ -71,8 +73,26 @@ jobs:
         CIBW_ENABLE: cpython-freethreading
         CIBW_SKIP: pp*
 
+    # A second abi3 flavour with a higher floor. wheel.py-api=cp313 makes the same sources build against the
+    # 3.13 stable ABI, so the wheel is tagged cp313-abi3-<platform>. pip prefers the more specific tag, so
+    # Python 3.13+ gets this one and 3.9 to 3.12 keep cp39-abi3. The 3.13+ build may use the stable-ABI
+    # functions added in 3.10 to 3.13 without breaking the older wheel. It goes to its own folder so the
+    # first step's wheels are never touched.
+    - name: Build wheels (abi3, Python 3.13+)
+      uses: pypa/cibuildwheel@v3.4.1
+      with:
+        output-dir: wheelhouse-abi3-313
+      env:
+        MACOSX_DEPLOYMENT_TARGET: "10.13"
+        CIBW_ARCHS_MACOS: universal2
+        CIBW_BUILD: "cp313-*"
+        CIBW_SKIP: pp*
+        CIBW_CONFIG_SETTINGS: "wheel.py-api=cp313"
+
     - uses: actions/upload-artifact@v7
       with:
         name: wheelhouse-${{ matrix.os }}
-        path: wheelhouse/*.whl
+        path: |
+          wheelhouse/*.whl
+          wheelhouse-abi3-313/*.whl
         overwrite: false
