@@ -1,7 +1,9 @@
 #pragma once
 
 #include "httpp/export.hpp"
+#include "httpp/server.hpp"
 
+#include <string>
 #include <string_view>
 
 namespace httpp {
@@ -17,5 +19,12 @@ struct swagger_ui_asset {
 
 // The asset called `name` ("swagger-ui-bundle.js", "swagger-ui.css", "favicon-32x32.png"), or nullptr.
 HTTPP_API const swagger_ui_asset* find_swagger_ui_asset(std::string_view name) noexcept;
+
+// Serve Swagger UI from `s`: the page at `docs_path` (with or without a trailing '/') and the three files under `docs_path`/<name>, all from the
+// bytes compiled into the library (nothing is read from disk). `openapi_url` is where the page loads the OpenAPI
+// document from; you serve that yourself. `docs_path` must start with '/' and name more than the root, otherwise
+// std::invalid_argument. A trailing '/' is accepted ("/docs/" and "/docs" give the same file URLs).
+HTTPP_API void mount_swagger_ui(server& s, const std::string& docs_path = "/docs",
+                                const std::string& openapi_url = "/openapi.json", const std::string& title = "API");
 
 } // namespace httpp

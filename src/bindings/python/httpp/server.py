@@ -47,7 +47,6 @@ import asyncio
 import contextlib
 import dataclasses
 import functools
-import html
 import inspect
 import json
 import mimetypes
@@ -59,46 +58,12 @@ import traceback
 
 from . import _params, _schema
 from . import _validate as V
-from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox, _swagger_ui_asset
+from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox
 from .models import BaseModel, to_jsonable
 
 _PARAM = re.compile(r"[{<]([^}>]*)[}>]")
 
 _ROUTE_META = frozenset(("summary", "description", "tags", "response_model", "status_code", "deprecated", "include_in_schema"))
-
-# Swagger UI (Apache-2.0) is compiled into libhttpp from src/third_party/swagger-ui: /docs works offline and no
-# data files are shipped (see cmake/EmbedFile.cmake).
-_SWAGGER_FILES = ("swagger-ui-bundle.js", "swagger-ui.css", "favicon-32x32.png")
-
-
-@functools.lru_cache(maxsize=None)
-def _swagger_asset(name):
-    """(bytes, content type) of a Swagger UI file, copied out of the library once per process."""
-    asset = _swagger_ui_asset(name)
-    if asset is None:
-        raise RuntimeError(f"this httpp build has no Swagger UI file {name!r}")
-    return asset
-
-
-_DOCS_HTML = """<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>{title} - Swagger UI</title>
-<link rel="icon" type="image/png" href="{base}/favicon-32x32.png">
-<link rel="stylesheet" href="{base}/swagger-ui.css">
-</head>
-<body>
-<div id="swagger-ui"></div>
-<script src="{base}/swagger-ui-bundle.js"></script>
-<script>
-window.ui = SwaggerUIBundle({{url: {url}, dom_id: "#swagger-ui", layout: "BaseLayout", deepLinking: true,
-  presets: [SwaggerUIBundle.presets.apis]}});
-</script>
-</body>
-</html>
-"""
-
 
 class ServerRequest:
     """What a route handler receives as `request`.
@@ -781,22 +746,8 @@ class Server(_Server):
         def openapi_json():
             return self.openapi()
 
-        if docs_url is None:
-            return
-        base = docs_url.rstrip("/")
-        page = _DOCS_HTML.format(title=html.escape(self._title), base=html.escape(base),
-                                 url=json.dumps(openapi_url).replace("</", "<\\/"))
-
-        @self.get(docs_url, include_in_schema=False)
-        def swagger_ui():
-            return page, 200, {"Content-Type": "text/html; charset=utf-8"}
-
-        for name in _SWAGGER_FILES:
-            data, content_type = _swagger_asset(name)
-
-            @self.get(f"{base}/{name}", include_in_schema=False)
-            def swagger_asset(_reply=(data, 200, {"Content-Type": content_type, "Cache-Control": "public, max-age=86400"})):
-                return _reply
+        if docs_url is not None:  # Swagger UI is served by C++ from files compiled into libhttpp
+            self.mount_swagger_ui(docs_url, openapi_url, self._title)
 
     # --- hooks (the C++ core keeps one hook of each kind; these chain any number of them) ---
 

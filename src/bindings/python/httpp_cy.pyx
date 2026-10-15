@@ -857,6 +857,10 @@ cdef class Server:
         """Serve `local_dir` under `mount_path`, like `python -m http.server`."""
         self._srv.serve_directory(mount_path.encode("utf-8"), local_dir.encode("utf-8"))
 
+    def mount_swagger_ui(self, str docs_path, str openapi_url, str title):
+        """Serve Swagger UI at `docs_path` from the files compiled into libhttpp, entirely in C++ (no GIL)."""
+        mount_swagger_ui(self._srv[0], docs_path.encode("utf-8"), openapi_url.encode("utf-8"), title.encode("utf-8"))
+
     def add_route(self, str method, str path, handler):
         """Low-level: register `handler` for `method` + `path` ("/users/:id").
         `handler(method, path, body, headers, query, path_params)` returns (status, body, headers):
@@ -1492,6 +1496,7 @@ cdef extern from "httpp/swagger_ui.hpp" namespace "httpp":
         string_view content_type
         string_view data
     const swagger_ui_asset_t* find_swagger_ui_asset(string_view name) noexcept
+    void mount_swagger_ui(cpp_server& s, string docs_path, string openapi_url, string title) except +
 
 
 def _swagger_ui_asset(str name):
