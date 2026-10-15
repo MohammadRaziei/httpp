@@ -303,13 +303,27 @@ _VALIDATION_SCHEMAS = {
 }
 
 
-def _param_schema(hint, defs, default=V.MISSING):
-    schema = {"type": "string"} if hint is None else dict(type_schema(hint, defs))
+def _param_schema(hint, defs, default=V.MISSING, info=None):
+    schema = {"type": "string"} if hint is None else dict(type_schema(hint, defs, info.constraints if info is not None else None))
     if default is not V.MISSING:
         d = _json_default(default)
         if d is not V.MISSING:
             schema["default"] = d
     return schema
+
+
+def _describe(doc, info):
+    """description / deprecated / examples / title of a Query() etc. onto an OpenAPI parameter."""
+    if info is not None:
+        if info.description:
+            doc["description"] = info.description
+        if info.deprecated:
+            doc["deprecated"] = True
+        if info.examples:
+            doc["examples"] = list(info.examples)
+        if info.title:
+            doc["schema"] = {**doc["schema"], "title": info.title}
+    return doc
 
 
 def _operation(route, method, defs):
@@ -326,23 +340,50 @@ def _operation(route, method, defs):
     if meta.get("deprecated"):
         op["deprecated"] = True
 
-    params = [{"name": n, "in": "path", "required": True, "schema": _param_schema(h, defs)} for n, h in plan.path.items()]
-    for p in plan.query:
-        params.append({"name": p.name, "in": "query", "required": p.required, "schema": _param_schema(p.hint, defs, p.default)})
+    # the route's own parameters and those of every dependency below it, once each
+    params, seen, body = [], set(), []
+    for sub in route.plan.walk():
+        for n, h in sub.path.items():
+            if ("path", n) not in seen:
+                seen.add(("path", n))
+                info = sub.path_info.get(n)
+                params.append(_describe({"name": n, "in": "path", "required": True, "schema": _param_schema(h, defs, info=info)}, info))
+        for p in sub.params:
+            if (p.kind, p.wire) not in seen:
+                seen.add((p.kind, p.wire))
+                wire = p.wire if p.kind == "header" and p.info is None else (p.info.alias if p.info is not None and p.info.alias else p.wire)
+                params.append(_describe({"name": wire, "in": p.kind, "required": p.required,
+                                         "schema": _param_schema(p.hint, defs, p.default, p.info)}, p.info))
+        body.extend((sub.embed, p) for p in sub.body)
     if params:
         op["parameters"] = params
-    if plan.body is not None:
-        op["requestBody"] = {"required": plan.body.required,
-                             "content": {"application/json": {"schema": _param_schema(plan.body.hint, defs)}}}
+    if body:
+        if len(body) == 1 and not body[0][0]:
+            p = body[0][1]
+            schema = _param_schema(p.hint, defs, info=p.info)
+            if p.info is not None and p.info.description:
+                schema = {**schema, "description": p.info.description}
+            op["requestBody"] = {"required": p.required, "content": {"application/json": {"schema": schema}}}
+        else:  # several body parameters (or embed=True): one JSON object with one key per parameter
+            props = {}
+            for _, p in body:
+                key = p.info.alias if p.info is not None and p.info.alias else p.name
+                props[key] = {**_param_schema(p.hint, defs, info=p.info), "title": _title(p.name)}
+            required = [(p.info.alias if p.info is not None and p.info.alias else p.name) for _, p in body if p.required]
+            schema = {"type": "object", "properties": props, "title": "Body_" + op["operationId"]}
+            if required:
+                schema["required"] = required
+            op["requestBody"] = {"required": bool(required), "content": {"application/json": {"schema": schema}}}
 
     ok = {"description": "Successful Response"}
     response_model = meta.get("response_model")
     ok["content"] = {"application/json": {"schema": type_schema(response_model, defs) if response_model is not None else {}}}
     op["responses"] = {str(meta.get("status_code") or 200): ok}
-    if params or plan.body is not None:
+    with_422 = bool(params or body)
+    if with_422:
         op["responses"]["422"] = {"description": "Validation Error", "content": {
             "application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}
-    return op, params or plan.body is not None
+    return op, with_422
 
 
 def build_openapi(routes, *, title, version, description=None):

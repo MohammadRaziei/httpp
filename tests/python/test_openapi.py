@@ -249,17 +249,9 @@ def test_a_model_can_be_returned_and_a_bad_return_is_a_500():
         assert get(f"{url}/bad").status == 500
 
 
-def test_only_one_body_parameter():
+def test_field_as_a_parameter_default_is_refused():
     app = Server()
-    with pytest.raises(TypeError, match="one request body"):
-        @app.post("/x")
-        def x(a: Item, b: Item):
-            return ""
-
-
-def test_field_as_a_parameter_default_is_refused_for_now():
-    app = Server()
-    with pytest.raises(TypeError, match="not supported yet"):
+    with pytest.raises(TypeError, match="Field\\(\\) as a parameter default"):
         @app.get("/x")
         def x(q: int = Field(ge=1)):
             return ""

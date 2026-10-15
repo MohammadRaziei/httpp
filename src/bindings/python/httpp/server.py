@@ -489,6 +489,27 @@ def _adapt(fn, app, plan=None, status=200, shape=None):
     """Sync handler -> what the compiled core calls on a worker thread: raw request in, (status, body, headers) out."""
     prepare = _prepare(fn, plan)
 
+    if plan is not None and plan.deps:
+
+        def call(raw):
+            kwargs, early = prepare(raw)
+            if early is not None:
+                return early
+            try:
+                with contextlib.ExitStack() as stack:  # a `yield` dependency is closed after the handler, also when it raised
+                    errors = _params.solve_deps(plan, _params.Ctx(raw, stack, ServerRequest._from_raw), kwargs)
+                    if errors:
+                        return _unprocessable(errors)
+                    rv = fn(**kwargs)
+                    return _to_response(rv if shape is None else shape(rv), status)
+            except Exception as exc:
+                handler = app._exception_handler_for(exc)
+                if handler is None:
+                    raise
+                return _to_response(_call(handler, ServerRequest._from_raw(raw), exc), 500)
+
+        return call
+
     def call(raw):
         kwargs, early = prepare(raw)
         if early is not None:
@@ -569,6 +590,15 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
     the loop thread, returns at once, and the response is sent through `done` when the handler is finished.
     One task per request does everything: the handler, its exception handler and the timeout."""
     prepare = _prepare(fn, plan)
+    has_deps = plan is not None and bool(plan.deps)
+
+    async def produce(raw, kwargs):
+        async with contextlib.AsyncExitStack() as stack:  # a `yield` dependency is closed after the handler, also when it raised
+            errors = await _params.asolve_deps(plan, _params.Ctx(raw, stack, ServerRequest._from_raw), kwargs)
+            if errors:
+                return _unprocessable(errors)
+            rv = await fn(**kwargs)
+            return _to_response(rv if shape is None else shape(rv), status)
 
     async def run(raw, done):
         task = asyncio.current_task()
@@ -590,8 +620,11 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                 result = early
             else:
                 try:
-                    rv = await fn(**kwargs)
-                    result = _to_response(rv if shape is None else shape(rv), status)
+                    if has_deps:
+                        result = await produce(raw, kwargs)
+                    else:
+                        rv = await fn(**kwargs)
+                        result = _to_response(rv if shape is None else shape(rv), status)
                 except Exception as exc:
                     handler = app._exception_handler_for(exc)
                     if handler is None:
@@ -684,6 +717,12 @@ class Server(_Server):
 
         def register(fn):
             plan = _params.make_plan(fn, path)
+            if not inspect.iscoroutinefunction(fn):
+                for sub in plan.walk():
+                    for _, dep in sub.deps:
+                        if dep.kind in ("async", "asyncgen"):
+                            raise TypeError(f"{fn.__name__}: a sync route can't use the async dependency {dep.fn.__name__!r}; "
+                                            "make the route `async def`")
             status = meta.get("status_code") or 200
             model = meta.get("response_model")
             check = V.compile_type(model) if model is not None else None
