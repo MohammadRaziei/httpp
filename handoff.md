@@ -23,6 +23,104 @@ principled way, no laziness. Both are **done** (see "Update: hot path rebuilt" b
 confirmed the order of the remaining items (3 onward in section 6). Items that are critical architecture
 decisions (the open risks) still need the `agent.md` question format before any code.
 
+## Update 2: FastAPI-compatible layer (STARTED, about a third done)
+
+**Decision (owner):** the "native compatible subset": implement `Depends` and Pydantic-like models ourselves,
+"as far as possible" (the owner also said: do whatever you like, best and most principled way, no laziness).
+The point: FastAPI-style code runs on httpp's own server with no ASGI adapter, so it keeps the speed. ASGI
+adapter was the other option and is NOT built. Compatibility will never be complete; keep a list of what is not.
+
+### Done (files are in the zip)
+
+- `src/bindings/python/httpp/_validate.py`: compiles a type hint into a validator closure once; Pydantic v2
+  "lax" coercion and Pydantic-shaped errors (`type`, `loc`, `msg`, `input`, `ctx`). Scalars, Optional/Union (smart
+  mode, with Pydantic's loc labels), Literal, Enum, list/set/frozenset/tuple/dict, dataclasses, datetime/date/time,
+  UUID, Decimal, bytes, constraints (gt ge lt le multiple_of min_length max_length pattern, in Pydantic's order),
+  Annotated metadata from httpp's Field, pydantic's Field and annotated_types, a real pydantic model (delegated,
+  errors translated). Helpers: `is_scalar_hint`, `sequence_item_hint`, `constraints_from_metadata`.
+- `src/bindings/python/httpp/models.py`: `BaseModel`, `Field`/`FieldInfo`, `ValidationError`, `ConfigDict`,
+  `field_validator`, `model_validator` (before/after), `to_jsonable` (what FastAPI's jsonable_encoder does),
+  `model_validate`, `model_validate_json`, `model_dump` (mode, include, exclude, by_alias, exclude_none,
+  exclude_unset, exclude_defaults), `model_dump_json`, `model_copy`, `model_fields`, `model_fields_set`, v1 names
+  (`dict`, `json`, `parse_obj`, `from_orm`, `copy`), config `extra` (ignore/forbid/allow), `populate_by_name`,
+  `from_attributes`, `str_strip_whitespace`, self-referencing and function-local models (the defining frame's
+  names are kept). `model_json_schema()` raises `NotImplementedError` (not written).
+- `tests/python/test_validate_vs_pydantic.py` (242 cases) and `tests/python/test_models_vs_pydantic.py` (36
+  cases): the same inputs through Pydantic (the oracle, `pip install fastapi pydantic httpx`) and through httpp,
+  comparing value or error type/loc/msg/ctx/input. Error text of date/time/UUID parsing is compared by `type`
+  only (`LOOSE` set). **All 278 passed, but only against a scratch copy of the two modules
+  (`/tmp/devpkg`), NOT through the installed package, and NOT inside a full-suite run.** First thing to do next:
+  rebuild (`ninja -C build-py`), then run the whole Python suite.
+- `tools/fastapi_probes/`: three scripts that print what real FastAPI 0.143 / Pydantic 2.14 do. Re-run them
+  instead of trusting memory (versions are newer than my training).
+
+### Not done (in the order I would do it)
+
+1. `httpp/params.py`: `Query`, `Path`, `Header` (underscores -> hyphens), `Cookie`, `Body` (`embed`), `Form`
+   (urlencoded only), `Depends(dep, use_cache=True)` (+ our extra `blocking=True`), `HTTPException(status, detail,
+   headers)`, `RequestValidationError`. They subclass `FieldInfo` (`Field` accepts the same constraint names).
+2. A planner replacing `server.py::_prepare`: per handler parameter decide the source once at registration
+   (path / query / header / cookie / body / form / dependency / `request` / `response` / `BackgroundTasks`), then a
+   per-request resolver that collects ALL errors into one 422. **Keep the fast path:** a handler with no
+   parameters returns `_NO_ARGS`; only path params / only `request` must stay as cheap as today (re-run
+   `benchmarks/bench.py` and compare; the numbers in this file are the reference).
+3. Default exception handlers for `HTTPException` and `RequestValidationError`, overridable with
+   `@app.exception_handler(...)`; 422 body `{"detail": [errors]}` (FastAPI shape). This CHANGES the current
+   path-parameter 422 body (`{"error": ...}`): update `tests/python/test_server_features.py` when doing it.
+4. Responses: `Response`, `JSONResponse`, `PlainTextResponse`, `HTMLResponse`, `RedirectResponse`,
+   `StreamingResponse`, `FileResponse`; injected `response: Response` (status/headers merged into the result);
+   decorator options `status_code`, `response_model` (also from the return annotation; a mismatch is a 500),
+   `response_model_exclude_unset/none/include/exclude/by_alias`, `dependencies`, `tags`, `summary`, `description`,
+   `responses`, `deprecated`, `name`, `operation_id`, `include_in_schema`, `response_class`. `_to_response` must
+   serialize models / dataclasses / Enum / datetime / UUID through `models.to_jsonable`.
+5. Dependencies: sync, async, generator (teardown in reverse order, after the handler, the exception is thrown into
+   the generator), async generator, class dependencies (`Depends()` with no argument uses the annotation),
+   sub-dependencies, per-request cache, `app.dependency_overrides`. A sync dependency inside an `async def` route
+   must go to the executor (never block the shared loop) unless `blocking=False`; async dependency inside a `def`
+   route bridges through `_call`.
+6. `BackgroundTasks` (run right after the response is produced; document that they are not strictly "after
+   sent"), `APIRouter` + `app.include_router(router, prefix, tags, dependencies)`, `httpp.fastapi` namespace
+   (`FastAPI`, `APIRouter`, `Depends`, `HTTPException`, `Query`, `Path`, `Header`, `Cookie`, `Body`, `Request`,
+   `Response`, ..., `status`) so `from httpp.fastapi import ...` works, maybe an opt-in `sys.modules` shim.
+7. `_schema.py` for `model_json_schema` and `/openapi.json` + `/docs`; `app.middleware("http")`; CORS;
+   `{name:path}` path converters (needs a trailing-wildcard in the C++ router); multipart forms and uploads.
+8. Differential tests for all of the above against real FastAPI (`TestClient`, compare status, JSON and headers).
+
+### What the FastAPI oracle showed (so you don't re-probe; versions: fastapi 0.143, pydantic 2.14, starlette 1.8)
+
+- A parameter with no marker: name in the path -> path; scalar (or Optional/Literal/Enum) -> **query**; anything
+  else (model, dict, `List[int]`, dataclass) -> **body**. `user_agent: str` without `Header()` is a QUERY param.
+  `List[int]` is a query param only with `Query()`.
+- Query given twice for a scalar: the **last** value wins. Missing: `{"type":"missing","loc":["query","a"],
+  "msg":"Field required","input":null}`. `?a=` is `int_parsing` with input `""`.
+- Errors of all parameters (path, query, header, cookie, body) come back together in one 422
+  `{"detail":[...]}`; a dependency that is shared adds its error once per use (the same error appeared 2-3 times).
+- Body: one body param -> the whole JSON is the model; several body params, or `Body(embed=True)` -> object
+  with one key per param; a body that is not an object counts as empty (each missing: loc `["body","name"]`);
+  no body at all: `missing`, loc `["body"]`, input null. Invalid JSON: `{"type":"json_invalid","loc":["body",
+  <char position>],"msg":"JSON decode error","input":{},"ctx":{"error":"Expecting value"}}`. A non-JSON
+  `Content-Type` hands the raw body text to the validator (`model_attributes_type`, "Input should be a valid
+  dictionary or object to extract fields from"); no `Content-Type` at all: it tries to parse JSON.
+- `HTTPException` -> `{"detail": detail}` (detail may be a dict) + its headers. 404/405 -> `{"detail":"Not Found"}`
+  / `{"detail":"Method Not Allowed"}`. `response_model` filters unknown keys and converts (`price` 1 -> 1.0); a
+  mismatch is a plain 500. `status_code=` on the decorator is the default status. Returning `None` -> JSON `null`.
+  `JSONResponse` keeps its own status and headers; `RedirectResponse` is 307 with `location`.
+- Dependencies: a yield dependency used twice in one request is created once (cache) and torn down once, after
+  the handler; order seen: `a-start, b, c, handler, a-end`. If the handler (or a later dependency) raises
+  `HTTPException`, the teardown still runs. `dependency_overrides[original] = replacement` also replaces it for
+  sub-dependencies. A router's `dependencies=` run before the route's. `Depends()` on a class calls the class with
+  its `__init__` parameters resolved (`k: str = "kv"` becomes a query param).
+- Injected `response: Response` -> its `status_code` and headers end up on the result (202 + `x-one` seen).
+
+### Cautions
+
+- Nothing of items 1-8 is wired into `server.py`: `Server.route` still uses the old `_prepare`; the new modules
+  are standalone and only the tests import them. Nothing here changed the C++ side.
+- Not benchmarked: the new layer. Do not accept a slowdown of the simple routes in section "hot path".
+- `models.py` keeps the local names of the frame that defines a model (for forward references), like Pydantic;
+  that keeps those objects alive as long as the class.
+- `_validate.py` has no strict mode, no custom types beyond the list above, no generics.
+
 ## Update: hot path rebuilt (B + C), measured
 
 What changed (all with tests first):
@@ -326,3 +424,15 @@ free-threaded interpreter must be thread-safe (shared dicts/counters are touched
    1 and 2 give the speed, item 4 gives the capability).
 2. Sub-interpreter experiment (item 9): yes or no?
 3. Shared-state scope for item 4: bytes table + counters only, or also something richer?
+
+
+---
+
+## Update: validators moved to Cython (this session)
+
+- New `src/bindings/python/_validate_cy.pyx` (extension `httpp._validate_cy`, wired in `src/bindings/python/CMakeLists.txt`): every validator is a `cdef class` with a C-level `_validate(v, loc, errors)`, and the model field loop (`ModelV`) lives there too.
+- Two passes, one code path: `errors is None` = fast pass (no loc tuples, no messages; first failure returns INVALID); only if it fails, the same validator runs again with `errors` to build the Pydantic-shaped errors. Consequence: a user `@field_validator` can run twice on an *invalid* input, so it must not have side effects (documented in the pyx docstring).
+- `_validate.py` now only walks type hints (once, at registration) and builds those objects; `models.py` keeps schema building, `FieldInfo`, `ValidationError`, hooks. `inspect.signature` for hooks is cached.
+- Baseline before the change: 452 passed, 1 skipped (the 278 Pydantic differential tests ran against the *installed* package, which closes that open item). After: same 452 passed, 1 skipped.
+- `benchmarks/bench_validate.py` (median ns, same machine, same run order): User model valid 10759 -> 3398; List[int] x10 1361 -> 584; Union[int,str,None] 954 -> 159; User model invalid (5 errors) 17280 -> 11305. Scalar rows (~130-200 ns) are dominated by the Python lambda and the public two-pass `__call__`, not by validation. The machine is noisy: only compare numbers from the same run.
+- Not done: wiring `models.py`/`_validate.py` into `server.py`, `params.py` (Query/Path/Header/Depends), planner, exception handlers, responses, OpenAPI; sub-interpreter experiment; `app.shared`; TSAN finding in mbedtls still undecided.

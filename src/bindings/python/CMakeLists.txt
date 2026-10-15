@@ -49,8 +49,15 @@ if(DEFINED SKBUILD)
         )
     endif()
 
-    # Install the compiled extension module + the pure-Python package files
-    install(TARGETS httpp_cy
+    # The request validators (httpp/_validate.py builds them, _validate_cy.pyx runs them). Pure Cython:
+    # no link to httpp_core, so no rpath either.
+    cython_transpile(${CMAKE_CURRENT_SOURCE_DIR}/_validate_cy.pyx
+        LANGUAGE CXX
+        OUTPUT_VARIABLE validate_cxx_file)
+    python_add_library(_validate_cy MODULE "${validate_cxx_file}" WITH_SOABI ${USE_SABI})
+
+    # Install the compiled extension modules + the pure-Python package files
+    install(TARGETS httpp_cy _validate_cy
         DESTINATION httpp
         COMPONENT httpp_wheel
     )
