@@ -45,6 +45,8 @@ Register routes and hooks BEFORE calling listen().
 
 import asyncio
 import contextlib
+import dataclasses
+import html
 import inspect
 import json
 import mimetypes
@@ -54,9 +56,36 @@ import socket
 import threading
 import traceback
 
+from . import _params, _schema
+from . import _validate as V
 from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox
+from .models import BaseModel, to_jsonable
 
 _PARAM = re.compile(r"[{<]([^}>]*)[}>]")
+
+_ROUTE_META = frozenset(("summary", "description", "tags", "response_model", "status_code", "deprecated", "include_in_schema"))
+
+# Swagger UI, vendored under static/swagger-ui (Apache-2.0, see VENDORED.txt there): /docs works offline.
+_SWAGGER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "swagger-ui")
+_SWAGGER_FILES = ("swagger-ui-bundle.js", "swagger-ui.css", "favicon-32x32.png")
+_DOCS_HTML = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{title} - Swagger UI</title>
+<link rel="icon" type="image/png" href="{base}/favicon-32x32.png">
+<link rel="stylesheet" href="{base}/swagger-ui.css">
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="{base}/swagger-ui-bundle.js"></script>
+<script>
+window.ui = SwaggerUIBundle({{url: {url}, dom_id: "#swagger-ui", layout: "BaseLayout", deepLinking: true,
+  presets: [SwaggerUIBundle.presets.apis]}});
+</script>
+</body>
+</html>
+"""
 
 
 class ServerRequest:
@@ -314,6 +343,41 @@ def _stream(gen):
     return provider
 
 
+class _Json:
+    """A value already turned into plain JSON data, to be sent as application/json whatever its type."""
+
+    __slots__ = ("value",)
+
+    def __init__(self, value):
+        self.value = value
+
+
+class ResponseValidationError(ValueError):
+    """What a handler returned does not fit its response_model (a bug in the handler, so: no handler, a 500)."""
+
+    def __init__(self, errors):
+        self._errors = errors
+        super().__init__(f"{len(errors)} validation error(s) for the response: {errors}")
+
+    def errors(self):
+        return list(self._errors)
+
+
+def _shape(rv, check):
+    """Run a handler's return value through its response_model; (body, status, ...) tuples keep their extras."""
+    body, *rest = rv if isinstance(rv, tuple) else (rv,)
+    errors = []
+    out = check(body, ("response",), errors)
+    if out is V.INVALID:
+        raise ResponseValidationError(errors)
+    return (_Json(to_jsonable(out)), *rest)
+
+
+def _unprocessable(errors):
+    body = json.dumps({"detail": errors}, default=str).encode("utf-8")
+    return 422, body, [("Content-Type", "application/json")]
+
+
 def _to_response(rv, default_status=200):
     status, headers = default_status, []
     if isinstance(rv, tuple):
@@ -333,6 +397,11 @@ def _to_response(rv, default_status=200):
         body, ctype = rv.encode("utf-8"), "text/plain; charset=utf-8"
     elif isinstance(rv, (dict, list)):
         body, ctype = json.dumps(rv).encode("utf-8"), "application/json"
+    elif isinstance(rv, _Json):
+        body, ctype = json.dumps(rv.value).encode("utf-8"), "application/json"
+    elif isinstance(rv, BaseModel) or (hasattr(rv, "model_dump") and not isinstance(rv, type)) \
+            or (dataclasses.is_dataclass(rv) and not isinstance(rv, type)):
+        body, ctype = json.dumps(to_jsonable(rv)).encode("utf-8"), "application/json"
     elif isinstance(rv, _File):
         body = rv.path  # a str body = a file to stream (see Server.add_route)
         ctype = rv.content_type or mimetypes.guess_type(rv.path)[0] or "application/octet-stream"
@@ -352,9 +421,9 @@ def _to_response(rv, default_status=200):
 _NO_ARGS = ({}, None)
 
 
-def _prepare(fn):
-    """Build the kwargs for `fn` from a RawRequest: path params (converted per annotation) plus
-    `request` if asked for, and nothing else. Returns (kwargs, early_response); early_response is a
+def _prepare(fn, plan=None):
+    """Build the kwargs for `fn` from a RawRequest: path params (converted per annotation), the query / body
+    parameters of its `plan` (see _params.py; hooks have none) plus `request` if asked for, and nothing else. Returns (kwargs, early_response); early_response is a
     ready (status, body, headers) when the request can't reach the handler (bad path parameter).
     What `fn` asks for is worked out once, here, not per request."""
     params = inspect.signature(fn).parameters
@@ -380,6 +449,10 @@ def _prepare(fn):
                     kwargs[k] = typ(kwargs[k])
         except ValueError:
             return None, _to_response(({"error": f"path parameter {k!r} must be {typ.__name__}"}, 422))
+        if plan is not None and plan.active:
+            errors = plan.run(raw, kwargs)
+            if errors:
+                return None, _unprocessable(errors)
         if wants_request:
             kwargs["request"] = ServerRequest._from_raw(raw)
         return kwargs, None
@@ -412,16 +485,17 @@ def _prepare_flat(fn):
     return lambda *flat: prepare(_FlatRaw(*flat))
 
 
-def _adapt(fn, app):
+def _adapt(fn, app, plan=None, status=200, shape=None):
     """Sync handler -> what the compiled core calls on a worker thread: raw request in, (status, body, headers) out."""
-    prepare = _prepare(fn)
+    prepare = _prepare(fn, plan)
 
     def call(raw):
         kwargs, early = prepare(raw)
         if early is not None:
             return early
         try:
-            return _to_response(fn(**kwargs))
+            rv = fn(**kwargs)
+            return _to_response(rv if shape is None else shape(rv), status)
         except Exception as exc:
             handler = app._exception_handler_for(exc)
             if handler is None:
@@ -490,11 +564,11 @@ def _get_loop():
         return _loop
 
 
-def _adapt_async(fn, app):
+def _adapt_async(fn, app, plan=None, status=200, shape=None):
     """Async handler -> a dispatcher for the compiled core's loop routes: `dispatch(raw, done)` runs on
     the loop thread, returns at once, and the response is sent through `done` when the handler is finished.
     One task per request does everything: the handler, its exception handler and the timeout."""
-    prepare = _prepare(fn)
+    prepare = _prepare(fn, plan)
 
     async def run(raw, done):
         task = asyncio.current_task()
@@ -516,7 +590,8 @@ def _adapt_async(fn, app):
                 result = early
             else:
                 try:
-                    result = _to_response(await fn(**kwargs))
+                    rv = await fn(**kwargs)
+                    result = _to_response(rv if shape is None else shape(rv), status)
                 except Exception as exc:
                     handler = app._exception_handler_for(exc)
                     if handler is None:
@@ -565,8 +640,11 @@ class Server(_Server):
     """
 
     def __init__(self, *, threads=None, max_threads=None, read_timeout=None, write_timeout=None,
-                 keep_alive_timeout=None, keep_alive_max=None, max_body=None, handler_timeout=60):
+                 keep_alive_timeout=None, keep_alive_max=None, max_body=None, handler_timeout=60,
+                 title="httpp", version="0.1.0", description=None, openapi_url="/openapi.json", docs_url="/docs"):
         _Server.__init__(self)
+        self._routes, self._openapi_doc = [], None
+        self._title, self._version, self._description = title, version, description
         self._before, self._after, self._startup, self._shutdown = [], [], [], []
         self._error_handlers, self._exception_handlers = {}, {}
 
@@ -590,37 +668,82 @@ class Server(_Server):
         # The C++ timer is only the backstop for the Python one (it can't cancel the coroutine).
         # ponytail: fixed 5 s grace.
         self.set_async_timeout(int(handler_timeout) + 5 if handler_timeout else 0)
+        if openapi_url is not None:
+            self._add_docs(openapi_url, docs_url)
 
-    def route(self, path, methods=("GET",)):
-        """Flask-style: @app.route("/x", methods=["GET", "POST"])."""
+    def route(self, path, methods=("GET",), **meta):
+        """Flask-style: @app.route("/x", methods=["GET", "POST"]).
+
+        Also FastAPI's per-route options: summary, description, tags, deprecated, include_in_schema (these
+        shape the OpenAPI document), status_code (the status when the handler returns just a body) and
+        response_model (a type the returned value is validated against and serialized with)."""
+        unknown = set(meta) - _ROUTE_META
+        if unknown:
+            raise TypeError(f"route() got unexpected options {sorted(unknown)}; known: {sorted(_ROUTE_META)}")
         pattern = _to_pattern(path)
 
         def register(fn):
+            plan = _params.make_plan(fn, path)
+            status = meta.get("status_code") or 200
+            model = meta.get("response_model")
+            check = V.compile_type(model) if model is not None else None
+            shape = (lambda rv: _shape(rv, check)) if check is not None else None
             if inspect.iscoroutinefunction(fn):
-                adapted, add = _adapt_async(fn, self), self._add_raw_loop_route
+                adapted, add = _adapt_async(fn, self, plan, status, shape), self._add_raw_loop_route
                 self._has_async = True
             else:
-                adapted, add = _adapt(fn, self), self._add_raw_route
+                adapted, add = _adapt(fn, self, plan, status, shape), self._add_raw_route
             for m in methods:
                 add(m, pattern, adapted)
+            self._routes.append(_params.Route(path, tuple(methods), fn, plan, meta))
+            self._openapi_doc = None
             return fn  # unchanged, so it stays directly callable / testable
 
         return register
 
-    def get(self, path):
-        return self.route(path, ("GET",))
+    def get(self, path, **meta):
+        return self.route(path, ("GET",), **meta)
 
-    def post(self, path):
-        return self.route(path, ("POST",))
+    def post(self, path, **meta):
+        return self.route(path, ("POST",), **meta)
 
-    def put(self, path):
-        return self.route(path, ("PUT",))
+    def put(self, path, **meta):
+        return self.route(path, ("PUT",), **meta)
 
-    def patch(self, path):
-        return self.route(path, ("PATCH",))
+    def patch(self, path, **meta):
+        return self.route(path, ("PATCH",), **meta)
 
-    def delete(self, path):
-        return self.route(path, ("DELETE",))
+    def delete(self, path, **meta):
+        return self.route(path, ("DELETE",), **meta)
+
+    # --- OpenAPI and the Swagger UI page ---
+
+    def openapi(self):
+        """The OpenAPI 3.1 document for the routes registered so far (what /openapi.json serves)."""
+        if self._openapi_doc is None:
+            self._openapi_doc = _schema.build_openapi(self._routes, title=self._title, version=self._version,
+                                                      description=self._description)
+        return self._openapi_doc
+
+    def _add_docs(self, openapi_url, docs_url):
+        @self.get(openapi_url, include_in_schema=False)
+        def openapi_json():
+            return self.openapi()
+
+        if docs_url is None:
+            return
+        base = docs_url.rstrip("/")
+        page = _DOCS_HTML.format(title=html.escape(self._title), base=html.escape(base),
+                                 url=json.dumps(openapi_url).replace("</", "<\\/"))
+
+        @self.get(docs_url, include_in_schema=False)
+        def swagger_ui():
+            return page, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+        for name in _SWAGGER_FILES:
+            @self.get(f"{base}/{name}", include_in_schema=False)
+            def swagger_asset(_path=os.path.join(_SWAGGER_DIR, name)):
+                return file(_path), 200, {"Cache-Control": "public, max-age=86400"}
 
     # --- hooks (the C++ core keeps one hook of each kind; these chain any number of them) ---
 

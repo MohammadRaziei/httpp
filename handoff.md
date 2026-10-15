@@ -436,3 +436,16 @@ free-threaded interpreter must be thread-safe (shared dicts/counters are touched
 - Baseline before the change: 452 passed, 1 skipped (the 278 Pydantic differential tests ran against the *installed* package, which closes that open item). After: same 452 passed, 1 skipped.
 - `benchmarks/bench_validate.py` (median ns, same machine, same run order): User model valid 10759 -> 3398; List[int] x10 1361 -> 584; Union[int,str,None] 954 -> 159; User model invalid (5 errors) 17280 -> 11305. Scalar rows (~130-200 ns) are dominated by the Python lambda and the public two-pass `__call__`, not by validation. The machine is noisy: only compare numbers from the same run.
 - Not done: wiring `models.py`/`_validate.py` into `server.py`, `params.py` (Query/Path/Header/Depends), planner, exception handlers, responses, OpenAPI; sub-interpreter experiment; `app.shared`; TSAN finding in mbedtls still undecided.
+
+
+---
+
+## Update: Swagger / OpenAPI (this session)
+
+- `/openapi.json` (OpenAPI 3.1) and `/docs` (Swagger UI 5.33.2, **vendored** under `src/bindings/python/httpp/static/swagger-ui/`, Apache-2.0, nothing from a CDN, installed by CMake). `Server(title=, version=, description=, openapi_url="/openapi.json", docs_url="/docs")`; `docs_url=None` / `openapi_url=None` switch them off. `app.openapi()` returns the document (cached, rebuilt when a route is added). No ReDoc (it would be a second ~1 MB bundle).
+- `_params.py` (new): where each handler argument comes from, worked out at registration with FastAPI's rules: name in the path = path param (`{x}`, `<x>`, `:x`); scalar or list of scalars = query; anything else = JSON body (one body param only). The same plan drives the request path (`server.py`, 422 `{"detail": [...]}` for query/body/non-int path errors) and the OpenAPI document, so docs and behaviour cannot drift. Legacy int/float path-param 422 (`{"error": ...}`) is kept because a test pins it.
+- `_schema.py` (new, plain Python, runs once): `model_json_schema()` (Pydantic v2's shape; compared with Pydantic's output in `test_openapi.py`, equal on a model with ~20 field kinds) and the document builder.
+- Per-route options: `summary, description, tags, deprecated, include_in_schema, status_code, response_model` (`response_model` validates + serializes the return value; a mismatch raises `ResponseValidationError` -> 500). A returned model / dataclass is now serialized as JSON.
+- Tests: `tests/python/test_openapi.py` (18; one validates the document with `openapi-spec-validator` and skips if it is not installed). Whole suite: 470 passed, 1 skipped.
+- Not done / limits: `Field()`/`Query()`/`Header()`/`Cookie()`/`Depends()` as parameter defaults (a `Field(...)` default raises TypeError on purpose), several body params / `embed`, form and file bodies, security schemes, `servers`, response `examples`. `/docs` was opened in headless Chromium (Playwright): the page renders from local files only (no external requests, no JS errors), lists both operations and the schemas, and Try-it-out worked (GET 200 with converted query values, POST 422 with `detail`, POST 201 through `response_model`). The C++ side has no docs generator (not needed yet).
+- abi3: `_validate_cy.pyx` compiles with `-DPy_LIMITED_API=0x030900f0 -DCYTHON_LIMITED_API=1` and a smoke test imports and runs, but the full cp39-abi3 / cp313-abi3 wheel build was not run.

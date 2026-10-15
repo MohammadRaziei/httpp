@@ -1,0 +1,2 @@
+swagger-ui-dist 5.33.2 (Apache-2.0), from https://registry.npmjs.org/swagger-ui-dist
+Only the files httpp serves at /docs; source maps left out.

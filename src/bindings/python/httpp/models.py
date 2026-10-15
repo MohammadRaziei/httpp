@@ -394,8 +394,10 @@ class BaseModel(metaclass=_ModelMeta):
         return new
 
     @classmethod
-    def model_json_schema(cls, **kwargs):
-        raise NotImplementedError("model_json_schema() is not written yet (see handoff.md)")
+    def model_json_schema(cls, by_alias=True, ref_template="#/$defs/{model}"):
+        from ._schema import model_json_schema
+
+        return model_json_schema(cls, by_alias, ref_template)
 
     # Pydantic v1 names, still common in FastAPI code
     def dict(self, **kw):
