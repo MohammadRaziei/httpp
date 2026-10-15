@@ -34,6 +34,20 @@ set(HTTPP_SOURCE_DIR ${PROJECT_SOURCE_DIR})
 # they never leak into the httpp .so/.a's public symbols.
 file(GLOB HTTPP_CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/*.cpp)
 
+# Swagger UI (vendored in src/third_party/swagger-ui) is compiled into the library: at CONFIGURE time its three
+# files become a generated header (cmake/EmbedFile.cmake), so /docs needs no data files at run time.
+include(EmbedFile)
+set(HTTPP_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+set(HTTPP_SWAGGER_UI_DIR ${PROJECT_SOURCE_DIR}/src/third_party/swagger-ui)
+embed_files(
+    OUTPUT    ${HTTPP_GENERATED_DIR}/httpp_swagger_ui_data.hpp
+    NAMESPACE httpp::embedded
+    FILES
+        swagger_ui_bundle_js    ${HTTPP_SWAGGER_UI_DIR}/swagger-ui-bundle.js
+        swagger_ui_css          ${HTTPP_SWAGGER_UI_DIR}/swagger-ui.css
+        swagger_ui_favicon_png  ${HTTPP_SWAGGER_UI_DIR}/favicon-32x32.png
+)
+
 # liburlparser (git submodule, built from source — no system package) does
 # the real URL parsing (scheme/host/port/path, IPv4/IPv6, PSL-aware). It is
 # linked PRIVATE into httpp_core, same as cpp-httplib: consumers of
@@ -131,6 +145,7 @@ target_include_directories(httpp_core
 # warnings (e.g. indicators.hpp's narrowing-conversion C4244/C4267 on MSVC)
 # aren't ours to fix and shouldn't surface under our own -Wall/-Wextra/-W4
 # below — without patching vendored code to silence its own warnings.
+target_include_directories(httpp_core PRIVATE ${HTTPP_GENERATED_DIR})
 target_include_directories(httpp_core SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/cpp-httplib
     ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/aixlog

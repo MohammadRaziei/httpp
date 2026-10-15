@@ -66,11 +66,6 @@ if(DEFINED SKBUILD)
         COMPONENT httpp_wheel
         FILES_MATCHING PATTERN "*.py"
     )
-    # Swagger UI for /docs (vendored, Apache-2.0)
-    install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/httpp/static/
-        DESTINATION httpp/static
-        COMPONENT httpp_wheel
-    )
 
     # --- also ship the C++ library inside the wheel ---
     # `pip install httpp` gives you not just the Python module but a usable

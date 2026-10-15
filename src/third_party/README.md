@@ -60,3 +60,9 @@ anything.
   subdirectory of another scikit-build-core project (httpp): `SKBUILD` is
   defined for *httpp's* install, not liburlparser's, so the guard now also
   checks that liburlparser is genuinely the package being installed.
+
+## swagger-ui
+
+`swagger-ui/` holds the three Swagger UI 5.33.2 files httpp serves at `/docs` (Apache-2.0, upstream's licence files included). They are
+committed files that are **compiled into libhttpp at CMake configure time** (`cmake/EmbedFile.cmake`), not shipped; see
+`swagger-ui/VENDORED.md`.

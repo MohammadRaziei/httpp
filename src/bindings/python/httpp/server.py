@@ -46,6 +46,7 @@ Register routes and hooks BEFORE calling listen().
 import asyncio
 import contextlib
 import dataclasses
+import functools
 import html
 import inspect
 import json
@@ -58,16 +59,27 @@ import traceback
 
 from . import _params, _schema
 from . import _validate as V
-from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox
+from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox, _swagger_ui_asset
 from .models import BaseModel, to_jsonable
 
 _PARAM = re.compile(r"[{<]([^}>]*)[}>]")
 
 _ROUTE_META = frozenset(("summary", "description", "tags", "response_model", "status_code", "deprecated", "include_in_schema"))
 
-# Swagger UI, vendored under static/swagger-ui (Apache-2.0, see VENDORED.txt there): /docs works offline.
-_SWAGGER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "swagger-ui")
+# Swagger UI (Apache-2.0) is compiled into libhttpp from src/third_party/swagger-ui: /docs works offline and no
+# data files are shipped (see cmake/EmbedFile.cmake).
 _SWAGGER_FILES = ("swagger-ui-bundle.js", "swagger-ui.css", "favicon-32x32.png")
+
+
+@functools.lru_cache(maxsize=None)
+def _swagger_asset(name):
+    """(bytes, content type) of a Swagger UI file, copied out of the library once per process."""
+    asset = _swagger_ui_asset(name)
+    if asset is None:
+        raise RuntimeError(f"this httpp build has no Swagger UI file {name!r}")
+    return asset
+
+
 _DOCS_HTML = """<!DOCTYPE html>
 <html>
 <head>
@@ -780,9 +792,11 @@ class Server(_Server):
             return page, 200, {"Content-Type": "text/html; charset=utf-8"}
 
         for name in _SWAGGER_FILES:
+            data, content_type = _swagger_asset(name)
+
             @self.get(f"{base}/{name}", include_in_schema=False)
-            def swagger_asset(_path=os.path.join(_SWAGGER_DIR, name)):
-                return file(_path), 200, {"Cache-Control": "public, max-age=86400"}
+            def swagger_asset(_reply=(data, 200, {"Content-Type": content_type, "Cache-Control": "public, max-age=86400"})):
+                return _reply
 
     # --- hooks (the C++ core keeps one hook of each kind; these chain any number of them) ---
 

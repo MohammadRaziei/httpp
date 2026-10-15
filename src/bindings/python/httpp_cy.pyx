@@ -9,6 +9,7 @@ serving HTTP (Server) — the `httpp` CLI (`httpp server ...`, analogous to
 """
 
 from libcpp.string cimport string
+from libcpp.string_view cimport string_view
 from libcpp cimport bool as cbool
 from libcpp.vector cimport vector
 from libcpp.pair cimport pair
@@ -1484,6 +1485,24 @@ cdef extern from *:
 
 _LOG_LEVELS = ("trace", "debug", "info", "warning", "error", "off")
 _log_callback = None  # keeps the Python callable alive while the core may call it
+
+
+cdef extern from "httpp/swagger_ui.hpp" namespace "httpp":
+    cdef cppclass swagger_ui_asset_t "httpp::swagger_ui_asset":
+        string_view content_type
+        string_view data
+    const swagger_ui_asset_t* find_swagger_ui_asset(string_view name) noexcept
+
+
+def _swagger_ui_asset(str name):
+    """(bytes, content type) of one Swagger UI file compiled into libhttpp (see include/httpp/swagger_ui.hpp), or None.
+    The bytes are copied out of the library's read-only data each call: cache the result."""
+    cdef bytes key = name.encode("utf-8")
+    cdef const swagger_ui_asset_t* a = find_swagger_ui_asset(string_view(<const char*>key, len(key)))
+    if a == NULL:
+        return None
+    return (a.data.data()[:a.data.size()],
+            a.content_type.data()[:a.content_type.size()].decode("ascii"))
 
 
 def set_log_level(level):

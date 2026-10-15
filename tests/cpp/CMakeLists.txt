@@ -15,6 +15,7 @@ target_include_directories(test_httpp_cpp PRIVATE
 # already compiled into httpp_core) — httplib.h is never included here,
 # so no httplib include path or windows.h/winsock macro juggling is needed.
 target_link_libraries(test_httpp_cpp PRIVATE httpp::core)
+target_compile_definitions(test_httpp_cpp PRIVATE HTTPP_SWAGGER_UI_DIR="${PROJECT_SOURCE_DIR}/src/third_party/swagger-ui")
 
 # The engine tests (test_async_*.cpp) drive internal classes directly. Those are not
 # exported from the shared library (hidden visibility), so compile them in.

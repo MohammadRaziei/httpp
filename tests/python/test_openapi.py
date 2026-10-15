@@ -4,6 +4,7 @@ import datetime
 import decimal
 import enum
 import json
+import os
 import threading
 import time
 import uuid
@@ -273,6 +274,13 @@ def test_docs_page_and_assets_are_served_offline():
         assert js.status == 200 and len(js.body) > 1_000_000
         assert get(f"{url}/docs/swagger-ui.css").status == 200
         assert get(f"{url}/docs/favicon-32x32.png").status == 200
+        vendored = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src", "third_party", "swagger-ui")
+        if os.path.isdir(vendored):  # compiled in, and byte-identical to the vendored files (the PNG has NUL bytes)
+            for name, ctype in (("swagger-ui-bundle.js", "text/javascript"), ("swagger-ui.css", "text/css"), ("favicon-32x32.png", "image/png")):
+                r = get(f"{url}/docs/{name}")
+                with open(os.path.join(vendored, name), "rb") as f:
+                    assert r.content == f.read()
+                assert r.header("content-type") == ctype
         assert json.loads(get(f"{url}/openapi.json").text)["info"]["title"] == "Shop"
 
 
