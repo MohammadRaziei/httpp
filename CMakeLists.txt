@@ -98,6 +98,21 @@ endif()
 # httpp links it in statically and never re-exports its headers/libs, so
 # nothing from mbedtls itself belongs in the installed wheel.
 set(DISABLE_PACKAGE_CONFIG_AND_INSTALL ON CACHE BOOL "" FORCE)
+# Thread safety of Mbed TLS: its process-wide state (PSA random generator, key slots) is only locked when the
+# threading layer is enabled, and httpp does TLS on many threads. See cmake/httpp_mbedtls_config.h.
+option(HTTPP_MBEDTLS_THREADING_ALT "Use the alt threading layer (always on for Windows) instead of pthread" OFF)
+if(HTTPP_MBEDTLS_THREADING_ALT)
+    add_compile_definitions(HTTPP_MBEDTLS_THREADING_ALT)
+endif()
+set(TF_PSA_CRYPTO_USER_CONFIG_FILE ${PROJECT_SOURCE_DIR}/cmake/httpp_mbedtls_config.h CACHE FILEPATH "" FORCE)
+find_package(Threads REQUIRED)
+set(LINK_WITH_PTHREAD ON CACHE BOOL "" FORCE)
+# threading_alt.h (the alt layer's types) must be found by every Mbed TLS source (it builds several object libraries
+# that do not see each other's include paths) and by everything that includes its headers: a directory-level include
+# path, inherited by the subdirectories added below, reaches all of them.
+if(WIN32 OR HTTPP_MBEDTLS_THREADING_ALT)
+    include_directories(${PROJECT_SOURCE_DIR}/src/core/mbedtls_alt)
+endif()
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/third_party/mbedtls)
 
 # llhttp (vendored release C sources, kept in src/ not third_party/: it is an interim parser for the async client and goes away with cpp-httplib, no Node needed): the HTTP/1.x parser for
