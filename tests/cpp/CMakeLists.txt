@@ -21,6 +21,12 @@ target_compile_definitions(test_httpp_cpp PRIVATE HTTPP_SWAGGER_UI_DIR="${PROJEC
 # exported from the shared library (hidden visibility), so compile them in.
 target_sources(test_httpp_cpp PRIVATE ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/tls_session.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp)
 target_link_libraries(test_httpp_cpp PRIVATE httpp_llhttp mbedtls mbedx509)
+# tls_session.cpp is compiled into the tests and uses the Keychain APIs, so the tests link the frameworks too.
+if(APPLE)
+    find_library(COREFOUNDATION_LIBRARY CoreFoundation REQUIRED)
+    find_library(SECURITY_LIBRARY Security REQUIRED)
+    target_link_libraries(test_httpp_cpp PRIVATE ${COREFOUNDATION_LIBRARY} ${SECURITY_LIBRARY})
+endif()
 if(WIN32)
     target_link_libraries(test_httpp_cpp PRIVATE crypt32)
 endif()

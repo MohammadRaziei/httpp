@@ -71,6 +71,9 @@ jobs:
         # httpp_cy.pyx declares freethreading_compatible, so the GIL stays off after import.
         CIBW_BUILD: "cp39-* cp313t-* cp314t-*"
         CIBW_ENABLE: cpython-freethreading
+        # rpds-py (needed by jsonschema at build time) has no free-threaded wheel in its newest release; prefer an older
+        # binary over compiling the newest sdist with Rust.
+        CIBW_ENVIRONMENT: PIP_PREFER_BINARY=1
         CIBW_SKIP: pp*
 
     # A second abi3 flavour with a higher floor. wheel.py-api=cp313 makes the same sources build against the
