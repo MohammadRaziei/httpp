@@ -24,6 +24,9 @@ if(DEFINED SKBUILD)
     python_add_library(httpp_cy MODULE "${httpp_cxx_file}" WITH_SOABI ${USE_SABI})
 
     target_link_libraries(httpp_cy PRIVATE httpp::core)
+    if(WIN32) # httpp_py_inbox_push (in httpp_cy.pyx) calls send() and WSAGetLastError() itself
+        target_link_libraries(httpp_cy PRIVATE ws2_32)
+    endif()
 
     target_compile_definitions(httpp_cy PRIVATE
         VERSION_INFO=${PROJECT_VERSION}

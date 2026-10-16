@@ -191,7 +191,7 @@ UTEST(httpp_routing, random_routes_and_paths_agree_with_the_old_linear_scan) {
     auto encode = [](const std::string& w) { // what a client would send for this decoded segment
         std::string out;
         for (unsigned char c : w) {
-            if (std::isalnum(c) || c == ':' ) out += static_cast<char>(c);
+            if ((c < 0x80 && std::isalnum(c)) || c == ':') out += static_cast<char>(c); // ASCII only: macOS's isalnum(0xC3) is true
             else { char buf[4]; std::snprintf(buf, sizeof buf, "%%%02X", c); out += buf; }
         }
         return out;
