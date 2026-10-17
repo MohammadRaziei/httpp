@@ -78,7 +78,6 @@ jobs:
         # rpds-py (needed by jsonschema at build time) has no free-threaded wheel in its newest release; prefer an older
         # binary over compiling the newest sdist with Rust.
         CIBW_ENVIRONMENT: PIP_PREFER_BINARY=1
-        CIBW_SKIP: pp*
 
     # cibuildwheel 4.x no longer supports free-threaded 3.13 (cp313t), so that one wheel
     # comes from the 3.x series. Same wheelhouse/ folder: cibuildwheel never clears the

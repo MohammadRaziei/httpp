@@ -101,6 +101,13 @@ test-extras = ["test"]
 [tool.cibuildwheel.linux]
 repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
 
+# httpp_core.dll is shipped in httpp/lib/ and loaded at import time through
+# os.add_dll_directory (see httpp/__init__.py), so no DLL needs to be bundled.
+# cibuildwheel 3.x did not repair Windows wheels; cibuildwheel 4.x runs delvewheel
+# by default, which cannot find httpp_core.dll next to the extension and fails.
+[tool.cibuildwheel.windows]
+repair-wheel-command = ""
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [
