@@ -8,6 +8,11 @@
 #include "internal/httplib_common.hpp"
 
 #include <cctype>
+#include <cerrno>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -22,6 +27,11 @@
 #define NOMINMAX
 #endif
 #include <windows.h> // MoveFileExA, see replace_file()
+#include <direct.h>  // _mkdir, _rmdir (the lock)
+#include <process.h> // _getpid
+#else
+#include <sys/stat.h> // mkdir
+#include <unistd.h>   // rmdir, getpid
 #endif
 
 namespace httpp {
@@ -277,12 +287,135 @@ download_result run_resumable(const std::string& url_str, const std::string& des
     return result;
 }
 
+// The checksum file is one short line; anything longer is read only as far as parse_sha256_checksum needs to reject it.
+std::string read_prefix(const std::string& path, std::size_t limit) {
+    std::ifstream in(path, std::ios::binary);
+    std::string text(limit, '\0');
+    in.read(&text[0], static_cast<std::streamsize>(limit));
+    text.resize(static_cast<std::size_t>(in.gcount()));
+    return text;
+}
+
+// ---- the cross-process lock (download::lock) -------------------------------------------------------------------
+// No <filesystem> (see the macOS 10.13 note above): mkdir/rmdir plus plain files are all it needs. Creating a
+// directory is atomic everywhere, so whoever creates "<dest>.lock" owns it. Liveness is judged by the waiter's own
+// clock from whether `alive` *changes*, not from file times, so clock skew and coarse mtimes do not matter.
+
+// Returns true if the directory was created; `exists` tells "already there" apart from "cannot create it".
+bool make_dir(const std::string& path, bool& exists) {
+#ifdef _WIN32
+    const int r = _mkdir(path.c_str());
+#else
+    const int r = mkdir(path.c_str(), 0777);
+#endif
+    exists = r != 0 && errno == EEXIST;
+    return r == 0;
+}
+
+void remove_dir(const std::string& path) {
+#ifdef _WIN32
+    _rmdir(path.c_str());
+#else
+    rmdir(path.c_str());
+#endif
+}
+
+long current_pid() {
+#ifdef _WIN32
+    return static_cast<long>(_getpid());
+#else
+    return static_cast<long>(getpid());
+#endif
+}
+
+class dir_lock {
+public:
+    dir_lock(std::string path, const download_lock_options& options) : path_(std::move(path)), options_(options) {
+        using clock = std::chrono::steady_clock;
+        const auto give_up = clock::now() + options_.max_wait;
+        std::string last_seen;
+        auto last_change = clock::now();
+        bool first = true;
+        for (;;) {
+            bool exists = false;
+            if (make_dir(path_, exists)) {
+                owned_ = true;
+                break;
+            }
+            if (!exists) break; // cannot create it (read-only directory?): go on without a lock
+            waited_ = true;
+            const std::string seen = read_prefix(path_ + "/alive", 64);
+            const auto now = clock::now();
+            if (first || seen != last_seen) { // the owner is alive (or this is the first look)
+                last_seen = seen;
+                last_change = now;
+                first = false;
+            } else if (now - last_change > options_.stale_after) { // no heartbeat for too long: its owner died
+                std::remove((path_ + "/alive").c_str());
+                remove_dir(path_);
+                first = true;
+                continue;
+            }
+            if (now >= give_up) break; // ponytail: downloads anyway (see download::lock()); upgrade path: fail instead
+            std::this_thread::sleep_for(options_.poll);
+        }
+        if (owned_) {
+            beat(0);
+            heart_ = std::thread([this] { run_heartbeat(); });
+        }
+    }
+
+    ~dir_lock() {
+        if (!owned_) return; // never touch a lock that belongs to someone else
+        {
+            std::lock_guard<std::mutex> guard(mutex_);
+            stop_ = true;
+        }
+        wake_.notify_all();
+        if (heart_.joinable()) heart_.join();
+        std::remove((path_ + "/alive").c_str());
+        remove_dir(path_);
+    }
+
+    dir_lock(const dir_lock&) = delete;
+    dir_lock& operator=(const dir_lock&) = delete;
+
+    // true if someone else held the lock at some point, i.e. the file may have been downloaded meanwhile
+    bool waited() const { return waited_; }
+
+private:
+    void beat(unsigned long long n) const {
+        std::ofstream out(path_ + "/alive", std::ios::binary | std::ios::trunc);
+        out << current_pid() << ' ' << n << '\n';
+    }
+
+    void run_heartbeat() {
+        std::unique_lock<std::mutex> lk(mutex_);
+        unsigned long long n = 0;
+        while (!stop_) {
+            beat(++n);
+            wake_.wait_for(lk, options_.heartbeat, [this] { return stop_; });
+        }
+    }
+
+    std::string path_;
+    download_lock_options options_;
+    bool owned_ = false;
+    bool waited_ = false;
+    bool stop_ = false;
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    std::thread heart_;
+};
+
 // Everything one download needs, copied out of the builder so run_async() can outlive it.
 struct job {
     std::string url, dest;
     bool progress = true, follow = true, resume = false, force = false;
     std::string sha256, sha256_url;
     bool use_sha256_url = false;
+    bool use_lock = false;
+    download_lock_options lock_options;
 };
 
 download_result failure(std::string error) {
@@ -298,15 +431,6 @@ std::string without_query(const std::string& url_str) {
 std::string file_name_of(const std::string& url_str) {
     const std::string base = without_query(url_str);
     return base.substr(base.find_last_of('/') + 1);
-}
-
-// The checksum file is one short line; anything longer is read only as far as parse_sha256_checksum needs to reject it.
-std::string read_prefix(const std::string& path, std::size_t limit) {
-    std::ifstream in(path, std::ios::binary);
-    std::string text(limit, '\0');
-    in.read(&text[0], static_cast<std::streamsize>(limit));
-    text.resize(static_cast<std::size_t>(in.gcount()));
-    return text;
 }
 
 // The digest the file must have, lowercase; empty if no verification was asked for. On a problem returns false.
@@ -343,8 +467,26 @@ bool expected_digest(const job& j, std::string& digest, std::string& error) {
 }
 
 download_result execute(const job& j) {
+    // Locked first: the checksum file is fetched to a temporary name next to dest, which two processes must not share.
+    std::unique_ptr<dir_lock> lock;
+    if (j.use_lock) lock = std::make_unique<dir_lock>(j.dest + ".lock", j.lock_options);
+
     std::string expected, error;
     if (!expected_digest(j, expected, error)) return failure(error);  // before the file, so nothing is downloaded
+
+    if (lock && lock->waited() && !expected.empty()) { // the owner may have finished the very file we want
+        try {
+            if (sha256_file(j.dest) == expected) {
+                download_result r;
+                r.ok = true;
+                r.skipped = true;
+                r.status = 200;
+                r.sha256 = expected;
+                return r;
+            }
+        } catch (const std::exception&) { // not there (yet): download it ourselves
+        }
+    }
 
     bool force = j.force;
     for (int attempt = 0;; ++attempt) {
@@ -421,14 +563,23 @@ download& download::sha256_url(std::string checksum_url) {
     return *this;
 }
 
+download& download::lock(download_lock_options options) {
+    lock_options_ = options;
+    use_lock_ = true;
+    return *this;
+}
+
 download_result download::run() const {
-    return execute({url_, dest_path_, show_progress_, follow_redirects_, resume_, force_, sha256_, sha256_url_, use_sha256_url_});
+    return execute({url_, dest_path_, show_progress_, follow_redirects_, resume_, force_, sha256_, sha256_url_,
+                    use_sha256_url_, use_lock_, lock_options_});
 }
 
 std::future<download_result> download::run_async() const {
     // The job is a copy: the builder may go out of scope before the async task runs.
     return std::async(std::launch::async, [j = job{url_, dest_path_, show_progress_, follow_redirects_, resume_, force_,
-                                                    sha256_, sha256_url_, use_sha256_url_}] { return execute(j); });
+                                                    sha256_, sha256_url_, use_sha256_url_, use_lock_, lock_options_}] {
+        return execute(j);
+    });
 }
 
 } // namespace httpp
