@@ -63,6 +63,8 @@ jobs:
         #   cp313t / cp314t  free-threaded 3.13 and 3.14: abi3 cannot be loaded by
         #                    free-threaded builds, so each gets a version-specific
         #                    wheel (this is where the no-GIL speed comes from).
+        #                    cp313t is built by the separate cibuildwheel 3.x step below,
+        #                    because cibuildwheel 4.x dropped 3.13 free-threading.
         #   cp315t           free-threaded 3.15: abi3t (PEP 803, wheel.py-api =
         #                    "cp315.cp315t" in scikit-build-core >= 1.0) would replace
         #                    this and all later cpXXXt wheels, but it needs the PEP 793
@@ -72,9 +74,22 @@ jobs:
         # Free-threaded builds are enabled by default since cibuildwheel 4 (the old
         # "cpython-freethreading" enable group no longer exists), and 3.15 is built
         # without any prerelease flag.
-        CIBW_BUILD: "cp39-* cp313t-* cp314t-* cp315t-*"
+        CIBW_BUILD: "cp39-* cp314t-* cp315t-*"
         # rpds-py (needed by jsonschema at build time) has no free-threaded wheel in its newest release; prefer an older
         # binary over compiling the newest sdist with Rust.
+        CIBW_ENVIRONMENT: PIP_PREFER_BINARY=1
+        CIBW_SKIP: pp*
+
+    # cibuildwheel 4.x no longer supports free-threaded 3.13 (cp313t), so that one wheel
+    # comes from the 3.x series. Same wheelhouse/ folder: cibuildwheel never clears the
+    # output dir and the filenames differ by tag, so the artifact below stays flat.
+    - name: Build wheels (free-threaded 3.13)
+      uses: pypa/cibuildwheel@v3.4.1
+      env:
+        MACOSX_DEPLOYMENT_TARGET: "10.13"
+        CIBW_ARCHS_MACOS: universal2
+        CIBW_BUILD: "cp313t-*"
+        CIBW_ENABLE: cpython-freethreading
         CIBW_ENVIRONMENT: PIP_PREFER_BINARY=1
         CIBW_SKIP: pp*
 
