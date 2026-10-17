@@ -1,6 +1,7 @@
 """Request.run_async() and AsyncClient run on the C++ network thread: no thread per request."""
 
 import asyncio
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -139,7 +140,8 @@ def test_follow_redirects_and_errors_come_back_as_responses():
             async with AsyncClient(base) as plain, AsyncClient(base, follow_redirects=True) as follow:
                 r1 = await plain.get("/a")
                 r2 = await follow.get("/a")
-            async with AsyncClient("http://127.0.0.1:1", timeout=2) as dead:
+            # Windows answers a closed port only after its SYN retries (about 2 s), so give it room to say "connection"
+            async with AsyncClient("http://127.0.0.1:1", timeout=10 if sys.platform == "win32" else 2) as dead:
                 r3 = await dead.get("/")
             return r1, r2, r3
 

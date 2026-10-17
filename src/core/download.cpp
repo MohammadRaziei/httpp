@@ -11,6 +11,15 @@
 #include <fstream>
 #include <memory>
 #include <utility>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h> // MoveFileExA, see replace_file()
+#endif
 
 namespace httpp {
 
@@ -21,6 +30,18 @@ namespace {
 // it" check. Uses ifstream::tellg rather than fseek/ftell: the latter
 // returns a 32-bit long on Windows even in 64-bit builds, which would
 // silently misreport files over 2GB.
+// Moves `from` over `to`, replacing it. std::rename does that on POSIX but fails when `to` exists on Windows, which made
+// every download over an existing file (force, or a finished .part) fail there; MoveFileEx replaces it, atomically.
+// ponytail: the narrow (ANSI code page) call matches what std::rename did; upgrade path for non-ANSI paths is
+// MoveFileExW on a UTF-16 conversion of the UTF-8 path.
+bool replace_file(const std::string& from, const std::string& to) {
+#ifdef _WIN32
+    return MoveFileExA(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    return std::rename(from.c_str(), to.c_str()) == 0;
+#endif
+}
+
 long long file_size_or_negative(const std::string& path) {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f) {
@@ -164,8 +185,7 @@ download_result run_resumable(const std::string& url_str, const std::string& des
         // .part already holds the full file (e.g. a previous run completed
         // the write but was interrupted before the final rename); nothing
         // left to transfer.
-        std::remove(dest_path.c_str());
-        if (std::rename(part_path.c_str(), dest_path.c_str()) == 0) {
+        if (replace_file(part_path, dest_path)) {
             result.ok = true;
             result.status = 200;
             return result;
@@ -243,7 +263,7 @@ download_result run_resumable(const std::string& url_str, const std::string& des
 
     result.status = res->status;
     if (res->status == 200 || res->status == 206) {
-        result.ok = (std::rename(part_path.c_str(), dest_path.c_str()) == 0);
+        result.ok = replace_file(part_path, dest_path);
         if (!result.ok) {
             result.error = "downloaded but could not rename " + part_path + " to " + dest_path;
         }

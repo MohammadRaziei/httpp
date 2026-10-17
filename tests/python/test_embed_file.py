@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))).replace("\\", "/")  # forward slashes: a backslash path is an invalid escape in CMake code and in a C++ string literal
 CASES = {
     "empty": b"",
     "one": b"A",
@@ -64,8 +64,8 @@ def test_files_survive_embedding(tmp_path, as_array):
     for name, content in CASES.items():
         path = tmp_path / f"{name}.bin"
         path.write_bytes(content)
-        files.append(f"    {name} {path}")
-        checks.append(f'    check("{name}", t::{name}, t::{name}_size, "{path}");')
+        files.append(f"    {name} {path.as_posix()}")
+        checks.append(f'    check("{name}", t::{name}, t::{name}_size, "{path.as_posix()}");')
     (tmp_path / "CMakeLists.txt").write_text(CMAKE_LISTS.format(root=ROOT, files="\n".join(files)))
     (tmp_path / "check.cpp").write_text(CHECK_CPP.format(checks="\n".join(checks)))
 
@@ -87,7 +87,7 @@ def test_a_changed_file_changes_the_header_and_an_unchanged_one_does_not(tmp_pat
     (tmp_path / "CMakeLists.txt").write_text(
         "cmake_minimum_required(VERSION 3.21)\nproject(t NONE)\n"
         f'list(APPEND CMAKE_MODULE_PATH "{ROOT}/cmake")\ninclude(EmbedFile)\n'
-        f'embed_files(OUTPUT ${{CMAKE_BINARY_DIR}}/gen/d.hpp NAMESPACE t FILES d {data})\n')
+        f'embed_files(OUTPUT ${{CMAKE_BINARY_DIR}}/gen/d.hpp NAMESPACE t FILES d {data.as_posix()})\n')
     build, header = tmp_path / "b", tmp_path / "b" / "gen" / "d.hpp"
     configure = ["cmake", "-S", str(tmp_path), "-B", str(build)]
     assert subprocess.run(configure, capture_output=True).returncode == 0

@@ -46,13 +46,18 @@ struct raw_server {
     asio::ip::tcp::socket s{io};
     std::thread th;
     std::string request;
-    int port() { return acc.local_endpoint().port(); }
+    std::atomic<bool> stopping{false};
+    const unsigned short port_ = acc.local_endpoint().port();
+    int port() { return port_; }
 
+    // The thread owns the socket from accept() on; the destructor never touches it (asio sockets are not safe to
+    // use from two threads). It only raises `stopping` and knocks on the door, so that a thread still waiting in
+    // accept() returns, and a thread holding the connection open polls the flag.
     raw_server(std::vector<std::string> pieces, bool close_after = true) {
         th = std::thread([this, pieces = std::move(pieces), close_after] {
             std::error_code ec;
             acc.accept(s, ec);
-            if (ec) return;
+            if (ec || stopping) return;
             asio::streambuf buf;
             asio::read_until(s, buf, "\r\n\r\n", ec);
             request.assign(asio::buffers_begin(buf.data()), asio::buffers_end(buf.data()));
@@ -61,14 +66,23 @@ struct raw_server {
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
             if (close_after) { s.shutdown(asio::ip::tcp::socket::shutdown_both, ec); return; }
+            s.non_blocking(true, ec); // hold the connection open, silent, until ~raw_server
             char c;
-            while (s.read_some(asio::buffer(&c, 1), ec) > 0) {} // hold the connection open, silent, until ~raw_server
+            while (!stopping) {
+                std::size_t n = s.read_some(asio::buffer(&c, 1), ec);
+                if (ec == asio::error::would_block) { std::this_thread::sleep_for(std::chrono::milliseconds(5)); continue; }
+                if (ec || n == 0) break;
+            }
         });
     }
     ~raw_server() {
-        std::error_code ec;
-        acc.close(ec);
-        s.shutdown(asio::ip::tcp::socket::shutdown_both, ec); // wakes the thread if it is waiting
+        stopping = true;
+        {
+            asio::io_context knock_io;
+            asio::ip::tcp::socket knock(knock_io);
+            std::error_code ec;
+            knock.connect(asio::ip::tcp::endpoint(asio::ip::make_address("127.0.0.1"), port_), ec);
+        }
         if (th.joinable()) th.join();
     }
 };
