@@ -79,12 +79,11 @@ jobs:
     # A second abi3 flavour with a higher floor. wheel.py-api=cp313 makes the same sources build against the
     # 3.13 stable ABI, so the wheel is tagged cp313-abi3-<platform>. pip prefers the more specific tag, so
     # Python 3.13+ gets this one and 3.9 to 3.12 keep cp39-abi3. The 3.13+ build may use the stable-ABI
-    # functions added in 3.10 to 3.13 without breaking the older wheel. It goes to its own folder so the
-    # first step's wheels are never touched.
+    # functions added in 3.10 to 3.13 without breaking the older wheel. It writes into the same wheelhouse/ folder
+    # (cibuildwheel never clears the output dir and the filenames differ by tag), so
+    # the artifact below has a single flat path.
     - name: Build wheels (abi3, Python 3.13+)
       uses: pypa/cibuildwheel@v3.4.1
-      with:
-        output-dir: wheelhouse-abi3-313
       env:
         MACOSX_DEPLOYMENT_TARGET: "10.13"
         CIBW_ARCHS_MACOS: universal2
@@ -95,7 +94,7 @@ jobs:
     - uses: actions/upload-artifact@v7
       with:
         name: wheelhouse-${{ matrix.os }}
-        path: |
-          wheelhouse/*.whl
-          wheelhouse-abi3-313/*.whl
+        # A single path keeps the artifact flat (several paths would preserve
+        # their parent folders and end up as dist/wheelhouse/... after download).
+        path: wheelhouse/*.whl
         overwrite: false

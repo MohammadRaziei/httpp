@@ -67,8 +67,15 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # Safety net: the publish steps need only flat *.whl / *.tar.gz files in dist/.
+      - name: Check dist layout
+        run: |
+          if find dist -mindepth 1 -type d | grep -q .; then
+            echo "::error::unexpected sub-directories in dist/"; find dist; exit 1
+          fi
+
       - name: List dist directory
-        run: tree --du -shaC .
+        run: ls -lh dist
 
       - name: create release body
         uses: softprops/action-gh-release@v3
@@ -87,3 +94,7 @@ jobs:
         with:
           password: ${{ secrets.PYPI_PASSWORD }}
           user: ${{ secrets.PYPI_USERNAME }}
+          packages-dir: dist
+          skip-existing: true
+          # attestations need Trusted Publishing; they are ignored when a password is used
+          attestations: false
