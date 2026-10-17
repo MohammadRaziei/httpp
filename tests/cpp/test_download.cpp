@@ -1,5 +1,6 @@
 #include "utest/utest.h"
 #include "httpp/download.hpp"
+#include "httpp/sha256.hpp"
 #include "httpp/server.hpp"
 
 #include <thread>
@@ -116,5 +117,120 @@ UTEST(httpp_download, run_async_returns_a_future) {
     ASSERT_TRUE(result.ok);
     ASSERT_STREQ("async", read_file(dest).c_str());
 
+    std::remove(dest.c_str());
+}
+
+// ---- sha256 / sha256_url ------------------------------------------------------------------------------------
+
+namespace {
+const std::string body_text = "the quick brown fox";
+const std::string body_digest = httpp::sha256_hex(body_text.data(), body_text.size());
+
+httpp::server file_server(const std::string& checksum_body, int checksum_status = 200) {
+    httpp::server s;
+    s.get("/f.bin", [](const httpp::request&, httpp::response& res) { res.status = 200; res.body = body_text; });
+    s.get("/f.bin.sha256", [=](const httpp::request&, httpp::response& res) {
+        res.status = checksum_status;
+        res.body = checksum_body;
+    });
+    return s;
+}
+std::string url_of(const running_server& rs, const char* path = "/f.bin") {
+    return "http://127.0.0.1:" + std::to_string(rs.port) + path;
+}
+bool exists(const std::string& path) { return std::ifstream(path).good(); }
+} // namespace
+
+UTEST(httpp_download_sha256, a_matching_digest_is_accepted_in_either_case) {
+    running_server rs(file_server(""));
+    const std::string dest = "test_dl_sha_ok.bin";
+    std::remove(dest.c_str());
+    auto res = httpp::download(url_of(rs), dest).disable_progress().sha256(body_digest).run();
+    ASSERT_TRUE(res.ok);
+    EXPECT_TRUE(res.sha256 == body_digest);
+    EXPECT_TRUE(read_file(dest) == body_text);
+
+    std::string upper = body_digest;
+    for (char& c : upper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    EXPECT_TRUE(httpp::download(url_of(rs), dest).disable_progress().sha256(upper).run().ok);
+    std::remove(dest.c_str());
+}
+
+UTEST(httpp_download_sha256, a_wrong_digest_fails_and_leaves_no_file) {
+    running_server rs(file_server(""));
+    const std::string dest = "test_dl_sha_bad.bin";
+    std::remove(dest.c_str());
+    auto res = httpp::download(url_of(rs), dest).disable_progress().sha256(std::string(64, '0')).run();
+    EXPECT_FALSE(res.ok);
+    EXPECT_TRUE(res.error.find("SHA-256") != std::string::npos);
+    EXPECT_TRUE(res.error.find(body_digest) != std::string::npos);  // says what it actually got
+    EXPECT_FALSE(exists(dest));
+}
+
+UTEST(httpp_download_sha256, a_malformed_digest_fails_before_any_request) {
+    httpp::server s;  // nothing listens for it: the check must not even get that far
+    const std::string dest = "test_dl_sha_malformed.bin";
+    std::remove(dest.c_str());
+    auto res = httpp::download("http://127.0.0.1:1/f.bin", dest).disable_progress().sha256("abc").run();
+    EXPECT_FALSE(res.ok);
+    EXPECT_TRUE(res.error.find("SHA-256") != std::string::npos);
+    EXPECT_FALSE(exists(dest));
+}
+
+UTEST(httpp_download_sha256, the_digest_can_come_from_a_checksum_file) {
+    running_server rs(file_server(body_digest + "  f.bin\n"));
+    const std::string dest = "test_dl_sha_url.bin";
+    std::remove(dest.c_str());
+    auto res = httpp::download(url_of(rs), dest).disable_progress().sha256_url().run();  // default: <url>.sha256
+    ASSERT_TRUE(res.ok);
+    EXPECT_TRUE(res.sha256 == body_digest);
+    EXPECT_FALSE(exists(dest + ".sha256.part"));  // the temporary checksum file is gone
+    std::remove(dest.c_str());
+
+    auto explicit_url = httpp::download(url_of(rs), dest).disable_progress().sha256_url(url_of(rs, "/f.bin.sha256")).run();
+    EXPECT_TRUE(explicit_url.ok);
+    std::remove(dest.c_str());
+}
+
+UTEST(httpp_download_sha256, a_bad_checksum_file_is_an_error_and_nothing_is_downloaded) {
+    const std::string dest = "test_dl_sha_url_bad.bin";
+    {   // an HTML page where the digest should be
+        running_server rs(file_server("<!DOCTYPE html><html>Not Found</html>"));
+        std::remove(dest.c_str());
+        auto res = httpp::download(url_of(rs), dest).disable_progress().sha256_url().run();
+        EXPECT_FALSE(res.ok);
+        EXPECT_FALSE(exists(dest));
+    }
+    {   // the file names another file
+        running_server rs(file_server(body_digest + "  other.bin\n"));
+        EXPECT_FALSE(httpp::download(url_of(rs), dest).disable_progress().sha256_url().run().ok);
+        EXPECT_FALSE(exists(dest));
+    }
+    {   // no checksum file at all
+        running_server rs(file_server("", 404));
+        auto res = httpp::download(url_of(rs), dest).disable_progress().sha256_url().run();
+        EXPECT_FALSE(res.ok);
+        EXPECT_TRUE(res.error.find("checksum") != std::string::npos);
+        EXPECT_FALSE(exists(dest));
+    }
+    {   // a wrong digest in a well-formed checksum file
+        running_server rs(file_server(std::string(64, '1') + "\n"));
+        EXPECT_FALSE(httpp::download(url_of(rs), dest).disable_progress().sha256_url().run().ok);
+        EXPECT_FALSE(exists(dest));
+    }
+}
+
+UTEST(httpp_download_sha256, resume_does_not_trust_a_complete_looking_but_corrupt_file) {
+    running_server rs(file_server(""));
+    const std::string dest = "test_dl_sha_corrupt.bin";
+    { std::ofstream(dest, std::ios::binary) << std::string(body_text.size(), 'X'); }  // right size, wrong bytes
+    auto res = httpp::download(url_of(rs), dest).disable_progress().resume().sha256(body_digest).run();
+    ASSERT_TRUE(res.ok);
+    EXPECT_FALSE(res.skipped);              // it was downloaded again
+    EXPECT_TRUE(read_file(dest) == body_text);
+
+    auto again = httpp::download(url_of(rs), dest).disable_progress().resume().sha256(body_digest).run();
+    EXPECT_TRUE(again.ok);
+    EXPECT_TRUE(again.skipped);             // a verified file is left alone
     std::remove(dest.c_str());
 }

@@ -16,6 +16,9 @@ struct download_result {
     bool skipped = false;
     int status = 0;
     std::string error;
+    // SHA-256 (64 lowercase hex chars) of the downloaded file; set only when sha256()/sha256_url() asked for
+    // verification, and then it is the digest the file was checked against.
+    std::string sha256;
 };
 
 // Fluent builder — the one way to download a URL to a file in httpp:
@@ -69,6 +72,18 @@ public:
     // files in the first place.
     HTTPP_API download& force(bool enable = true);
 
+    // Verify the finished file against this SHA-256 (64 hex digits, any case). The check happens before run()
+    // reports success: on a mismatch the file is deleted and ok is false, with the digest it got in `error`.
+    // A malformed digest fails at once, before any request. With resume(), a file that is already there or a
+    // .part that was resumed is hashed too; if it does not match, it is downloaded again once from byte 0.
+    HTTPP_API download& sha256(std::string hex);
+
+    // Read the expected SHA-256 from a checksum file instead: one line as `sha256sum` writes it, i.e.
+    // `<64 hex digits>` optionally followed by the file name (which must be the name in the download URL).
+    // `checksum_url` empty means `<download url>.sha256`. It is fetched before the file, so a missing or malformed
+    // checksum file (an HTML error page, say) fails the call without downloading anything. Overrides sha256().
+    HTTPP_API download& sha256_url(std::string checksum_url = "");
+
     HTTPP_API download_result run() const;
     HTTPP_API std::future<download_result> run_async() const;
 
@@ -79,6 +94,9 @@ private:
     bool follow_redirects_ = true;
     bool resume_ = false;
     bool force_ = false;
+    std::string sha256_;
+    std::string sha256_url_;
+    bool use_sha256_url_ = false;
 };
 
 } // namespace httpp

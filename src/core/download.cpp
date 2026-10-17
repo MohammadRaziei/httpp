@@ -1,15 +1,18 @@
 #include "httpp/download.hpp"
 #include "httpp/url.hpp"
 #include "httpp/progress.hpp"
+#include "httpp/sha256.hpp"
 
 // httplib.h (+ mbedtls support) is included ONLY via this internal header,
 // never in a public httpp/*.hpp header — see its comment for why.
 #include "internal/httplib_common.hpp"
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <memory>
+#include <stdexcept>
 #include <utility>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -274,6 +277,104 @@ download_result run_resumable(const std::string& url_str, const std::string& des
     return result;
 }
 
+// Everything one download needs, copied out of the builder so run_async() can outlive it.
+struct job {
+    std::string url, dest;
+    bool progress = true, follow = true, resume = false, force = false;
+    std::string sha256, sha256_url;
+    bool use_sha256_url = false;
+};
+
+download_result failure(std::string error) {
+    download_result r;
+    r.error = std::move(error);
+    return r;
+}
+
+std::string without_query(const std::string& url_str) {
+    return url_str.substr(0, url_str.find_first_of("?#"));
+}
+
+std::string file_name_of(const std::string& url_str) {
+    const std::string base = without_query(url_str);
+    return base.substr(base.find_last_of('/') + 1);
+}
+
+// The checksum file is one short line; anything longer is read only as far as parse_sha256_checksum needs to reject it.
+std::string read_prefix(const std::string& path, std::size_t limit) {
+    std::ifstream in(path, std::ios::binary);
+    std::string text(limit, '\0');
+    in.read(&text[0], static_cast<std::streamsize>(limit));
+    text.resize(static_cast<std::size_t>(in.gcount()));
+    return text;
+}
+
+// The digest the file must have, lowercase; empty if no verification was asked for. On a problem returns false.
+bool expected_digest(const job& j, std::string& digest, std::string& error) {
+    digest.clear();
+    if (j.use_sha256_url) {
+        const std::string sum_url = j.sha256_url.empty() ? without_query(j.url) + ".sha256" : j.sha256_url;
+        const std::string tmp = j.dest + ".sha256.part";
+        const download_result got = run_plain(sum_url, tmp, false, j.follow);
+        if (!got.ok) {
+            std::remove(tmp.c_str());
+            error = "could not download the checksum file " + sum_url + ": " + got.error;
+            return false;
+        }
+        const std::string text = read_prefix(tmp, 1025);
+        std::remove(tmp.c_str());
+        try {
+            digest = parse_sha256_checksum(text, file_name_of(j.url));
+        } catch (const std::exception& e) {
+            error = std::string("bad checksum file ") + sum_url + ": " + e.what();
+            return false;
+        }
+        return true;
+    }
+    if (j.sha256.empty()) return true;
+    bool good = j.sha256.size() == 64;
+    for (char c : j.sha256) good = good && std::isxdigit(static_cast<unsigned char>(c)) != 0;
+    if (!good) {
+        error = "invalid SHA-256 (expected 64 hex digits): " + j.sha256.substr(0, 80);
+        return false;
+    }
+    for (char c : j.sha256) digest += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return true;
+}
+
+download_result execute(const job& j) {
+    std::string expected, error;
+    if (!expected_digest(j, expected, error)) return failure(error);  // before the file, so nothing is downloaded
+
+    bool force = j.force;
+    for (int attempt = 0;; ++attempt) {
+        download_result r = j.resume ? run_resumable(j.url, j.dest, j.progress, j.follow, force)
+                                     : run_plain(j.url, j.dest, j.progress, j.follow);
+        if (!r.ok || expected.empty()) return r;
+
+        std::string actual;
+        try {
+            actual = sha256_file(j.dest);
+        } catch (const std::exception& e) {
+            r.ok = false;
+            r.error = std::string("could not check SHA-256: ") + e.what();
+            return r;
+        }
+        r.sha256 = actual;
+        if (actual == expected) return r;
+
+        std::remove(j.dest.c_str());  // never leave a file that failed its check
+        if (j.resume && !force && attempt == 0) {
+            force = true;  // a stale or corrupt file / .part was trusted: once more, from byte 0
+            continue;
+        }
+        r.ok = false;
+        r.skipped = false;
+        r.error = "SHA-256 mismatch: expected " + expected + ", got " + actual + "; the file was deleted";
+        return r;
+    }
+}
+
 } // namespace
 
 download::download(std::string url, std::string dest_path)
@@ -308,24 +409,26 @@ download& download::force(bool enable) {
     return *this;
 }
 
+download& download::sha256(std::string hex) {
+    sha256_ = std::move(hex);
+    use_sha256_url_ = false;
+    return *this;
+}
+
+download& download::sha256_url(std::string checksum_url) {
+    sha256_url_ = std::move(checksum_url);
+    use_sha256_url_ = true;
+    return *this;
+}
+
 download_result download::run() const {
-    if (resume_) {
-        return run_resumable(url_, dest_path_, show_progress_, follow_redirects_, force_);
-    }
-    return run_plain(url_, dest_path_, show_progress_, follow_redirects_);
+    return execute({url_, dest_path_, show_progress_, follow_redirects_, resume_, force_, sha256_, sha256_url_, use_sha256_url_});
 }
 
 std::future<download_result> download::run_async() const {
-    // Capture by value: the builder (and its url_/dest_path_/show_progress_/
-    // follow_redirects_/resume_/force_) may go out of scope before the
-    // async task runs.
-    return std::async(std::launch::async, [url = url_, dest = dest_path_, show = show_progress_,
-                                            follow = follow_redirects_, resume = resume_, force = force_] {
-        if (resume) {
-            return run_resumable(url, dest, show, follow, force);
-        }
-        return run_plain(url, dest, show, follow);
-    });
+    // The job is a copy: the builder may go out of scope before the async task runs.
+    return std::async(std::launch::async, [j = job{url_, dest_path_, show_progress_, follow_redirects_, resume_, force_,
+                                                    sha256_, sha256_url_, use_sha256_url_}] { return execute(j); });
 }
 
 } // namespace httpp
