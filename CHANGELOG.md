@@ -1,0 +1,195 @@
+# Changelog
+
+All notable changes to httpp are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
+[Semantic Versioning](https://semver.org/) (while the major version is 0, a minor release may still change an API;
+such changes are listed under **Changed**).
+
+## [0.7.0] - Unreleased
+
+The biggest release so far: a native async client and server, a FastAPI-style Python layer with OpenAPI and Swagger
+UI, and a download that verifies, locks and times out.
+
+### Added
+
+#### Client
+- **Async client** (`Client.run_async()`, `AsyncClient`) running on the library's own non-blocking network thread
+  (Asio) with the vendored `llhttp` parser, instead of a shared thread pool. Keep-alive connection pooling and reuse
+  across requests, redirect handling, TLS and proxy support.
+- **Streaming responses** and **structured errors** (`httpp.errors`, with an error kind such as `timeout`) for both
+  the blocking and the async client; extra URL helpers in `httpp/url.hpp`.
+
+#### Server (C++ and Python)
+- **Async HTTP/HTTPS server** (`async_server`, with a worker pool). TLS (Mbed TLS) with session caching: TLS contexts
+  for identical (verify, CA file) settings are built once and reused.
+- **Python handlers:** route handlers with path parameters, `async def` handlers, and `listen()` that blocks and
+  returns a status (0.6.1); new in this release: `ResponseHead`, `file()`, `redirect()`, `set_cookie()`,
+  `ServerRequest.cookies`, streaming responses from generators and async generators, `@app.before_request`,
+  `@app.after_request`, error and exception handlers, startup and shutdown hooks, and `handler_timeout` (60 s by
+  default) that cancels a hanging async route and answers 504. Header values are checked against injection.
+- **OpenAPI 3.1 and Swagger UI for Python.** Schema generation with Pydantic v2 models, per-route options (`summary`,
+  `tags`, `response_model`, ...), and `Query`, `Path`, `Header`, `Cookie`, `Body` and `Depends` (dependencies with their
+  own scopes and caching) that drive both the request handling and the generated document, so the docs cannot drift
+  from the behaviour.
+- **`httpp::mount_swagger_ui(server, docs_path = "/docs", openapi_url = "/openapi.json", title = "API")`** in C++:
+  serves the page and the Swagger UI files (`swagger-ui-bundle.js`, `swagger-ui.css`, `swagger-api-icon.svg`) from
+  bytes compiled into the library, with `Cache-Control: public, max-age=86400`. Title and URL are escaped; an invalid
+  path throws `std::invalid_argument`. The Python server's `/docs` is now served from C++, without the GIL, and there
+  is no CDN or data directory involved.
+- **`cmake/EmbedFile.cmake`** (`embed_files()`): compiles data files into a header at configure time (`constexpr`
+  data in `.rodata`, binary-safe, 32 bytes per source line).
+
+#### Downloads
+- **`download::sha256(hex)` and `download::sha256_url(url = "")`**: verify the finished file against a SHA-256 digest
+  (any letter case) or against a checksum file in `sha256sum` format (default `<url>.sha256`). The checksum file is
+  fetched first, so a missing or malformed one (an HTML error page, a name for another file, several lines) fails the
+  call before any download. A mismatch deletes the file, returns `ok = false` and says what the digest actually was.
+  With `resume()`, a complete-looking but corrupt file is downloaded again once from byte 0. `download_result` has a
+  new `sha256` field.
+- **`httpp/sha256.hpp`**: `sha256_hex()`, `sha256_file()` (chunked) and `parse_sha256_checksum()`, on top of the
+  Mbed TLS already linked for HTTPS. About 165 MB/s on the machine it was measured on (130 MB file in 0.8 s).
+- **`download::set_timeout(seconds)`**: connect, read and write timeouts of the transfer (like
+  `Client::set_timeout`), and also how long to wait for another process that holds the same file's lock.
+- **`download::set_max_wait(milliseconds)`**: how long a lock that is *not being updated* is waited for before its
+  owner is taken for dead (default 2 s; the wait is `min(max_wait, timeout)`).
+- **Cross-process lock, always on.** A download takes the directory `<dest>.lock` and its owner rewrites
+  `<dest>.lock/alive` every 200 ms at most; a lock that keeps being updated is waited for as long as it lives, one that
+  stops is taken over after `min(max_wait, timeout)`. A waiter that finds the file finished and matching `sha256()` /
+  `sha256_url()` uses it without a request (`skipped = true`). If the lock directory cannot be created the download
+  goes ahead unlocked. Written with `mkdir`/`rmdir` and plain files, no `<filesystem>`.
+
+#### Library and tooling
+- **Logging** through the vendored AixLog, with a `set_log_*` API in C, C++ and Python.
+- **Python wheels:** free-threaded wheels (`cp313t`, `cp314t`) and a `cp313-abi3` wheel that pip prefers on 3.13+ over
+  the `cp39-abi3` one.
+- **Documentation:** `docs/Architecture.md` (design, goals and test strategy), `docs/agent.md`, Python micro-benchmark
+  for the validators, and README sections for streaming, files, hooks, error handling and the client's new
+  capabilities.
+
+### Changed
+- **Mbed TLS 4.2.0** (release tag), with threading support switched on (`MBEDTLS_THREADING_C`, via
+  `cmake/httpp_mbedtls_config.h`): pthread on POSIX, a small `SRWLOCK`/`CONDITION_VARIABLE` layer on Windows, or on
+  every platform with `-DHTTPP_MBEDTLS_THREADING_ALT=ON`. `MBEDTLS_SELF_TEST` is off.
+- **`HTTPP_EMBED_AS_ARRAY` is `ON` on every platform** (it was MSVC only). One code path everywhere and no
+  `-Woverlength-strings` warning for the 1.5 MB Swagger UI bundle. Cost: compiling that translation unit takes about
+  4.6 s instead of 0.9 s with GCC, once per build. `-DHTTPP_EMBED_AS_ARRAY=OFF` gives string literals again.
+- The Swagger UI tab icon is a real SVG file served at `/docs/swagger-api-icon.svg`; the PNG favicon is gone.
+- `<filesystem>` is not used any more (macOS 10.13 compatibility); `download.cpp` and the lock use `std::ifstream`,
+  `std::remove` and platform calls.
+- Asio now drives both server loops and the async client (documentation and build comments updated).
+- Build requirement: `scikit-build-core[pyproject]>=1.1`; the version is read through the standard
+  `[[tool.dynamic-metadata]]` table instead of the deprecated `tool.scikit-build.metadata`.
+- A download creates (and removes again) `<dest>.lock` next to the destination file; the destination's directory must
+  be writable for the lock to work (otherwise the download is not locked).
+
+### Fixed
+- Concurrent TLS handshakes shared Mbed TLS's global random generator without a lock; two handshakes could draw the
+  same random bytes. Found with ThreadSanitizer, fixed by the threading support above.
+- Async `after`/`error` hooks, or a slow client, could block the event loop and deadlock concurrent requests; the
+  Python adapter now dispatches synchronous work directly when no async hook is registered.
+- **Windows:** a finished download did not replace an existing file (`std::rename` fails when the target exists); it is
+  now an atomic `MoveFileExA(MOVEFILE_REPLACE_EXISTING)`. `ws2_32` is linked for `send()`/`WSAGetLastError()`, and the
+  `EmbedFile` generator no longer emits a zero-size array for an empty file (MSVC `C2466`).
+- **macOS:** link the Keychain frameworks for the C++ tests; a URL-encoding test relied on `std::isalnum` being false
+  for non-ASCII bytes.
+- Coverage builds use atomic profile counters (the server is multi-threaded, lcov saw negative counts); free-threaded
+  wheel builds prefer binary wheels so `rpds-py` is not built from source.
+- Tests for concurrent async downloads measure event-loop ticks and overlapping streams instead of wall-clock time.
+
+### Known limitations
+- The async client has no timeout yet, and async hooks hold a thread while they run.
+- `download::set_timeout`, `set_max_wait`, `sha256` and `sha256_url` are not exposed in the Python binding yet.
+- A lock whose owner stops updating it for more than `max_wait` (heavy load, a suspended process) is taken over, and two
+  downloads can then run at once. Two waiters taking over the same dead lock in the same instant, or writing the same
+  destination, can write it together; use `sha256()` so a damaged result is caught and deleted. Keep `max_wait`
+  at 1 s or more.
+- The Windows and macOS changes of this release were checked by CI only; the lock was not run under ThreadSanitizer.
+- `/docs` has been looked at in Chromium only.
+
+## [0.6.1] - 2026-10-03
+
+### Added
+- Python route handlers with path parameters and `async def` handlers; native async support for Python and C++
+  handlers.
+- `listen()` blocks and returns a status in the C++ and Python bindings.
+- Runnable standalone Python examples: server basics, routing, request and response handling, async handlers, static
+  files, error handling.
+
+### Changed
+- Asio 1.34.2 is a git submodule (no system dependency, better scalability).
+- README rewritten with a clearer description and structure; the Asio documentation was consolidated.
+
+### Fixed
+- Windows: winsock type redefinition and missing socket headers in the tests; a Ctrl+C listener test that cannot run
+  there (Popen) is skipped and the SIGINT test was replaced with an `interrupt_main` variant.
+
+## [0.6.0] - 2026-09-16
+
+### Added
+- Resumable downloads with skip-if-complete.
+
+### Changed
+- **Breaking:** `download_file` was renamed to `download` and folded into one fluent builder.
+
+## [0.5.1] - 2026-09-16
+
+### Added
+- `max_response_size` for the client and `follow_redirects` for downloads.
+- `abi3` wheels in CI.
+
+### Changed
+- `std::filesystem::remove` replaced by `std::remove` in downloads.
+
+## [0.5.0] - 2026-09-15
+
+### Added
+- HTTPS support through Mbed TLS (documented in the API docs).
+
+### Changed
+- Mbed TLS sources are generated before CMake configures; `jinja2` is a build dependency; submodules are no longer
+  fetched recursively by default.
+- macOS: the Keychain frameworks are linked into `httpp_core`.
+- Vendored-code warnings are suppressed and class-level exports avoided.
+- Linux wheels are repaired with `auditwheel`.
+
+## [0.4.0] - 2026-09-14
+
+### Fixed
+- Linux wheels are repaired with `auditwheel` in cibuildwheel builds.
+
+## [0.3.0] - 2026-09-14
+
+Release only; no functional change recorded in the history.
+
+## [0.2.0] - 2026-09-13
+
+### Added
+- curl-compatible API and CLI commands.
+
+## [0.1.1] - 2026-09-13
+
+### Fixed
+- Linux wheels are repaired with `auditwheel` instead of copying libraries.
+
+## [0.1.0] - 2026-09-12
+
+First release.
+
+### Added
+- C++17 core: client, server and URL parsing (`liburlparser`, IPv4, IPv6 and Public Suffix List aware).
+- Downloads with a progress bar (vendored `indicators`).
+- Python package with `httpp_core` as a shared library bundled in the wheel; macOS rpath handling.
+- CMake package: consumers find httpp through `httpp.get_cmake_dir()`; `HTTPP_BUILDING_DLL` for the shared core.
+- Single umbrella header `include/httpp.h` that carries the version, and `version.py` for tagging and releases.
+- CMake and wheels workflows in CI.
+
+[0.7.0]: https://github.com/MohammadRaziei/httpp/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/MohammadRaziei/httpp/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/MohammadRaziei/httpp/compare/v0.5.1...v0.6.0
+[0.5.1]: https://github.com/MohammadRaziei/httpp/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/MohammadRaziei/httpp/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/MohammadRaziei/httpp/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/MohammadRaziei/httpp/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/MohammadRaziei/httpp/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/MohammadRaziei/httpp/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/MohammadRaziei/httpp/releases/tag/v0.1.0
