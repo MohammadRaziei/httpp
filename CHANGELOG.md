@@ -5,7 +5,7 @@ All notable changes to httpp are documented here. The format follows
 [Semantic Versioning](https://semver.org/) (while the major version is 0, a minor release may still change an API;
 such changes are listed under **Changed**).
 
-## [0.7.0] - Unreleased
+## [0.7.0] - 2026-10-17
 
 The biggest release so far: a native async client and server, a FastAPI-style Python layer with OpenAPI and Swagger
 UI, and a download that verifies, locks and times out.
@@ -183,7 +183,7 @@ First release.
 - Single umbrella header `include/httpp.h` that carries the version, and `version.py` for tagging and releases.
 - CMake and wheels workflows in CI.
 
-[0.7.0]: https://github.com/MohammadRaziei/httpp/compare/v0.6.1...HEAD
+[0.7.0]: https://github.com/MohammadRaziei/httpp/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/MohammadRaziei/httpp/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/MohammadRaziei/httpp/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/MohammadRaziei/httpp/compare/v0.5.0...v0.5.1
