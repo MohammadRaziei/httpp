@@ -1,4 +1,4 @@
-// httpp::mount_swagger_ui: /docs and its two files served from the bytes compiled into the library.
+// httpp::mount_swagger_ui: /docs and its three files served from the bytes compiled into the library.
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/server.hpp"
@@ -27,7 +27,7 @@ UTEST(httpp_swagger_ui_route, serves_the_page_and_the_two_files_byte_for_byte) {
     EXPECT_TRUE(contains(page.body, "/docs/swagger-ui-bundle.js"));
     EXPECT_TRUE(contains(page.body, "\"/openapi.json\""));  // JSON string literal, so it is a valid JS string
 
-    for (const char* name : {"swagger-ui-bundle.js", "swagger-ui.css"}) {
+    for (const char* name : {"swagger-ui-bundle.js", "swagger-ui.css", "swagger-api-icon.svg"}) {
         auto res = httpp::client::fetch(srv.url(std::string("/docs/") + name));
         ASSERT_EQ(200, res.status);
         const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset(name);
@@ -38,10 +38,8 @@ UTEST(httpp_swagger_ui_route, serves_the_page_and_the_two_files_byte_for_byte) {
     }
     EXPECT_EQ(404, httpp::client::fetch(srv.url("/docs/nope.js")).status);
 
-    // the tab icon is an SVG inside the page itself: no file, no route, no request to anywhere else
-    EXPECT_TRUE(contains(page.body, "rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml,"));
-    EXPECT_FALSE(contains(page.body, "favicon-32x32.png"));
-    EXPECT_EQ(404, httpp::client::fetch(srv.url("/docs/favicon-32x32.png")).status);
+    // the tab icon is the SVG file, served from the library like the rest (nothing from another site)
+    EXPECT_TRUE(contains(page.body, "rel=\"icon\" type=\"image/svg+xml\" href=\"/docs/swagger-api-icon.svg\""));
 }
 
 UTEST(httpp_swagger_ui_route, custom_path_title_and_openapi_url_are_escaped) {

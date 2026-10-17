@@ -12,8 +12,8 @@ static std::string read_file(const std::string& name) {
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
-UTEST(httpp_swagger_ui, finds_the_two_files_and_nothing_else) {
-    for (const char* name : {"swagger-ui-bundle.js", "swagger-ui.css"}) {
+UTEST(httpp_swagger_ui, finds_the_three_files_and_nothing_else) {
+    for (const char* name : {"swagger-ui-bundle.js", "swagger-ui.css", "swagger-api-icon.svg"}) {
         const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset(name);
         ASSERT_TRUE(a != nullptr);
         EXPECT_TRUE(a->name == name);
@@ -21,11 +21,10 @@ UTEST(httpp_swagger_ui, finds_the_two_files_and_nothing_else) {
     EXPECT_TRUE(httpp::find_swagger_ui_asset("nope.js") == nullptr);
     EXPECT_TRUE(httpp::find_swagger_ui_asset("") == nullptr);
     EXPECT_TRUE(httpp::find_swagger_ui_asset("LICENSE") == nullptr);
-    EXPECT_TRUE(httpp::find_swagger_ui_asset("favicon-32x32.png") == nullptr);  // the icon is inline SVG in the page now
 }
 
 UTEST(httpp_swagger_ui, compiled_in_bytes_are_identical_to_the_source_files) {
-    for (const char* name : {"swagger-ui-bundle.js", "swagger-ui.css"}) {
+    for (const char* name : {"swagger-ui-bundle.js", "swagger-ui.css", "swagger-api-icon.svg"}) {
         const std::string on_disk = read_file(name);
         ASSERT_TRUE(!on_disk.empty());
         const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset(name);
@@ -38,6 +37,7 @@ UTEST(httpp_swagger_ui, compiled_in_bytes_are_identical_to_the_source_files) {
 UTEST(httpp_swagger_ui, content_types_are_set) {
     EXPECT_TRUE(httpp::find_swagger_ui_asset("swagger-ui.css")->content_type == "text/css");
     EXPECT_TRUE(httpp::find_swagger_ui_asset("swagger-ui-bundle.js")->content_type == "text/javascript");
+    EXPECT_TRUE(httpp::find_swagger_ui_asset("swagger-api-icon.svg")->content_type == "image/svg+xml");
     EXPECT_TRUE(httpp::find_swagger_ui_asset("swagger-ui-bundle.js")->data.size() > 1000000);
 }
 
