@@ -95,7 +95,9 @@ result = "{major}.{minor}.{patch}"
 
 [tool.cibuildwheel]
 skip = "*i686*"
-test-command = "pytest {project}/tests"
+# faulthandler_timeout dumps every thread's stack when a test runs longer than
+# 120 s (it does not kill the test), so a hang shows where it is stuck.
+test-command = "pytest {project}/tests -o faulthandler_timeout=120"
 test-extras = ["test"]
 
 [tool.cibuildwheel.linux]
@@ -114,6 +116,7 @@ addopts = [
     "-v",
     "--tb=short",
 ]
+faulthandler_timeout = 120
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

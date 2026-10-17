@@ -60,8 +60,8 @@ UI, and a download that verifies, locks and times out.
 
 #### Library and tooling
 - **Logging** through the vendored AixLog, with a `set_log_*` API in C, C++ and Python.
-- **Python wheels:** free-threaded wheels (`cp313t`, `cp314t`) and a `cp313-abi3` wheel that pip prefers on 3.13+ over
-  the `cp39-abi3` one.
+- **Python wheels:** one `cp39-abi3` wheel per platform for every GIL-enabled Python from 3.9 up, plus version-specific
+  free-threaded wheels (`cp313t`, `cp314t`, `cp315t`), because free-threaded builds cannot load abi3 wheels.
 - **Documentation:** `docs/Architecture.md` (design, goals and test strategy), `docs/agent.md`, Python micro-benchmark
   for the validators, and README sections for streaming, files, hooks, error handling and the client's new
   capabilities.
@@ -95,6 +95,9 @@ UI, and a download that verifies, locks and times out.
 - Coverage builds use atomic profile counters (the server is multi-threaded, lcov saw negative counts); free-threaded
   wheel builds prefer binary wheels so `rpds-py` is not built from source.
 - Tests for concurrent async downloads measure event-loop ticks and overlapping streams instead of wall-clock time.
+- **Release pipeline:** wheels are uploaded as one flat artifact, so `dist/` holds only `.whl` and `.tar.gz` files and
+  the PyPI upload no longer fails on a `wheelhouse` sub-directory. Windows wheels are not run through `delvewheel`
+  (`httpp_core.dll` is loaded from `httpp/lib/` at import time), and the PyPI step uses `skip-existing`.
 
 ### Known limitations
 - The async client has no timeout yet, and async hooks hold a thread while they run.

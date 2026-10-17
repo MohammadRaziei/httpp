@@ -42,6 +42,8 @@ jobs:
   build_wheels:
     name: Wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # A hung test used to keep this job running for the default 6 hours.
+    timeout-minutes: 90
     strategy:
       fail-fast: true
       matrix:
