@@ -96,7 +96,9 @@ def test_a_changed_file_changes_the_header_and_an_unchanged_one_does_not(tmp_pat
     assert header.stat().st_mtime_ns == first[0]  # unchanged input: the header is not touched, so nothing rebuilds
     data.write_bytes(b"two!")
     assert subprocess.run(configure, capture_output=True).returncode == 0
-    assert header.read_text() != first[1] and "\\x74\\x77\\x6f\\x21" in header.read_text()
+    text = header.read_text()
+    # "two!" in whichever form the default embeds (byte array, or \\xNN string literal with -DHTTPP_EMBED_AS_ARRAY=OFF)
+    assert text != first[1] and ("0x74,0x77,0x6f,0x21" in text or "\\x74\\x77\\x6f\\x21" in text)
 
 
 @pytest.mark.skipif(shutil.which("cmake") is None, reason="needs cmake")

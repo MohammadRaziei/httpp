@@ -14,10 +14,11 @@
 #     here a chunk is a fixed number of bytes (32), whatever the file looks like;
 #   * every byte is written as a \xNN escape: binary-safe (a PNG has NUL bytes, `file(READ)` as text would stop at
 #     them), no source-charset or trigraph surprises, no \x-escape swallowing the next hex digit;
-#   * MSVC has a hard limit on a concatenated literal, so there (or with -DHTTPP_EMBED_AS_ARRAY=ON) a byte array is
-#     emitted instead: same names, same sizes, but ~40x slower for GCC to compile. ponytail: the array form is
-#     only tested with GCC (-DHTTPP_EMBED_AS_ARRAY=ON); upgrade path if MSVC still refuses it: split into several
-#     arrays.
+#   * byte arrays are the default everywhere (-DHTTPP_EMBED_AS_ARRAY=OFF gives string literals): MSVC refuses long
+#     literals and the others warn (-Woverlength-strings) for anything over 64 KB. Same names, same sizes; the cost is
+#     compile time: the Swagger UI bundle takes ~4.6 s instead of ~0.9 s to compile with GCC, once per build.
+#     ponytail: arrays are tested with GCC and MSVC (CI); upgrade path for much bigger files: .incbin / .o via the
+#     linker.
 #
 # Usage:
 #   include(EmbedFile)
@@ -28,12 +29,9 @@
 
 set(_EMBED_FILE_MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
-if(MSVC)
-    set(_embed_array_default ON)
-else()
-    set(_embed_array_default OFF)
-endif()
-option(HTTPP_EMBED_AS_ARRAY "Embed data files as byte arrays instead of string literals (MSVC needs this)" ${_embed_array_default})
+# Byte arrays everywhere: one code path on every compiler, and no -Woverlength-strings (the Swagger UI bundle is
+# ~1.5 MB; string literals are only guaranteed up to 64 KB, and MSVC refuses long ones).
+option(HTTPP_EMBED_AS_ARRAY "Embed data files as byte arrays instead of string literals" ON)
 
 # one file -> the C++ declarations in <out_var>
 function(_embed_one NAME PATH OUT_VAR)

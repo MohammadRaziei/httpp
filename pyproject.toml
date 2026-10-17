@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-    "scikit-build-core[pyproject]",
+    "scikit-build-core[pyproject]>=1.1",  # [[tool.dynamic-metadata]] (see below)
     "cython>=3.1",  # freethreading_compatible (see httpp_cy.pyx)
     "cython-cmake",
     "jsonschema",
@@ -82,7 +82,8 @@ sdist.include = [
 [tool.scikit-build.install]
 components = ["httpp_wheel"]
 
-[tool.scikit-build.metadata.version]
+[[tool.dynamic-metadata]]
+field = "version"
 provider = "scikit_build_core.metadata.regex"
 input = "include/httpp.h"
 regex = '''(?sx)
