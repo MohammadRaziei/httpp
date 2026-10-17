@@ -1,4 +1,4 @@
-// httpp::mount_swagger_ui: /docs and its three files served from the bytes compiled into the library.
+// httpp::mount_swagger_ui: /docs and its two files served from the bytes compiled into the library.
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/server.hpp"
@@ -18,7 +18,7 @@ static bool rejects(const std::string& docs_path) {
 
 static bool contains(const std::string& s, const std::string& part) { return s.find(part) != std::string::npos; }
 
-UTEST(httpp_swagger_ui_route, serves_the_page_and_the_three_files_byte_for_byte) {
+UTEST(httpp_swagger_ui_route, serves_the_page_and_the_two_files_byte_for_byte) {
     local_server srv([](httpp::server& s) { httpp::mount_swagger_ui(s); });
 
     auto page = httpp::client::fetch(srv.url("/docs"));
@@ -27,16 +27,21 @@ UTEST(httpp_swagger_ui_route, serves_the_page_and_the_three_files_byte_for_byte)
     EXPECT_TRUE(contains(page.body, "/docs/swagger-ui-bundle.js"));
     EXPECT_TRUE(contains(page.body, "\"/openapi.json\""));  // JSON string literal, so it is a valid JS string
 
-    for (const char* name : {"swagger-ui-bundle.js", "swagger-ui.css", "favicon-32x32.png"}) {
+    for (const char* name : {"swagger-ui-bundle.js", "swagger-ui.css"}) {
         auto res = httpp::client::fetch(srv.url(std::string("/docs/") + name));
         ASSERT_EQ(200, res.status);
         const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset(name);
         ASSERT_TRUE(a != nullptr);
-        EXPECT_TRUE(res.body == a->data);  // every byte, NULs of the PNG included
+        EXPECT_TRUE(res.body == a->data);  // every byte
         EXPECT_TRUE(res.header("Content-Type") == a->content_type);
         EXPECT_TRUE(contains(res.header("Cache-Control"), "max-age"));
     }
     EXPECT_EQ(404, httpp::client::fetch(srv.url("/docs/nope.js")).status);
+
+    // the tab icon is an SVG inside the page itself: no file, no route, no request to anywhere else
+    EXPECT_TRUE(contains(page.body, "rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml,"));
+    EXPECT_FALSE(contains(page.body, "favicon-32x32.png"));
+    EXPECT_EQ(404, httpp::client::fetch(srv.url("/docs/favicon-32x32.png")).status);
 }
 
 UTEST(httpp_swagger_ui_route, custom_path_title_and_openapi_url_are_escaped) {

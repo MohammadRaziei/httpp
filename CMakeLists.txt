@@ -45,7 +45,6 @@ embed_files(
     FILES
         swagger_ui_bundle_js    ${HTTPP_SWAGGER_UI_DIR}/swagger-ui-bundle.js
         swagger_ui_css          ${HTTPP_SWAGGER_UI_DIR}/swagger-ui.css
-        swagger_ui_favicon_png  ${HTTPP_SWAGGER_UI_DIR}/favicon-32x32.png
 )
 
 # liburlparser (git submodule, built from source — no system package) does

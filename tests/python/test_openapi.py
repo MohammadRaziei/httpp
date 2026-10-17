@@ -273,10 +273,11 @@ def test_docs_page_and_assets_are_served_offline():
         js = get(f"{url}/docs/swagger-ui-bundle.js")
         assert js.status == 200 and len(js.body) > 1_000_000
         assert get(f"{url}/docs/swagger-ui.css").status == 200
-        assert get(f"{url}/docs/favicon-32x32.png").status == 200
+        assert 'rel="icon" type="image/svg+xml" href="data:image/svg+xml,' in page.text  # tab icon is inline, no file
+        assert get(f"{url}/docs/favicon-32x32.png").status == 404
         vendored = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src", "third_party", "swagger-ui")
-        if os.path.isdir(vendored):  # compiled in, and byte-identical to the vendored files (the PNG has NUL bytes)
-            for name, ctype in (("swagger-ui-bundle.js", "text/javascript"), ("swagger-ui.css", "text/css"), ("favicon-32x32.png", "image/png")):
+        if os.path.isdir(vendored):  # compiled in, and byte-identical to the vendored files
+            for name, ctype in (("swagger-ui-bundle.js", "text/javascript"), ("swagger-ui.css", "text/css")):
                 r = get(f"{url}/docs/{name}")
                 with open(os.path.join(vendored, name), "rb") as f:
                     assert r.content == f.read()

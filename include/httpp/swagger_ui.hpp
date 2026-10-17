@@ -17,7 +17,7 @@ struct swagger_ui_asset {
     std::string_view data;          // the file's bytes; valid for the life of the process
 };
 
-// The asset called `name` ("swagger-ui-bundle.js", "swagger-ui.css", "favicon-32x32.png"), or nullptr.
+// The asset called `name` ("swagger-ui-bundle.js", "swagger-ui.css"), or nullptr.
 HTTPP_API const swagger_ui_asset* find_swagger_ui_asset(std::string_view name) noexcept;
 
 // Serve Swagger UI from `s`: the page at `docs_path` (with or without a trailing '/') and the three files under `docs_path`/<name>, all from the

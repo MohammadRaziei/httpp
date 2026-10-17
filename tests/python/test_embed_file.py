@@ -71,7 +71,7 @@ def test_files_survive_embedding(tmp_path, as_array):
 
     build = tmp_path / "build"
     flags = ["-DHTTPP_EMBED_AS_ARRAY=" + ("ON" if as_array else "OFF"), "-DCMAKE_BUILD_TYPE=Release"]
-    for cmd in (["cmake", "-S", str(tmp_path), "-B", str(build), *flags], ["cmake", "--build", str(build)]):
+    for cmd in (["cmake", "-S", str(tmp_path), "-B", str(build), *flags], ["cmake", "--build", str(build), "--config", "Release"]):  # multi-config generators (Visual Studio) default to Debug
         r = subprocess.run(cmd, capture_output=True, text=True)
         assert r.returncode == 0, r.stdout + r.stderr
     exe = next(p for p in (build / "check", build / "Release" / "check.exe", build / "check.exe") if p.exists())
@@ -97,3 +97,21 @@ def test_a_changed_file_changes_the_header_and_an_unchanged_one_does_not(tmp_pat
     data.write_bytes(b"two!")
     assert subprocess.run(configure, capture_output=True).returncode == 0
     assert header.read_text() != first[1] and "\\x74\\x77\\x6f\\x21" in header.read_text()
+
+
+@pytest.mark.skipif(shutil.which("cmake") is None, reason="needs cmake")
+def test_an_empty_file_is_never_a_zero_size_array(tmp_path):
+    """MSVC (C2466) and ISO C++ both refuse `unsigned char x[] = {};`; GCC only does so with -Wpedantic."""
+    (tmp_path / "e.bin").write_bytes(b"")
+    (tmp_path / "CMakeLists.txt").write_text(
+        "cmake_minimum_required(VERSION 3.21)\nproject(t NONE)\n"
+        f'list(APPEND CMAKE_MODULE_PATH "{ROOT}/cmake")\ninclude(EmbedFile)\n'
+        f'embed_files(OUTPUT ${{CMAKE_BINARY_DIR}}/gen/e.hpp NAMESPACE t FILES e {(tmp_path / "e.bin").as_posix()})\n')
+    for flag in ("ON", "OFF"):
+        build = tmp_path / f"b_{flag}"
+        r = subprocess.run(["cmake", "-S", str(tmp_path), "-B", str(build), f"-DHTTPP_EMBED_AS_ARRAY={flag}"],
+                           capture_output=True, text=True)
+        assert r.returncode == 0, r.stdout + r.stderr
+        header = (build / "gen" / "e.hpp").read_text()
+        assert "[] = {\n};" not in header and "[]={}" not in header.replace(" ", ""), header
+        assert "e_size = 0;" in header or "e_size = sizeof(e) - 1;" in header, header
