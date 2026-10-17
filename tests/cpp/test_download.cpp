@@ -235,8 +235,9 @@ UTEST(httpp_download_sha256, resume_does_not_trust_a_complete_looking_but_corrup
     std::remove(dest.c_str());
 }
 
-// ---- lock() --------------------------------------------------------------------------------------------------
+// ---- the lock (always on) and set_timeout() --------------------------------------------------------------------
 // The lock is the directory <dest>.lock with a file `alive` in it that the owner rewrites; these tests play both roles.
+// set_timeout(n) is also how long a lock whose `alive` does not change is waited for before it is taken over.
 
 #ifdef _WIN32
 #include <direct.h>
@@ -285,24 +286,16 @@ struct fake_owner {
     ~fake_owner() { release(); }
 };
 
-httpp::download_lock_options quick() {
-    httpp::download_lock_options o;
-    o.heartbeat = std::chrono::milliseconds(20);
-    o.stale_after = std::chrono::milliseconds(300);
-    o.poll = std::chrono::milliseconds(10);
-    o.max_wait = std::chrono::seconds(30);
-    return o;
-}
 double seconds_since(std::chrono::steady_clock::time_point t) {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
 }
 } // namespace
 
-UTEST(httpp_download_lock, a_free_lock_is_taken_and_removed_again) {
+UTEST(httpp_download_lock, every_download_takes_the_lock_and_gives_it_back) {
     running_server rs(file_server(""));
     const std::string dest = "test_dl_lock_free.bin";
     std::remove(dest.c_str());
-    auto res = httpp::download(url_of(rs), dest).disable_progress().lock(quick()).run();
+    auto res = httpp::download(url_of(rs), dest).disable_progress().run();
     ASSERT_TRUE(res.ok);
     EXPECT_TRUE(read_file(dest) == body_text);
     EXPECT_FALSE(exists(dest + ".lock/alive"));
@@ -311,49 +304,72 @@ UTEST(httpp_download_lock, a_free_lock_is_taken_and_removed_again) {
     std::remove(dest.c_str());
 }
 
-UTEST(httpp_download_lock, waits_for_a_live_lock_and_then_downloads) {
+UTEST(httpp_download_lock, a_live_lock_is_waited_for_even_beyond_the_timeout) {
     running_server rs(file_server(""));
     const std::string dest = "test_dl_lock_wait.bin";
     std::remove(dest.c_str());
-    fake_owner owner(dest);
-    std::thread releaser([&] { std::this_thread::sleep_for(std::chrono::milliseconds(500)); owner.release(); });
+    fake_owner owner(dest);  // keeps rewriting `alive`
+    std::thread releaser([&] { std::this_thread::sleep_for(std::chrono::milliseconds(1500)); owner.release(); });
     const auto t0 = std::chrono::steady_clock::now();
-    auto res = httpp::download(url_of(rs), dest).disable_progress().lock(quick()).run();  // stale_after is 300 ms:
-    releaser.join();                                                                       // a live lock is NOT taken over
+    auto res = httpp::download(url_of(rs), dest).disable_progress().set_timeout(1).run();  // 1 s timeout, 1.5 s wait
+    releaser.join();
     ASSERT_TRUE(res.ok);
-    EXPECT_TRUE(seconds_since(t0) >= 0.4);
+    EXPECT_TRUE(seconds_since(t0) >= 1.4);
     EXPECT_TRUE(read_file(dest) == body_text);
     std::remove(dest.c_str());
 }
 
-UTEST(httpp_download_lock, a_lock_without_a_heartbeat_is_taken_over) {
+UTEST(httpp_download_lock, a_lock_that_does_not_change_is_waited_for_as_long_as_the_timeout_then_taken_over) {
     running_server rs(file_server(""));
     const std::string dest = "test_dl_lock_stale.bin";
     std::remove(dest.c_str());
     make_lock_dir(dest + ".lock");  // its owner died: nobody rewrites `alive`
     { std::ofstream(dest + ".lock/alive") << "12345 7\n"; }
     const auto t0 = std::chrono::steady_clock::now();
-    auto res = httpp::download(url_of(rs), dest).disable_progress().lock(quick()).run();
+    auto res = httpp::download(url_of(rs), dest).disable_progress().set_timeout(2).run();
+    const double waited = seconds_since(t0);
     ASSERT_TRUE(res.ok);
-    EXPECT_TRUE(seconds_since(t0) < 10.0);
+    EXPECT_TRUE(waited >= 1.8);   // it did wait the timeout ...
+    EXPECT_TRUE(waited < 6.0);    // ... and not much longer
     EXPECT_TRUE(read_file(dest) == body_text);
     std::remove(dest.c_str());
     make_lock_dir(dest + ".lock");  // and the taken-over lock was released at the end
     remove_lock_dir(dest + ".lock");
 }
 
-UTEST(httpp_download_lock, gives_up_waiting_for_a_live_lock_after_max_wait) {
+UTEST(httpp_download_lock, the_wait_for_an_unchanged_lock_is_the_smaller_of_max_wait_and_timeout) {
     running_server rs(file_server(""));
-    const std::string dest = "test_dl_lock_maxwait.bin";
+    const std::string dest = "test_dl_lock_min.bin";
+    for (long long max_wait_ms : {400LL, 1000LL}) {
+        std::remove(dest.c_str());
+        make_lock_dir(dest + ".lock");  // dead lock: nobody rewrites `alive`
+        { std::ofstream(dest + ".lock/alive") << "12345 7\n"; }
+        const auto t0 = std::chrono::steady_clock::now();
+        auto res = httpp::download(url_of(rs), dest).disable_progress().set_timeout(30)
+                       .set_max_wait(std::chrono::milliseconds(max_wait_ms)).run();
+        const double waited = seconds_since(t0);
+        ASSERT_TRUE(res.ok);
+        EXPECT_TRUE(waited >= max_wait_ms / 1000.0 - 0.05);  // it waited max_wait ...
+        EXPECT_TRUE(waited < max_wait_ms / 1000.0 + 1.5);    // ... not the 30 s of the timeout
+        std::remove(dest.c_str());
+        make_lock_dir(dest + ".lock");
+        remove_lock_dir(dest + ".lock");
+    }
+}
+
+UTEST(httpp_download_lock, a_lock_that_keeps_being_updated_is_waited_for_however_small_max_wait_is) {
+    running_server rs(file_server(""));
+    const std::string dest = "test_dl_lock_live.bin";
     std::remove(dest.c_str());
-    fake_owner owner(dest);  // alive for the whole test
-    auto o = quick();
-    o.max_wait = std::chrono::milliseconds(300);
+    fake_owner owner(dest);  // rewrites `alive` every 20 ms for the whole 1.5 s
+    std::thread releaser([&] { std::this_thread::sleep_for(std::chrono::milliseconds(1500)); owner.release(); });
     const auto t0 = std::chrono::steady_clock::now();
-    auto res = httpp::download(url_of(rs), dest).disable_progress().lock(o).run();
+    auto res = httpp::download(url_of(rs), dest).disable_progress().set_timeout(1)
+                   .set_max_wait(std::chrono::milliseconds(400)).run();
+    releaser.join();
     ASSERT_TRUE(res.ok);
-    EXPECT_TRUE(seconds_since(t0) >= 0.25);
-    EXPECT_TRUE(exists(dest + ".lock/alive"));  // it was not ours, so it is not removed
+    EXPECT_TRUE(seconds_since(t0) >= 1.4);  // it was not taken over after 400 ms
+    EXPECT_TRUE(read_file(dest) == body_text);
     std::remove(dest.c_str());
 }
 
@@ -370,7 +386,7 @@ UTEST(httpp_download_lock, a_waiter_uses_the_file_the_owner_finished_without_a_r
         { std::ofstream(dest, std::ios::binary) << body_text; }  // the owner's download lands in the cache
         owner.release();
     });
-    auto res = httpp::download(url_of(rs), dest).disable_progress().lock(quick()).sha256(body_digest).run();
+    auto res = httpp::download(url_of(rs), dest).disable_progress().sha256(body_digest).run();
     owner_finishes.join();
     ASSERT_TRUE(res.ok);
     EXPECT_TRUE(res.skipped);
@@ -388,7 +404,7 @@ UTEST(httpp_download_lock, two_downloads_of_one_file_fetch_it_once) {
     running_server rs(std::move(s));
     const std::string dest = "test_dl_lock_two.bin";
     std::remove(dest.c_str());
-    auto make = [&] { return httpp::download(url_of(rs), dest).disable_progress().lock(quick()).resume().sha256(body_digest); };
+    auto make = [&] { return httpp::download(url_of(rs), dest).disable_progress().resume().sha256(body_digest); };
     auto a = make().run_async();
     auto b = make().run_async();
     const auto ra = a.get();
@@ -398,4 +414,21 @@ UTEST(httpp_download_lock, two_downloads_of_one_file_fetch_it_once) {
     EXPECT_EQ(1, int(ra.skipped) + int(rb.skipped));  // exactly one of them did the download
     EXPECT_TRUE(read_file(dest) == body_text);
     std::remove(dest.c_str());
+}
+
+UTEST(httpp_download_timeout, set_timeout_also_limits_the_network) {
+    httpp::server s;
+    s.get("/slow", [](const httpp::request&, httpp::response& res) {
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+        res.status = 200;
+        res.body = "late";
+    });
+    running_server rs(std::move(s));
+    const std::string dest = "test_dl_timeout.bin";
+    std::remove(dest.c_str());
+    const auto t0 = std::chrono::steady_clock::now();
+    auto res = httpp::download(url_of(rs, "/slow"), dest).disable_progress().set_timeout(1).run();
+    EXPECT_FALSE(res.ok);
+    EXPECT_TRUE(seconds_since(t0) < 2.8);
+    EXPECT_FALSE(exists(dest));
 }

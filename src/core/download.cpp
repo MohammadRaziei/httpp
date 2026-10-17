@@ -7,6 +7,7 @@
 // never in a public httpp/*.hpp header — see its comment for why.
 #include "internal/httplib_common.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <chrono>
@@ -69,8 +70,15 @@ long long file_size_or_negative(const std::string& path) {
 // fallback from run_resumable() when a HEAD probe can't establish the
 // server-reported total size (Content-Length missing/unavailable), since
 // resume/skip have nothing to compare against in that case.
+void apply_timeout(httplib::Client& cli, long seconds) {
+    if (seconds <= 0) return; // cpp-httplib's defaults
+    cli.set_connection_timeout(seconds);
+    cli.set_read_timeout(seconds);
+    cli.set_write_timeout(seconds);
+}
+
 download_result run_plain(const std::string& url_str, const std::string& dest_path, bool show_progress,
-                          bool follow_redirects) {
+                          bool follow_redirects, long timeout_seconds) {
     download_result result;
 
     const url u = url::parse(url_str);
@@ -97,6 +105,7 @@ download_result run_plain(const std::string& url_str, const std::string& dest_pa
     // httplib suppresses the content receiver and progress callback for the
     // intermediate 3xx responses, so only the final body reaches the file.
     cli.set_follow_location(follow_redirects);
+    apply_timeout(cli, timeout_seconds);
 
     std::unique_ptr<progress::bar> pb;
 
@@ -151,7 +160,7 @@ download_result run_plain(const std::string& url_str, const std::string& dest_pa
 // from an earlier attempt. See download::resume() in the header for the
 // full behavior contract.
 download_result run_resumable(const std::string& url_str, const std::string& dest_path, bool show_progress,
-                              bool follow_redirects, bool force) {
+                              bool follow_redirects, bool force, long timeout_seconds) {
     download_result result;
 
     const url u = url::parse(url_str);
@@ -167,6 +176,7 @@ download_result run_resumable(const std::string& url_str, const std::string& des
 
     httplib::Client cli(detail::scheme_host_port(u.scheme(), u.host(), u.port()));
     cli.set_follow_location(follow_redirects);
+    apply_timeout(cli, timeout_seconds);
 
     // Find out the full size up front: this is what both "already
     // complete, skip" and "is this .part actually the full file already"
@@ -180,7 +190,7 @@ download_result run_resumable(const std::string& url_str, const std::string& des
         total_size = std::atoll(head_res->get_header_value("Content-Length").c_str());
     }
     if (total_size < 0) {
-        return run_plain(url_str, dest_path, show_progress, follow_redirects);
+        return run_plain(url_str, dest_path, show_progress, follow_redirects, timeout_seconds);
     }
 
     if (!force && file_size_or_negative(dest_path) == total_size) {
@@ -330,9 +340,13 @@ long current_pid() {
 
 class dir_lock {
 public:
-    dir_lock(std::string path, const download_lock_options& options) : path_(std::move(path)), options_(options) {
+    // `stale_after`: how long `alive` may stay unchanged before its owner is taken for dead (the download's timeout).
+    dir_lock(std::string path, std::chrono::milliseconds stale_after) : path_(std::move(path)) {
         using clock = std::chrono::steady_clock;
-        const auto give_up = clock::now() + options_.max_wait;
+        // the owner proves it lives twice per wait window (at most every 200 ms); waiters look more often than that
+        // at most 200 ms: a waiter's threshold is whole seconds (>= 1 s), so it always sees several beats
+        heartbeat_ = clamp(stale_after / 2, std::chrono::milliseconds(200));
+        const auto poll = clamp(stale_after / 15, std::chrono::milliseconds(200));
         std::string last_seen;
         auto last_change = clock::now();
         bool first = true;
@@ -350,14 +364,14 @@ public:
                 last_seen = seen;
                 last_change = now;
                 first = false;
-            } else if (now - last_change > options_.stale_after) { // no heartbeat for too long: its owner died
+            } else if (now - last_change > stale_after) { // no sign of life for the whole timeout: its owner died
                 std::remove((path_ + "/alive").c_str());
                 remove_dir(path_);
                 first = true;
                 continue;
             }
-            if (now >= give_up) break; // ponytail: downloads anyway (see download::lock()); upgrade path: fail instead
-            std::this_thread::sleep_for(options_.poll);
+            // ponytail: a lock that keeps being updated is waited for without limit; upgrade path: a cap
+            std::this_thread::sleep_for(poll);
         }
         if (owned_) {
             beat(0);
@@ -394,12 +408,16 @@ private:
         unsigned long long n = 0;
         while (!stop_) {
             beat(++n);
-            wake_.wait_for(lk, options_.heartbeat, [this] { return stop_; });
+            wake_.wait_for(lk, heartbeat_, [this] { return stop_; });
         }
     }
 
+    static std::chrono::milliseconds clamp(std::chrono::milliseconds v, std::chrono::milliseconds most) {
+        return v < std::chrono::milliseconds(5) ? std::chrono::milliseconds(5) : (v > most ? most : v);
+    }
+
     std::string path_;
-    download_lock_options options_;
+    std::chrono::milliseconds heartbeat_{1000};
     bool owned_ = false;
     bool waited_ = false;
     bool stop_ = false;
@@ -414,8 +432,8 @@ struct job {
     bool progress = true, follow = true, resume = false, force = false;
     std::string sha256, sha256_url;
     bool use_sha256_url = false;
-    bool use_lock = false;
-    download_lock_options lock_options;
+    long timeout_seconds = 0; // 0: cpp-httplib's defaults for the network, 15 s for the lock
+    std::chrono::milliseconds max_wait{2000}; // how long an unchanged lock is waited for
 };
 
 download_result failure(std::string error) {
@@ -439,7 +457,7 @@ bool expected_digest(const job& j, std::string& digest, std::string& error) {
     if (j.use_sha256_url) {
         const std::string sum_url = j.sha256_url.empty() ? without_query(j.url) + ".sha256" : j.sha256_url;
         const std::string tmp = j.dest + ".sha256.part";
-        const download_result got = run_plain(sum_url, tmp, false, j.follow);
+        const download_result got = run_plain(sum_url, tmp, false, j.follow, j.timeout_seconds);
         if (!got.ok) {
             std::remove(tmp.c_str());
             error = "could not download the checksum file " + sum_url + ": " + got.error;
@@ -468,13 +486,14 @@ bool expected_digest(const job& j, std::string& digest, std::string& error) {
 
 download_result execute(const job& j) {
     // Locked first: the checksum file is fetched to a temporary name next to dest, which two processes must not share.
-    std::unique_ptr<dir_lock> lock;
-    if (j.use_lock) lock = std::make_unique<dir_lock>(j.dest + ".lock", j.lock_options);
+    const long timeout = j.timeout_seconds > 0 ? j.timeout_seconds : 15;
+    const auto stale_after = std::min(std::chrono::milliseconds(timeout * 1000), j.max_wait);
+    const auto lock = std::make_unique<dir_lock>(j.dest + ".lock", stale_after);
 
     std::string expected, error;
     if (!expected_digest(j, expected, error)) return failure(error);  // before the file, so nothing is downloaded
 
-    if (lock && lock->waited() && !expected.empty()) { // the owner may have finished the very file we want
+    if (lock->waited() && !expected.empty()) { // the owner may have finished the very file we want
         try {
             if (sha256_file(j.dest) == expected) {
                 download_result r;
@@ -490,8 +509,8 @@ download_result execute(const job& j) {
 
     bool force = j.force;
     for (int attempt = 0;; ++attempt) {
-        download_result r = j.resume ? run_resumable(j.url, j.dest, j.progress, j.follow, force)
-                                     : run_plain(j.url, j.dest, j.progress, j.follow);
+        download_result r = j.resume ? run_resumable(j.url, j.dest, j.progress, j.follow, force, j.timeout_seconds)
+                                     : run_plain(j.url, j.dest, j.progress, j.follow, j.timeout_seconds);
         if (!r.ok || expected.empty()) return r;
 
         std::string actual;
@@ -563,21 +582,25 @@ download& download::sha256_url(std::string checksum_url) {
     return *this;
 }
 
-download& download::lock(download_lock_options options) {
-    lock_options_ = options;
-    use_lock_ = true;
+download& download::set_timeout(long seconds) {
+    timeout_seconds_ = seconds;
+    return *this;
+}
+
+download& download::set_max_wait(std::chrono::milliseconds max_wait) {
+    if (max_wait.count() > 0) max_wait_ = max_wait;
     return *this;
 }
 
 download_result download::run() const {
     return execute({url_, dest_path_, show_progress_, follow_redirects_, resume_, force_, sha256_, sha256_url_,
-                    use_sha256_url_, use_lock_, lock_options_});
+                    use_sha256_url_, timeout_seconds_, max_wait_});
 }
 
 std::future<download_result> download::run_async() const {
     // The job is a copy: the builder may go out of scope before the async task runs.
     return std::async(std::launch::async, [j = job{url_, dest_path_, show_progress_, follow_redirects_, resume_, force_,
-                                                    sha256_, sha256_url_, use_sha256_url_, use_lock_, lock_options_}] {
+                                                    sha256_, sha256_url_, use_sha256_url_, timeout_seconds_, max_wait_}] {
         return execute(j);
     });
 }

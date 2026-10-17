@@ -22,14 +22,6 @@ struct download_result {
     std::string sha256;
 };
 
-// Timing of download::lock(); the defaults suit real downloads, tests shrink them.
-struct download_lock_options {
-    std::chrono::milliseconds heartbeat{1000};    // the process that downloads rewrites <lock>/alive this often
-    std::chrono::milliseconds stale_after{15000}; // a lock whose heartbeat has not changed for this long is dead
-    std::chrono::milliseconds poll{200};          // how often a waiting process looks at the lock
-    std::chrono::milliseconds max_wait{3600000};  // a waiter gives up on a live lock after this and downloads anyway
-};
-
 // Fluent builder — the one way to download a URL to a file in httpp:
 //
 //   httpp::download("http://x.com/f.zip", "f.zip").run();
@@ -93,19 +85,29 @@ public:
     // checksum file (an HTML error page, say) fails the call without downloading anything. Overrides sha256().
     HTTPP_API download& sha256_url(std::string checksum_url = "");
 
-    // Only one process (or thread) at a time downloads a given dest_path; the others wait, then carry on, so
-    // several workers that want the same file do not fetch it several times.
-    //   - the lock is the directory "<dest_path>.lock"; the owner rewrites "<dest_path>.lock/alive" every
-    //     `heartbeat`. A waiter that sees that file unchanged for `stale_after` knows the owner died and takes
-    //     the lock over; after `max_wait` it stops waiting and downloads anyway.
+    // Seconds, for connecting, reading and writing (like client::set_timeout); 0 or less keeps cpp-httplib's
+    // defaults for those. It is also how long a download waits for another process that holds the same file's
+    // lock (below) while that lock shows no sign of life: see "Locking".
+    HTTPP_API download& set_timeout(long seconds);
+
+    // How long a lock that is NOT being updated is waited for before its owner is taken for dead and the lock is
+    // taken over; default 2 s, values <= 0 are ignored. The wait is min(max_wait, timeout). It is not a limit on
+    // waiting in general: a lock that keeps being updated is waited for as long as it lives.
+    HTTPP_API download& set_max_wait(std::chrono::milliseconds max_wait);
+
+    // Locking (always on). Only one process (or thread) at a time downloads a given dest_path; the others wait,
+    // then carry on, so several workers that want the same file do not fetch it several times.
+    //   - the lock is the directory "<dest_path>.lock"; the owner rewrites "<dest_path>.lock/alive" twice per
+    //     wait window (at most every 200 ms). A waiter that sees that file unchanged for min(set_max_wait(),
+    //     set_timeout()) (2 s and 15 s if unset) knows the owner died and takes the lock over. A lock that keeps
+    //     being updated is waited for as long as it lives (the owner's own network timeouts bound that).
     //   - a waiter that finds dest_path complete and matching sha256()/sha256_url() uses it without a request
-    //     (skipped=true). Pair lock() with resume() or a checksum: without either, a waiter downloads the file
+    //     (skipped=true). Without a checksum (or resume(), which skips a complete file) a waiter downloads the file
     //     again once the lock is free.
     //   - if the lock directory cannot be created (read-only directory) the download goes ahead unlocked.
-    //   - the lock only saves work; it does not make overlapping writers safe. Two waiters that take over the
-    //     same dead lock at the same instant (or a waiter that hit max_wait) can write dest_path together: use
-    //     sha256() so a damaged result is caught and deleted.
-    HTTPP_API download& lock(download_lock_options options = {});
+    //   - the lock only saves work; it does not make overlapping writers safe. Two waiters that take over the same
+    //     dead lock at the same instant can write dest_path together: use sha256() so a damaged result is caught
+    //     and deleted.
 
     HTTPP_API download_result run() const;
     HTTPP_API std::future<download_result> run_async() const;
@@ -120,8 +122,8 @@ private:
     std::string sha256_;
     std::string sha256_url_;
     bool use_sha256_url_ = false;
-    bool use_lock_ = false;
-    download_lock_options lock_options_;
+    long timeout_seconds_ = 0;
+    std::chrono::milliseconds max_wait_{2000};
 };
 
 } // namespace httpp
