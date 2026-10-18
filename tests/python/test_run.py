@@ -111,6 +111,7 @@ def test_cli_run_serves_and_stops_gracefully_on_sigterm(app_dir):
             proc.kill()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGTERM")
 @pytest.mark.parametrize("args, logged", [((), True), (("--log-level", "info"), True), (("--log-level", "warning"), False)])
 def test_cli_run_logs_each_request_unless_the_level_is_raised(app_dir, args, logged):
     port = free_port()
@@ -145,7 +146,8 @@ def test_cli_run_wins_over_a_listen_call_at_import_time(app_dir, workers):
         assert wait_for(lambda: get_pid(port))  # served on run's port, not the one in the file
         proc.send_signal(signal.SIGTERM)
         err = proc.communicate(timeout=15)[1]
-        assert proc.returncode == 0
+        if sys.platform != "win32":  # there SIGTERM is a hard kill, so the exit code says nothing
+            assert proc.returncode == 0
     finally:
         if proc.poll() is None:
             proc.kill()
