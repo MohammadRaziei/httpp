@@ -22,8 +22,10 @@
 - پشتیبانی‌نشده: `validate_assignment`، computed fields، private attributes، serializer سفارشی، strict mode، generic.
 - سرعت (همان ماشین، همان اجرا، ماشین نویزی است): model معتبر `User` از ۱۰٬۷۵۹ به ۳٬۳۹۸ ns؛ `Union[int,str,None]` از
   ۹۵۴ به ۱۵۹ ns؛ model نامعتبر با ۵ خطا از ۱۷٬۲۸۰ به ۱۱٬۳۰۵ ns.
-- هم‌شکلی با Pydantic با ۲۷۸ تست تفاضلی روی Pydantic نصب‌شده سنجیده می‌شود.
-- `_validate_cy` با `freethreading_compatible=True` علامت خورده ولی روی Python 3.13t هنوز امتحان نشده.
+- هم‌شکلی با Pydantic با ۲۷۸ تست تفاضلی سنجیده می‌شود (۲۴۲ در `test_validate_vs_pydantic.py` و ۳۶ در
+  `test_models_vs_pydantic.py`). این‌ها فقط وقتی Pydantic نصب باشد اجرا می‌شوند و **در CI اجرا نمی‌شوند** (ADR-0015).
+- `_validate_cy` با `freethreading_compatible=True` علامت خورده. یک تست در `test_run.py` روی wheelهای `cp313t`،
+  `cp314t` و `cp315t` در CI تأیید می‌کند GIL موقع import دوباره روشن نمی‌شود؛ روی پایتون معمولی skip می‌شود.
 
 ## مرتبط
 

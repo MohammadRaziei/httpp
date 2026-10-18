@@ -28,8 +28,8 @@
 - فقط هدف رشته‌ای اثر دارد؛ `httpp.run(app_object)` فایلی import نمی‌کند.
 - فقط `listen` و `run` رد می‌شوند؛ `listen_after_bind` و `bind_to_any_port` (برای تست) دست‌نخورده‌اند.
 - پرچم یک متغیر سراسری است (`ponytail:`)؛ import هم‌زمان چند app در thread‌های مختلف در این مسیر پیش‌بینی نشده.
-- روی Windows تست‌های وابسته به SIGTERM skip می‌شوند؛ تست import-time با `workers=1` اجرا می‌شود ولی کد خروج را نمی‌سنجد.
-  این روی CI Windows هنوز تأیید نشده.
+- روی Windows تست import-time با `workers=1` اجرا می‌شود ولی کد خروج را نمی‌سنجد (SIGTERM آنجا کشتن مستقیم است)؛
+  حالت `workers=2` فقط روی Linux اجرا می‌شود (ADR-0015).
 
 ## مرتبط
 

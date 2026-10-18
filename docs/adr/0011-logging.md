@@ -29,7 +29,8 @@
 
 - هر خط `info` زیر بار هزینه دارد (قفل و نوشتن روی stderr)؛ بنچمارک باید با `log_level="warning"` یا `listen()` اجرا شود.
 - اگر متد قبل از parse کامل معلوم نباشد (خطای 400)، خط لاگ با یک فاصله‌ی اضافی شروع می‌شود.
-- تست: ۳ تست C++ در `test_log.cpp` (۲۲۹ تست کل)، تست‌های `test_log.py` و `test_run.py` روی Linux. macOS و Windows اجرا نشده.
+- تست: ۳ تست C++ در `test_log.cpp` (روی Linux و macOS در CI)، `test_log.py` (روی همه‌ی wheelها) و تست CLI در
+  `test_run.py` که روی Windows skip می‌شود چون `SIGTERM` آنجا کشتن مستقیم است (ADR-0015).
 
 ## مرتبط
 

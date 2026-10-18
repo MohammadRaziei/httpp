@@ -21,7 +21,9 @@
 - زیر TSAN با pthread و با alt، ۸۶ تست `async_*` قبول و race مربوط به mbedtls نیست؛ `many_concurrent_handshakes`
   روی Linux ۳۰ بار پشت هم بدون شکست.
 - `mbedtls_threading_free_alt()` هیچ‌وقت صدا زده نمی‌شود (`ponytail:`؛ ارتقا: shutdown صریح بعد از join threadهای TLS).
-- **تأییدنشده:** لایه‌ی SRWLOCK و رفع `many_concurrent_handshakes` روی macOS و Windows (علت فقط روی Linux دیده شد).
+- CI: تست‌های C++ (شامل `many_concurrent_handshakes`) روی Linux و macOS اجرا و سبز می‌شوند. روی Windows لایه‌ی SRWLOCK
+  در هر wheel بیلد می‌شود و تست‌های Python wheel سبزند، ولی تست‌های C++ روی Windows اجرا نمی‌شوند و تست‌های TLS پایتون
+  (`needs_openssl`) روی Windows skip می‌شوند (ADR-0015).
 
 ## مرتبط
 
