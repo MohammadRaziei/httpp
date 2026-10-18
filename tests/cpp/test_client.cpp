@@ -5,7 +5,7 @@
 #include <thread>
 #include <chrono>
 
-// This test never touches httplib.h — httpp::server (already compiled into
+// This test never touches httplib.h - httpp::server (already compiled into
 // httpp_core, PIMPL-wrapped) is used to spin up a throwaway test server, the
 // same way any other consumer of httpp would. That's the whole point of
 // hiding httplib behind httpp::client/httpp::server: our own tests get to

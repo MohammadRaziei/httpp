@@ -1,8 +1,8 @@
 #include "httpp/curl.hpp"
 #include "httpp/url.hpp"
 
-// httplib.h is included ONLY in this translation unit — never in a public
-// httpp/*.hpp header — and stays hidden inside the compiled core.
+// httplib.h is included ONLY in this translation unit - never in a public
+// httpp/*.hpp header - and stays hidden inside the compiled core.
 #include <httplib.h>
 
 #include <utility>

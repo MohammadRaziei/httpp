@@ -1,37 +1,37 @@
-# ADR-0011: لاگ: AixLog پشت `HTTPP_LOG`؛ لاگ درخواست و آدرس بایند در C++؛ پیش‌فرض‌ها
+# ADR-0011: Logging: AixLog behind `HTTPP_LOG`; request and bind-address logs in C++; defaults
 
-- **وضعیت:** پذیرفته‌شده (جزئیات پیش‌فرض‌ها در این جلسه تصمیم گرفته شد؛ صاحب پروژه روش را به من سپرد و `run` را پذیرفت)
-- **تاریخ:** 2026-10-18
-- **منبع:** `src/core/log.cpp`، `src/core/async_server.cpp`، `src/core/server.cpp`، `CHANGELOG.md`
+- **Status:** accepted (the defaults were decided in this session; the owner left the method to me and accepted `run`)
+- **Date:** 2026-10-18
+- **Source:** `src/core/log.cpp`, `src/core/async_server.cpp`, `src/core/server.cpp`, `CHANGELOG.md`
 
-## زمینه
+## Context
 
-`python app.py` هیچ‌چیز چاپ نمی‌کرد: نه آدرس بایند، نه درخواست‌ها. پیش‌فرض سطح لاگ کتابخانه `warning` است، و
-پیام «starting on» که `run` چاپ می‌کرد قبل از بایند بود و با شکست بایند هم دیده می‌شد.
+`python app.py` printed nothing: neither the bound address nor the requests. The library's default log level is `warning`, and
+the `starting on` message that `run` printed came before the bind and also showed when the bind failed.
 
-## تصمیم
+## Decision
 
-- لاگ داخلی همان AixLog پشت `HTTPP_LOG` است (فقط `log.cpp` هدر را include می‌کند)؛ لاگ درخواست هم از همین مسیر می‌رود،
-  پس `set_log_level`، `set_log_file` و `set_log_callback` روی آن اعمال می‌شوند.
-- یک خط `info` برای هر پاسخ در `conn::send` (نقطه‌ای که همه‌ی پاسخ‌ها، از جمله 404 و 413 ساخت خود سرور، از آن رد می‌شوند):
-  `GET /items/1 200`. متد و target قبل از `std::move` ذخیره می‌شوند و فقط وقتی سطح `info` روشن است.
-- بعد از **بایند موفق**، `listening on http://host:port` (`info`)، هم در `listen` و هم در `bind_to_any_port` (با پورت واقعی).
-- `httpp.run` / `app.run()` / `httpp run` پیش‌فرضشان `info` است (مثل uvicorn)؛ پیام قدیمی `starting on` حذف شد.
-  `app.listen()` و C++ پیش‌فرض `warning` را نگه می‌دارند.
+- Internal logging stays AixLog behind `HTTPP_LOG` (only `log.cpp` includes its header); the request log goes through the same path,
+  so `set_log_level`, `set_log_file` and `set_log_callback` apply to it.
+- One `info` line per response in `conn::send` (the point every response goes through, including the 404 and 413 the server makes itself):
+  `GET /items/1 200`. The method and target are saved before the `std::move` and only when the `info` level is on.
+- After a **successful bind**, `listening on http://host:port` (`info`), in both `listen` and `bind_to_any_port` (with the real port).
+- `httpp.run` / `app.run()` / `httpp run` default to `info` (like uvicorn); the old `starting on` message was removed.
+  `app.listen()` and the C++ API keep the default `warning`.
 
-## گزینه‌های ردشده
+## Rejected alternatives
 
-- **hook `after_request` در پایتون برای لاگ:** هزینه‌ی پایتون و GIL برای هر درخواست؛ فقط به‌عنوان راه موقت در مثال استفاده شد.
-- **پیش‌فرض `info` برای کل کتابخانه:** یک سرور تعبیه‌شده نباید بی‌اجازه روی stderr بنویسد و بنچمارک را هم عوض می‌کند.
-  اگر خواستیم `listen()` هم پرحرف باشد، این پیش‌فرض باید عوض شود.
+- **A Python `after_request` hook for logging:** Python and GIL cost on every request; used only as a temporary workaround in the example.
+- **`info` as the default for the whole library:** an embedded server must not write to stderr without being asked, and it changes benchmarks.
+  If `listen()` should also be chatty, this default has to change.
 
-## پیامدها
+## Consequences
 
-- هر خط `info` زیر بار هزینه دارد (قفل و نوشتن روی stderr)؛ بنچمارک باید با `log_level="warning"` یا `listen()` اجرا شود.
-- اگر متد قبل از parse کامل معلوم نباشد (خطای 400)، خط لاگ با یک فاصله‌ی اضافی شروع می‌شود.
-- تست: ۳ تست C++ در `test_log.cpp` (روی Linux و macOS در CI)، `test_log.py` (روی همه‌ی wheelها) و تست CLI در
-  `test_run.py` که روی Windows skip می‌شود چون `SIGTERM` آنجا کشتن مستقیم است (ADR-0015).
+- Every `info` line costs something under load (a lock and a write to stderr); benchmarks must run with `log_level="warning"` or `listen()`.
+- If the method is not known before parsing finishes (a 400 error), the log line starts with an extra space.
+- Tests: 3 C++ tests in `test_log.cpp` (on Linux and macOS in CI), `test_log.py` (in every wheel) and the CLI test in
+  `test_run.py`, which is skipped on Windows because `SIGTERM` there is a hard kill ([ADR-0015](0015-testing-and-ci.md)).
 
-## مرتبط
+## Related
 
-ADR-0003، ADR-0012
+ADR-0003, ADR-0012

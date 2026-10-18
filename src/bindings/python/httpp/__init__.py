@@ -5,7 +5,7 @@ import sys as _sys
 
 try:
     # Reads the version scikit-build-core actually wrote into this wheel's
-    # metadata (derived from include/httpp.h at build time) — never
+    # metadata (derived from include/httpp.h at build time) - never
     # hardcoded here, so it can't drift from a real release version.
     from importlib.metadata import version as _pkg_version
     __version__ = _pkg_version("httpp")
@@ -16,7 +16,7 @@ _pkg_dir = _os.path.dirname(__file__)
 _lib_dir = _os.path.join(_pkg_dir, "lib")
 
 # On Windows, a .pyd's own directory (and its dependencies' directory) isn't
-# automatically searched for dependent DLLs — libhttpp_core.dll lives in
+# automatically searched for dependent DLLs - libhttpp_core.dll lives in
 # httpp/lib/, next to but not inside httpp/. Linux/macOS solve the
 # equivalent problem at link time via RPATH ($ORIGIN/lib / @loader_path/lib,
 # see src/bindings/python/CMakeLists.txt), so this only runs on win32.

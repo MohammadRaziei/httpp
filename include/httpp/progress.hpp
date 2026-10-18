@@ -43,7 +43,7 @@ private:
 //   for (auto i : httpp::progressbar::range(100, "working")) { ... }
 //
 // Entirely defined inline here (calls only bar's already-exported members),
-// so — unlike bar itself — this class needs no HTTPP_API at all: nothing
+// so - unlike bar itself - this class needs no HTTPP_API at all: nothing
 // about it is compiled into the DLL for a consumer to link against.
 class range {
 public:

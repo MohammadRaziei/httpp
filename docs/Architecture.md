@@ -1,78 +1,79 @@
-# httpp — Architecture
+# httpp: Architecture
 
-> وضعیت سند: بازبینی‌شده روی کد واقعی پروژه. هر جا چیزی **هدف** است و هنوز ساخته نشده، با 🎯 علامت خورده؛
-> هر جا اندازه‌گیری شده، شرایط اندازه‌گیری کنارش آمده. تصمیم‌های باز در بخش ۷ هستند و **با کاربر** گرفته می‌شوند.
+> Document status: reviewed against the real code. Anything that is a **goal** and not built yet is marked with 🎯.
+> Anything that was measured says under which conditions. Open decisions are in section 7 and are made **with the project owner**.
+> Accepted decisions are recorded one by one in [docs/adr](adr/README.md).
 
-## ۱. چشم‌انداز
+## 1. Vision
 
-**httpp** یک HTTP stack در C++ است که از **declaration** تا **سوکت** را در یک مالکیت واحد قرار می‌دهد،
-با یک لایهٔ پایتونی که برنامه‌ها با decorator‌های خودش نوشته می‌شوند (`@app.get(...)`).
+**httpp** is a C++ HTTP stack that puts everything from the **declaration** down to the **socket** under one owner,
+with a Python layer in which applications are written with its own decorators (`@app.get(...)`).
 
-هدف اصلی: **حذف مرزهای لایه‌ای** — نه بهینه‌سازی آن‌ها.
+The main goal: **remove the layer boundaries**, not optimize them.
 
-> جهت فعلی (تصمیم صاحب پروژه): **httpp هم جای FastAPI/Starlette (بالا) و هم جای uvicorn (پایین) می‌نشیند.**
-> API شبیه Starlette (و FastAPI روی آن) به‌صورت بومی پیاده می‌شود و با `httpp run main:app` یا `app.run()` اجرا می‌شود.
-> چون هر دو لایه مال ماست، می‌توانیم shared memory، کار اعلامی در C++ و دورشدن از GIL را در کل پشته طراحی کنیم.
-> دامنهٔ دقیق API (فقط Starlette-like یا FastAPI-like هم، pydantic) هنوز باز است (خطر ۴).
+> Current direction (decided by the project owner): **httpp replaces FastAPI/Starlette (above) and uvicorn (below).**
+> A Starlette-like API (with FastAPI on top of it) is implemented natively and started with `httpp run main:app` or `app.run()`.
+> Because both layers are ours, shared memory, declarative work in C++ and getting away from the GIL can be designed across the whole stack.
+> The exact scope of the API (Starlette-like only, or FastAPI-like as well, pydantic) is still open (risk 4).
 
 ---
 
-## ۲. اهداف
+## 2. Goals
 
-### اهداف اصلی
+### Main goals
 
-| # | هدف | معیار موفقیت | وضعیت فعلی |
-|---|------|--------------|------------|
-| ۱ | حذف مرزهای لایه‌ای | از ۴ مرز به ۱ مرز نازک | در جریان. مسیر `def`: یک پرش بین رشته‌ها؛ مسیر `async def`: دو پرش (اندازه‌گیری‌شده، بخش ۷ خطر ۱) |
-| ۲ | API شبیه Starlette/FastAPI، بومی روی موتور خودمان | تست‌های Starlette و (بعد) FastAPI روی httpp اجرا شوند | **جهت مشخص، دامنه باز (خطر ۴).** بخش بزرگی از API هنوز نیست؛ مسیرها فقط `:name` را می‌فهمند، نه `{name}` |
-| ۳ | سبکی | چند MB، نه چند ده MB | ✅ wheel لینوکس حدود **۱٫۱ MB** (شامل mbedTLS) برای `cp39-abi3` و `cp314t` |
-| ۴ | zero external dependency | فقط vendored/submodule | ✅ (وابستگی‌های pip **زمان بیلد** مجازند: `jsonschema`، `jinja2`، `cython`) |
-| ۵ | cross-platform | ARM/x86، Windows/Linux/macOS | فقط **Linux** اجرا و تأیید شده. کد macOS/Windows نوشته شده ولی هرگز اجرا نشده |
-| ۶ | shared state شفاف | بدون Redis، بین workerها | 🎯 شروع نشده |
+| # | Goal | Success criterion | Current status |
+|---|------|-------------------|----------------|
+| 1 | Remove layer boundaries | From 4 boundaries to 1 thin boundary | In progress. `def` path: one thread hop. `async def` path: see [ADR-0009](adr/0009-hot-path.md) and risk 1 |
+| 2 | Starlette/FastAPI-like API, native on our own engine | Starlette's and (later) FastAPI's tests run on httpp | **Direction set, scope open (risk 4).** A large part of the API is still missing. The C++ router understands only `:name`; the Python layer also accepts `{name}` and `<name>` |
+| 3 | Lightweight | A few MB, not tens of MB | ✅ the Linux wheel is about **1.8 MB** (0.7.0, includes mbedTLS and the Swagger UI bundle, measured with `pip-size`) |
+| 4 | Zero external dependencies | Only vendored files or submodules | ✅ (pip dependencies are allowed at **build time**: `scikit-build-core`, `cython`, `cython-cmake`, `jsonschema`, `jinja2`) |
+| 5 | Cross-platform | ARM/x86, Windows/Linux/macOS | ✅ built and tested in CI on Linux, macOS and Windows (C++ tests run on Linux and macOS; the Python tests run inside every wheel on all three). See [ADR-0015](adr/0015-testing-and-ci.md) |
+| 6 | Transparent shared state | No Redis, across workers | 🎯 not started |
 
-### اهداف غیرهدف (Out of Scope)
+### Non-goals (out of scope)
 
 - HTTP/2
 - HTTP/3 / QUIC
 - gRPC
-- permessage-deflate (فاز اولیه)
-- **SOCKS proxy** (توجه: پروکسی **HTTP و CONNECT در کلاینت پیاده شده است**؛ فقط SOCKS کنار گذاشته می‌شود)
+- permessage-deflate (initial phase)
+- **SOCKS proxy** (note: **HTTP and CONNECT proxies are implemented in the client**; only SOCKS is left out)
 
 ---
 
-## ۳. زیرساخت
+## 3. Infrastructure
 
-### ماژول‌ها
+### Modules
 
-| ماژول | نقش در httpp | لایسنس | نحوهٔ استفاده |
-|-------|--------------|--------|----------------|
-| **llhttp** v9.4.3 | parser HTTP/1.1 سرور و کلاینت | MIT | vendored در `src/llhttp` (بدون تغییر) |
-| **Asio** (standalone) | event loop و I/O async سرور و کلاینت | Boost Software License | submodule |
-| **mbedTLS** | TLS **کلاینت** (سرور هنوز TLS ندارد 🎯) | Apache-2.0 (دولایسنسه با GPL-2.0+) | submodule |
-| **liburlparser** | URL | — | submodule |
-| **AixLog** | لاگ داخلی | MIT | vendored (یک patch علامت‌گذاری‌شده) |
-| **cpp-httplib** v0.54.1 | **فقط** کلاینت sync، `curl.cpp`، `download.cpp`. سرور روی آن **نیست** | MIT | vendored، دست‌نخورده؛ قرار است بازنشسته شود |
-| libsharedmemory | **کاندید** برای shared state | MIT | ❌ هنوز انتخاب و vendored نشده (خطر ۲) |
+| Module | Role in httpp | License | How it is used |
+|--------|---------------|---------|----------------|
+| **llhttp** v9.4.3 | HTTP/1.1 parser for server and client | MIT | vendored in `src/llhttp` (unmodified) |
+| **Asio** (standalone) | event loop and async I/O for server and client | Boost Software License | submodule |
+| **mbedTLS** | TLS for the **client** (the server has no TLS yet 🎯) | Apache-2.0 (dual-licensed with GPL-2.0+) | submodule |
+| **liburlparser** | URLs | n/a | submodule |
+| **AixLog** | internal logging | MIT | vendored (one marked patch) |
+| **cpp-httplib** v0.54.1 | **only** the sync client, `curl.cpp`, `download.cpp`. The server does **not** run on it | MIT | vendored, untouched; to be retired |
+| libsharedmemory | **candidate** for shared state | MIT | ❌ not chosen or vendored yet (risk 2) |
 
-> parser یکسان است: `httptools` (که زیر uvicorn است) هم روی llhttp ساخته شده. پس تفاوت سرعت از parser نمی‌آید.
+> The parser is the same one: `httptools` (which sits under uvicorn) is also built on llhttp. So the speed difference does not come from the parser.
 
-### نمودار زیرساخت (واقعی، امروز)
+### Infrastructure diagram (real, today)
 
 ```mermaid
 graph TB
     subgraph "Python Layer (httpp/*.py)"
-        PY["decorator ها، adapter های sync/async،<br/>تبدیل نوع پارامتر، hook ها، ServerRequest"]
+        PY["decorators, sync/async adapters,<br/>parameter type conversion, hooks, ServerRequest"]
     end
 
     subgraph "Cython Binding (httpp_cy.pyx)"
-        BIND["تبدیل داده + صف inbox برای async def"]
+        BIND["data conversion + inbox queue for async def"]
     end
 
     subgraph "C++ Core"
-        SRV["server.cpp<br/>router، hook ها، فایل استاتیک، worker pool"]
-        ENG["async_server.cpp<br/>Asio + llhttp، keep-alive، pipelining"]
-        ACLI["async_http.cpp<br/>کلاینت async: pool، proxy، TLS (mbedTLS)"]
-        SCLI["client.cpp / download.cpp / curl.cpp<br/>کلاینت sync روی cpp-httplib"]
+        SRV["server.cpp<br/>router, hooks, static files, worker pool"]
+        ENG["async_server.cpp<br/>Asio + llhttp, keep-alive, pipelining"]
+        ACLI["async_http.cpp<br/>async client: pool, proxy, TLS (mbedTLS)"]
+        SCLI["client.cpp / download.cpp / curl.cpp<br/>sync client on cpp-httplib"]
         SHM["🎯 shared state"]
     end
 
@@ -90,28 +91,28 @@ graph TB
     SRV -.-> SHM
 ```
 
-### مرزها (قبل و بعد)
+### Boundaries (before and after)
 
 ```mermaid
 graph LR
-    subgraph "معماری امروز دنیای FastAPI (۴ مرز)"
-        U1[کاربر] --> F1[FastAPI]
-        F1 -->|مرز ASGI| UV[uvicorn]
-        UV -->|مرز C/Python| HT[httptools/uvloop]
-        HT -->|مرز syscall| OS1[OS]
+    subgraph "Today's FastAPI world (4 boundaries)"
+        U1[User] --> F1[FastAPI]
+        F1 -->|ASGI boundary| UV[uvicorn]
+        UV -->|C/Python boundary| HT[httptools/uvloop]
+        HT -->|syscall boundary| OS1[OS]
     end
 
-    subgraph "httpp (هدف: ۱ مرز نازک)"
-        U2[کاربر] --> H[httpp<br/>declaration + server + C++]
-        H -->|مرز نازک| OS2[OS]
+    subgraph "httpp (goal: 1 thin boundary)"
+        U2[User] --> H[httpp<br/>declaration + server + C++]
+        H -->|thin boundary| OS2[OS]
     end
 ```
 
 ---
 
-## ۴. معماری
+## 4. Architecture
 
-### لایه‌ها (واقعیت امروز + هدف)
+### Layers (today's reality + goal)
 
 ```mermaid
 graph TB
@@ -121,17 +122,17 @@ graph TB
     end
 
     subgraph "Layer 2: Cython Binding"
-        PROXY["تبدیل داده، trampoline ها،<br/>loop inbox"]
+        PROXY["data conversion, trampolines,<br/>loop inbox"]
         CACHE["🎯 app.cache / app.counter"]
     end
 
     subgraph "Layer 1: C++ Core"
         ROUTE["Routing ✅"]
-        STATIC["فایل استاتیک + Range ✅"]
-        HOOKS["hook ها (before/after/error) ✅"]
+        STATIC["Static files + Range ✅"]
+        HOOKS["Hooks (before/after/error) ✅"]
         CONST["🎯 Const Response"]
-        VALID["🎯 Validation (فقط موارد بدون Python)"]
-        AUTH["🎯 Auth ثابت"]
+        VALID["🎯 Validation (only cases that need no Python)"]
+        AUTH["🎯 Static auth"]
         HANDLER["Handler Call ✅"]
     end
 
@@ -147,39 +148,39 @@ graph TB
     PROXY -.-> AUTH
 ```
 
-> توجه: لایهٔ پایتونی **نازک نیست**؛ منطق واقعی دارد (تبدیل نوع پارامتر و پاسخ ۴۲۲، adapter‌ها، hook‌ها).
-> «proxy بدون منطق» هدف است، نه وضع فعلی.
+> Note: the Python layer is **not thin**. It has real logic (parameter type conversion and the 422 response, adapters, hooks).
+> A "proxy without logic" is a goal, not the current state.
 
-### جریان درخواست — امروز
+### Request flow, today
 
 ```mermaid
 sequenceDiagram
     participant C as Client
-    participant A as Asio + llhttp (یک رشته)
+    participant A as Asio + llhttp (one thread)
     participant W as Worker pool (C++)
-    participant L as حلقهٔ asyncio (یک رشته پایتونی)
-    participant P as Handler پایتون
+    participant L as asyncio loop (one Python thread)
+    participant P as Python handler
 
-    C->>A: bytes (بدون TLS؛ سرور TLS ندارد)
-    A->>W: درخواست parse شده
-    W->>W: route match، before-hook
-    alt مسیر def (یک پرش)
-        W->>P: GIL، اجرا
-        P->>A: پاسخ
-    else مسیر async def (دو پرش)
-        W->>L: صف inbox + یک بایت بیدارکننده (بدون GIL در C++)
-        L->>P: GIL یک‌بار برای کل رگبار، create_task
-        P->>A: پاسخ
+    C->>A: bytes (no TLS; the server has no TLS)
+    A->>W: parsed request
+    W->>W: route match, before-hook
+    alt def route (one hop)
+        W->>P: GIL, run
+        P->>A: response
+    else async def route
+        W->>L: inbox queue + one wake-up byte (no GIL in C++)
+        L->>P: GIL once for the whole burst, create_task
+        P->>A: response
     end
     A->>C: bytes
 ```
 
-### جریان درخواست — هدف 🎯
+### Request flow, goal 🎯
 
 ```mermaid
 sequenceDiagram
     participant C as Client
-    participant T as mbedTLS 🎯 سرور
+    participant T as mbedTLS 🎯 server
     participant A as Asio
     participant L as llhttp
     participant R as Router (C++)
@@ -189,11 +190,11 @@ sequenceDiagram
     T->>A: decrypted bytes
     A->>L: parse
     L->>R: parsed request
-    R->>R: auth ثابت، rate limit
-    alt پاسخ ثابت
-        R->>T: response (بدون پایتون)
-    else handler واقعی
-        R->>P: فقط فیلدهای لازم
+    R->>R: static auth, rate limit
+    alt constant response
+        R->>T: response (no Python)
+    else real handler
+        R->>P: only the needed fields
         P->>R: return value
         R->>T: response
     end
@@ -202,37 +203,37 @@ sequenceDiagram
 
 ---
 
-## ۵. اصول طراحی
+## 5. Design principles
 
-### اصل ۱ — حذف مرز
+### Principle 1: remove the boundary
 
-هر مرز = هزینه (context switch، کپی، GIL). مرز را **حذف** می‌کنیم، نه بهینه.
+Every boundary costs something (context switch, copy, GIL). We **remove** the boundary, we do not optimize it.
 
-### اصل ۲ — پایتون تا جای ممکن بیدار نشه
+### Principle 2: wake Python as little as possible
 
-| کار | وضعیت | یادداشت |
-|-----|-------|---------|
-| فایل استاتیک | ✅ کامل در C++ | پایتون صدا زده نمی‌شود |
-| پاسخ ثابت (`get_const`) | 🎯 | ساده و پرارزش |
-| auth با توکن ثابت، CORS، rate limit | 🎯 | هر چیزی که منطق پایتونی لازم ندارد |
-| validation نوع پارامتر در C++ | 🎯 ارزش کم | درخواست **معتبر** باز هم به `int` پایتونی نیاز دارد؛ فقط درخواست **نامعتبر** از GIL معاف می‌شود |
-| ساختن فقط فیلدهایی که handler خواسته | ✅ | `RawRequest` مشترک با C++ و `ServerRequest` تنبل؛ فقط path param های لازم ساخته می‌شود |
+| Work | Status | Notes |
+|------|--------|-------|
+| Static files | ✅ fully in C++ | Python is never called |
+| Constant response (`get_const`) | 🎯 | simple and valuable |
+| Static-token auth, CORS, rate limit | 🎯 | anything that needs no Python logic |
+| Parameter type validation in C++ | 🎯 low value | a **valid** request still needs a Python `int`; only an **invalid** request avoids the GIL |
+| Build only the fields the handler asked for | ✅ | `RawRequest` shared with C++ and a lazy `ServerRequest`; only the needed path params are built |
 
-### اصل ۳ — shared memory شفاف 🎯
+### Principle 3: transparent shared memory 🎯
 
 ```mermaid
 graph TB
-    SUP["Supervisor<br/>قبل از راه‌اندازی workerها حافظه را می‌سازد"]
-    subgraph "Worker 1 (پردازهٔ جدا)"
+    SUP["Supervisor<br/>creates the memory before the workers start"]
+    subgraph "Worker 1 (separate process)"
         P1[Python] --- C1[C++]
     end
-    subgraph "Worker 2 (پردازهٔ جدا)"
+    subgraph "Worker 2 (separate process)"
         P2[Python] --- C2[C++]
     end
-    subgraph "Worker 3 (پردازهٔ جدا)"
+    subgraph "Worker 3 (separate process)"
         P3[Python] --- C3[C++]
     end
-    SHM[("حافظهٔ مشترک")]
+    SHM[("shared memory")]
 
     SUP --> SHM
     C1 --> SHM
@@ -240,165 +241,169 @@ graph TB
     C3 --> SHM
 ```
 
-- C++ مدیریت می‌کند؛ پایتون از طریق proxy نازک دسترسی دارد.
-- workerها **پردازهٔ تازه** هستند (نه `fork`): ساختن `Server()` یک epoll fd از Asio می‌سازد که بعد از fork بین پردازه‌ها مشترک می‌شود.
-- «شفاف» محدودیت دارد: مقدارها `bytes` یا شمارنده‌اند؛ شیء پایتونی باید صریحاً serialize شود (مثلاً JSON). نباید وانمود کنیم دیکشنری عادی است.
+- C++ manages it; Python reaches it through a thin proxy.
+- Workers are **fresh processes** (not `fork`): creating a `Server()` creates an Asio epoll fd that would be shared between processes after a fork.
+- "Transparent" has limits: values are `bytes` or counters; a Python object has to be serialized explicitly (for example as JSON). We must not pretend it is an ordinary dict.
 
-### اصل ۴ — سبک بمان
+### Principle 4: stay light
 
-- mbedTLS به‌جای OpenSSL، بدون dependency خارجی.
-- اندازه‌گیری‌شده: wheel حدود ۱٫۱ MB.
+- mbedTLS instead of OpenSSL, no external dependency.
+- Measured: the wheel is about 1.8 MB.
 
-### اصل ۵ — cross-platform
+### Principle 5: cross-platform
 
-- هدف: ARM / x86، Windows / Linux / macOS.
-- **«یک wheel برای همه‌جا» درست نیست:** برای هر سیستم‌عامل و معماری یک wheel لازم است. برای پایتون‌های معمولی یک `cp39-abi3` کافی است؛ پایتون free-threaded (3.13t، 3.14t) stable ABI ندارد و **برای هر نسخه** wheel جدا می‌خواهد (`cp313-cp313t`، `cp314-cp314t`). `abi3t` از CPython 3.15 می‌آید.
-- امروز فقط Linux واقعاً اجرا شده است.
-
----
-
-## ۶. تصمیم‌ها
-
-### تصمیم‌های گرفته‌شده
-
-| تصمیم | انتخاب | چرا | جایگزین رد شده |
-|-------|--------|-----|----------------|
-| TLS | mbedTLS | سبک، vendored، cross-platform | OpenSSL (سنگین) |
-| Parser | llhttp | سریع، بالغ | h11 (پایتون، کند) |
-| Event loop (I/O) | Asio | کنترل کامل، بدون dependency | libuv (dependency) |
-| حلقهٔ handlerهای `async def` | **asyncio استاندارد** | سازگار با httpx، asyncpg، anyio | حلقهٔ asyncio روی Asio (uvloop-style: خیلی سنگین)؛ runner coroutine اختصاصی (با کتابخانه‌های asyncio ناسازگار) |
-| چند پردازه (`--workers`) | پردازهٔ تازه + `SO_REUSEPORT`، فقط Linux | `fork` با epoll مشترک امن نیست | fork |
-| بسته‌بندی | `cp39-abi3` + wheel جدا برای هر نسخهٔ free-threaded | stable ABI برای 3.13t/3.14t وجود ندارد | — |
-| API | **Starlette-like بومی** (FastAPI-like روی آن)، جای FastAPI/Starlette و uvicorn | مالکیت هر دو لایه = حذف مرز و امکان shared memory/کار اعلامی در C++ | اجرای FastAPI آماده روی آداپتور ASGI (مرز را حفظ می‌کند) |
-| HTTP/2 | ❌ نه | با اهداف در تضاد | — |
-| gRPC | ❌ نه | پروتکل جداگانه | — |
-
-### تصمیم‌های باز (بخش ۷)
-
-| تصمیم | وضعیت |
-|-------|-------|
-| کتابخانهٔ shared memory | باز (خطر ۲) |
-| سطح coupling | باز (خطر ۳) |
-| دامنهٔ دقیق API (Starlette-like / FastAPI-like، pydantic) | جهت مشخص، دامنه باز (خطر ۴) |
-| مسیر `async def` (حذف پرش) | باز (خطر ۱) |
-| backpressure در WebSocket | باز (خطر ۶) |
+- Goal: ARM / x86, Windows / Linux / macOS.
+- **"One wheel for everywhere" is wrong:** one wheel per operating system and architecture is needed. For ordinary Pythons one `cp39-abi3` is enough; free-threaded Python (3.13t, 3.14t, 3.15t) has no stable ABI and needs a **separate wheel for each version** (`cp313t`, `cp314t`, `cp315t`). `abi3t` arrives with CPython 3.15.
+- CI builds and tests the wheels on Linux, macOS and Windows ([ADR-0013](adr/0013-packaging.md)).
 
 ---
 
-## ۷. نقاط خطر و تصمیم‌گیری
+## 6. Decisions
 
-> ⚠️ **هر مورد زیر باید قبل از شروع کد، با کاربر تصمیم‌گیری شود.** «پیشنهاد» فقط پیشنهاد است، نه تصمیم.
+### Decisions made
 
-### خطر ۱ — سرعت `async def`
+Each one has an ADR with context, rejected alternatives and consequences: [docs/adr](adr/README.md).
 
-**اندازه‌گیری** (یک هستهٔ CPU، handler خالی، یک کلاینت پایتونی یکسان، ۳ دور، پایدار):
+| Decision | Choice | Why | Rejected alternative |
+|----------|--------|-----|----------------------|
+| TLS | mbedTLS | light, vendored, cross-platform | OpenSSL (heavy) |
+| Parser | llhttp | fast, mature | h11 (Python, slow) |
+| Event loop (I/O) | Asio | full control, no dependency | libuv (a dependency) |
+| Loop for `async def` handlers | **standard asyncio** | compatible with httpx, asyncpg, anyio | asyncio loop on Asio (uvloop-style: far too heavy); a custom coroutine runner (incompatible with asyncio libraries) |
+| Multi-process (`--workers`) | fresh processes + `SO_REUSEPORT`, Linux only | `fork` with a shared epoll is not safe | fork |
+| Packaging | `cp39-abi3` + a separate wheel per free-threaded version | no stable ABI for 3.13t/3.14t/3.15t | n/a |
+| API | **native Starlette-like** (FastAPI-like on top), replacing FastAPI/Starlette and uvicorn | owning both layers = no boundary and room for shared memory and declarative work in C++ | running stock FastAPI on an ASGI adapter (keeps the boundary) |
+| HTTP/2 | ❌ no | conflicts with the goals | n/a |
+| gRPC | ❌ no | a separate protocol | n/a |
 
-| سرور | درخواست بر ثانیه |
-|------|------------------|
-| uvicorn (httptools + uvloop) | ~۲۴k |
-| httpp `def` | ~۲۹k |
-| httpp `async def` | ~۱۷٫۵k |
+### Open decisions (section 7)
 
-**مشکل:** `async def` حدود ۲۸٪ کندتر از uvicorn است. فرضیه (هنوز اثبات‌نشده): دو پرش بین رشته‌ها
-(Asio ← pool ← حلقهٔ asyncio) به‌اضافهٔ نوشتن روی سوکت و بیدارشدن epoll، در حالی که uvicorn همه‌چیز را در یک رشته انجام می‌دهد.
-فرضیهٔ «ساختن task» با `eager_task_factory` آزموده شد و **رد شد** (تفاوتی نداشت).
-توجه: این اعداد تک‌هسته‌اند و دربارهٔ چندهسته چیزی نمی‌گویند.
+| Decision | Status |
+|----------|--------|
+| Shared memory library | open (risk 2) |
+| Coupling level | open (risk 3) |
+| Exact API scope (Starlette-like / FastAPI-like, pydantic) | direction set, scope open (risk 4) |
+| `async def` path (removing the hop) | partly done, see [ADR-0009](adr/0009-hot-path.md) (risk 1) |
+| Backpressure in WebSocket | open (risk 6) |
 
-**گزینه‌ها:**
+---
 
-| گزینه | مزیت | هزینه |
-|-------|------|-------|
-| A. حفظ معماری فعلی | سادگی | کندی `async def` نسبت به uvicorn |
-| B. حذف پرش دوم: route match روی رشتهٔ Asio و push مستقیم به inbox، وقتی `before_request` نیست | کاهش مستقیم شکاف | بازسازی بخشی از `server.cpp::handle` |
-| C. ساختن فقط فیلدهای لازم handler | روی `def` و `async def` اثر دارد | باید hookهای exception (که `request` می‌خواهند) را هم حساب کرد |
-| B + C | هر دو | جمع هزینه‌ها |
+## 7. Risks and decision points
 
-> «فقط async» یا «فقط sync» که در نسخهٔ قبلی سند بود گزینهٔ واقعی نیست و حذف شد: کاربر هر دو را می‌خواهد.
+> ⚠️ **Each item below must be decided with the project owner before any code is started.** A "suggestion" is only a suggestion, not a decision.
 
-**پیشنهاد:** B + C، سپس اندازه‌گیری روی ماشین چندهسته‌ای (فاز ۲ در checklist). بدون آن عدد «سبقت از uvicorn» معتبر نیست.
+### Risk 1: `async def` speed
 
-### خطر ۲ — shared memory safety
+**Measurement at the time of writing** (one CPU core, empty handler, the same Python client, 3 rounds, stable):
 
-**مشکل:** مدیریت state در C++ یعنی memory safety کامل روی C++. یک باگ = crash همهٔ workerها.
-یک worker هم ممکن است وسط نگه‌داشتن قفل بمیرد.
+| Server | Requests per second |
+|--------|---------------------|
+| uvicorn (httptools + uvloop) | ~24k |
+| httpp `def` | ~29k |
+| httpp `async def` | ~17.5k |
 
-**دامنه‌ای که باید تصمیم بگیری:** فقط جدول `bytes → bytes` + شمارندهٔ اتمیک (پیشنهاد)، یا چیز غنی‌تر؟
+**Problem:** `async def` was about 28% slower than uvicorn. Hypothesis (not proven): two thread hops
+(Asio, then the pool, then the asyncio loop) plus the socket write and the epoll wake-up, while uvicorn does everything in one thread.
+The "task creation" hypothesis was tested with `eager_task_factory` and **rejected** (it made no difference).
+Note: these numbers are single-core and say nothing about multi-core.
 
-**گزینه‌ها:**
+**Options:**
 
-| گزینه | مزیت | هزینه |
-|-------|------|-------|
-| A. libsharedmemory | header-only، abstraction آماده | بلوغ، نگهداری و پشتیبانی پلتفرم‌ها **هنوز بررسی نشده**؛ باید vendored شود |
-| B. Boost.Interprocess | بالغ | سنگین، با هدف «سبک و بدون dependency» تضاد دارد |
-| C. پیاده‌سازی خودمان، Linux اول (`memfd_create`/`shm_open` + `mmap` + mutex بین‌پردازه‌ای **robust** + atomic)، پشت یک interface | کنترل کامل؛ robust mutex دقیقاً سناریوی «worker وسط قفل مُرد» (`EOWNERDEAD`) را پوشش می‌دهد؛ بدون dependency | ریسک باگ در کد خودمان؛ Windows (`CreateFileMapping`) بعداً |
+| Option | Advantage | Cost |
+|--------|-----------|------|
+| A. Keep the current architecture | simplicity | `async def` is slower than uvicorn |
+| B. Remove the second hop: route match on the Asio thread and a direct push into the inbox, when there is no `before_request` | directly reduces the gap | rebuilds part of `server.cpp::handle` |
+| C. Build only the fields the handler needs | helps both `def` and `async def` | exception hooks (which want `request`) have to be accounted for |
+| B + C | both | the sum of the costs |
 
-**پیشنهاد:** C، با interface که بعداً Windows را بپذیرد؛ با تست چندپردازه‌ای و crash-recovery از روز اول.
-**توجه صادقانه:** shared memory **قابلیت** می‌دهد (workers بدون Redis)، نه سرعت خام. جایی که جلوتر از uvicorn+Redis می‌ایستد
-بار کاری stateful است (قفل حافظه‌ای در برابر رفت‌وبرگشت شبکه) و هنوز اندازه‌گیری نشده.
+> "Async only" or "sync only", which were in the previous version of this document, are not real options and were removed: the project owner wants both.
 
-### خطر ۳ — کوپلینگ درونی
+**Suggestion:** B + C, then measure on a multi-core machine. Without that number a claim of "faster than uvicorn" is not valid.
 
-**مشکل:** tight coupling یعنی تغییرات آبشاری، نگهداری سخت‌تر.
-واقعیت امروز: C++ و Cython به هم گره خورده‌اند (trampoline، inbox)، و لایهٔ پایتونی هم منطق دارد.
+**Status:** B + C were chosen and built (see [ADR-0009](adr/0009-hot-path.md)). On one core, with the server and the load generator sharing it, `async def` reached about 33k requests per second against 23k for uvicorn on `hello`, and `def` and `async def` are within noise on `item`. **There is still no multi-core measurement.**
 
-| گزینه | مزیت | هزینه |
-|-------|------|-------|
-| A. tight coupling | حداکثر سرعت | نگهداری سخت |
-| B. loose coupling | نگهداری آسان | از دست دادن مزیت |
-| C. حالت دوگانه | انعطاف | پیچیدگی |
+### Risk 2: shared memory safety
 
-**پیشنهاد:** A برای مسیر داغ درخواست؛ interface‌های روشن فقط روی مرزهای کم‌تکرار (راه‌اندازی، پیکربندی).
+**Problem:** managing state in C++ means full memory safety in C++. One bug = all workers crash.
+A worker can also die while holding a lock.
 
-### خطر ۴ — دامنهٔ API (Starlette-like / FastAPI-like)
+**Scope you must decide:** only a `bytes → bytes` table plus an atomic counter (suggested), or something richer?
 
-**جهت مشخص است:** API بومی روی موتور خودمان؛ بدون آداپتور ASGI. **سؤال باز:** تا کجا؟
-اندازه‌گیری موفقیت: اجرای تست‌های خود Starlette و FastAPI روی httpp (روش در `agent.md` بخش ۶).
+**Options:**
 
-| گزینه | شامل | هزینه |
-|-------|------|-------|
-| A. Starlette-like | `Request`/`Response`، `Router`/`Mount`، middleware، فایل استاتیک، background task، WebSocket، `TestClient` | متوسط تا زیاد؛ بیشترش با موتور فعلی جور است |
-| B. A + FastAPI-like | A + نوع پارامتر از annotation، `Depends`، مدل‌های pydantic، OpenAPI | زیاد؛ **pydantic وابستگی اختیاری می‌شود (تصمیم حیاتی: انتخاب کتابخانه)**؛ OpenAPI بزرگ است |
-| C. آداپتور ASGI برای اپ‌های ثالث | اجرای FastAPI/Starlette **واقعی** روی موتور ما | مستقل از A و B؛ ترجمهٔ `scope/receive/send` سرعت را محدود می‌کند؛ مرز را برمی‌گرداند |
+| Option | Advantage | Cost |
+|--------|-----------|------|
+| A. libsharedmemory | header-only, ready-made abstraction | maturity, maintenance and platform support **not reviewed yet**; must be vendored |
+| B. Boost.Interprocess | mature | heavy, conflicts with the "light and dependency-free" goal |
+| C. Our own implementation, Linux first (`memfd_create`/`shm_open` + `mmap` + a **robust** inter-process mutex + atomics), behind an interface | full control; a robust mutex covers exactly the "worker died holding the lock" scenario (`EOWNERDEAD`); no dependency | risk of bugs in our own code; Windows (`CreateFileMapping`) later |
 
-**پیشنهاد:** A را کامل کن و با تست‌های Starlette اندازه بگیر؛ بعد B به‌تدریج؛ C فقط اگر کاربر بیرونی لازم شد.
-یک گام ارزان و بی‌ریسک: پشتیبانی از `{id}` کنار `:id` در router.
+**Suggestion:** C, with an interface that can accept Windows later; with multi-process and crash-recovery tests from day one.
+**Honest note:** shared memory gives a **capability** (workers without Redis), not raw speed. Where it can pull ahead of uvicorn + Redis
+is a stateful workload (an in-memory lock against a network round trip), and that has not been measured yet.
 
-> فرق با نسخهٔ قبلی سند: آنجا فرض شده بود «سازگاری» یعنی اجرای اپ FastAPI روی ASGI و با جهت بومی تنش دارد. این غلط بود؛
-> مسیر بومی دقیقاً همان جهت است و ASGI فقط یک گزینهٔ جانبی (C) است.
+### Risk 3: internal coupling
 
-### خطر ۵ — cross-platform shared memory
+**Problem:** tight coupling means cascading changes and harder maintenance.
+Reality today: C++ and Cython are tied together (trampolines, inbox), and the Python layer also has logic.
 
-Windows (`CreateFileMapping`) و Linux (`memfd_create`/`shm_open`) متفاوت‌اند. این خطر **با خطر ۲ یکی تصمیم‌گیری می‌شود.**
+| Option | Advantage | Cost |
+|--------|-----------|------|
+| A. Tight coupling | maximum speed | hard to maintain |
+| B. Loose coupling | easy to maintain | loses the advantage |
+| C. Dual mode | flexibility | complexity |
 
-| گزینه | مزیت | هزینه |
-|-------|------|-------|
-| A. libsharedmemory | abstraction آماده | بلوغ بررسی نشده |
-| B. abstraction خودمان | کنترل | هفته‌ها کار |
-| C. فقط Linux (فعلاً) | سادگی؛ هم‌خوان با وضع `--workers` که امروز فقط Linux است | از دست دادن Windows |
+**Suggestion:** A for the hot request path; clear interfaces only on rarely repeated boundaries (startup, configuration).
 
-**پیشنهاد:** C فعلاً، پشت interface (همان گزینهٔ C خطر ۲).
+### Risk 4: API scope (Starlette-like / FastAPI-like)
 
-### خطر ۶ — WebSocket backpressure
+**The direction is set:** a native API on our own engine, with no ASGI adapter. **Open question:** how far?
+Success measure: running Starlette's and FastAPI's own tests on httpp (method in `agent.md`, section 6).
 
-**مشکل:** اگر client کند باشد، حافظه پر می‌شود (DoS ساده). WebSocket هنوز شروع نشده است.
+| Option | Includes | Cost |
+|--------|----------|------|
+| A. Starlette-like | `Request`/`Response`, `Router`/`Mount`, middleware, static files, background tasks, WebSocket, `TestClient` | medium to high; most of it fits the current engine |
+| B. A + FastAPI-like | A + parameter types from annotations, `Depends`, pydantic models, OpenAPI | high; **pydantic becomes an optional dependency (critical decision: choice of library)**; OpenAPI is large |
+| C. ASGI adapter for third-party apps | running **real** FastAPI/Starlette on our engine | independent of A and B; translating `scope/receive/send` limits speed; brings the boundary back |
 
-| گزینه | مزیت | هزینه |
-|-------|------|-------|
-| A. bounded queue | امنیت | پیچیدگی |
-| B. بدون محدودیت | سادگی | DoS |
-| C. فاز اولیه بدون backpressure | سرعت توسعه | ریسک، و اضافه‌کردنش بعداً سخت‌تر است |
+**Suggestion:** finish A and measure with Starlette's tests; then B step by step; C only if an outside user needs it.
+One cheap, risk-free step: support `{id}` next to `:id` in the router.
 
-**پیشنهاد:** A از ابتدا.
+> Difference from the previous version of this document: it assumed that "compatibility" meant running a FastAPI app on ASGI and clashed with the native direction. That was wrong;
+> the native path is exactly the direction and ASGI is only a side option (C).
 
-### خطر ۷ — محدودیت منابع سرور (جدید)
+### Risk 5: cross-platform shared memory
 
-**مشکل:** سقف تعداد اتصال وجود ندارد (فقط backoff وقتی fd تمام می‌شود) و محدودیت درخواست‌های کند (slowloris) هم نیست.
-این مهم‌ترین مورد امنیتی است و تست slowloris در `agent.md` تا آن موقع **باید رد شود**.
-**پیشنهاد:** `set_max_connections`، timeout هدر، و timeout هر route، قبل از WebSocket.
+Windows (`CreateFileMapping`) and Linux (`memfd_create`/`shm_open`) differ. This risk is **decided together with risk 2.**
 
-### خطر ۸ — پایتون free-threaded (جدید)
+| Option | Advantage | Cost |
+|--------|-----------|------|
+| A. libsharedmemory | ready-made abstraction | maturity not reviewed |
+| B. Our own abstraction | control | weeks of work |
+| C. Linux only (for now) | simplicity; matches `--workers`, which is Linux only today | loses Windows |
 
-**مشکل:** روی 3.13t/3.14t، handlerهای `def` روی رشته‌های pool واقعاً موازی‌اند و dict و شمارندهٔ سراسری کاربر همزمان لمس می‌شوند.
-بدون اعلام `freethreading_compatible` مفسر هنگام import، GIL را دوباره روشن می‌کند (اثبات‌شده؛ اعلام اضافه شده).
-تأیید شده: کل تست‌های پایتون و یک استرس‌تست روی 3.14t با GIL خاموش، **روی یک هسته**. تسریع چندهسته‌ای اندازه‌گیری نشده.
-**پیشنهاد:** بنچمارک چندهسته‌ای قبل از هر ادعا؛ مستندکردن thread-safety برای کاربر.
+**Suggestion:** C for now, behind an interface (the same as option C of risk 2).
+
+### Risk 6: WebSocket backpressure
+
+**Problem:** with a slow client, memory fills up (a simple DoS). WebSocket has not been started yet.
+
+| Option | Advantage | Cost |
+|--------|-----------|------|
+| A. Bounded queue | safety | complexity |
+| B. No limit | simplicity | DoS |
+| C. No backpressure in the initial phase | development speed | risk, and adding it later is harder |
+
+**Suggestion:** A from the start.
+
+### Risk 7: server resource limits (new)
+
+**Problem:** there is no cap on the number of connections (only a backoff when fds run out) and no limit on slow requests (slowloris).
+This is the most important security item, and the slowloris test in `agent.md` **must fail** until it is done.
+**Suggestion:** `set_max_connections`, a header timeout and a per-route timeout, before WebSocket.
+
+### Risk 8: free-threaded Python (new)
+
+**Problem:** on 3.13t/3.14t/3.15t, `def` handlers on the pool threads are truly parallel and the user's global dicts and counters are touched at the same time.
+Without declaring `freethreading_compatible`, the interpreter turns the GIL back on at import (proven; the declaration was added).
+CI runs a test that checks the GIL stays off on the free-threaded wheels; the whole Python test suite and a stress test were also run on 3.14t with the GIL off, **on one core**. Multi-core speed-up has not been measured.
+**Suggestion:** a multi-core benchmark before any claim; document thread safety for users.

@@ -1,34 +1,33 @@
-# ADR-0002: handlerهای `async def` روی حلقه‌ی asyncio استاندارد اجرا می‌شوند
+# ADR-0002: `async def` handlers run on the standard asyncio loop
 
-- **وضعیت:** پذیرفته‌شده
-- **تصمیم‌گیرنده:** صاحب پروژه (پس از بحث)
-- **منبع:** `Architecture.md` بخش ۶، `handoff.md` بخش ۲ و ۳
+- **Status:** accepted
+- **Decided by:** the project owner (after discussion)
+- **Source:** `Architecture.md` section 6, `handoff.md` sections 2 and 3
 
-## زمینه
+## Context
 
-I/O شبکه را Asio در C++ انجام می‌دهد، ولی handlerهای `async def` باید با کتابخانه‌های asyncio (httpx، asyncpg، anyio)
-کار کنند. باید یک حلقه‌ی رویداد برای کد کاربر انتخاب شود.
+Network I/O is done by Asio in C++, but `async def` handlers must work with asyncio libraries (httpx, asyncpg, anyio).
+An event loop for user code has to be chosen.
 
-## تصمیم
+## Decision
 
-یک **حلقه‌ی asyncio استاندارد** روی یک thread جدا. Asio درخواست را parse و route می‌کند، آن را در یک صف
-(`inbox`) می‌گذارد و فقط وقتی صف از خالی به غیرخالی می‌رود یک بایت بیدارباش به سوکت حلقه می‌نویسد. حلقه یک‌بار GIL را
-می‌گیرد، صف را خالی می‌کند، برای هر درخواست `create_task` می‌زند، و `done(...)` را مستقیم روی همان thread صدا می‌زند.
+One **standard asyncio loop** on its own thread. Asio parses and routes the request, puts it in a queue
+(`inbox`) and writes one wake-up byte to the loop's socket only when the queue goes from empty to non-empty. The loop takes the GIL once,
+drains the queue, calls `create_task` for each request and calls `done(...)` directly on the same thread.
 
-## گزینه‌های ردشده
+## Rejected alternatives
 
-- **حلقه‌ی asyncio نوشته‌شده روی Asio (به سبک uvloop):** خیلی سنگین.
-- **runner کوروتین اختصاصی در C++:** فقط awaitableهای خودمان را می‌فهمد و با httpx/asyncpg/anyio ناسازگار است.
+- **An asyncio loop built on Asio (uvloop-style):** far too heavy.
+- **A custom coroutine runner in C++:** it would only understand our own awaitables and be incompatible with httpx/asyncpg/anyio.
 
-## پیامدها
+## Consequences
 
-- همه‌ی handlerهای `async def` یک thread و یک GIL را شریک‌اند؛ موازی‌سازی واقعی با `--workers` یا پایتون
-  free-threaded است.
-- هرجا `after_request` یا `error_handler` وجود دارد، `done` از `run_in_executor` رد می‌شود، چون این hookها داخل `done()`
-  اجرا می‌شوند و یک hook از نوع `async def` روی همان حلقه‌ای که صدایش زده منتظر می‌ماند (deadlock؛ با اجبار مسیر مستقیم
-  اثبات شده). علامت `ponytail:` در کد؛ مسیر ارتقا: hookها داخل خود کوروتین await شوند.
-- dependency سنکرون داخل route از نوع `async def` روی thread حلقه اجرا می‌شود (FastAPI از thread pool استفاده می‌کند).
+- All `async def` handlers share one thread and one GIL; real parallelism comes from `--workers` or free-threaded Python.
+- Wherever an `after_request` or `error_handler` exists, `done` goes through `run_in_executor`, because these hooks run inside `done()`
+  and an `async def` hook would wait on the same loop that called it (deadlock; proven by forcing the direct path).
+  The code carries a `ponytail:` mark; upgrade path: await the hooks inside the coroutine itself.
+- A synchronous dependency inside an `async def` route runs on the loop thread (FastAPI uses a thread pool).
 
-## مرتبط
+## Related
 
-ADR-0001، ADR-0009
+ADR-0001, ADR-0009

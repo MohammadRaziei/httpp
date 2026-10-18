@@ -48,7 +48,7 @@ embed_files(
         swagger_ui_icon_svg     ${HTTPP_SWAGGER_UI_DIR}/swagger-api-icon.svg
 )
 
-# liburlparser (git submodule, built from source — no system package) does
+# liburlparser (git submodule, built from source - no system package) does
 # the real URL parsing (scheme/host/port/path, IPv4/IPv6, PSL-aware). It is
 # linked PRIVATE into httpp_core, same as cpp-httplib: consumers of
 # <httpp/url.hpp> see only httpp::url, never urlparser::url directly.
@@ -71,7 +71,7 @@ set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
 # GEN_FILES OFF on any Windows host (assuming a release tarball with these
 # files already bundled). We build mbedtls from a git submodule, which
 # never has them on any platform, so we generate them ourselves here,
-# unconditionally, using mbedtls's own official scripts — the approach
+# unconditionally, using mbedtls's own official scripts - the approach
 # mbedtls's maintainers recommend: https://github.com/Mbed-TLS/mbedtls/issues/10678.
 # Requires Python 3 and Perl on PATH (both are already required to build
 # mbedtls from a git checkout, per its own documentation).
@@ -137,7 +137,7 @@ add_library(httpp::core ALIAS httpp_core)
 # resolves to __declspec(dllexport) only when HTTPP_BUILDING_DLL is defined.
 # It must be defined while compiling httpp_core's OWN translation units
 # (client.cpp/server.cpp/url.cpp) so the public classes are actually
-# exported from httpp_core.dll — and must NOT be defined for anyone
+# exported from httpp_core.dll - and must NOT be defined for anyone
 # consuming the already-built DLL (they need dllimport instead), hence
 # PRIVATE, not PUBLIC/INTERFACE.
 target_compile_definitions(httpp_core PRIVATE HTTPP_BUILDING_DLL)
@@ -159,7 +159,7 @@ target_include_directories(httpp_core
 # indicators, etc.). Marking them SYSTEM tells the compiler their own internal
 # warnings (e.g. indicators.hpp's narrowing-conversion C4244/C4267 on MSVC)
 # aren't ours to fix and shouldn't surface under our own -Wall/-Wextra/-W4
-# below — without patching vendored code to silence its own warnings.
+# below - without patching vendored code to silence its own warnings.
 target_include_directories(httpp_core PRIVATE ${HTTPP_GENERATED_DIR})
 target_include_directories(httpp_core SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/cpp-httplib
@@ -174,7 +174,7 @@ target_link_libraries(httpp_core PRIVATE url::base httpp_llhttp)
 # HTTPS support: mbedtls is linked PRIVATE and CPPHTTPLIB_MBEDTLS_SUPPORT is
 # only ever defined in src/core/internal/httplib_common.hpp (never in a
 # public header), so consumers of httpp never need mbedtls on their own
-# include/link path — see that file for the shared httplib.h include.
+# include/link path - see that file for the shared httplib.h include.
 target_link_libraries(httpp_core PRIVATE mbedtls mbedx509)
 target_compile_definitions(httpp_core PRIVATE CPPHTTPLIB_MBEDTLS_SUPPORT)
 # Asio (standalone, header-only, vendored) runs the async engines: the server's

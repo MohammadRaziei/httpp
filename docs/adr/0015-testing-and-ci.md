@@ -1,47 +1,52 @@
-# ADR-0015: تست و CI: چه چیزی کجا اجرا می‌شود، و فهرست skipها
+# ADR-0015: Testing and CI: what runs where, and the list of skips
 
-- **وضعیت:** پذیرفته‌شده (توصیف وضعیت فعلی؛ CI سبز است)
-- **تاریخ:** 2026-10-18
-- **منبع:** `.github/workflows/cmake.yml`، `wheels.yml`، `pyproject.toml`، `tests/`
+- **Status:** accepted (describes the current state; CI is green)
+- **Date:** 2026-10-18
+- **Source:** `.github/workflows/cmake.yml`, `wheels.yml`, `pyproject.toml`, `tests/`
 
-## تصمیم
+## Decision
 
-| کار | Linux | macOS | Windows |
+| Job | Linux | macOS | Windows |
 |---|---|---|---|
-| بیلد C++ و تست‌ها (`cmake.yml`) | بیلد + `ctest` | بیلد + `ctest` | **فقط بیلد** |
-| coverage (`test_httpp_cpp`، Codecov) | بله | - | - |
-| wheel + تست Python داخل wheel (`wheels.yml`) | بله | بله (universal2) | بله (AMD64 و x86) |
+| C++ build and tests (`cmake.yml`) | build + `ctest` | build + `ctest` | **build only** |
+| Coverage (`test_httpp_cpp`, Codecov) | yes | no | no |
+| Wheel + Python tests inside the wheel (`wheels.yml`) | yes | yes (universal2) | yes (AMD64 and x86) |
 
-wheelها: `cp39` (abi3)، `cp314t`، `cp315t` با `cibuildwheel` 4.3.1 و `cp313t` با 3.4.1. تست Python با
-`pytest {project}/tests` و فقط وابستگی‌های `[test]` (`pytest`، `pytest-xdist`، `pytest-cov`) اجرا می‌شود.
+Wheels: `cp39` (abi3), `cp314t` and `cp315t` with `cibuildwheel` 4.3.1, and `cp313t` with 3.4.1. Python tests run with
+`pytest {project}/tests` and only the `[test]` dependencies (`pytest`, `pytest-xdist`, `pytest-cov`).
 
 ## xfail
 
-هیچ تستی `xfail` ندارد. تستی که شکست می‌خورد، یا درست می‌شود یا (اگر محدودیت پلتفرم است) در جدول زیر `skip` می‌شود.
+No test uses `xfail`. A test that fails is either fixed or (when it is a platform limit) skipped, as in the table below.
+If an expected failure is ever added (for example slowloris before a connection cap exists), it must be recorded here.
 
-## skipها (Python)
+## Skips (Python)
 
-| تست | شرط skip | کجا اجرا می‌شود |
+| Test | Skip condition | Where it runs |
 |---|---|---|
-| `test_run.py`: توقف graceful با `on_shutdown`، لاگ درخواست در CLI، supervisor با SIGTERM | `win32` (SIGTERM آنجا کشتن مستقیم است) | Linux، macOS |
-| `test_run.py`: چند worker روی یک پورت (۲ تست + `workers=2` در تست import-time) | غیر Linux (`SO_REUSEPORT`) | فقط Linux |
-| `test_run.py`: علامت free-threading (GIL موقع import روشن نشود) | پایتون free-threaded نباشد یا `PYTHON_GIL=1` | wheelهای `cp313t`/`cp314t`/`cp315t` |
-| `test_client.py`: TLS روی سرور واقعی | ابزار `openssl` نباشد یا Windows | Linux، macOS |
-| `test_embed_file.py` | `cmake` یا کامپایلر C++ در PATH نباشد | هر جا که باشند (در wheel CI معمولاً هستند) |
-| `test_validate_vs_pydantic.py` (۲۴۲)، `test_models_vs_pydantic.py` (۳۶)، یک تست در `test_openapi.py` | `pydantic` نصب نباشد | **هیچ‌جای CI** |
-| دو تست در `test_params_depends.py`، یک تست در `test_openapi.py` | `openapi_spec_validator` نصب نباشد | **هیچ‌جای CI** |
+| `test_run.py`: graceful stop with `on_shutdown`, request logging in the CLI, supervisor with SIGTERM | `win32` (SIGTERM is a hard kill there) | Linux, macOS |
+| `test_run.py`: several workers on one port (2 tests, plus `workers=2` of the import-time test) | not Linux (`SO_REUSEPORT`) | Linux only |
+| `test_run.py`: free-threading flag (the GIL is not turned on at import) | not a free-threaded Python, or `PYTHON_GIL=1` | the `cp313t`/`cp314t`/`cp315t` wheels |
+| `test_client.py`: TLS against a real server | no `openssl` tool, or Windows | Linux, macOS |
+| `test_embed_file.py` | no `cmake` or C++ compiler in PATH | wherever they exist (normally present in the wheel CI) |
+| `test_validate_vs_pydantic.py` (242), `test_models_vs_pydantic.py` (36), one test in `test_openapi.py` | `pydantic` not installed | **nowhere in CI** |
+| two tests in `test_params_depends.py`, one in `test_openapi.py` | `openapi_spec_validator` not installed | **nowhere in CI** |
 
 ## C++
 
-تست‌ها skip نمی‌شوند؛ شاخه‌های زمان کامپایل دارند: `#ifndef _WIN32` برای تست‌های سوکت خام POSIX در `test_server.cpp`
-و `#ifdef _WIN32` برای ساخت پوشه‌ی lock (`_mkdir`/`_rmdir`) در `test_download.cpp`. چون Windows تست C++ اجرا نمی‌کند،
-این شاخه‌ها فقط کامپایل می‌شوند.
+Tests are not skipped; they have compile-time branches: `#ifndef _WIN32` for the raw POSIX socket tests in `test_server.cpp`
+and `#ifdef _WIN32` for creating the lock directory (`_mkdir`/`_rmdir`) in `test_download.cpp`. Because Windows runs no C++ tests,
+those branches are only compiled there.
 
-## پیامدها
+## Consequences
 
-- تست‌های تفاضلی با Pydantic و اعتبارسنجی `openapi.json` با `openapi_spec_validator` **در CI اجرا نمی‌شوند**؛ این
-  پوشش فقط محلی است: `pip install pydantic openapi-spec-validator && pytest tests/python` (Linux، CPython 3.12، ۱ هسته:
-  **۵۰۱ قبول، ۱ skip**، که همان تست free-threading است؛ بدون این دو بسته ۲۱۹ قبول و ۷ skip). دلیل اینکه این دو بسته در
-  extras تست نیستند ثبت نشده و باید با صاحب پروژه روشن شود (افزودنشان به wheel CI روی پایتون‌های free-threaded بیلد
-  هر وابستگی را لازم می‌کند؛ این را نیازمند بررسی می‌دانم، نه نتیجه‌ی تست).
-- هر تست جدیدی که به SIGTERM، `SO_REUSEPORT` یا `openssl` وابسته است باید همین skipها را داشته باشد.
+- The differential tests against Pydantic and the `openapi.json` validation with `openapi_spec_validator` **do not run in CI**; that coverage is
+  local only: `pip install pydantic openapi-spec-validator && pytest tests/python` (Linux, CPython 3.12, one core:
+  **501 passed, 1 skipped**, the skipped one being the free-threading test; without these two packages 219 passed and 7 skipped). Why these two packages are not in
+  the test extras is not recorded and has to be settled with the project owner (adding them to the wheel CI on free-threaded Pythons
+  may require building their dependencies; this needs checking and is not a test result).
+- Any new test that depends on SIGTERM, `SO_REUSEPORT` or `openssl` must carry the same skips.
+
+## Related
+
+ADR-0006, ADR-0010, ADR-0011, ADR-0012, ADR-0013

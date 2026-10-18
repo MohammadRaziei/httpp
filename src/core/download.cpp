@@ -4,7 +4,7 @@
 #include "httpp/sha256.hpp"
 
 // httplib.h (+ mbedtls support) is included ONLY via this internal header,
-// never in a public httpp/*.hpp header — see its comment for why.
+// never in a public httpp/*.hpp header - see its comment for why.
 #include "internal/httplib_common.hpp"
 
 #include <algorithm>
@@ -39,7 +39,7 @@ namespace httpp {
 
 namespace {
 
-// Portable (pre-C++17-filesystem-availability-safe — see the note on
+// Portable (pre-C++17-filesystem-availability-safe - see the note on
 // macOS 10.13 in run_plain() below) "does this file exist, and how big is
 // it" check. Uses ifstream::tellg rather than fseek/ftell: the latter
 // returns a 32-bit long on Windows even in 64-bit builds, which would
@@ -100,7 +100,7 @@ download_result run_plain(const std::string& url_str, const std::string& dest_pa
 
     httplib::Client cli(detail::scheme_host_port(u.scheme(), u.host(), u.port()));
     // Without this a 302 is reported as the final status and the caller is
-    // left with a 0-byte file — which is what GitHub release assets, CDN
+    // left with a 0-byte file - which is what GitHub release assets, CDN
     // links and shortened URLs all hand back before the real content.
     // httplib suppresses the content receiver and progress callback for the
     // intermediate 3xx responses, so only the final body reaches the file.
@@ -181,7 +181,7 @@ download_result run_resumable(const std::string& url_str, const std::string& des
     // Find out the full size up front: this is what both "already
     // complete, skip" and "is this .part actually the full file already"
     // are checked against. If the server won't answer HEAD or doesn't
-    // report Content-Length, resume/skip aren't possible — fall back to
+    // report Content-Length, resume/skip aren't possible - fall back to
     // the plain always-fresh implementation rather than guessing.
     auto head_res = cli.Head(path);
     long long total_size = -1; // -1: unknown
@@ -228,7 +228,7 @@ download_result run_resumable(const std::string& url_str, const std::string& des
         hdrs.emplace("Range", "bytes=" + std::to_string(resumed_offset) + "-");
     }
 
-    // Set once headers arrive, before any body bytes are read — this is
+    // Set once headers arrive, before any body bytes are read - this is
     // what lets a Range request that the server ignored (200 instead of
     // 206) be caught and corrected before a single byte is (mis)appended.
     int response_status = 0;
@@ -275,7 +275,7 @@ download_result run_resumable(const std::string& url_str, const std::string& des
     const bool got_real_content = response_status == 200 || response_status == 206;
     if (!res) {
         if (!got_real_content) {
-            // Never got past the response headers with useful status —
+            // Never got past the response headers with useful status -
             // whatever is in .part (if anything) isn't valid content.
             std::remove(part_path.c_str());
         }
@@ -291,7 +291,7 @@ download_result run_resumable(const std::string& url_str, const std::string& des
             result.error = "downloaded but could not rename " + part_path + " to " + dest_path;
         }
     } else {
-        std::remove(part_path.c_str()); // an error page, not real content — don't keep it
+        std::remove(part_path.c_str()); // an error page, not real content - don't keep it
         result.error = "request failed with status " + std::to_string(res->status);
     }
     return result;

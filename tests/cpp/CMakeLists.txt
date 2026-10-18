@@ -12,7 +12,7 @@ target_include_directories(test_httpp_cpp PRIVATE
 )
 
 # The tests only ever use httpp::client/httpp::server (the public API,
-# already compiled into httpp_core) — httplib.h is never included here,
+# already compiled into httpp_core) - httplib.h is never included here,
 # so no httplib include path or windows.h/winsock macro juggling is needed.
 target_link_libraries(test_httpp_cpp PRIVATE httpp::core)
 target_compile_definitions(test_httpp_cpp PRIVATE HTTPP_SWAGGER_UI_DIR="${PROJECT_SOURCE_DIR}/src/third_party/swagger-ui")

@@ -158,7 +158,7 @@ public:
     HTTPP_API client& set_ca_file(const std::string& path); // https: trust this CA bundle instead of the system's
     HTTPP_API client& set_keep_alive(bool enable); // default true
 
-    // Parse `full_url` (via httpp::url) and GET it in one call — handles
+    // Parse `full_url` (via httpp::url) and GET it in one call - handles
     // http:// and https:// alike. No manual URL parsing needed by callers
     // (e.g. the CLI's `download` command).
     static HTTPP_API response fetch(const std::string& full_url);
@@ -166,12 +166,12 @@ public:
     // A small, curl-flavored fluent request builder for the less common
     // cases (custom method, headers, a body) that get()/fetch() don't
     // cover. Also what httpp/curl_compat.h's `curl_easy_*` C API is built on
-    // (see src/core/curl_compat.cpp) — one implementation of "run an HTTP
+    // (see src/core/curl_compat.cpp) - one implementation of "run an HTTP
     // request" in httpp, not two.
     //
     // Nested under `client` (not a free `httpp::request`) because
     // `httpp::request` is already the incoming-request struct passed to
-    // server route handlers (see httpp/server.hpp) — naming this
+    // server route handlers (see httpp/server.hpp) - naming this
     // `client::request` avoids that collision and reads naturally next to
     // the class it's built on: httpp::client::request(url)....run()
     class request {
@@ -186,7 +186,7 @@ public:
 
         // -X METHOD (GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS). If never
         // called, defaults to GET, unless a body was set, in which case
-        // it defaults to POST — matching curl's own behavior.
+        // it defaults to POST - matching curl's own behavior.
         HTTPP_API request& method(std::string m);
 
         // -H "Name: value"

@@ -1,23 +1,22 @@
-# ADR-0004: بدون وابستگی سیستمی؛ هر وابستگی vendored یا submodule
+# ADR-0004: No system dependencies; every dependency is vendored or a submodule
 
-- **وضعیت:** پذیرفته‌شده
-- **تصمیم‌گیرنده:** صاحب پروژه
-- **منبع:** `handoff.md` بخش ۱، `Architecture.md` هدف ۴
+- **Status:** accepted
+- **Decided by:** the project owner
+- **Source:** `handoff.md` section 1, `Architecture.md` goal 4
 
-## تصمیم
+## Decision
 
-هیچ چیز با `apt`/`brew`/بسته‌ی سیستمی نصب نمی‌شود. هر وابستگی جدید یا فایل vendored است یا git submodule. وابستگی‌های
-pip فقط برای **زمان بیلد** مجازند (`scikit-build-core`، `cython>=3.1`، `cython-cmake`، `jsonschema`، `jinja2`؛ در `pyproject.toml`).
-در زمان اجرا wheel هیچ وابستگی ندارد.
+Nothing is installed with `apt`/`brew` or a system package. Every new dependency is either a vendored file or a git submodule. pip
+dependencies are allowed only at **build time** (`scikit-build-core`, `cython>=3.1`, `cython-cmake`, `jsonschema`, `jinja2`; see `pyproject.toml`).
+The wheel has no runtime dependencies.
 
-## پیامدها
+## Consequences
 
-- بیلد از صفر روی ۱ هسته حدود ۵ دقیقه (Python) و ۵ دقیقه (تست‌های C++ با Mbed TLS کامل) است.
-- configure فایل‌های منبع tf-psa-crypto را با اسکریپت‌های Python خودش تولید می‌کند و به `jsonschema` و `jinja2`
-  نیاز دارد (بدون آن‌ها configure با خطای `Failed to generate tf-psa-crypto sources` تمام می‌شود؛ همین را روی
-  یک ماشین بدون آن‌ها دیدم).
-- configure یک‌بار `public_suffix_list.dat` را دانلود می‌کند.
+- A from-scratch build on one core takes about 5 minutes for Python and about 5 minutes for the C++ tests (full Mbed TLS).
+- configure generates the tf-psa-crypto sources with its own Python scripts and needs `jsonschema` and `jinja2`
+  (without them configure ends with `Failed to generate tf-psa-crypto sources`; seen on a machine that lacked them).
+- configure downloads `public_suffix_list.dat` once.
 
-## مرتبط
+## Related
 
-ADR-0003، ADR-0013
+ADR-0003, ADR-0013

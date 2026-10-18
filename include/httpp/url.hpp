@@ -11,7 +11,7 @@ namespace httpp {
 // httpp's own thin, http(s)-specific view of a URL: valid()/scheme()/host()/
 // port()/path()/query(). The actual parsing (IPv4/IPv6/PSL-aware, RFC-ish)
 // is done by the vendored liburlparser (src/third_party/liburlparser, a git
-// submodule built from source — no system package). That dependency is
+// submodule built from source - no system package). That dependency is
 // used only in src/core/url.cpp and never appears in this public header.
 class url {
 public:

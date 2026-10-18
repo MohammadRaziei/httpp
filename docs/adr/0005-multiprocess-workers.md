@@ -1,31 +1,31 @@
-# ADR-0005: چندپردازه با پردازه‌ی تازه و `SO_REUSEPORT` (فقط Linux)
+# ADR-0005: Multi-process with fresh processes and `SO_REUSEPORT` (Linux only)
 
-- **وضعیت:** پذیرفته‌شده
-- **تصمیم‌گیرنده:** صاحب پروژه
-- **منبع:** `Architecture.md` بخش ۶، `handoff.md`، `src/bindings/python/httpp/_run.py`
+- **Status:** accepted
+- **Decided by:** the project owner
+- **Source:** `Architecture.md` section 6, `handoff.md`, `src/bindings/python/httpp/_run.py`
 
-## زمینه
+## Context
 
-یک پروسه‌ی پایتون به‌خاطر GIL یک هسته را بیشتر نمی‌تواند برای کد کاربر استفاده کند. باید چند پروسه روی یک پورت گوش بدهند.
+Because of the GIL, one Python process can use only one core for user code. Several processes must listen on one port.
 
-## تصمیم
+## Decision
 
-`httpp run app:app --workers N` (یا `--workers auto`) N **پردازه‌ی تازه** راه می‌اندازد که هر کدام app را خودش import
-می‌کنند و روی همان پورت با `SO_REUSEPORT` گوش می‌دهند؛ یک supervisor آن‌ها را نگه می‌دارد. `auto` یعنی یک worker به
-ازای هر CPUی که پروسه می‌تواند استفاده کند (affinity mask، سقف با quota cgroup v1/v2، رو به پایین گرد، حداقل ۱).
+`httpp run app:app --workers N` (or `--workers auto`) starts N **fresh processes**, each importing the app itself and listening on the same
+port with `SO_REUSEPORT`; a supervisor keeps them. `auto` means one worker per CPU the process may use (affinity mask,
+capped by the cgroup v1/v2 quota, rounded down, at least 1).
 
-## گزینه‌ی ردشده
+## Rejected alternative
 
-`fork`. ساختن `Server()` یک epoll fd از Asio می‌سازد که بعد از fork بین پردازه‌ها مشترک می‌شود و امن نیست.
+`fork`. Creating a `Server()` creates an Asio epoll fd that becomes shared between processes after a fork, which is not safe.
 
-## پیامدها
+## Consequences
 
-- فقط Linux. روی سیستم‌عامل‌های دیگر یا وقتی `app` یک شیء است (نه رشته‌ی `"module:attr"`) یک پردازه می‌ماند.
-- چون هر worker app را import می‌کند، `--workers` فقط با هدف رشته‌ای کار می‌کند.
-- worker مرده دوباره ساخته نمی‌شود: وقتی یکی بمیرد کل گروه متوقف می‌شود (`--reload` و respawn هنوز نیستند).
-- تست‌های چند worker فقط روی Linux اجرا می‌شوند؛ روی macOS و Windows skip می‌شوند (ADR-0015).
-- حافظه‌ی مشترک بین workerها (`app.shared`) هنوز طراحی نشده؛ دامنه‌اش سؤال باز است.
+- Linux only. On other operating systems, or when `app` is an object (not a `"module:attr"` string), one process stays.
+- Because each worker imports the app, `--workers` works only with a string target.
+- A dead worker is not recreated: when one dies the whole group stops (`--reload` and respawn are not there yet).
+- The multi-worker tests run only on Linux and are skipped on macOS and Windows ([ADR-0015](0015-testing-and-ci.md)).
+- Memory shared between workers (`app.shared`) is not designed yet; its scope is an open question.
 
-## مرتبط
+## Related
 
-ADR-0001، ADR-0012
+ADR-0001, ADR-0012

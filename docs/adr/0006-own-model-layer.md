@@ -1,32 +1,32 @@
-# ADR-0006: لایه‌ی model/validation خودمان به شکل Pydantic v2، با validatorهای Cython
+# ADR-0006: Own model/validation layer shaped like Pydantic v2, with Cython validators
 
-- **وضعیت:** پذیرفته‌شده
-- **منبع:** `src/bindings/python/httpp/models.py`، `_validate.py`، `_validate_cy.pyx`، `handoff.md`
+- **Status:** accepted
+- **Source:** `src/bindings/python/httpp/models.py`, `_validate.py`, `_validate_cy.pyx`, `handoff.md`
 
-## زمینه
+## Context
 
-کد به سبک FastAPI (بدنه‌ی درخواست، response model، خطای 422) باید بدون نصب Pydantic کار کند و wheel کوچک بماند.
+FastAPI-style code (request bodies, response models, 422 errors) must work without installing Pydantic, and the wheel must stay small.
 
-## تصمیم
+## Decision
 
-- `httpp.models` یک زیرمجموعه‌ی هم‌شکل Pydantic v2 است: `BaseModel`، `Field`، `field_validator`/`model_validator`،
-  `model_dump`، `model_validate`، `model_json_schema` و خطاها با همان شکل (`type`, `loc`, `msg`, `input`, `ctx`).
-  یک model واقعی Pydantic هم هرجا model پذیرفته می‌شود کار می‌کند.
-- validatorها `cdef class`های Cython هستند (`_validate_cy.pyx`). **دو گذر با یک مسیر کد:** گذر سریع بدون ساختن
-  `loc` و پیام (اولین خطا برمی‌گردد)؛ فقط اگر شکست بخورد همان validator دوباره با `errors` اجرا می‌شود و خطاهای
-  هم‌شکل Pydantic را می‌سازد.
+- `httpp.models` is a Pydantic-v2-shaped subset: `BaseModel`, `Field`, `field_validator`/`model_validator`,
+  `model_dump`, `model_validate`, `model_json_schema`, and errors with the same shape (`type`, `loc`, `msg`, `input`, `ctx`).
+  A real Pydantic model is also accepted wherever a model is accepted.
+- The validators are Cython `cdef class`es (`_validate_cy.pyx`). **Two passes over one code path:** a fast pass that builds no `loc`
+  or message (the first error is returned); only if it fails is the same validator run again with `errors`, which builds
+  Pydantic-shaped errors.
 
-## پیامدها
+## Consequences
 
-- یک `@field_validator` کاربر روی ورودی **نامعتبر** دو بار اجرا می‌شود، پس نباید اثر جانبی داشته باشد.
-- پشتیبانی‌نشده: `validate_assignment`، computed fields، private attributes، serializer سفارشی، strict mode، generic.
-- سرعت (همان ماشین، همان اجرا، ماشین نویزی است): model معتبر `User` از ۱۰٬۷۵۹ به ۳٬۳۹۸ ns؛ `Union[int,str,None]` از
-  ۹۵۴ به ۱۵۹ ns؛ model نامعتبر با ۵ خطا از ۱۷٬۲۸۰ به ۱۱٬۳۰۵ ns.
-- هم‌شکلی با Pydantic با ۲۷۸ تست تفاضلی سنجیده می‌شود (۲۴۲ در `test_validate_vs_pydantic.py` و ۳۶ در
-  `test_models_vs_pydantic.py`). این‌ها فقط وقتی Pydantic نصب باشد اجرا می‌شوند و **در CI اجرا نمی‌شوند** (ADR-0015).
-- `_validate_cy` با `freethreading_compatible=True` علامت خورده. یک تست در `test_run.py` روی wheelهای `cp313t`،
-  `cp314t` و `cp315t` در CI تأیید می‌کند GIL موقع import دوباره روشن نمی‌شود؛ روی پایتون معمولی skip می‌شود.
+- A user `@field_validator` runs twice on **invalid** input, so it must not have side effects.
+- Not supported: `validate_assignment`, computed fields, private attributes, custom serializers, strict mode, generics.
+- Speed (same machine, same run, noisy machine): a valid `User` model went from 10,759 to 3,398 ns; `Union[int,str,None]` from
+  954 to 159 ns; an invalid model with 5 errors from 17,280 to 11,305 ns.
+- Equivalence with Pydantic is checked by 278 differential tests (242 in `test_validate_vs_pydantic.py` and 36 in
+  `test_models_vs_pydantic.py`). They run only when Pydantic is installed and **do not run in CI** ([ADR-0015](0015-testing-and-ci.md)).
+- `_validate_cy` is marked `freethreading_compatible=True`. A test in `test_run.py` checks on the `cp313t`, `cp314t` and `cp315t`
+  wheels in CI that the GIL is not turned back on at import; it is skipped on ordinary Python.
 
-## مرتبط
+## Related
 
-ADR-0007، ADR-0013
+ADR-0007, ADR-0013

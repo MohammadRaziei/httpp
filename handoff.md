@@ -1,4 +1,4 @@
-# httpp — hand-off #2 (for the next chat)
+# httpp: hand-off #2 (for the next chat)
 
 You are continuing work on **httpp**: a C++ HTTP library (server, client, downloads, progress bars, URL)
 with a Cython/Python layer on top. Owner: the user (GitHub `mohammadraziei`). **Talk to the user in
@@ -7,7 +7,7 @@ Persian**, keep reports short and concrete, and be honest about numbers and limi
 The owner says everything described here is committed and pushed. This document supersedes the first
 hand-off; everything in it that is still true is repeated here.
 
-**Also read `docs/agent.md`, `docs/Architecture.md`, `docs/checklist.md`.** The owner drafted them with
+**Also read `docs/agent.md`, `docs/Architecture.md`, `checklist.md`.** The owner drafted them with
 DeepSeek and asked for them to be reviewed; they were corrected against the real code (wrong claims about
 cpp-httplib as the server base, proxy being out of scope, "one wheel everywhere", GoogleTest instead of
 utest, invented compatibility numbers, and so on were fixed). Their **golden rule overrides "do not ask

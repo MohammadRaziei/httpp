@@ -1,30 +1,30 @@
-# ADR-0010: امنیت thread در Mbed TLS: `MBEDTLS_THREADING_C` + لایه‌ی alt روی Windows
+# ADR-0010: Mbed TLS thread safety: `MBEDTLS_THREADING_C` plus an alt layer on Windows
 
-- **وضعیت:** پذیرفته‌شده
-- **منبع:** `cmake/httpp_mbedtls_config.h`، `src/core/mbedtls_threading.cpp`، `src/core/mbedtls_alt/`
+- **Status:** accepted
+- **Source:** `cmake/httpp_mbedtls_config.h`, `src/core/mbedtls_threading.cpp`, `src/core/mbedtls_alt/`
 
-## زمینه
+## Context
 
-زیر ThreadSanitizer (Linux) مشخص شد `MBEDTLS_THREADING_C` خاموش بود و DRBG سراسری PSA بین handshakeهای هم‌زمان بدون
-قفل مشترک بود. این فقط ناپایداری تست نبود: دو handshake می‌توانستند بایت تصادفی یکسان بگیرند.
+Under ThreadSanitizer (Linux) it turned out that `MBEDTLS_THREADING_C` was off and PSA's global DRBG was shared between concurrent handshakes
+without a lock. This was not only test flakiness: two handshakes could receive the same random bytes.
 
-## تصمیم
+## Decision
 
-- پیکربندی از راه `TF_PSA_CRYPTO_USER_CONFIG_FILE` (سابمادول دست نمی‌خورد): `MBEDTLS_THREADING_C` با pthread روی POSIX.
-- روی Windows لایه‌ی alt روی `SRWLOCK`/`CONDITION_VARIABLE` که موقع بار شدن کتابخانه ثبت می‌شود.
-  `-DHTTPP_MBEDTLS_THREADING_ALT=ON` همین لایه را روی POSIX هم فعال می‌کند تا زیر TSAN تست شود.
-- `MBEDTLS_SELF_TEST` خاموش شد: شمارنده‌های `add_count/dbl_count/mul_count` در `ecp.c` فقط برای self-test هستند و
-  بدون قفل افزایش می‌یابند (race طراحی‌شده).
+- Configuration through `TF_PSA_CRYPTO_USER_CONFIG_FILE` (the submodule is not touched): `MBEDTLS_THREADING_C` with pthread on POSIX.
+- On Windows an alt layer built on `SRWLOCK`/`CONDITION_VARIABLE`, registered when the library is loaded.
+  `-DHTTPP_MBEDTLS_THREADING_ALT=ON` enables the same layer on POSIX too, so it can be tested under TSAN.
+- `MBEDTLS_SELF_TEST` was turned off: the `add_count/dbl_count/mul_count` counters in `ecp.c` exist only for the self-test and are
+  incremented without a lock (a designed race).
 
-## پیامدها
+## Consequences
 
-- زیر TSAN با pthread و با alt، ۸۶ تست `async_*` قبول و race مربوط به mbedtls نیست؛ `many_concurrent_handshakes`
-  روی Linux ۳۰ بار پشت هم بدون شکست.
-- `mbedtls_threading_free_alt()` هیچ‌وقت صدا زده نمی‌شود (`ponytail:`؛ ارتقا: shutdown صریح بعد از join threadهای TLS).
-- CI: تست‌های C++ (شامل `many_concurrent_handshakes`) روی Linux و macOS اجرا و سبز می‌شوند. روی Windows لایه‌ی SRWLOCK
-  در هر wheel بیلد می‌شود و تست‌های Python wheel سبزند، ولی تست‌های C++ روی Windows اجرا نمی‌شوند و تست‌های TLS پایتون
-  (`needs_openssl`) روی Windows skip می‌شوند (ADR-0015).
+- Under TSAN, with pthread and with alt, all 86 `async_*` tests pass and there is no mbedtls race; `many_concurrent_handshakes`
+  passed 30 times in a row on Linux.
+- `mbedtls_threading_free_alt()` is never called (`ponytail:`; upgrade path: an explicit shutdown after joining the TLS threads).
+- CI: the C++ tests (including `many_concurrent_handshakes`) run and pass on Linux and macOS. On Windows the SRWLOCK layer is built into every
+  wheel and the wheel's Python tests pass, but the C++ tests do not run on Windows CI and the Python TLS tests
+  (`needs_openssl`) are skipped on Windows ([ADR-0015](0015-testing-and-ci.md)).
 
-## مرتبط
+## Related
 
 ADR-0003

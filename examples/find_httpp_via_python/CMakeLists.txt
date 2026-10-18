@@ -8,7 +8,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 # Ask the *installed* httpp Python package where its CMake config lives
 # (the same pattern nanobind/pybind11 use: httpp.get_cmake_dir()) and hand
-# that to find_package — no manual -I/-L flags, no hardcoded paths.
+# that to find_package - no manual -I/-L flags, no hardcoded paths.
 execute_process(
     COMMAND ${Python3_EXECUTABLE} -c "import httpp; print(httpp.get_cmake_dir())"
     OUTPUT_VARIABLE httpp_DIR

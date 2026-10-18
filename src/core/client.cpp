@@ -2,7 +2,7 @@
 #include "httpp/url.hpp"
 
 // httplib.h (+ mbedtls support) is included ONLY via this internal header,
-// never in a public httpp/*.hpp header — see its comment for why.
+// never in a public httpp/*.hpp header - see its comment for why.
 #include "internal/httplib_common.hpp"
 #include "internal/blocking_pool.hpp"
 #include "internal/async_http.hpp"

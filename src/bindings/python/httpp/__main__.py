@@ -1,4 +1,4 @@
-"""Command-line interface for httpp. Stdlib only (argparse) — no
+"""Command-line interface for httpp. Stdlib only (argparse) - no
 third-party dependencies, matching the rest of the project."""
 
 import argparse
@@ -45,7 +45,7 @@ def _cmd_run(args):
 def _cmd_download(args):
     if args.output:
         # Real download to a file, with a terminal progress bar (see
-        # httpp::download / httpp::progress::bar) — nothing here
+        # httpp::download / httpp::progress::bar) - nothing here
         # reimplements the request or the progress logic, it's all in C++.
         from httpp import Download
 
@@ -55,7 +55,7 @@ def _cmd_download(args):
             return 1
         return 0
 
-    # No destination given: behave like `curl URL` with no -o — print the
+    # No destination given: behave like `curl URL` with no -o - print the
     # body to stdout. URL parsing happens entirely in the C++ layer
     # (httpp::client::fetch, backed by the vendored liburlparser).
     from httpp import Client

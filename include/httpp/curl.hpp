@@ -8,7 +8,7 @@
 
 namespace httpp::curl {
 
-// A small, curl-flavored fluent request builder — the common cases only
+// A small, curl-flavored fluent request builder - the common cases only
 // (-X method, -H headers, -d data), NOT a libcurl API/ABI compatible shim
 // (that's a much bigger, different project; see httpp::client for the
 // plain request API this is built on). Backed by the same vendored
@@ -25,7 +25,7 @@ public:
     request& operator=(const request&) = delete;
 
     // -X METHOD (GET/POST/PUT/PATCH/DELETE). If never called, defaults to
-    // GET, unless data() was called, in which case it defaults to POST —
+    // GET, unless data() was called, in which case it defaults to POST -
     // matching curl's own behavior.
     HTTPP_API request& method(std::string m);
 

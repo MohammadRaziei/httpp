@@ -24,7 +24,7 @@
 namespace httpp::detail {
 
 // httplib::Client's "scheme://host:port" constructor is what actually picks
-// SSLClient vs. plain Client internally based on scheme — the (host, port)
+// SSLClient vs. plain Client internally based on scheme - the (host, port)
 // constructor always builds a plain, non-TLS client regardless of what
 // port you pass. Every httpp call site that builds a client from a parsed
 // httpp::url must go through this (not the (host, port) constructor) or

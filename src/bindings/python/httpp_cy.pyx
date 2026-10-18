@@ -4,7 +4,7 @@
 """
 Cython bindings over the httpp C++ core (include/httpp.h). This is what
 replaces libcurl on the Python side, for both making requests (Client) and
-serving HTTP (Server) — the `httpp` CLI (`httpp server ...`, analogous to
+serving HTTP (Server) - the `httpp` CLI (`httpp server ...`, analogous to
 `python -m http.server`) is a thin wrapper around Server.
 """
 
@@ -482,7 +482,7 @@ cdef class Client:
 
     @staticmethod
     def fetch(str full_url):
-        """Parse `full_url` and GET it in one call — no manual URL parsing
+        """Parse `full_url` and GET it in one call - no manual URL parsing
         needed on the Python side either (see httpp::client::fetch)."""
         cdef string u = full_url.encode("utf-8")
         cdef response res
@@ -840,7 +840,7 @@ cdef int _check_seconds(int seconds) except -1:
 
 cdef class Server:
     """Minimal HTTP server. Replaces spinning up cpp-httplib/libcurl
-    yourself — this is also what `httpp server` (the CLI, similar to
+    yourself - this is also what `httpp server` (the CLI, similar to
     Python's own `python -m http.server`) is built on."""
     cdef cpp_server* _srv
     cdef list _handlers  # keeps route callables alive; C++ only holds a borrowed pointer

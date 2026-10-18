@@ -27,7 +27,7 @@
 
  Single umbrella header for the httpp public API. `cmake/DynamicVersion.cmake`
  (and `version.py`) parse the HTTPP_VERSION_* macros below to derive
- PROJECT_VERSION — keep them as plain `#define NAME NUMBER` lines.
+ PROJECT_VERSION - keep them as plain `#define NAME NUMBER` lines.
  */
 
 #ifndef HTTPP_H

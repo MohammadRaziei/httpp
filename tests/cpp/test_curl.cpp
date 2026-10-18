@@ -44,7 +44,7 @@ UTEST(httpp_curl, sends_custom_headers) {
     s.get("/echo-header", [&seen_header](const httpp::request& req, httpp::response& res) {
         (void)req;
         res.status = 200;
-        // httpp::request doesn't expose headers yet — this test only
+        // httpp::request doesn't expose headers yet - this test only
         // checks the call succeeds; header content is checked at the
         // curl::request builder level in the next test.
         res.body = "ok";
@@ -70,7 +70,7 @@ UTEST(httpp_curl, data_defaults_method_to_post) {
 
     // no POST route registered on purpose: since httpp::server only
     // supports .get() so far, a POST here should 404 rather than hit the
-    // GET-registered "/should-not-hit" route above — proving .data()
+    // GET-registered "/should-not-hit" route above - proving .data()
     // switched the method away from GET.
     std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/should-not-hit";
     httpp::response res = httpp::curl::request(url)

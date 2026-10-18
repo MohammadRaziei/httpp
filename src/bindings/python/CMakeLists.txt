@@ -33,12 +33,12 @@ if(DEFINED SKBUILD)
     )
 
     # libhttpp_core is installed in the standard `httpp/lib/` layout
-    # (alongside `httpp/include/`, `httpp/cmake/` — see below), not next to
+    # (alongside `httpp/include/`, `httpp/cmake/` - see below), not next to
     # the Python module itself. So the loader needs to look one directory
     # down from wherever it is:
     #   - Linux:   $ORIGIN/lib
     #   - macOS:   @loader_path/lib (dylib's own id is set to @rpath below)
-    #   - Windows: no RPATH concept — handled at import time instead, see
+    #   - Windows: no RPATH concept - handled at import time instead, see
     #              httpp/__init__.py (os.add_dll_directory(get_lib_dir())).
     if(APPLE)
         set(_httpp_rpath "@loader_path/lib")

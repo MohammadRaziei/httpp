@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**A lightweight HTTP client and server for Python and C++ — one `pip install`, no system dependencies.**
+**A lightweight HTTP client and server for Python and C++: one `pip install`, no system dependencies.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.txt)
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
@@ -21,7 +21,7 @@ app = Server()
 def hello(name):
     return f"hello {name}"
 
-app.listen("127.0.0.1", 8000)   # that's it — no separate server process needed
+app.listen("127.0.0.1", 8000)   # that's it, no separate server process needed
 ```
 
 `pip install httpp` gives you a Python package, a command-line tool, and a compiled C++ library with

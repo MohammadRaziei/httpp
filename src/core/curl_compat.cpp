@@ -1,5 +1,5 @@
 #include "httpp/curl_compat.h"
-#include "httpp/client.hpp" // reused directly — no duplicated HTTP logic here
+#include "httpp/client.hpp" // reused directly - no duplicated HTTP logic here
 
 #include <cstdarg>
 #include <cstring>
@@ -10,7 +10,7 @@
 // declaration in curl_compat.h). It only ACCUMULATES options set via
 // curl_easy_setopt(); the actual request is built and run through
 // httpp::client::request inside curl_easy_perform(), which is the same
-// class the plain C++ API (httpp::client::request) already uses — reusing
+// class the plain C++ API (httpp::client::request) already uses - reusing
 // it here means there's exactly one implementation of "run an HTTP
 // request", not two.
 struct CURL {

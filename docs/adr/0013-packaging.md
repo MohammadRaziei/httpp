@@ -1,25 +1,25 @@
-# ADR-0013: بسته‌بندی: `cp39-abi3` + wheel جدا برای هر نسخه‌ی free-threaded
+# ADR-0013: Packaging: `cp39-abi3` plus a separate wheel for each free-threaded version
 
-- **وضعیت:** پذیرفته‌شده
-- **منبع:** `Architecture.md` اصل ۵، `.github/workflows/wheels.yml`، `handoff.md`
+- **Status:** accepted
+- **Source:** `Architecture.md` principle 5, `.github/workflows/wheels.yml`, `handoff.md`
 
-## تصمیم
+## Decision
 
-- یک wheel `cp39-abi3` برای پایتون‌های معمولی (Cython با `Py_LIMITED_API=0x030900f0`).
-- پایتون free-threaded (3.13t، 3.14t، ...) stable ABI ندارد؛ برای هر نسخه wheel جدا (`cp313t`، `cp314t`، `cp315t`).
-  `abi3t` از CPython 3.15 می‌آید.
-- «یک wheel برای همه‌جا» درست نیست: برای هر سیستم‌عامل و معماری یک wheel لازم است.
-- `PIP_PREFER_BINARY=1` در CI تا `rpds-py` (وابستگی `jsonschema`) از سورس با Rust ساخته نشود.
-- CI: `cibuildwheel` 4.3.1 برای `cp39` (abi3)، `cp314t` و `cp315t` روی Linux، macOS (universal2) و Windows (AMD64 و x86)؛
-  `cp313t` با یک مرحله‌ی جدا از `cibuildwheel` 3.4.1، چون سری 4.x پایتون 3.13 free-threaded را حذف کرد. هر wheel با
-  `pytest {project}/tests` تست می‌شود (extras: `pytest`، `pytest-xdist`، `pytest-cov`) و همه سبزند.
+- One `cp39-abi3` wheel for ordinary Pythons (Cython with `Py_LIMITED_API=0x030900f0`).
+- Free-threaded Python (3.13t, 3.14t, ...) has no stable ABI; each version gets its own wheel (`cp313t`, `cp314t`, `cp315t`).
+  `abi3t` arrives with CPython 3.15.
+- "One wheel for everywhere" is wrong: one wheel per operating system and architecture is needed.
+- `PIP_PREFER_BINARY=1` in CI so that `rpds-py` (a dependency of `jsonschema`) is not built from source with Rust.
+- CI: `cibuildwheel` 4.3.1 builds `cp39` (abi3), `cp314t` and `cp315t` on Linux, macOS (universal2) and Windows (AMD64 and x86);
+  `cp313t` comes from a separate step with `cibuildwheel` 3.4.1, because the 4.x series dropped free-threaded 3.13. Every wheel is tested with
+  `pytest {project}/tests` (extras: `pytest`, `pytest-xdist`, `pytest-cov`) and all of them are green.
 
-## پیامدها
+## Consequences
 
-- حجم: سند معماری «حدود ۱٫۱ MB» می‌گوید، ولی wheel منتشرشده‌ی 0.7.0 روی PyPI (Linux، cp312) با `pip-size`
-  **۱٫۸ MB** است و وابستگی runtime ندارد؛ سند قدیمی است.
-- CI روی Windows تست C++ اجرا نمی‌کند (فقط build)؛ تست‌های Python داخل wheel روی Windows اجرا می‌شوند.
+- Size: `Architecture.md` used to say about 1.1 MB, but the published 0.7.0 wheel on PyPI (Linux, cp312) is **1.8 MB** by `pip-size`
+  and has no runtime dependencies; the old number was stale and has been corrected.
+- CI does not run the C++ tests on Windows (build only); the Python tests inside the wheels do run on Windows.
 
-## مرتبط
+## Related
 
-ADR-0004، ADR-0006
+ADR-0004, ADR-0006

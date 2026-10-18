@@ -22,7 +22,7 @@ struct download_result {
     std::string sha256;
 };
 
-// Fluent builder — the one way to download a URL to a file in httpp:
+// Fluent builder - the one way to download a URL to a file in httpp:
 //
 //   httpp::download("http://x.com/f.zip", "f.zip").run();
 //
@@ -36,7 +36,7 @@ struct download_result {
 class download {
 public:
     // dest_path can be given here (the common case: url + where to save
-    // it) or filled in later via output() — e.g. when it isn't known yet
+    // it) or filled in later via output() - e.g. when it isn't known yet
     // at construction time, or alongside other fluent options.
     explicit HTTPP_API download(std::string url, std::string dest_path = "");
 

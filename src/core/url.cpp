@@ -1,7 +1,7 @@
 #include "httpp/url.hpp"
 
-// urlparser.h is included ONLY in this translation unit — never in a public
-// httpp/*.hpp header — and stays hidden inside the compiled core.
+// urlparser.h is included ONLY in this translation unit - never in a public
+// httpp/*.hpp header - and stays hidden inside the compiled core.
 #include <urlparser.h>
 
 #include <stdexcept>

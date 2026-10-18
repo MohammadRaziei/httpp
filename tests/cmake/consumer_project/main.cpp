@@ -1,6 +1,6 @@
 // End-to-end smoke test for the *installed* httpp CMake package: this file
 // only ever includes <httpp.h> (found via find_package(httpp) in
-// CMakeLists.txt here) and links against httpp::httpp_core — nothing else.
+// CMakeLists.txt here) and links against httpp::httpp_core - nothing else.
 // It exercises every major piece of the public API to prove the installed
 // package is actually complete and usable, not just able to parse a URL.
 #include <httpp.h>
