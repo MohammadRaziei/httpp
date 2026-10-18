@@ -1,0 +1,24 @@
+# ADR-0013: بسته‌بندی: `cp39-abi3` + wheel جدا برای هر نسخه‌ی free-threaded
+
+- **وضعیت:** پذیرفته‌شده (بخش‌هایی در CI تأیید نشده)
+- **منبع:** `Architecture.md` اصل ۵، `.github/workflows/wheels.yml`، `handoff.md`
+
+## تصمیم
+
+- یک wheel `cp39-abi3` برای پایتون‌های معمولی (Cython با `Py_LIMITED_API=0x030900f0`).
+- پایتون free-threaded (3.13t، 3.14t، ...) stable ABI ندارد؛ برای هر نسخه wheel جدا (`cp313t`، `cp314t`، `cp315t`).
+  `abi3t` از CPython 3.15 می‌آید.
+- «یک wheel برای همه‌جا» درست نیست: برای هر سیستم‌عامل و معماری یک wheel لازم است.
+- `PIP_PREFER_BINARY=1` در CI تا `rpds-py` (وابستگی تست) از سورس با Rust ساخته نشود.
+
+## پیامدها
+
+- حجم: سند معماری «حدود ۱٫۱ MB» می‌گوید، ولی wheel منتشرشده‌ی 0.7.0 روی PyPI (Linux، cp312) با `pip-size`
+  **۱٫۸ MB** است و وابستگی runtime ندارد؛ سند قدیمی است.
+- ساخت واقعی `cp39-abi3` و `cp313-abi3` و چک سلامتشان کامل اجرا نشده؛ فیکس `PIP_PREFER_BINARY` حدسی بود.
+- `release_template.md` هنوز wheelهای هر نسخه را فهرست می‌کند و قدیمی است.
+- CI روی Windows تست C++ اجرا نمی‌کند (فقط تست‌های Python داخل wheel).
+
+## مرتبط
+
+ADR-0004، ADR-0006
