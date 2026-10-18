@@ -111,6 +111,48 @@ def test_cli_run_serves_and_stops_gracefully_on_sigterm(app_dir):
             proc.kill()
 
 
+@pytest.mark.parametrize("args, logged", [((), True), (("--log-level", "info"), True), (("--log-level", "warning"), False)])
+def test_cli_run_logs_each_request_unless_the_level_is_raised(app_dir, args, logged):
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "httpp", "run", "myapp:app", "--port", str(port), *args],
+                            cwd=app_dir, env=child_env(BYE_DIR=str(app_dir)), stderr=subprocess.PIPE, text=True)
+    try:
+        wait_for(lambda: get_pid(port))
+        proc.send_signal(signal.SIGTERM)
+        err = proc.communicate(timeout=15)[1]
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert (f"listening on http://127.0.0.1:{port}" in err) == logged
+    assert ("GET /pid 200" in err) == logged
+
+
+# A file that also starts itself at import time (no __main__ guard): `httpp run` must win.
+SELF_STARTING = APP + '''
+app.listen("127.0.0.1", 1)  # a port nobody can bind: if this ran, the server would die or sit on it
+'''
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_cli_run_wins_over_a_listen_call_at_import_time(app_dir, workers):
+    if workers > 1 and not sys.platform.startswith("linux"):
+        pytest.skip("SO_REUSEPORT balancing is Linux")
+    (app_dir / "myapp.py").write_text(SELF_STARTING)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "httpp", "run", "myapp:app", "--port", str(port), "--workers", str(workers)],
+                            cwd=app_dir, env=child_env(BYE_DIR=str(app_dir)), stderr=subprocess.PIPE, text=True)
+    try:
+        assert wait_for(lambda: get_pid(port))  # served on run's port, not the one in the file
+        proc.send_signal(signal.SIGTERM)
+        err = proc.communicate(timeout=15)[1]
+        assert proc.returncode == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert "ignoring app.listen('127.0.0.1', 1)" in err  # the person is told, not left guessing
+    assert "if __name__" in err
+
+
 def test_cli_run_reports_a_bad_target_and_exits_1(app_dir):
     r = subprocess.run([sys.executable, "-m", "httpp", "run", "myapp:missing"], cwd=app_dir, env=child_env(), capture_output=True, text=True)
     assert r.returncode == 1 and "no attribute 'missing'" in r.stderr and "Traceback" not in r.stderr

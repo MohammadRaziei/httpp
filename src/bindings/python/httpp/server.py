@@ -516,6 +516,17 @@ def _call(fn, *args, **kwargs):
     return rv
 
 
+_defer_listen = False  # True while `httpp run` imports the app: listen()/run() calls in the file are skipped
+
+
+def _skipped(call, host, port):
+    """The warning for a listen()/run() the file made at import time while `httpp run` was importing it."""
+    import sys
+
+    sys.stderr.write(
+        f"httpp: ignoring app.{call}({host!r}, {port!r}): `httpp run` decides host, port and workers "
+        f"(call it under `if __name__ == \"__main__\":` to keep both ways working)\n")
+    sys.stderr.flush()
 _loop = None
 _loop_lock = threading.Lock()
 _wake = None  # (reader, writer) socket pair kept alive for the loop's whole life
@@ -868,6 +879,8 @@ class Server(_Server):
         sees Ctrl+C while inside it; run it on a thread and keep the main
         thread in Python. # ponytail: 0.2s poll; upgrade path is signal.set_wakeup_fd.
         """
+        if _defer_listen:  # `httpp run` owns host, port and workers
+            return _skipped("listen", host, port)
         failure = []
         done = threading.Event()
 
@@ -895,6 +908,8 @@ class Server(_Server):
 
     def run(self, host="127.0.0.1", port=8000, **options):
         """The usual entry point: `if __name__ == "__main__": app.run()`. Same as httpp.run(app, ...)."""
+        if _defer_listen:
+            return _skipped("run", host, port)
         from ._run import run
 
         return run(self, host, port, **options)

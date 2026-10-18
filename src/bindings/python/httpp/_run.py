@@ -89,7 +89,8 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
     Shutdown is graceful: in-flight work ends and the app's on_shutdown hooks run.
     workers > 1 starts that many processes sharing the port (Linux only), which is how a
     Python server gets past the GIL; it needs an import string, because each worker imports
-    the app itself. workers="auto" means one per CPU this process can use (the affinity mask,
+    the app itself. log_level is "info" by default (one access line per request on stderr);
+    "warning" keeps only problems, "off" nothing. workers="auto" means one per CPU this process can use (the affinity mask,
     capped by a container CPU quota): one process on a single CPU, off Linux, or when `app`
     is an object rather than an import string. reuse_port lets separate httpp processes
     share one port the same way.
@@ -105,10 +106,9 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
     if auto and workers > 1 and not isinstance(app, str):
         _say("workers=auto needs an import string like 'main:app' to start several processes; running one")
         workers = 1
-    if log_level is not None:
-        from . import set_log_level
+    from . import set_log_level
 
-        set_log_level(log_level)
+    set_log_level(log_level or "info")  # like uvicorn: startup and one line per request; "warning" silences them
 
     if workers > 1:
         if not isinstance(app, str):
@@ -116,15 +116,22 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
         return _supervise(app, host, port, workers, log_level)
 
     if isinstance(app, str):
-        app = load(app)
+        # The file may also start itself (`app.listen(...)` / `app.run()` outside an `if __name__` guard);
+        # while it imports, those calls do nothing, so this run's host, port and workers win.
+        from . import server as _server
+
+        _server._defer_listen = True
+        try:
+            app = load(app)
+        finally:
+            _server._defer_listen = False
     if not isinstance(app, Server):
         raise TypeError(f"expected an httpp.Server, got {type(app).__name__} (ASGI/WSGI apps are not supported yet)")
     if reuse_port:
         app.set_reuse_port(True)
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGTERM, signal.default_int_handler)  # SIGTERM stops like Ctrl+C: graceful
-    _say(f"starting on http://{host}:{port} (pid {os.getpid()}, Ctrl+C to stop)")
-    app.listen(host, port)  # returns after Ctrl+C / stop(); raises OSError if the port can't be bound
+    app.listen(host, port)  # logs "listening on ..." (info) once the port is really bound  # returns after Ctrl+C / stop(); raises OSError if the port can't be bound
 
 
 def _supervise(target, host, port, workers, log_level):

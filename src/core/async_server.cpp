@@ -174,6 +174,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     bool req_keep = false;    // the client allows keep-alive
     bool req_head = false;
     int req_minor = 1;
+    std::string log_what;     // "METHOD target" of the request being answered, kept only when the info level is on
     std::size_t remaining;    // requests this connection may still serve, counting the current one
 
     std::atomic<bool> closed{false};
@@ -329,6 +330,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     void request_complete() {
         disarm();
         answering = true;
+        if (detail::log_enabled(log_level::info)) log_what = req.method + ' ' + req.target;  // req is moved below
         auto once = std::make_shared<std::atomic<bool>>(false);
         auto post = srv.poster_;
         std::weak_ptr<conn> weak = shared_from_this();
@@ -346,6 +348,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         HTTPP_LOG(debug) << "refusing a request with " << status << " " << reason(status);
         disarm();
         answering = true;
+        if (detail::log_enabled(log_level::info)) log_what = req.method + ' ' + req.target;
         wire_response r;
         r.status = status;
         r.close = true;
@@ -371,6 +374,10 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         if (closed || !answering) return;
         answering = false;
         if (r.status == 0) return close(); // convention: no answer at all (a handler that gave up)
+        if (!log_what.empty()) {  // the access log
+            HTTPP_LOG(info) << log_what << ' ' << r.status;
+            log_what.clear();
+        }
         const bool bodyless = req_head || r.status < 200 || r.status == 204 || r.status == 304;
         bool keep = req_keep && remaining > 1 && !r.close && !srv.closing;
         const bool streaming = static_cast<bool>(r.next);

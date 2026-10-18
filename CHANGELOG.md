@@ -5,6 +5,30 @@ All notable changes to httpp are documented here. The format follows
 [Semantic Versioning](https://semver.org/) (while the major version is 0, a minor release may still change an API;
 such changes are listed under **Changed**).
 
+## [Unreleased]
+
+### Added
+- **Access log.** At the `info` log level the server writes one line per answered request (`GET /items/1 200`),
+  including the answers the server makes itself (404, 413, ...). It goes through the library's own logging
+  (AixLog), so `set_log_level`, `set_log_file` and `set_log_callback` apply to it. Nothing is built or written
+  while the level is higher.
+- **"Listening" line.** After a successful bind the server logs `listening on http://host:port` at `info`
+  (also for `bind_to_any_port`, with the real port). A port that is already taken only produces the existing
+  `cannot listen` error.
+
+### Changed
+- **`httpp.run`, `app.run()` and `httpp run` log at `info` by default** (startup line and one line per request on
+  stderr, like uvicorn). Use `log_level="warning"` or `--log-level warning` to keep only problems, `off` for
+  nothing. `app.listen()` and the C++ API keep the default `warning`, so an embedded server stays quiet until you
+  call `set_log_level`. Benchmarks should run at `warning`.
+- The `starting on ...` line printed by `run` before binding is gone; the `listening on ...` line replaces it and
+  only appears once the port is really bound.
+- **`httpp run` wins over a `listen` in the file.** While `httpp run module:app` imports the module, `app.listen()`
+  and `app.run()` calls at import time (without an `if __name__ == "__main__":` guard) are skipped with a warning
+  (`httpp: ignoring app.listen('127.0.0.1', 8001): ...`), so `--host`, `--port` and `--workers` apply. Before, the
+  file's `listen` blocked the import, the CLI options were silently ignored, and `--workers` failed with a bind
+  error. Running the file with `python file.py` is unchanged. Only a string target (`"module:app"`) is affected.
+
 ## [0.7.0] - 2026-10-17
 
 The biggest release so far: a native async client and server, a FastAPI-style Python layer with OpenAPI and Swagger

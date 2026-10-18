@@ -52,6 +52,17 @@ def test_trace_level_reports_connection_events_to_a_callback():
     assert any("connection closed" in msg for _, _, msg in seen)
 
 
+def test_info_level_logs_one_access_line_per_request():
+    seen = []
+    httpp.set_log_callback(lambda level, where, msg: seen.append((level, msg)))
+    httpp.set_log_level("info")
+    with running(make_app()) as base:
+        assert httpp.get(base + "/?a=1").status == 200
+        assert httpp.get(base + "/missing").status == 404
+    assert ("info", "GET /?a=1 200") in seen
+    assert ("info", "GET /missing 404") in seen
+
+
 def test_default_level_is_quiet_for_a_normal_request():
     seen = []
     httpp.set_log_callback(lambda level, where, msg: seen.append(msg))

@@ -820,7 +820,11 @@ void server::serve_directory(const std::string& mount_path, const std::string& l
     impl_->mounts.push_back({std::move(prefix), local_dir});
 }
 
-int server::bind_to_any_port(const std::string& host) { return impl_->engine->bind(host, 0); }
+int server::bind_to_any_port(const std::string& host) {
+    const int port = impl_->engine->bind(host, 0);
+    if (port >= 0) HTTPP_LOG(info) << "listening on http://" << host << ':' << port;
+    return port;
+}
 
 bool server::listen_after_bind() {
     const std::size_t base = impl_->pool_base;
@@ -841,10 +845,12 @@ bool server::listen_after_bind() {
 }
 
 bool server::listen(const std::string& host, int port) {
-    if (impl_->engine->bind(host, port) < 0) {
+    const int bound = impl_->engine->bind(host, port);
+    if (bound < 0) {
         HTTPP_LOG(error) << "cannot listen on " << host << ':' << port;
         return false;
     }
+    HTTPP_LOG(info) << "listening on http://" << host << ':' << bound;  // after the bind, so a taken port never says it
     return listen_after_bind();
 }
 

@@ -131,3 +131,49 @@ UTEST(log, std_clog_is_left_alone) {
     ASSERT_TRUE(during == mine.rdbuf()); // still our buffer: nobody swapped it
     ASSERT_TRUE(mine.str().empty());     // and nothing was written through it
 }
+
+// --- access log: one info line per answered request (method, target, status) ---------------------
+
+namespace {
+void fetch_ok_and_missing() {
+    testutil::local_server srv([](httpp::server& s) {
+        s.get("/ok", [](const httpp::request&, httpp::response& res) { res.status = 200; res.body = "hi"; });
+    });
+    (void)httpp::client::fetch(srv.url("/ok?x=1"));
+    (void)httpp::client::fetch(srv.url("/nope"));
+}
+} // namespace
+
+UTEST(log, info_level_logs_one_access_line_per_request) {
+    log_guard g;
+    captured c;
+    install(c);
+    httpp::set_log_level(httpp::log_level::info);
+    fetch_ok_and_missing();
+    ASSERT_TRUE(c.contains("GET /ok?x=1 200"));
+    ASSERT_TRUE(c.contains("GET /nope 404")); // answers the server makes itself are logged too
+    std::lock_guard<std::mutex> lk(c.mu);
+    for (auto& l : c.lines) ASSERT_TRUE(l.first == httpp::log_level::info);
+}
+
+UTEST(log, the_default_level_does_not_log_requests) {
+    log_guard g;
+    captured c;
+    install(c);
+    httpp::set_log_level(httpp::log_level::warning);
+    fetch_ok_and_missing();
+    ASSERT_FALSE(c.contains("GET /ok"));
+}
+
+UTEST(log, info_level_says_where_the_server_is_listening) {
+    log_guard g;
+    captured c;
+    install(c);
+    httpp::set_log_level(httpp::log_level::info);
+    { testutil::local_server srv([](httpp::server&) {}); }
+    ASSERT_TRUE(c.contains("listening on http://127.0.0.1:"));
+    c.lines.clear();
+    httpp::set_log_level(httpp::log_level::warning);
+    { testutil::local_server srv([](httpp::server&) {}); }
+    ASSERT_FALSE(c.contains("listening on"));
+}
