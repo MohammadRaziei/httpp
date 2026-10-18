@@ -16,6 +16,12 @@ such changes are listed under **Changed**).
   (also for `bind_to_any_port`, with the real port). A port that is already taken only produces the existing
   `cannot listen` error.
 
+- **Python parity for downloads and hashing.** `Download.sha256()`, `Download.sha256_url()`, `Download.set_timeout()`,
+  `Download.set_max_wait(seconds)` and `DownloadResult.sha256`; `httpp.sha256_hex()`, `httpp.sha256_file()` and
+  `httpp.parse_sha256_checksum()` (they raise `RuntimeError` where the C++ functions throw). `Client(keep_alive=False)`
+  mirrors `httpp::client::set_keep_alive`.
+- **Parity test.** `tests/python/test_cpp_python_parity.py` fails when a public C++ name has no Python counterpart and no documented reason.
+
 ### Changed
 - **`httpp.run`, `app.run()` and `httpp run` log at `info` by default** (startup line and one line per request on
   stderr, like uvicorn). Use `log_level="warning"` or `--log-level warning` to keep only problems, `off` for

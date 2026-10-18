@@ -170,6 +170,10 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         cbool skipped
         int status
         string error
+        string sha256
+
+    cdef cppclass cpp_milliseconds "std::chrono::milliseconds":
+        cpp_milliseconds(long long)
 
     cdef cppclass cpp_download "httpp::download":
         cpp_download(string url, string dest_path) except +
@@ -179,7 +183,17 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         cpp_download& follow_redirects(cbool enable) except +
         cpp_download& resume(cbool enable) except +
         cpp_download& force(cbool enable) except +
+        cpp_download& sha256(string hex) except +
+        cpp_download& sha256_url(string checksum_url) except +
+        cpp_download& set_timeout(long seconds) except +
+        cpp_download& set_max_wait(cpp_milliseconds max_wait) except +
         download_result run() except + nogil
+
+
+cdef extern from "httpp/sha256.hpp" namespace "httpp":
+    string cpp_sha256_hex "httpp::sha256_hex"(const void* data, size_t size) except + nogil
+    string cpp_sha256_file "httpp::sha256_file"(string path) except + nogil
+    string cpp_parse_sha256_checksum "httpp::parse_sha256_checksum"(string text, string file_name) except +
 
 
 cdef extern from "httpp/progress.hpp" namespace "httpp::progress":
@@ -403,7 +417,7 @@ cdef class Client:
 
     def __init__(self, str host_or_url, port=None, cbool ssl=False, *, headers=None, timeout=None,
                  cbool follow_redirects=False, auth=None, token=None, cbool verify=True, str ca_file=None,
-                 proxy=None):
+                 proxy=None, cbool keep_alive=True):
         if port is None:
             self._cli = new cpp_client(host_or_url.encode("utf-8"))
         else:
@@ -415,6 +429,8 @@ cdef class Client:
             self._cli.set_timeout(max(1, int(round(timeout))))
         if follow_redirects:
             self._cli.set_follow_redirects(True)
+        if not keep_alive:
+            self._cli.set_keep_alive(False)
         if auth is not None:
             self._cli.set_basic_auth((<str>auth[0]).encode("utf-8"), (<str>auth[1]).encode("utf-8"))
         if token is not None:
@@ -1011,17 +1027,24 @@ cdef class Server:
 
 cdef class DownloadResult:
     """Result of Download.run(): ok, status (0 if no response), error (text, empty when ok),
-    skipped (True when resume() found the complete file and made no transfer; ok is True too)."""
+    skipped (True when resume() found the complete file and made no transfer; ok is True too),
+    sha256 (the digest the file was checked against; empty unless sha256()/sha256_url() was used)."""
     cdef cbool _ok
     cdef cbool _skipped
     cdef int _status
     cdef bytes _error
+    cdef bytes _sha256
 
-    def __init__(self, cbool ok, int status, bytes error, cbool skipped=False):
+    def __init__(self, cbool ok, int status, bytes error, cbool skipped=False, bytes sha256=b""):
         self._ok = ok
         self._status = status
         self._error = error
         self._skipped = skipped
+        self._sha256 = sha256
+
+    @property
+    def sha256(self):
+        return self._sha256.decode("ascii")
 
     @property
     def skipped(self):
@@ -1085,17 +1108,72 @@ cdef class Download:
         self._dl.force(enable)
         return self
 
+    def sha256(self, str hex):
+        """Verify the finished file against this SHA-256 (64 hex digits, any case); on a mismatch the
+        file is deleted and the result is not ok."""
+        self._dl.sha256(hex.encode("utf-8"))
+        return self
+
+    def sha256_url(self, str checksum_url=""):
+        """Read the expected SHA-256 from a checksum file (as `sha256sum` writes it) fetched before the
+        download; empty means `<download url>.sha256`. Overrides sha256()."""
+        self._dl.sha256_url(checksum_url.encode("utf-8"))
+        return self
+
+    def set_timeout(self, long seconds):
+        """Seconds for connecting, reading and writing; 0 or less keeps the defaults."""
+        self._dl.set_timeout(seconds)
+        return self
+
+    def set_max_wait(self, double seconds):
+        """Seconds a lock that is not being updated is waited for before it is taken over (default 2);
+        values <= 0 are ignored. (C++ takes milliseconds; Python uses seconds, like set_timeout.)"""
+        if not seconds < 1e9:  # also catches nan and inf
+            raise ValueError("max_wait is out of range")
+        self._dl.set_max_wait(cpp_milliseconds(<long long>(seconds * 1000.0)))
+        return self
+
     def run(self):
         cdef download_result res
         with nogil:
             res = self._dl.run()
-        return DownloadResult(res.ok, res.status, res.error, res.skipped)
+        return DownloadResult(res.ok, res.status, res.error, res.skipped, res.sha256)
 
     def run_async(self):
         """Run the download without blocking the event loop; `await` the DownloadResult. Like
         Request.run_async, the blocking call runs on the loop's default thread-pool executor."""
         import asyncio
         return asyncio.get_running_loop().run_in_executor(None, self.run)
+
+
+def sha256_hex(const unsigned char[::1] data not None):
+    """SHA-256 of a bytes-like object as 64 lowercase hex characters (C++: httpp::sha256_hex).
+    Text must be encoded first (a str raises TypeError)."""
+    cdef size_t n = data.shape[0]
+    cdef const char* empty = b""
+    cdef const void* p = <const void*>&data[0] if n else <const void*>empty
+    cdef string res
+    with nogil:
+        res = cpp_sha256_hex(p, n)
+    return res.decode("ascii")
+
+
+def sha256_file(path):
+    """SHA-256 of a whole file, read in chunks. RuntimeError if it cannot be opened or read
+    (C++: httpp::sha256_file)."""
+    import os
+    cdef string p = os.fspath(path).encode("utf-8")
+    cdef string res
+    with nogil:
+        res = cpp_sha256_file(p)
+    return res.decode("ascii")
+
+
+def parse_sha256_checksum(str text, str file_name):
+    """Digest (lowercase) from the text of a checksum file: one line `<64 hex>` optionally followed by
+    `*`/spaces and a file name that must equal file_name. RuntimeError for anything else
+    (C++: httpp::parse_sha256_checksum)."""
+    return cpp_parse_sha256_checksum(text.encode("utf-8"), file_name.encode("utf-8")).decode("ascii")
 
 
 cdef class Bar:

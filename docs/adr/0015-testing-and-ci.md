@@ -42,7 +42,7 @@ those branches are only compiled there.
 
 - The differential tests against Pydantic and the `openapi.json` validation with `openapi_spec_validator` **do not run in CI**; that coverage is
   local only: `pip install pydantic openapi-spec-validator && pytest tests/python` (Linux, CPython 3.12, one core:
-  **501 passed, 1 skipped**, the skipped one being the free-threading test; without these two packages 219 passed and 7 skipped). Why these two packages are not in
+  **521 passed, 1 skipped**, the skipped one being the free-threading test; without these two packages 239 passed and 7 skipped). Why these two packages are not in
   the test extras is not recorded and has to be settled with the project owner (adding them to the wheel CI on free-threaded Pythons
   may require building their dependencies; this needs checking and is not a test result).
 - Any new test that depends on SIGTERM, `SO_REUSEPORT` or `openssl` must carry the same skips.

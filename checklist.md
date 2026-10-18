@@ -24,7 +24,7 @@
 - [x] Wheels: `cp39-abi3` plus `cp313t`/`cp314t`/`cp315t`, built and tested in CI on Linux, macOS and Windows; the Linux wheel is about 1.8 MB ([ADR-0013](docs/adr/0013-packaging.md))
 - [x] Free-threaded Python: the GIL stays off after import (checked by a test on the free-threaded wheels in CI)
 - [x] CI is green: C++ build on Linux/macOS/Windows, C++ tests on Linux/macOS, Python tests in every wheel
-- [x] Tests: 229 C++ tests; 501 Python tests with `pydantic` and `openapi-spec-validator` installed (219 without them, which is what the wheel CI runs), 1 skip that only applies to free-threaded builds. Single core, Linux, CPython 3.12.
+- [x] Tests: 229 C++ tests; 521 Python tests with `pydantic` and `openapi-spec-validator` installed (239 without them, which is what the wheel CI runs), 1 skip that only applies to free-threaded builds. Single core, Linux, CPython 3.12.
 
 ---
 
@@ -33,15 +33,18 @@
 > Goal: every public C++ capability has a Python equivalent and the other way round where it makes sense ([ADR-0016](docs/adr/0016-hybrid-api-parity.md)).
 > The list below comes from comparing `include/httpp/*.hpp` with `dir(httpp)` and `httpp_cy.pyx`. It compares names and signatures, not behavior.
 
-### Missing in Python (C++ has it)
+### Done
 
-- [ ] `Download.sha256(expected)` and `Download.sha256_url(url)`
-- [ ] `Download.set_timeout(...)` and `Download.set_max_wait(...)`
-- [ ] `DownloadResult.sha256` field
-- [ ] `sha256_hex`, `sha256_file`, `parse_sha256_checksum` (module `sha256.hpp`)
-- [ ] `httpp::client::request` (the curl-like builder in `curl.hpp`): expose it under the same name, or document that `httpp.Request` is the Python equivalent and align the method names
+- [x] `Download.sha256(...)`, `Download.sha256_url(...)`, `Download.set_timeout(...)`, `Download.set_max_wait(seconds)` (Python takes seconds, C++ milliseconds) and `DownloadResult.sha256`
+- [x] `httpp.sha256_hex`, `httpp.sha256_file`, `httpp.parse_sha256_checksum`
+- [x] `Client(keep_alive=False)` (the C++ `set_keep_alive`), found by the parity test
+- [x] C++ setters of `client` and `async_client` are accepted as constructor arguments (checked by a test)
+
+### Missing in Python (C++ has it), tracked in `KNOWN_GAPS` of `tests/python/test_cpp_python_parity.py`
+
 - [ ] Public Python access to `route_io` / `route_shared` (today only the internal `add_route` / `add_loop_route`)
-- [ ] Check the `AsyncClient` constructor arguments against the C++ `async_client` options (`max_connections`, pool settings)
+- [ ] `httpp::curl::request` (the curl-like builder in `curl.hpp`): names are covered by `httpp.Request`; decide whether to expose it under its own name
+- [ ] `find_swagger_ui_asset` (a C++ lookup helper; probably by design)
 
 ### Missing in C++ (Python has it; by design the FastAPI-like layer, decide how far it should go)
 
@@ -51,8 +54,9 @@
 
 ### Keeping parity from drifting
 
-- [ ] A test that lists the public C++ methods (parsed from `include/httpp/*.hpp`) and the Python names, with an explicit allow-list for intentional differences
-- [ ] Every new C++ public method lands together with its Python binding (or an entry in the allow-list)
+- [x] `tests/python/test_cpp_python_parity.py` parses `include/httpp/*.hpp` and compares names with the Python objects, with explicit `ALIASES`, `CTOR_ARGS` and `KNOWN_GAPS` (a stale entry fails the test)
+- [x] A new C++ class with no entry in `TARGETS` fails the test
+- [ ] Every new C++ public method lands together with its Python binding (the test enforces the names; behavior is still checked by ordinary tests)
 
 ---
 
