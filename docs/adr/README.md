@@ -21,7 +21,8 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0013](0013-packaging.md) | `cp39-abi3` + a separate wheel per free-threaded version | accepted |
 | [0014](0014-coding-conventions.md) | STL-style `snake_case`, ponytail style, English only, no em dash | accepted |
 | [0015](0015-testing-and-ci.md) | What is tested where; the list of skips | accepted |
-| [0016](0016-hybrid-api-parity.md) | Hybrid C++/Python API parity and its open gaps | accepted as a goal, gaps open |
+| [0016](0016-hybrid-api-parity.md) | Hybrid C++/Python API parity: inventory of differences | partly superseded by 0017 |
+| [0017](0017-python-binding-policy.md) | Python binding policy: speed decides, only public headers, only what is necessary | accepted |
 
 ## Not decided yet
 

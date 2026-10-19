@@ -219,7 +219,7 @@ If something is missing, tell the user which files are absent and ask them to pu
   v0.54.1 (re-fetch with `wget` from
   `https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.54.1/httplib.h`). Never patch it. Only the
   synchronous client, `curl.cpp` and `download.cpp` use it; it is to be retired later.
-- Vendored code: `src/llhttp` (unmodified v9.4.3), `src/third_party/aixlog` (one `[httpp patch]`),
+- Vendored code: `src/third_party/llhttp` (unmodified v9.4.3), `src/third_party/aixlog` (one `[httpp patch]`),
   Asio, mbedtls and liburlparser are submodules. Document any vendor change in `src/third_party/README.md`.
 - **Reports and delivery:** after each step give a short report (what was done, tests, what is not done,
   honest limitations). **Report the design choices you make** (the owner asked for this explicitly), with

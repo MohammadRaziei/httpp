@@ -1,4 +1,4 @@
-"""Python parity for httpp::sha256_hex/sha256_file/parse_sha256_checksum and Download.sha256/sha256_url/
+"""Python bindings for httpp::sha256_hex/sha256_file/parse_sha256_checksum (in `httpp.utils`) and Download.sha256/sha256_url/
 set_timeout/set_max_wait, mirroring tests/cpp/test_download.cpp."""
 
 import hashlib
@@ -41,33 +41,47 @@ def file_server(checksum_body="", checksum_status=200):
 # ---- free functions -----------------------------------------------------------------------------
 
 def test_sha256_hex_known_vectors():
-    assert httpp.sha256_hex(b"abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-    assert httpp.sha256_hex(b"") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    assert httpp.sha256_hex(bytearray(BODY)) == DIGEST
-    assert httpp.sha256_hex(memoryview(BODY)) == DIGEST
+    assert httpp.utils.sha256_hex(b"abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    assert httpp.utils.sha256_hex(b"") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    assert httpp.utils.sha256_hex(bytearray(BODY)) == DIGEST
+    assert httpp.utils.sha256_hex(memoryview(BODY)) == DIGEST
+
+
+def test_sha256_hex_agrees_with_hashlib_on_many_sizes():
+    """The point of binding it: Python can check the C++ implementation against hashlib."""
+    import os
+
+    for n in list(range(0, 200)) + [255, 256, 257, 1000, 4096, 65535, 65536, 1_000_003]:
+        data = os.urandom(n)
+        assert httpp.utils.sha256_hex(data) == hashlib.sha256(data).hexdigest(), n
+
+
+def test_the_helpers_live_in_utils_not_in_the_main_namespace():
+    for name in ("sha256_hex", "sha256_file", "parse_sha256_checksum"):
+        assert hasattr(httpp.utils, name) and not hasattr(httpp, name)
 
 
 def test_sha256_hex_rejects_text():
     with pytest.raises(TypeError):
-        httpp.sha256_hex("abc")  # bytes only: encode explicitly
+        httpp.utils.sha256_hex("abc")  # bytes only: encode explicitly
 
 
 def test_sha256_file_matches_hashlib_and_a_missing_file_raises(tmp_path):
     big = tmp_path / "big.bin"
     big.write_bytes(bytes(i % 251 for i in range(3_000_000)))  # several read chunks
-    assert httpp.sha256_file(str(big)) == hashlib.sha256(big.read_bytes()).hexdigest()
+    assert httpp.utils.sha256_file(str(big)) == hashlib.sha256(big.read_bytes()).hexdigest()
     with pytest.raises(RuntimeError):
-        httpp.sha256_file(str(tmp_path / "nope.bin"))
+        httpp.utils.sha256_file(str(tmp_path / "nope.bin"))
 
 
 def test_parse_sha256_checksum():
-    assert httpp.parse_sha256_checksum(DIGEST + "\n", "f.bin") == DIGEST
-    assert httpp.parse_sha256_checksum(DIGEST + "  f.bin\n", "f.bin") == DIGEST
-    assert httpp.parse_sha256_checksum(DIGEST + " *f.bin", "f.bin") == DIGEST
-    assert httpp.parse_sha256_checksum(DIGEST.upper(), "f.bin") == DIGEST  # returned in lowercase
+    assert httpp.utils.parse_sha256_checksum(DIGEST + "\n", "f.bin") == DIGEST
+    assert httpp.utils.parse_sha256_checksum(DIGEST + "  f.bin\n", "f.bin") == DIGEST
+    assert httpp.utils.parse_sha256_checksum(DIGEST + " *f.bin", "f.bin") == DIGEST
+    assert httpp.utils.parse_sha256_checksum(DIGEST.upper(), "f.bin") == DIGEST  # returned in lowercase
     for bad in (DIGEST + "  other.bin", DIGEST + "\n" + DIGEST, DIGEST[:10], "<html>404</html>", ""):
         with pytest.raises(RuntimeError):
-            httpp.parse_sha256_checksum(bad, "f.bin")
+            httpp.utils.parse_sha256_checksum(bad, "f.bin")
 
 
 # ---- Download ------------------------------------------------------------------------------------

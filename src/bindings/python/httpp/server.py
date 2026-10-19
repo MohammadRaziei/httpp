@@ -61,7 +61,6 @@ from . import _validate as V
 from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox
 from .models import BaseModel, to_jsonable
 
-_PARAM = re.compile(r"[{<]([^}>]*)[}>]")
 
 _ROUTE_META = frozenset(("summary", "description", "tags", "response_model", "status_code", "deprecated", "include_in_schema"))
 
@@ -263,18 +262,6 @@ def _first_wins(pairs, key=lambda k: k):
     for k, v in pairs:
         out.setdefault(key(k), v)
     return out
-
-
-def _to_pattern(path):
-    """'/users/{id}' or '/users/<id>' -> cpp-httplib's '/users/:id'."""
-
-    def sub(m):
-        if not m.group(1).isidentifier():
-            # Flask's <int:id> converters etc. would otherwise silently never match.
-            raise ValueError(f"unsupported path parameter {m.group(0)!r} in {path!r}")
-        return ":" + m.group(1)
-
-    return _PARAM.sub(sub, path)
 
 
 _END = object()
@@ -701,7 +688,7 @@ class Server(_Server):
         unknown = set(meta) - _ROUTE_META
         if unknown:
             raise TypeError(f"route() got unexpected options {sorted(unknown)}; known: {sorted(_ROUTE_META)}")
-        pattern = _to_pattern(path)
+        pattern = _params.to_cpp_pattern(path)
 
         def register(fn):
             plan = _params.make_plan(fn, path)

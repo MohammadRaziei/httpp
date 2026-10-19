@@ -47,7 +47,7 @@ The main goal: **remove the layer boundaries**, not optimize them.
 
 | Module | Role in httpp | License | How it is used |
 |--------|---------------|---------|----------------|
-| **llhttp** v9.4.3 | HTTP/1.1 parser for server and client | MIT | vendored in `src/llhttp` (unmodified) |
+| **llhttp** v9.4.3 | HTTP/1.1 parser for server and client | MIT | vendored in `src/third_party/llhttp` (unmodified) |
 | **Asio** (standalone) | event loop and async I/O for server and client | Boost Software License | submodule |
 | **mbedTLS** | TLS for the **client** (the server has no TLS yet 🎯) | Apache-2.0 (dual-licensed with GPL-2.0+) | submodule |
 | **liburlparser** | URLs | n/a | submodule |

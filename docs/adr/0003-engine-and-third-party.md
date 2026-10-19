@@ -12,7 +12,7 @@ A parser, an event loop and TLS must be chosen, with no system dependencies and 
 
 | Role | Choice | How it is vendored |
 |---|---|---|
-| HTTP/1.1 parser (server and client) | llhttp | unmodified in `src/llhttp` |
+| HTTP/1.1 parser (server and client) | llhttp | unmodified in `src/third_party/llhttp` |
 | Event loop and I/O | Asio standalone | git submodule |
 | TLS (client) | Mbed TLS | git submodule |
 | URL | liburlparser | git submodule |

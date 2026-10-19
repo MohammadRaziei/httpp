@@ -115,16 +115,16 @@ if(WIN32 OR HTTPP_MBEDTLS_THREADING_ALT)
 endif()
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/third_party/mbedtls)
 
-# llhttp (vendored release C sources, kept in src/ not third_party/: it is an interim parser for the async client and goes away with cpp-httplib, no Node needed): the HTTP/1.x parser for
-# the async client. Own C static target so the generated code is built without
-# httpp's -Wall -Wextra -Wpedantic; see src/llhttp/VENDORED.md.
+# llhttp (vendored release C sources, unmodified, no Node needed): the HTTP/1.x parser of the async
+# server and client. Own C static target so the generated code is built without
+# httpp's -Wall -Wextra -Wpedantic; see src/third_party/llhttp/VENDORED.md.
 enable_language(C)
 add_library(httpp_llhttp STATIC
-    ${PROJECT_SOURCE_DIR}/src/llhttp/src/llhttp.c
-    ${PROJECT_SOURCE_DIR}/src/llhttp/src/api.c
-    ${PROJECT_SOURCE_DIR}/src/llhttp/src/http.c)
+    ${PROJECT_SOURCE_DIR}/src/third_party/llhttp/src/llhttp.c
+    ${PROJECT_SOURCE_DIR}/src/third_party/llhttp/src/api.c
+    ${PROJECT_SOURCE_DIR}/src/third_party/llhttp/src/http.c)
 target_include_directories(httpp_llhttp PUBLIC
-    ${PROJECT_SOURCE_DIR}/src/llhttp/include)
+    ${PROJECT_SOURCE_DIR}/src/third_party/llhttp/include)
 set_target_properties(httpp_llhttp PROPERTIES
     LINKER_LANGUAGE C POSITION_INDEPENDENT_CODE ON C_VISIBILITY_PRESET hidden)
 target_compile_options(httpp_llhttp PRIVATE

@@ -17,16 +17,20 @@ such changes are listed under **Changed**).
   `cannot listen` error.
 
 - **Python parity for downloads and hashing.** `Download.sha256()`, `Download.sha256_url()`, `Download.set_timeout()`,
-  `Download.set_max_wait(seconds)` and `DownloadResult.sha256`; `httpp.sha256_hex()`, `httpp.sha256_file()` and
-  `httpp.parse_sha256_checksum()` (they raise `RuntimeError` where the C++ functions throw). `Client(keep_alive=False)`
+  `Download.set_max_wait(seconds)` and `DownloadResult.sha256`; `httpp.utils.sha256_hex()`, `httpp.utils.sha256_file()` and
+  `httpp.utils.parse_sha256_checksum()` (they raise `RuntimeError` where the C++ functions throw). `Client(keep_alive=False)`
   mirrors `httpp::client::set_keep_alive`.
 - **Parity test.** `tests/python/test_cpp_python_parity.py` fails when a public C++ name has no Python counterpart and no documented reason.
 
 ### Changed
+- `Client`/`AsyncClient` encode query strings and forms with the C++ `url::build_query` instead of `urllib` (identical output, about 4x
+  faster for that step). One path-template parser in Python instead of two; one shared option block for `Client` and `AsyncClient`.
 - **`httpp.run`, `app.run()` and `httpp run` log at `info` by default** (startup line and one line per request on
   stderr, like uvicorn). Use `log_level="warning"` or `--log-level warning` to keep only problems, `off` for
   nothing. `app.listen()` and the C++ API keep the default `warning`, so an embedded server stays quiet until you
   call `set_log_level`. Benchmarks should run at `warning`.
+- **llhttp moved to `src/third_party/llhttp`** (it was `src/llhttp`). The files are unmodified: they match the checksums in
+  `VENDORED.md` and the upstream `release/v9.4.3` tag byte for byte. Only the path changed.
 - The `starting on ...` line printed by `run` before binding is gone; the `listening on ...` line replaces it and
   only appears once the port is really bound.
 - **`httpp run` wins over a `listen` in the file.** While `httpp run module:app` imports the module, `app.listen()`

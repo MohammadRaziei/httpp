@@ -1,6 +1,6 @@
 # ADR-0016: Hybrid API parity: C++ and Python expose equivalent public APIs
 
-- **Status:** accepted; the parity test enforces names, the gaps below are open
+- **Status:** partly superseded by [ADR-0017](0017-python-binding-policy.md): the goal "parity everywhere" is replaced by the rule "bind only what is necessary"; the inventory below stays valid
 - **Date:** 2026-10-18
 - **Source:** comparison of `include/httpp/*.hpp` with `dir(httpp)` and `src/bindings/python/httpp_cy.pyx` (names and signatures, not behavior)
 
@@ -24,7 +24,7 @@ options, so a user can move between the two without surprises. The question "are
 
 Equivalent: `server` (routes, `route_async`, `serve_directory`, bind/listen/stop, hooks, all settings, `mount_swagger_ui`), `client` and `async_client`
 (HTTP methods, `fetch`; the setters are constructor arguments in Python), `download` (including `sha256`, `sha256_url`, `set_timeout`,
-`set_max_wait` taking seconds, and `DownloadResult.sha256`), `sha256_hex`, `sha256_file`, `parse_sha256_checksum`, `url`, `log`, `progress::bar`.
+`set_max_wait` taking seconds, and `DownloadResult.sha256`), `httpp.utils.sha256_hex`, `httpp.utils.sha256_file`, `httpp.utils.parse_sha256_checksum`, `url`, `log`, `progress::bar`.
 The first run of the parity test found one more gap that nobody had listed: `Client(keep_alive=...)`; it was added.
 
 Still missing in Python (`KNOWN_GAPS`):

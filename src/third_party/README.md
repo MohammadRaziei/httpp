@@ -1,8 +1,15 @@
 # third_party
 
 Vendored dependencies. Each is either a committed file (`cpp-httplib`,
-`indicators`) or a git submodule built from source (`mbedtls`,
-`liburlparser`, `asio`) — never a system package.
+`indicators`, `llhttp`) or a git submodule built from source (`mbedtls`,
+`liburlparser`, `asio`), never a system package.
+
+## llhttp
+
+`llhttp/` holds the four generated C files of the upstream release `release/v9.4.3` (MIT), **unmodified**: the
+HTTP/1.x parser of the async server and client. The checksums are in `llhttp/VENDORED.md`, together with the upgrade
+steps; the files were also compared byte for byte with the upstream tag. It is built as its own C static target
+(`httpp_llhttp` in the top `CMakeLists.txt`) so the generated code does not get httpp's warning flags.
 
 ## cpp-httplib
 
@@ -44,7 +51,7 @@ update `HTTPP_ASIO_VERSION` / `HTTPP_ASIO_SHA256` in `CMakeLists.txt`, which onl
 
 ## indicators (not wired up yet)
 
-`indicators/indicators.hpp` — a single-header terminal progress-bar/spinner
+`indicators/indicators.hpp` - a single-header terminal progress-bar/spinner
 library (github.com/p-ranav/indicators). Vendored for later use (e.g. a
 progress bar for `httpp download`), not currently included or built by
 anything.

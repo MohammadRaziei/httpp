@@ -25,12 +25,25 @@ from .models import FieldInfo, _copy_default
 PATH_PARAM = re.compile(r"[{<]([^}>]*)[}>]|(?<=/):([A-Za-z_]\w*)")
 
 
+def _checked(m, path):
+    name = m.group(1) if m.group(1) is not None else m.group(2)
+    if not name.isidentifier():
+        # Flask's <int:id> converters etc. would otherwise silently never match.
+        raise ValueError(f"unsupported path parameter {m.group(0)!r} in {path!r}")
+    return name
+
+
 def path_names(path):
-    return {m.group(1) or m.group(2) for m in PATH_PARAM.finditer(path)}
+    return {_checked(m, path) for m in PATH_PARAM.finditer(path)}
+
+
+def to_cpp_pattern(path):
+    """'/users/{id}' or '/users/<id>' -> the C++ router's '/users/:id' (a ':id' stays as it is)."""
+    return PATH_PARAM.sub(lambda m: ":" + _checked(m, path), path)
 
 
 def openapi_path(path):
-    return PATH_PARAM.sub(lambda m: "{" + (m.group(1) or m.group(2)) + "}", path)
+    return PATH_PARAM.sub(lambda m: "{" + _checked(m, path) + "}", path)
 
 
 # ---------------------------------------------------------------------------------------------------

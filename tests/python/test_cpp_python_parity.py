@@ -1,5 +1,6 @@
-"""Every public C++ name (HTTPP_API in include/httpp/*.hpp) must have a Python counterpart, or an entry below
-that says why not (ADR-0016). It compares names, not behavior.
+"""Every public C++ name (HTTPP_API in include/httpp/*.hpp) is either bound in Python or listed in NOT_EXPOSED
+with the reason (ADR-0017: a binding is added only when it is necessary). It compares names, not behavior.
+The Python binding may include only the public headers.
 
 ponytail: the headers are read with regexes, not a C++ parser. It handles the plain declarations this project
 writes (`HTTPP_API ret name(...)` inside a struct/class or at namespace level). Upgrade path: libclang.
@@ -56,7 +57,7 @@ TARGETS = {
     ("server.hpp", "server"): httpp.Server,
     ("url.hpp", "url"): httpp.URL,
     ("log.hpp", ""): httpp,
-    ("sha256.hpp", ""): httpp,
+    ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("swagger_ui.hpp", ""): httpp,
     ("server.hpp", "responder"): None,  # handed to route_async handlers; Python handlers just return or await
 }
@@ -92,12 +93,12 @@ CTOR_ARGS = {
     },
 }
 
-# Gaps that exist today and are tracked in checklist.md. An entry here must still be a real gap (a test checks),
-# so fixing the gap forces the entry to go.
-KNOWN_GAPS = {
-    ("server", "route_io"): "only the internal add_loop_route reaches it",
-    ("server", "route_shared"): "only the internal add_route reaches it",
-    ("", "find_swagger_ui_asset"): "C++ lookup helper behind mount_swagger_ui, not meant for users",
+# Public C++ names that Python deliberately does not carry (ADR-0017 rule 3). An entry must still be unbound (a test
+# checks), so adding the binding later forces the entry to go.
+NOT_EXPOSED = {
+    ("server", "route_io"): "not necessary: Python handlers need the GIL anyway, so add_loop_route is the fast path",
+    ("server", "route_shared"): "not necessary: add_route already hands Python the request on a pool thread",
+    ("", "find_swagger_ui_asset"): "internal lookup behind mount_swagger_ui, not meant for users",
 }
 
 
@@ -116,7 +117,7 @@ def _missing():
             continue
         have = _py_names(target)
         for name in sorted(names):
-            if (owner, name) in KNOWN_GAPS:
+            if (owner, name) in NOT_EXPOSED:
                 continue
             if name in CTOR_ARGS.get(owner, {}):
                 continue
@@ -135,17 +136,17 @@ def test_new_cpp_classes_must_be_added_to_TARGETS():
 
 def test_every_cpp_public_name_has_a_python_counterpart():
     missing, _ = _missing()
-    assert not missing, "C++ has it, Python does not (add the binding, or an entry with a reason):\n" + "\n".join(missing)
+    assert not missing, "C++ has it, Python does not (bind it only if it is necessary, otherwise add it to NOT_EXPOSED with the reason):\n" + "\n".join(missing)
 
 
-def test_known_gaps_are_still_gaps():
+def test_not_exposed_names_are_still_unbound():
     api = {}
     for (header, owner), names in cpp_api().items():
         api.setdefault(owner, set()).update(names)
-    for (owner, name), reason in KNOWN_GAPS.items():
-        assert name in api.get(owner, set()), f"{owner}::{name} is no longer in the C++ headers: drop it from KNOWN_GAPS"
+    for (owner, name), reason in NOT_EXPOSED.items():
+        assert name in api.get(owner, set()), f"{owner}::{name} is no longer in the C++ headers: drop it from NOT_EXPOSED"
         target = {"server": httpp.Server, "": httpp}[owner]
-        assert name not in _py_names(target), f"{owner}::{name} now exists in Python ({reason}): drop it from KNOWN_GAPS"
+        assert name not in _py_names(target), f"{owner}::{name} now exists in Python ({reason}): drop it from NOT_EXPOSED"
 
 
 def test_aliases_point_at_real_python_names():
@@ -176,3 +177,17 @@ def test_every_cpp_setter_is_covered_by_ctor_args_or_a_python_method():
             if name.startswith("set_"):
                 py = ALIASES.get(owner, {}).get(name, name)
                 assert name in CTOR_ARGS[owner] or py in _py_names(TARGETS[(header, owner)]), f"{owner}::{name}"
+
+
+def test_the_binding_includes_only_public_headers():
+    """ADR-0017 rule 2: the Cython sources may include only include/httpp/*.hpp from this project."""
+    public = {f"httpp/{p.name}" for p in INCLUDE.iterdir()}
+    src = INCLUDE.parents[1] / "src" / "bindings" / "python"
+    seen = 0
+    for pyx in src.glob("*.pyx"):
+        text = pyx.read_text(encoding="utf-8")
+        for target in re.findall(r'(?:#include|cdef extern from)\s+"([^"]+)"', text):
+            seen += 1
+            if target.startswith(("httpp/", "internal/")) or "/" in target:
+                assert target in public, f"{pyx.name} includes {target}, which is not a public header"
+    assert seen, "found no includes to check: the pattern is stale"
