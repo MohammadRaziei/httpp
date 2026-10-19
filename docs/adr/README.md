@@ -23,6 +23,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0015](0015-testing-and-ci.md) | What is tested where; the list of skips | accepted |
 | [0016](0016-hybrid-api-parity.md) | Hybrid C++/Python API parity: inventory of differences | partly superseded by 0017 |
 | [0017](0017-python-binding-policy.md) | Python binding policy: speed decides, only public headers, only what is necessary | accepted |
+| [0018](0018-python-logging-bridge.md) | The C++ log goes through Python `logging`; the logger controls the C++ level | accepted |
 
 ## Not decided yet
 

@@ -25,13 +25,17 @@ if _sys.platform == "win32" and hasattr(_os, "add_dll_directory"):
 
 # Import the compiled Cython module
 from .httpp_cy import Client, download, Download, DownloadResult, Request, Response, URL
-from .httpp_cy import set_log_level, set_log_file, set_log_callback
+from .httpp_cy import set_log_file, set_log_callback
+from . import _log
+from ._log import set_log_level
 from . import progress, utils
 from .server import Server, ServerRequest, ResponseHead, file, redirect, set_cookie
 from ._params import Query, Path, Header, Cookie, Body, Depends
 from ._run import run
 from ._http import AsyncClient, request, get, head, options, post, put, patch, delete
 from .errors import Error, HTTPError, RequestError, Timeout, TLSError, TooManyRedirects, InvalidURL
+
+_log.install()  # the C++ log goes through `logging` (logger "httpp"); see httpp/_log.py and ADR-0018
 
 
 def get_include_dir():

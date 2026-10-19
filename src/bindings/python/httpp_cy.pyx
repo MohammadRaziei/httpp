@@ -1624,12 +1624,8 @@ cdef void _log_trampoline(void* ctx, int level, const string& where, const strin
 def set_log_callback(callback):
     """Send the library's log lines to `callback(level, where, message)` (strings) instead of stderr.
     It is called from library threads, one call at a time; it must not call into httpp. Pass None to
-    go back to stderr. Example: bridge to the standard logging module:
-
-        import logging
-        httpp.set_log_callback(lambda level, where, msg:
-            logging.getLogger("httpp").log({"trace": 5, "debug": 10, "info": 20, "warning": 30, "error": 40}[level], "%s: %s", where, msg))
-    """
+    go back to stderr. By default the Python package already installs a callback that sends the lines to
+    logging.getLogger("httpp") (see httpp/_log.py); calling this replaces that bridge."""
     global _log_callback
     if callback is None:
         with nogil:

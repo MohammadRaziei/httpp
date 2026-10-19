@@ -106,9 +106,10 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
     if auto and workers > 1 and not isinstance(app, str):
         _say("workers=auto needs an import string like 'main:app' to start several processes; running one")
         workers = 1
-    from . import set_log_level
+    from . import _log, set_log_level
 
     set_log_level(log_level or "info")  # like uvicorn: startup and one line per request; "warning" silences them
+    _log.ensure_handler()  # with no logging configured by the app, print to stderr
 
     if workers > 1:
         if not isinstance(app, str):

@@ -13,7 +13,7 @@
 - [x] Own async server engine (Asio + llhttp): keep-alive, pipelining, chunked, limits (413/414/431)
 - [x] Server on top of it: router (`:name`, plus `{name}` and `<name>` in the Python layer), static files with HEAD/Range, hooks, `route_async` with a 504 timeout
 - [x] Async client engine: TLS (mbedTLS), keep-alive pool, proxy (HTTP and CONNECT), redirects, cookies/auth
-- [x] Internal logging (AixLog) with a C++ and a Python API; access log and `listening on ...` line at `info` ([ADR-0011](docs/adr/0011-logging.md))
+- [x] Internal logging (AixLog) with a C++ and a Python API; access log and `listening on ...` line at `info` ([ADR-0011](docs/adr/0011-logging.md)); in Python it goes through `logging` automatically and the `"httpp"` logger level controls the C++ level ([ADR-0018](docs/adr/0018-python-logging-bridge.md))
 - [x] `httpp run main:app`, `app.run()`, SIGINT/SIGTERM with a clean shutdown; `httpp run` wins over a `listen` inside the file ([ADR-0012](docs/adr/0012-run-wins-over-listen.md))
 - [x] `--workers N` (fresh processes + `SO_REUSEPORT`; Linux only; no respawn)
 - [x] Async bridge without the GIL on the C++ side (loop inbox) and the rebuilt hot path ([ADR-0009](docs/adr/0009-hot-path.md))
@@ -24,7 +24,7 @@
 - [x] Wheels: `cp39-abi3` plus `cp313t`/`cp314t`/`cp315t`, built and tested in CI on Linux, macOS and Windows; the Linux wheel is about 1.8 MB ([ADR-0013](docs/adr/0013-packaging.md))
 - [x] Free-threaded Python: the GIL stays off after import (checked by a test on the free-threaded wheels in CI)
 - [x] CI is green: C++ build on Linux/macOS/Windows, C++ tests on Linux/macOS, Python tests in every wheel
-- [x] Tests: 229 C++ tests; 544 Python tests with `pydantic` and `openapi-spec-validator` installed (262 without them, which is what the wheel CI runs), 1 skip that only applies to free-threaded builds. Single core, Linux, CPython 3.12.
+- [x] Tests: 229 C++ tests; 562 Python tests with `pydantic` and `openapi-spec-validator` installed (280 without them, which is what the wheel CI runs), 1 skip that only applies to free-threaded builds. Single core, Linux, CPython 3.12.
 
 ---
 

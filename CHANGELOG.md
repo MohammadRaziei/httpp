@@ -23,6 +23,10 @@ such changes are listed under **Changed**).
 - **Parity test.** `tests/python/test_cpp_python_parity.py` fails when a public C++ name has no Python counterpart and no documented reason.
 
 ### Changed
+- **The C++ log goes through Python's `logging` automatically.** Lines arrive in `logging.getLogger("httpp")`, and that logger's level
+  decides what C++ produces: `logging.getLogger("httpp").setLevel(logging.INFO)` (or `logging.config.dictConfig`) now also turns on the access
+  log and the `listening on ...` line. `httpp.set_log_level(...)` sets the same logger level. `httpp run` still prints to stderr when the
+  application configured no logging. An explicit `set_log_callback`/`set_log_file` replaces the bridge. See ADR-0018.
 - `Client`/`AsyncClient` encode query strings and forms with the C++ `url::build_query` instead of `urllib` (identical output, about 4x
   faster for that step). One path-template parser in Python instead of two; one shared option block for `Client` and `AsyncClient`.
 - **`httpp.run`, `app.run()` and `httpp run` log at `info` by default** (startup line and one line per request on

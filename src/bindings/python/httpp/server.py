@@ -56,7 +56,7 @@ import socket
 import threading
 import traceback
 
-from . import _params, _schema
+from . import _log, _params, _schema
 from . import _validate as V
 from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox
 from .models import BaseModel, to_jsonable
@@ -868,6 +868,7 @@ class Server(_Server):
         """
         if _defer_listen:  # `httpp run` owns host, port and workers
             return _skipped("listen", host, port)
+        _log.sync()  # a root-level change the "httpp" logger only inherits is not announced; pick it up here
         failure = []
         done = threading.Event()
 
