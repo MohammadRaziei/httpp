@@ -99,6 +99,7 @@ download_result run_plain(const std::string& url_str, const std::string& dest_pa
     }
 
     httplib::Client cli(detail::scheme_host_port(u.scheme(), u.host(), u.port()));
+    cli.set_decompress(false); // save exactly what the server sends (a checksum is over those bytes); no zlib here
     // Without this a 302 is reported as the final status and the caller is
     // left with a 0-byte file - which is what GitHub release assets, CDN
     // links and shortened URLs all hand back before the real content.
@@ -175,6 +176,7 @@ download_result run_resumable(const std::string& url_str, const std::string& des
     }
 
     httplib::Client cli(detail::scheme_host_port(u.scheme(), u.host(), u.port()));
+    cli.set_decompress(false); // save exactly what the server sends (a checksum is over those bytes); no zlib here
     cli.set_follow_location(follow_redirects);
     apply_timeout(cli, timeout_seconds);
 

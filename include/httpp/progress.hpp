@@ -13,7 +13,7 @@ namespace httpp::progress {
 // stdout), so piping/redirecting a program's output stays clean.
 // Backed by the vendored `indicators` library (src/third_party/indicators),
 // but that dependency is hidden behind this pointer (see
-// src/core/progressbar.cpp) and never appears in this public header.
+// src/core/progress.cpp) and never appears in this public header.
 class bar {
 public:
     explicit HTTPP_API bar(std::size_t total, std::string description = "");
@@ -40,7 +40,7 @@ private:
 // trange-like: an iterable [0, total) range that owns a `bar` and advances
 // it by one on every step of the loop, e.g.:
 //
-//   for (auto i : httpp::progressbar::range(100, "working")) { ... }
+//   for (auto i : httpp::progress::range(100, "working")) { ... }
 //
 // Entirely defined inline here (calls only bar's already-exported members),
 // so - unlike bar itself - this class needs no HTTPP_API at all: nothing

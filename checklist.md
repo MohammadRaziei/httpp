@@ -296,7 +296,7 @@ async def ws(websocket):
 - [ ] `HTTPException` and default exception handlers (today the 422/500 bodies are hand-made); `status` constants
 - [ ] `APIRouter` / `Router` / `Mount` / `include_router` (prefix, tags, dependencies)
 - [x] `{id}` syntax in paths (Python layer)
-- [ ] Middleware (CORS, GZip)
+- [ ] Middleware (CORS, GZip; the compressor is vendored and tested, see `httpp::detail::deflate`, only the middleware is missing)
 - [ ] Static file mount (the base is in C++)
 - [ ] Background tasks (`BackgroundTasks`)
 - [ ] `lifespan`
@@ -333,20 +333,20 @@ async def ws(websocket):
 
 ## Small leftovers and cleanups
 
-- [ ] Race in the `raw_server` test helper (`tests/cpp/test_async_http.cpp`, around lines 54 and 71): the main thread closes the socket in the destructor while the server thread reads it; close it with `asio::post` on `io` or guard it with a mutex
-- [ ] `-Woverlength-strings` warning for `httpp_swagger_ui_data.hpp` (multi-megabyte literals); suggestion: make `HTTPP_EMBED_AS_ARRAY` the default
+- [x] Race in the `raw_server` test helper (`tests/cpp/test_async_http.cpp`, around lines 54 and 71): the main thread closes the socket in the destructor while the server thread reads it; close it with `asio::post` on `io` or guard it with a mutex (already fixed: the destructor no longer touches the socket, the thread owns it)
+- [x] `-Woverlength-strings` warning for `httpp_swagger_ui_data.hpp` (multi-megabyte literals); suggestion: make `HTTPP_EMBED_AS_ARRAY` the default (already fixed: byte arrays are the default, `HTTPP_EMBED_AS_ARRAY=ON`)
 - [ ] Swagger UI body is copied on every request (`ponytail:` in `swagger_ui.cpp`); use a static `string_view` body
 - [ ] Evaluate a lighter docs UI (RapiDoc is about a third of Swagger UI, see [ADR-0008](docs/adr/0008-swagger-ui-compiled-in.md)); no decision yet
 - [ ] 422 for `int`/`float` path parameters still uses the old `{"error": ...}` body (one existing test depends on it); move everything to `{"detail": [...]}`
 - [ ] Cleanup of dependencies with `yield` runs before the response is written (FastAPI does it after); decide whether to match
-- [ ] Add a guard (`if __name__ == "__main__":`) to the examples that call `listen` at import time (8 of 15 examples), so they also work with `httpp run`
+- [x] Add a guard (`if __name__ == "__main__":`) to the examples that call `listen` at import time (8 of 15 examples), so they also work with `httpp run`
 - [ ] README and `examples/python/` for the new features (OpenAPI, `Depends`, `mount_swagger_ui`)
-- [ ] `docs/index.rst` is a Sphinx stub whose `toctree` entries do not exist
-- [ ] `CHANGELOG.md` 0.7.0 says "Async HTTP/HTTPS server"; the server has no TLS, check and reword
+- [x] `docs/index.rst` is a Sphinx stub whose `toctree` entries do not exist
+- [x] `CHANGELOG.md` 0.7.0 says "Async HTTP/HTTPS server"; the server has no TLS, check and reword
 - [ ] Add `pydantic` and `openapi-spec-validator` to a CI job so the 278 differential tests run there (see [ADR-0015](docs/adr/0015-testing-and-ci.md))
 - [ ] Run the C++ tests on Windows in CI (today only the build runs)
 - [ ] 405 instead of 404 for a wrong method
 - [ ] Symlink protection for static files
 - [ ] Example of using the TLS client
-- [ ] Stale comments in `progress.hpp` (around lines 16 and 43)
+- [x] Stale comments in `progress.hpp` (around lines 16 and 43)
 - [ ] `/docs` was only seen in Chromium; check other browsers

@@ -1,4 +1,5 @@
 #include "internal/async_http.hpp"
+#include "internal/content_decode.hpp"
 #include "internal/log.hpp"
 
 #ifdef _WIN32
@@ -460,6 +461,7 @@ struct async_http::impl {
                 if (job.keep_alive && resp_keep && leftover.empty() && !conn->closed) owner.put_idle(conn);
                 else conn->close();
             }
+            decode_content(res, job.max_response_size); // gzip / deflate bodies, see content_decode.hpp
             complete();
         }
         void complete() {

@@ -2,6 +2,7 @@
 #include "httpp/download.hpp"
 #include "httpp/sha256.hpp"
 #include "httpp/server.hpp"
+#include "internal/deflate.hpp"
 
 #include <thread>
 #include <chrono>
@@ -431,4 +432,21 @@ UTEST(httpp_download_timeout, set_timeout_also_limits_the_network) {
     EXPECT_FALSE(res.ok);
     EXPECT_TRUE(seconds_since(t0) < 2.8);
     EXPECT_FALSE(exists(dest));
+}
+
+UTEST(httpp_download, a_gzip_body_is_saved_as_sent_not_decoded_and_not_refused) {
+    const std::string packed = httpp::detail::deflate("hello hello hello", 17, httpp::detail::inflate_format::gzip, 6);
+    httpp::server s;
+    s.get("/f", [packed](const httpp::request&, httpp::response& res) {
+        res.status = 200;
+        res.body = packed;
+        res.headers.emplace_back("Content-Encoding", "gzip");
+    });
+    running_server rs(std::move(s));
+    const std::string dest = "test_download_gzip_output.bin";
+    std::remove(dest.c_str());
+    auto result = httpp::download("http://127.0.0.1:" + std::to_string(rs.port) + "/f", dest).disable_progress().run();
+    ASSERT_TRUE(result.ok);
+    ASSERT_TRUE(read_file(dest) == packed);
+    std::remove(dest.c_str());
 }

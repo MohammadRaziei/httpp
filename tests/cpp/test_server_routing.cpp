@@ -122,7 +122,8 @@ UTEST(httpp_routing, segments_are_decoded_before_they_are_compared_and_captured)
     ASSERT_STREQ("0|", fetch(srv, "/x%20y").body.c_str());
     ASSERT_STREQ("1|name=a/b;", fetch(srv, "/files/a%2Fb").body.c_str()); // one segment that contains a slash
     ASSERT_STREQ("1|name=caf\xC3\xA9;", fetch(srv, "/files/caf%C3%A9").body.c_str());
-    ASSERT_EQ(404, fetch(srv, "/a%2Fb").status); // decodes to ONE segment "a/b", not to /a/b
+    const std::string encoded_slash = "/a%2Fb";  // outside the macro: utest uses the expression text as a printf format
+    ASSERT_EQ(404, fetch(srv, encoded_slash).status); // decodes to ONE segment "a/b", not to /a/b
     ASSERT_STREQ("2|", fetch(srv, "/a/b").body.c_str());
     ASSERT_STREQ("3|", fetch(srv, "/:/colon").body.c_str());
 }

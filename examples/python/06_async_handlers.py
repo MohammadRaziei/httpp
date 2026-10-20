@@ -34,4 +34,5 @@ async def fetch(name):
     return f"result {name}"
 
 
-app.listen("127.0.0.1", 8000)
+if __name__ == "__main__":
+    app.listen("127.0.0.1", 8000)

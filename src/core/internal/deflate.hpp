@@ -7,7 +7,7 @@
 #include <cstddef>
 #include <string>
 
-#include "internal/inflate.hpp"
+#include "inflate.hpp"
 
 namespace httpp::detail {
 

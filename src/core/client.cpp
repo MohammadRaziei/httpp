@@ -6,6 +6,7 @@
 #include "internal/httplib_common.hpp"
 #include "internal/blocking_pool.hpp"
 #include "internal/async_http.hpp"
+#include "internal/content_decode.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -72,11 +73,13 @@ using clock_type = std::chrono::steady_clock;
 // Turn a cpp-httplib result into an httpp::response, keeping the reason when there is no HTTP response.
 // cpp-httplib reports a read that timed out as a plain Error::Read, indistinguishable from a dropped
 // connection, so when a timeout was configured and the call ran for (about) that long, call it a timeout.
-void fill(response& out, httplib::Result& res, clock_type::time_point started, long timeout_seconds) {
+void fill(response& out, httplib::Result& res, clock_type::time_point started, long timeout_seconds,
+          std::size_t max_response_size = 0) {
     if (res) {
         out.status = res->status;
         out.body = res->body;
         for (const auto& [key, value] : res->headers) out.headers.emplace_back(key, value);
+        detail::decode_content(out, max_response_size); // cpp-httplib is built without zlib: it passes the raw body
         return;
     }
     auto kind = classify(res.error());
@@ -138,6 +141,8 @@ struct client::impl {
         // default 100MB cap turn a large but valid response into an opaque failure.
         cli.set_payload_max_length(kNoLimit);
         cli.set_keep_alive(true);
+        cli.set_decompress(false); // we decode gzip / deflate ourselves (no system zlib), see content_decode.hpp
+        defaults.emplace("Accept-Encoding", detail::default_accept_encoding);
     }
 };
 
@@ -334,6 +339,8 @@ response client::request::run_impl(const impl& r) {
     // me the whole body as a string", so the limit is opt-in via max_response_size() instead.
     // (The cap only applies to this buffered path; httpp::download(...).run() streams.)
     cli.set_payload_max_length(r.max_response_size > 0 ? r.max_response_size : kNoLimit);
+    cli.set_decompress(false);
+    if (!hdrs.count("Accept-Encoding")) hdrs.emplace("Accept-Encoding", detail::default_accept_encoding);
 
     httplib::Result res;
     const auto started = clock_type::now();
@@ -341,7 +348,7 @@ response client::request::run_impl(const impl& r) {
         fail(out, error_kind::unsupported_method, "unsupported HTTP method: " + r.method);
         return out;
     }
-    fill(out, res, started, r.timeout_seconds);
+    fill(out, res, started, r.timeout_seconds, r.max_response_size);
     return out;
 }
 
@@ -478,6 +485,7 @@ detail::async_job make_job(const async_spec& s) {
     j.headers = s.headers;
     if (!header_present(s, "Accept")) j.headers.emplace_back("Accept", "*/*");
     if (!header_present(s, "User-Agent")) j.headers.emplace_back("User-Agent", "httpp");
+    if (!header_present(s, "Accept-Encoding")) j.headers.emplace_back("Accept-Encoding", detail::default_accept_encoding);
     if (method_has_body(s.method)) {
         j.body = s.body;
         const std::string ctype = s.content_type.empty() ? "application/x-www-form-urlencoded" : s.content_type;

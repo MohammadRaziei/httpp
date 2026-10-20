@@ -45,4 +45,5 @@ def delete(id: int):
     return (None, 204) if items.pop(id, None) else ({"error": "not found"}, 404)
 
 
-app.listen("127.0.0.1", 8000)
+if __name__ == "__main__":
+    app.listen("127.0.0.1", 8000)

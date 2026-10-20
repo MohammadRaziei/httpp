@@ -8,11 +8,16 @@ such changes are listed under **Changed**).
 ## [Unreleased]
 
 ### Added
-- **Vendored deflate and inflate (no system zlib).** `src/third_party/stb_inflate` (the decoder of stb_image.h) and
-  `src/third_party/stb_deflate` (the compressor of libstb) are extracted unmodified, and wrapped by the internal
-  `httpp::detail::inflate` and `httpp::detail::deflate` for zlib, gzip, raw and HTTP "deflate" data. Decompression has a hard
-  output limit (zip-bomb safe) and Adler-32 / CRC-32 checks; compression takes zlib's levels 0 to 9. Tested against Python's zlib
-  and gzip in both directions (including corrupted input, with sanitizers); nothing in the client or server uses them yet.
+- **gzip / deflate in the client, no system zlib.** Both the blocking and the async client send `Accept-Encoding: gzip, deflate`
+  (unless you set the header yourself) and undo `Content-Encoding: gzip`, `x-gzip`, `deflate` (zlib, or raw as some servers send it)
+  and chains of them, so `response.body` is always the real body. Headers are left as received, like requests and httpx. A
+  coding we do not advertise (`br`, `zstd`) leaves the body untouched. `max_response_size` limits the **decoded** size
+  (a zip bomb ends as `too_large`, status 413); corrupt data ends as `error_kind::other`, never as garbage. Set
+  `Accept-Encoding: identity` to ask the server not to compress. `download()` is unchanged in what it sends but now saves a compressed response exactly as received, instead of failing with 415. Built on two vendored decoders/encoders, extracted unmodified:
+  `src/third_party/stb_inflate` (the decoder of stb_image.h) and `src/third_party/stb_deflate` (the compressor of libstb), wrapped
+  by the internal `httpp::detail::inflate` / `deflate` (zlib, gzip and raw; levels 0 to 9; Adler-32 and CRC-32 checked), and tested
+  against Python's zlib and gzip in both directions. The compressor is ready for the server side (a GZip middleware) and for
+  compressing request bodies; neither is wired yet.
 - **Access log.** At the `info` log level the server writes one line per answered request (`GET /items/1 200`),
   including the answers the server makes itself (404, 413, ...). It goes through the library's own logging
   (AixLog), so `set_log_level`, `set_log_file` and `set_log_callback` apply to it. Nothing is built or written
@@ -63,8 +68,8 @@ UI, and a download that verifies, locks and times out.
   the blocking and the async client; extra URL helpers in `httpp/url.hpp`.
 
 #### Server (C++ and Python)
-- **Async HTTP/HTTPS server** (`async_server`, with a worker pool). TLS (Mbed TLS) with session caching: TLS contexts
-  for identical (verify, CA file) settings are built once and reused.
+- **Async HTTP server** (`async_server`, with a worker pool). It speaks plain HTTP: the server has no TLS yet. TLS (Mbed TLS)
+  is in the async client, with session caching: TLS contexts for identical (verify, CA file) settings are built once and reused.
 - **Python handlers:** route handlers with path parameters, `async def` handlers, and `listen()` that blocks and
   returns a status (0.6.1); new in this release: `ResponseHead`, `file()`, `redirect()`, `set_cookie()`,
   `ServerRequest.cookies`, streaming responses from generators and async generators, `@app.before_request`,

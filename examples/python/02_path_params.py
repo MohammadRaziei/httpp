@@ -20,4 +20,5 @@ def square(n: int):  # annotate as int/float and it is converted for you
     return {"n": n, "square": n * n}
 
 
-app.listen("127.0.0.1", 8000)
+if __name__ == "__main__":
+    app.listen("127.0.0.1", 8000)

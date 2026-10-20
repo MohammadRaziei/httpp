@@ -590,7 +590,7 @@ struct server::impl {
         if (more) arm_sweep(next);
         for (auto& item : late) {
             auto answer_504 = [st = std::move(item.first), req = std::move(item.second.req), timeout = item.second.timeout_s] {
-                if (!st->answered.load()) HTTPP_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " did not answer within " << timeout << " s: answering 504";
+                if (!st->answered.load()) { HTTPP_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " did not answer within " << timeout << " s: answering 504"; }
                 responder late_responder;
                 late_responder.impl_ = st;
                 response err;
@@ -822,7 +822,7 @@ void server::serve_directory(const std::string& mount_path, const std::string& l
 
 int server::bind_to_any_port(const std::string& host) {
     const int port = impl_->engine->bind(host, 0);
-    if (port >= 0) HTTPP_LOG(info) << "listening on http://" << host << ':' << port;
+    if (port >= 0) { HTTPP_LOG(info) << "listening on http://" << host << ':' << port; }
     return port;
 }
 

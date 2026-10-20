@@ -59,7 +59,8 @@ async def main():
     print("second run skipped:", again.skipped)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
 app.stop()
 thread.join()
 tmp.cleanup()
