@@ -1,7 +1,7 @@
 # third_party
 
 Vendored dependencies. Each is either a committed file (`cpp-httplib`,
-`indicators`, `llhttp`) or a git submodule built from source (`mbedtls`,
+`indicators`, `llhttp`, `stb_inflate`, `stb_deflate`) or a git submodule built from source (`mbedtls`,
 `liburlparser`, `asio`), never a system package.
 
 ## llhttp
@@ -73,3 +73,25 @@ anything.
 `swagger-ui/` holds the three Swagger UI 5.33.2 files httpp serves at `/docs` (Apache-2.0, upstream's licence files included). They are
 committed files that are **compiled into libhttpp at CMake configure time** (`cmake/EmbedFile.cmake`), not shipped; see
 `swagger-ui/VENDORED.md`.
+
+## stb_inflate
+
+`stb_inflate/stb_inflate.h` is the zlib/deflate **decoder** of Sean Barrett's `stb_image.h` v2.30
+(<https://github.com/nothings/stb>, MIT or public domain), taken through libstb
+(<https://github.com/MohammadRaziei/libstb>) and cut out of the 283 KB image header, so only the decoder (about 500 lines)
+is vendored. The text between the `BEGIN verbatim` and `END verbatim` markers is **byte for byte** lines 4081 to 4594 of
+`stb_image.h`; around it is a small shim (the typedefs and macros the decoder needs, an error-reason hook, and an output
+ceiling hook that lets a caller refuse buffer growth past a limit). Only `src/core/inflate.cpp` includes it, because every
+function is `static`. It exists for gzip and deflate response bodies in the client: no system zlib is needed.
+The compressor is `stb_deflate` below. To upgrade: copy the same section from a new stb_image.h and
+re-run `tests/cpp/test_inflate.cpp`.
+
+## stb_deflate
+
+`stb_deflate/stb_deflate.h` is the zlib/deflate **compressor** of libstb (<https://github.com/MohammadRaziei/libstb>,
+`stb_image_write.h`): stb's `stbi_zlib_compress` rewritten with 4-byte hash-chain LZ77, lazy matching and a per-block choice of
+dynamic, fixed or stored Huffman blocks (upstream stb only writes fixed blocks). The text between the `BEGIN verbatim` and
+`END verbatim` markers is **byte for byte** lines 828 to 1284 of libstb's file, with a small shim around it. Only
+`src/core/deflate.cpp` includes it. With `stb_inflate` it gives gzip/deflate in both directions (client and server), with
+no system zlib. Its output is a plain zlib stream that the wrapper strips and re-wraps as zlib, gzip or raw deflate. To
+upgrade: copy the same section from a new libstb and re-run `tests/cpp/test_deflate.cpp`.

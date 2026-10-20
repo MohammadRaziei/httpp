@@ -8,6 +8,11 @@ such changes are listed under **Changed**).
 ## [Unreleased]
 
 ### Added
+- **Vendored deflate and inflate (no system zlib).** `src/third_party/stb_inflate` (the decoder of stb_image.h) and
+  `src/third_party/stb_deflate` (the compressor of libstb) are extracted unmodified, and wrapped by the internal
+  `httpp::detail::inflate` and `httpp::detail::deflate` for zlib, gzip, raw and HTTP "deflate" data. Decompression has a hard
+  output limit (zip-bomb safe) and Adler-32 / CRC-32 checks; compression takes zlib's levels 0 to 9. Tested against Python's zlib
+  and gzip in both directions (including corrupted input, with sanitizers); nothing in the client or server uses them yet.
 - **Access log.** At the `info` log level the server writes one line per answered request (`GET /items/1 200`),
   including the answers the server makes itself (404, 413, ...). It goes through the library's own logging
   (AixLog), so `set_log_level`, `set_log_file` and `set_log_callback` apply to it. Nothing is built or written

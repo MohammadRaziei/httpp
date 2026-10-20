@@ -477,3 +477,92 @@ Modelled on liburlparser's `cmake/EmbedFile.cmake` (which turns `public_suffix_l
 - Sources live in `src/third_party/swagger-ui/` (see its `VENDORED.md` for how to bump the version).
 - Tests: `tests/python/test_embed_file.py` (nine awkward files: 0, 1, 31, 32, 33, 64 bytes, all 256 byte values, text with `"`, `\`, `??/`, `@NAME@`, `${y}`, NULs, and a 320 KB single line; in string and array form; plus "unchanged input does not touch the header"), `tests/cpp/test_swagger_ui.cpp` (compiled-in bytes == files on disk), and `test_openapi.py` (served bytes + content types == the vendored files). Python suite: 494 passed, 1 skipped. The C++ test was compiled by hand against the built library (4 tests pass); the full `HTTPP_BUILD_TESTS=ON` C++ suite was not re-run this session.
 - Not done: the C++ server has no ready-made "mount /docs" helper (only the assets); the HTML page is still built in Python (`server.py`).
+
+## Update: feature gap versus FastAPI, uvicorn, requests, httpx and curl-cffi (this session)
+
+The owner asked how far httpp is from these five, meaning **features**, not speed. Facts below come from the code (`dir()` of the Python
+objects, greps of `src/core`), the checklist and small probes against a local httpp server (Linux, build of this session). Nothing here
+is a score: the differential test against FastAPI and the run of Starlette's own tests (`docs/agent.md` section 6) are not written yet.
+The only number is our own checklist for the FastAPI-like layer (`checklist.md`, phase 8): 18 items, **4 done, 14 open**
+(Starlette level 1 done and 9 open; FastAPI level 3 done and 5 open). It is a proxy, not a coverage metric.
+
+Reminder of the rule in [ADR-0017](docs/adr/0017-python-binding-policy.md): a public C++ function is bound in Python only if it is necessary,
+and speed decides where logic lives. The lists below say what is missing; they do not say it must all be built.
+
+### FastAPI
+
+| Have | Do not have |
+|---|---|
+| decorators for all methods; path, query, header, cookie and body parameters | `HTTPException` and default exception handlers |
+| `Depends` with `yield` cleanup | Response classes (`JSONResponse`, `HTMLResponse`, `StreamingResponse`, ...) |
+| own Pydantic-shaped models (Cython) and 422 errors shaped like FastAPI's | `APIRouter` / `include_router`, `BackgroundTasks` |
+| OpenAPI 3.1 and Swagger UI compiled in | `app.dependency_overrides`, `Security()`, OAuth2 |
+| `response_model`, `status_code`, `tags`, `summary` on routes | `Form` / `File` / `UploadFile` (the body is JSON only) |
+| hooks (`before_request`, `after_request`), `error_handler`, `exception_handler` | middleware (CORS, GZip), WebSocket, new-style `lifespan` |
+| `on_startup` / `on_shutdown`, `serve_directory`, `file`, `redirect`, `set_cookie` | `TestClient`, templating, mounting sub-apps |
+
+Distance: large for running real FastAPI code unchanged; medium for a plain API with models and `Depends`.
+
+### uvicorn
+
+| Have | Do not have |
+|---|---|
+| `httpp run module:app`, `--workers N` (Linux, `SO_REUSEPORT`), `--reuse-port` | **TLS in the server**, `--ssl-*` |
+| keep-alive, pipelining, clean SIGINT/SIGTERM, access log through `logging` | WebSocket; HTTP/2 (not a goal) |
+| read / write / keep-alive timeouts, body limit (`set_max_body`) | `--reload`, respawn of a dead worker |
+| | a cap on connections (`--limit-concurrency`) and slowloris protection |
+| | unix sockets and `--proxy-headers` (not found in the code) |
+| | the ASGI interface (on purpose: httpp owns both layers, ADR-0001) |
+
+Distance: medium for a plain HTTP/1.1 service; large for production use (TLS, connection limits, reload).
+
+### requests
+
+| Have | Do not have |
+|---|---|
+| `httpp.get/post/...`; `Client` as a session (base URL, default headers, keep-alive) | **cookie jar**: after a `Set-Cookie` the next request sent no cookie (probe) |
+| `params`, `json`, `form`, `data`, basic and bearer auth, proxy (HTTP and CONNECT), `verify`, `ca_file` | **multipart / file upload**: `Request` has no `files` or `multipart` |
+| redirects with `follow_redirects` (off by default; a 302 stays a 302, probe) | **automatic gzip**: a `Content-Encoding: gzip` body stayed compressed (probe) |
+| `raise_for_status`, `Response.json/text/content/ok/failed/error` | `with Client(...)`: no `__enter__` / `__exit__` on the sync `Client` |
+| | `Response.url/elapsed/history/reason/encoding/cookies/iter_content/iter_lines` (none exist) |
+| | streaming a response body (only `Download` streams, to a file) |
+
+### httpx
+
+Everything in the requests column that is missing, plus: `AsyncClient` exists (pool, `max_connections`, `aclose`, `async with`), but there is
+only one numeric timeout in seconds (no connect/read/write/pool split), and no HTTP/2, `mounts`, `event_hooks`, `limits` or custom transports.
+The sync `Client` has no context manager, the `AsyncClient` has.
+
+### curl-cffi
+
+Large distance and mostly **on purpose**: browser impersonation (TLS/JA3 and HTTP/2 fingerprints), HTTP/2 and HTTP/3, SOCKS proxy and WebSocket
+client. httpp lists HTTP/2, HTTP/3 and SOCKS as non-goals (`docs/Architecture.md`, section 2), and its TLS is Mbed TLS without fingerprint control.
+It is a light client next to a full libcurl binding.
+
+### Summary
+
+- **Client:** the base of requests/httpx is there (methods, JSON, auth, proxy, async). Missing: cookie jar, multipart, decompression, a context
+  manager on the sync `Client`, streaming of responses, and richer `Response` attributes.
+- **Server:** the core of uvicorn is there (HTTP/1.1, workers, clean shutdown). Missing: TLS, WebSocket, connection limits, reload.
+- **FastAPI-like layer:** 4 of 18 checklist items, aimed at everyday use (models, `Depends`, OpenAPI).
+
+### What was and was not verified
+
+- Probed by running code: gzip body not decoded, cookie not replayed, 302 not followed by default and followed with `follow_redirects=True`,
+  no `with` on the sync `Client`, `AsyncClient` has `__aenter__`, `Response` has none of the attributes listed above, `Request` has no `files`.
+  The probe used one server and one tiny response each, so it is a smoke check.
+- Not found in the code, which is not proof of absence: proxy settings from environment variables (`HTTP_PROXY`), `--proxy-headers`, unix sockets.
+- Taken from `dir()`, greps and the checklist, not from running behavior: everything else in the tables.
+- A server benchmark against uvicorn and FastAPI was started and cut off, and the owner did not ask for speed here, so there is no new speed number.
+  The older single-core numbers are in the "hot path rebuilt" section above and in [ADR-0009](docs/adr/0009-hot-path.md).
+
+### Suggested order if the owner wants to close gaps (NOT confirmed)
+
+1. Client: cookie jar, automatic gzip/deflate, `with Client(...)`, then multipart and a streaming response. These are the most visible differences for a
+   requests user. Check each against the "necessary" rule of ADR-0017 and against speed before building.
+2. Server safety: `set_max_connections`, header timeout, slowloris (checklist phase 4.5), then TLS in the server.
+3. FastAPI-like layer: `HTTPException` and Response classes first (most code uses them), then `APIRouter`, `BackgroundTasks`, middleware, forms and files.
+4. The differential test against FastAPI, so "how far" has a real number instead of a checklist count.
+
+Open decisions that block nothing here but change the picture: the sync versus async client engines (cookie jar and decompression would have to be built
+once, not twice), the public C++ MIME function for `file()`, and the scope of the FastAPI-like layer (`docs/Architecture.md`, risk 4).

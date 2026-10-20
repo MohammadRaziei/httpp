@@ -20,7 +20,10 @@ target_compile_definitions(test_httpp_cpp PRIVATE HTTPP_SWAGGER_UI_DIR="${PROJEC
 # The engine tests (test_async_*.cpp) drive internal classes directly. Those are not
 # exported from the shared library (hidden visibility), so compile them in.
 target_sources(test_httpp_cpp PRIVATE ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/tls_session.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/mbedtls_threading.cpp)  # registers the alt threading layer for the copy of Mbed TLS in this binary
+    ${PROJECT_SOURCE_DIR}/src/core/mbedtls_threading.cpp  # registers the alt threading layer for the copy of Mbed TLS in this binary
+    ${PROJECT_SOURCE_DIR}/src/core/inflate.cpp            # internal too (vendored stb inflate and deflate), so compiled in as well
+    ${PROJECT_SOURCE_DIR}/src/core/deflate.cpp)
+target_include_directories(test_httpp_cpp SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/src/third_party)
 target_link_libraries(test_httpp_cpp PRIVATE httpp_llhttp mbedtls mbedx509)
 # tls_session.cpp is compiled into the tests and uses the Keychain APIs, so the tests link the frameworks too.
 if(APPLE)
