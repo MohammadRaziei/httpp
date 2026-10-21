@@ -26,6 +26,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0018](0018-python-logging-bridge.md) | The C++ log goes through Python `logging`; the logger controls the C++ level | accepted |
 | [0019](0019-vendored-deflate-inflate.md) | gzip and deflate on vendored stb code, no system zlib | accepted |
 | [0020](0020-http-exception-and-response-classes.md) | HTTPException and response classes (Starlette names, native) | accepted |
+| [0021](0021-pool-thread-state-and-two-core-numbers.md) | Pool threads keep their Python thread state; first two-core numbers incl. FastAPI | accepted |
 
 ## Not decided yet
 

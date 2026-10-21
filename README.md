@@ -307,13 +307,14 @@ httpp run main:app --workers auto          # one per usable CPU
   loop, loop-bound objects (an `aiohttp.ClientSession`, an async DB pool) can be created once and reused.
   A blocking call inside an `async def` handler blocks **every** async route, since they all share that
   loop.
-- **Speed.** `benchmarks/bench.py` measures requests per second against uvicorn (a bare ASGI app, uvloop,
-  httptools) with `oha`. On one core, with the server and the load generator sharing it, in one run, plain
-  `def` and `async def` routes did about 1.3 to 1.5 times the requests per second of uvicorn in all four
-  scenarios (hello, a path parameter with a JSON body, reading a header, and the last of 300 routes). Run to
-  run the numbers move by 10 to 30 percent on that machine, so only comparisons inside one run mean anything.
-  This is CPU cost per request on one core, not multi-core scaling (not measured yet), and a real
-  handler's own work is not in it. Finding a route takes the same time with 6 routes or 600.
+- **Speed.** `benchmarks/bench.py` measures requests per second with `oha` against uvicorn (a bare ASGI app, uvloop,
+  httptools) and against FastAPI on uvicorn. On two cores, with the server and the load generator sharing them,
+  `async def` routes did about 1.1 to 1.4 times the requests per second of bare uvicorn, and 5 to 17 times
+  FastAPI, which also validates and routes (hello, a path parameter with a JSON body, the last of 300 routes). Plain `def`
+  routes are about as fast as bare uvicorn on CPython 3.13 and ahead of it on free-threaded 3.14t, where a CPU-bound
+  `def` handler also uses both cores (about 2 times from 1 to 8 connections); `async def` handlers share one loop thread
+  and do not. Run to run the numbers move by about 10 percent, so only comparisons inside one run mean anything.
+  Details, tables and what is not verified: [ADR-0021](docs/adr/0021-pool-thread-state-and-two-core-numbers.md).
 - **The server is event-driven** on every platform: all socket I/O (accepting, reading, keep-alive idle
   connections, timeouts, writing) runs on one Asio thread (epoll on Linux, kqueue on macOS, IOCP on
   Windows), and requests are parsed by llhttp. Idle connections cost no worker thread. A worker is used

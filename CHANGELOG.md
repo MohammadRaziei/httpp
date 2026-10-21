@@ -7,6 +7,10 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Changed
+- **The worker pool wakes threads last-in first-out** and only as many as there are queued jobs, so a light load stays on one or two
+  hot threads. `def` `hello` on two cores: about 16k to 22k req/s (3.13) and 19k to 25k req/s (3.14t). New `tests/cpp/test_worker_pool.cpp`.
+
 ### Fixed
 - **`def` handlers were slow: a Python thread state was created and destroyed for every request.** Each pool thread now keeps
   its state (`httpp_py_pin_thread`). Measured on 2 cores, `oha`, 32 connections, plain `hello` route: CPython 3.13 9.4k -> 17.9k

@@ -2,7 +2,7 @@
 """Requests per second for httpp (`def` and `async def`) against uvicorn, measured with `oha`.
 
     python benchmarks/bench.py --oha /path/to/oha [--seconds 5] [--rounds 3] [--conc 32]
-                               [--workers 1] [--only hello,item] [--targets httpp,httpp-async,uvicorn]
+                               [--workers 1] [--only hello,item] [--targets httpp,httpp-async,uvicorn,fastapi]
 
 Server and load generator share this machine, so the numbers are only comparable with each other
 (same box, same run). On one core they also fight for the CPU. Say so whenever you quote them.
@@ -34,8 +34,8 @@ def free_port():
 def start(target, port, workers):
     inherited = [os.path.abspath(p) for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([HERE] + inherited))  # absolute: the child runs in HERE
-    if target == "uvicorn":
-        cmd = [sys.executable, "-m", "uvicorn", "asgi_app:app", "--port", str(port), "--log-level", "error",
+    if target in ("uvicorn", "fastapi"):
+        cmd = [sys.executable, "-m", "uvicorn", "asgi_app:app" if target == "uvicorn" else "fastapi_app:app", "--port", str(port), "--log-level", "error",
                "--no-access-log", "--loop", "uvloop", "--http", "httptools", "--workers", str(workers)]
     else:
         cmd = [sys.executable, "-m", "httpp", "run", "httpp_app:app", "--port", str(port), "--log-level", "error",
@@ -78,7 +78,7 @@ def main():
     rows = {}
     for target in args.targets.split(","):
         port = free_port()
-        proc = start("uvicorn" if target == "uvicorn" else "httpp", port, args.workers)
+        proc = start("httpp" if target.startswith("httpp") else target, port, args.workers)
         try:
             for name in args.only.split(","):
                 path = SCENARIOS[name][1 if target == "httpp-async" else 0]

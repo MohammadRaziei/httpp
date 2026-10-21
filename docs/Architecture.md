@@ -320,7 +320,7 @@ Note: these numbers are single-core and say nothing about multi-core.
 
 **Suggestion:** B + C, then measure on a multi-core machine. Without that number a claim of "faster than uvicorn" is not valid.
 
-**Status:** B + C were chosen and built (see [ADR-0009](adr/0009-hot-path.md)). On one core, with the server and the load generator sharing it, `async def` reached about 33k requests per second against 23k for uvicorn on `hello`, and `def` and `async def` are within noise on `item`. **There is still no multi-core measurement.**
+**Status:** B + C were chosen and built (see [ADR-0009](adr/0009-hot-path.md)). On one core, with the server and the load generator sharing it, `async def` reached about 33k requests per second against 23k for uvicorn on `hello`, and `def` and `async def` are within noise on `item`. The first two-core numbers (also against FastAPI) are in [ADR-0021](adr/0021-pool-thread-state-and-two-core-numbers.md); `async def` reached about 1.1 to 1.4 times bare uvicorn there.
 
 ### Risk 2: shared memory safety
 
