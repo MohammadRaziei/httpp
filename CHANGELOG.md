@@ -7,6 +7,11 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Fixed
+- **abi3 wheel build.** `sha256_hex` took a typed memoryview, which needs `Py_buffer`; the stable ABI has it only from Python 3.11,
+  and the cp39-abi3 wheel failed to compile (CI only). It now takes any bytes-like object without one (`bytes` in place, others copied
+  once). `tests/python/test_abi3_safe.py` guards against typed memoryviews coming back.
+
 ### Added
 - **gzip / deflate in the client, no system zlib.** Both the blocking and the async client send `Accept-Encoding: gzip, deflate`
   (unless you set the header yourself) and undo `Content-Encoding: gzip`, `x-gzip`, `deflate` (zlib, or raw as some servers send it)

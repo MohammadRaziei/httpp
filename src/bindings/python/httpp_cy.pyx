@@ -1167,12 +1167,20 @@ cdef class Download:
         return asyncio.get_running_loop().run_in_executor(None, self.run)
 
 
-def sha256_hex(const unsigned char[::1] data not None):
+def sha256_hex(data):
     """SHA-256 of a bytes-like object as 64 lowercase hex characters (C++: httpp::sha256_hex).
     Text must be encoded first (a str raises TypeError)."""
-    cdef size_t n = data.shape[0]
-    cdef const char* empty = b""
-    cdef const void* p = <const void*>&data[0] if n else <const void*>empty
+    # ponytail: no typed memoryview here. Cython's memoryview needs Py_buffer, which the stable ABI
+    # only has from Python 3.11, and the abi3 wheel targets 3.9 (pyproject.toml, py-api = "cp39").
+    # bytes is read in place; bytearray / memoryview / array.array are copied once. Upgrade path:
+    # raise py-api to cp311 and go back to `const unsigned char[::1] data not None` (no copy).
+    cdef bytes raw
+    if type(data) is bytes:
+        raw = data
+    else:
+        raw = memoryview(data).tobytes()  # TypeError for str, int, list and other non-buffers
+    cdef size_t n = len(raw)
+    cdef const char* p = raw
     cdef string res
     with nogil:
         res = cpp_sha256_hex(p, n)
