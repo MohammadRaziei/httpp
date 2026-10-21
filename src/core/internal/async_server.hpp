@@ -83,6 +83,10 @@ public:
     void set_keep_alive_timeout(int seconds);
     void set_keep_alive_max(std::size_t requests);
     void set_max_body(std::size_t bytes);
+    // Seconds a whole request head (request line + headers) may take from its first byte; 0 = no limit (default 10).
+    void set_header_timeout(int seconds);
+    // Most connections open at once; one over it gets a 503 and is closed. 0 = no limit (default).
+    void set_max_connections(std::size_t n);
     // Several processes may listen on the same port and the kernel spreads connections between
     // them (Linux SO_REUSEPORT). bind() fails where that is not available.
     void set_reuse_port(bool on);

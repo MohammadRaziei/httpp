@@ -197,6 +197,8 @@ app = Server(threads=8, read_timeout=10, max_body=5_000_000, handler_timeout=30)
 | `read_timeout`, `write_timeout`, `keep_alive_timeout` | seconds to read a request, write a response, keep an idle connection (default 5 each) |
 | `keep_alive_max` | requests served per connection (default 100) |
 | `max_body` | largest request body in bytes, refused above it with a **413** (a client still sending a huge body may see the connection closed instead); `0` = no limit |
+| `header_timeout` | seconds the whole request head (request line and headers) may take, however slowly it is dripped (default 10, `0` = no limit): the slowloris guard. A slowly dripped *body* is only held by `read_timeout` per read |
+| `max_connections` | open connections allowed at once; one more gets a **503** and is closed (default: no limit) |
 | `handler_timeout` | seconds an `async def` handler may take (default **60**, `None` = never): after that the coroutine is **cancelled** and the client gets a **504** |
 
 `handler_timeout` only covers `async def` handlers: a plain `def` handler cannot be cancelled. The time

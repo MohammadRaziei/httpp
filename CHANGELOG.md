@@ -8,11 +8,34 @@ such changes are listed under **Changed**).
 ## [Unreleased]
 
 ### Fixed
+- **`def` handlers were slow: a Python thread state was created and destroyed for every request.** Each pool thread now keeps
+  its state (`httpp_py_pin_thread`). Measured on 2 cores, `oha`, 32 connections, plain `hello` route: CPython 3.13 9.4k -> 17.9k
+  req/s, free-threaded 3.14.6t 1.9k -> 24.6k req/s. A CPU-bound `def` handler on 3.14t now scales with the cores
+  (conc 1: 382, conc 8: 734 req/s) while 3.13 stays at about 330. A client that hangs up now closes a sync streaming generator
+  at once (its `finally` runs), because on free-threaded CPython an object released from another thread is freed only when
+  the thread that created it next runs Python.
+- **A dependency without parameters failed on a route with path parameters** (`TypeError: dep() got an unexpected keyword argument 'n'`):
+  every dependency was handed all the path parameters of the route, not only the ones it declares. Found by a stress test; it
+  happened on every Python version.
+- **405 instead of 404 for a wrong method.** A path that has a route for another method answers 405 with an `Allow` header
+  (a GET route also allows HEAD). A path with no route at all is still 404. (Changed: code that checked for 404 on a wrong method.)
+- **Static files no longer follow a symlink out of the mounted directory.** Such a link answers 404; a link that stays inside is served.
+- **A path parameter that does not parse** (`n: int`, `x: float`) answers 422 with the FastAPI body
+  `{"detail": [{"type": "int_parsing", "loc": ["path", "n"], ...}]}` instead of the old hand-made `{"error": ...}`.
 - **abi3 wheel build.** `sha256_hex` took a typed memoryview, which needs `Py_buffer`; the stable ABI has it only from Python 3.11,
   and the cp39-abi3 wheel failed to compile (CI only). It now takes any bytes-like object without one (`bytes` in place, others copied
   once). `tests/python/test_abi3_safe.py` guards against typed memoryviews coming back.
 
 ### Added
+- **Slowloris guard and a connection limit.** The whole request head (request line and headers) must now arrive within
+  `header_timeout` seconds (default 10, `0` = no limit); before, a client sending one byte every few seconds kept the connection
+  forever because only each single read had a timeout. `set_max_connections(n)` (C++) and `Server(max_connections=n)` refuse
+  the connection over the limit with a 503 and close it (default: no limit). A slowly dripped request **body** is still only
+  covered by `read_timeout` per read.
+- **`HTTPException`, response classes, `httpp.status`.** `raise httpp.HTTPException(404)` (or `(status, detail, headers)`) in a
+  handler or a dependency answers `{"detail": ...}` with that status; override it with `@app.exception_handler(HTTPException)`.
+  `JSONResponse`, `PlainTextResponse`, `HTMLResponse`, `RedirectResponse` (307 by default), `StreamingResponse` and `FileResponse`
+  can be returned from a handler and skip `response_model`. `httpp.status.HTTP_404_NOT_FOUND` and the rest. See ADR-0020.
 - **gzip / deflate in the client, no system zlib.** Both the blocking and the async client send `Accept-Encoding: gzip, deflate`
   (unless you set the header yourself) and undo `Content-Encoding: gzip`, `x-gzip`, `deflate` (zlib, or raw as some servers send it)
   and chains of them, so `response.body` is always the real body. Headers are left as received, like requests and httpx. A

@@ -147,7 +147,7 @@ def test_annotated_path_params_are_converted_and_bad_values_get_422():
         bad = Request(url + "/n/abc").run()
     assert json.loads(ok.body) == {"double": 42}
     assert bad.status == 422
-    assert "must be int" in bad.body
+    assert json.loads(bad.body)["detail"][0]["loc"] == ["path", "n"]
 
 
 def test_async_handlers_work():

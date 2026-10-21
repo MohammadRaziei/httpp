@@ -103,7 +103,7 @@ UTEST(httpp_server_io, an_io_route_answers_head_like_get_and_unknown_paths_and_m
     });
     ASSERT_EQ(200, httpp::client::request(srv.url("/io")).method("HEAD").run().status);
     ASSERT_EQ(404, httpp::client::fetch(srv.url("/nope")).status);
-    ASSERT_EQ(404, httpp::client::request(srv.url("/io")).method("DELETE").run().status);
+    ASSERT_EQ(405, httpp::client::request(srv.url("/io")).method("DELETE").run().status); // the path exists, the method does not
 }
 
 UTEST(httpp_server_io, a_before_hook_still_runs_first_and_can_answer_in_front_of_an_io_route) {

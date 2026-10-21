@@ -454,8 +454,9 @@ def make_plan(fn, path, top=True):
             kind = "query" if V.is_scalar_hint(base) or (item is not None and V.is_scalar_hint(item)) else "body"
         param = Param(name, kind, hint, default, info)
         (plan.body if kind == "body" else plan.params).append(param)
-    for name in names:
-        plan.path.setdefault(name, None)
+    if top:  # a dependency only gets the path parameters it declares itself (not every one of the route)
+        for name in names:
+            plan.path.setdefault(name, None)
     plan.embed = len(plan.body) > 1 or any(p.info is not None and p.info.embed for p in plan.body)
     plan.active = bool(plan.path_checks or plan.params or plan.body or plan.path_from_raw)
     return plan

@@ -31,6 +31,9 @@ from ._log import set_log_level
 from . import progress, utils
 from .server import Server, ServerRequest, ResponseHead, file, redirect, set_cookie
 from ._params import Query, Path, Header, Cookie, Body, Depends
+from .responses import (HTTPException, JSONResponse, PlainTextResponse, HTMLResponse, RedirectResponse,
+                        StreamingResponse, FileResponse)
+from . import responses, status
 from ._run import run
 from ._http import AsyncClient, request, get, head, options, post, put, patch, delete
 from .errors import Error, HTTPError, RequestError, Timeout, TLSError, TooManyRedirects, InvalidURL
@@ -59,6 +62,8 @@ __all__ = [
     "Client", "AsyncClient", "Request", "Response", "request", "get", "head", "options", "post", "put",
     "patch", "delete", "Server", "run", "ServerRequest", "ResponseHead", "file", "redirect", "set_cookie", "download", "Download", "DownloadResult", "URL", "progress", "utils",
     "Query", "Path", "Header", "Cookie", "Body", "Depends",
+    "HTTPException", "JSONResponse", "PlainTextResponse", "HTMLResponse", "RedirectResponse",
+    "StreamingResponse", "FileResponse", "responses", "status",
     "Error", "HTTPError", "RequestError", "Timeout", "TLSError", "TooManyRedirects", "InvalidURL",
     "get_include_dir", "get_lib_dir", "get_cmake_dir",
     "set_log_level", "set_log_file", "set_log_callback",

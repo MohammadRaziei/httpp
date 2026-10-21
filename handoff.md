@@ -1,4 +1,4 @@
-# httpp: hand-off #2 (for the next chat)
+# httpp: hand-off #3 (for the next chat)
 
 You are continuing work on **httpp**: a C++ HTTP library (server, client, downloads, progress bars, URL)
 with a Cython/Python layer on top. Owner: the user (GitHub `mohammadraziei`). **Talk to the user in
@@ -17,11 +17,94 @@ level, WebSocket backpressure, cross-platform strategy) without asking the owner
 in `agent.md` section 1 (options, trade-offs, your recommendation). Non-critical steps: just do them and
 report. TDD applies: tests before code.
 
-**Current state of the conversation (updated):** the owner has since decided **option B + C** for the hot
+**Read "Update 3" below first; it is the latest.** **Current state of the conversation (as of Update 2):** the owner has since decided **option B + C** for the hot
 path (items 1 and 2 of section 6), and told me not to worry about implementation cost: choose the best, most
 principled way, no laziness. Both are **done** (see "Update: hot path rebuilt" below). They have **not**
 confirmed the order of the remaining items (3 onward in section 6). Items that are critical architecture
 decisions (the open risks) still need the `agent.md` question format before any code.
+
+## Update 3 (LATEST, read this first): gzip/deflate in the client, small fixes, abi3 fix
+
+**First thing to do:** the owner's GitHub PR #106 is titled "feat(http): add gzip/deflate support in client with
+vendored zlib" and it is NOT necessarily what is in the zip you got. I never saw that branch. Before touching
+anything, compare the zip with the repo (ask the owner for the current zip if unsure) and do not assume the stb code
+described below is what is on `main`. The latest CI failure the owner pasted was the abi3 wheel build (fixed, see below).
+
+### What was done this session (all in the zip, all tested)
+
+1. **Vendored deflate/inflate, no system zlib (ADR-0019).**
+   - `src/third_party/stb_inflate/stb_inflate.h`: the decoder of stb_image.h v2.30, lines 4081-4594 **byte for byte**
+     between `BEGIN/END verbatim` markers, plus a small shim (typedefs/macros, error hook, an output ceiling hook).
+   - `src/third_party/stb_deflate/stb_deflate.h`: the compressor from the owner's libstb
+     (`github.com/mohammadraziei/libstb`, its stb_image_write.h lines 828-1284, byte for byte). Each has `LICENSE` and
+     `VENDORED.md` with a `diff` recipe. Each header is included by exactly one `.cpp` (all functions are `static`).
+   - Internal wrappers: `src/core/internal/inflate.hpp` + `src/core/inflate.cpp`, `deflate.hpp` + `deflate.cpp`,
+     `checksums.hpp` (Adler-32, CRC-32). `httpp::detail::inflate(data,size,format,max_bytes)` and
+     `deflate(data,size,format,level)`; formats zlib, gzip, raw, deflate (HTTP: zlib, falling back to raw). Output is
+     bounded (zip-bomb safe: refuses buffer growth past an exact power-of-two ceiling), trailers verified.
+   - Verified: sanitizer builds, differential fuzz against Python's zlib/gzip both ways (1250 round trips, 3000 of our
+     outputs read by Python, 1600 corrupted inputs, zero mismatches or crashes).
+2. **Wired into BOTH client engines** (`src/core/content_decode.cpp`, `internal/content_decode.hpp`):
+   `Accept-Encoding: gzip, deflate` is sent unless the caller sets one; gzip, x-gzip, deflate and chains are undone;
+   unknown codings (br, zstd) leave the body untouched; headers are left as received (like requests/httpx);
+   `max_response_size` limits the DECODED size (413 `too_large`); corrupt data is `error_kind::other`. The blocking
+   client calls `cli.set_decompress(false)` (cpp-httplib has no zlib here and would answer 415). `download()` also calls
+   `set_decompress(false)` and saves the bytes as sent. No new public API: `Accept-Encoding: identity` opts out.
+   Tests: `tests/cpp/test_inflate.cpp`, `test_deflate.cpp`, `test_client_encoding.cpp`, one in `test_download.cpp`,
+   `tests/python/test_client_encoding.py`.
+3. **Small checklist items:** examples got `if __name__ == "__main__":`, `docs/index.rst` fixed, CHANGELOG 0.7.0 TLS wording
+   fixed, stale `progress.hpp` comments fixed, two compiler warnings fixed (dangling else in `server.cpp`, a `%` in a utest macro);
+   two items were already fixed (raw_server race, overlength strings: `HTTPP_EMBED_AS_ARRAY` is ON by default).
+4. **abi3 wheel build fix:** `sha256_hex` in `httpp_cy.pyx` took `const unsigned char[::1]`; a typed memoryview needs `Py_buffer`,
+   which the stable ABI only has from Python 3.11, and the wheel targets cp39 (`py-api = "cp39"`). It now takes `data`,
+   reads `bytes` in place and copies other bytes-likes once (`ponytail:` comment has the upgrade path: raise to cp311).
+   `tests/python/test_abi3_safe.py` guards against typed memoryviews coming back. A normal local build does NOT use the limited
+   API, so it never shows this; check with `cython --cplus -3 x.pyx` then `g++ -fsyntax-only -DPy_LIMITED_API=0x03090000`.
+
+### Verified in this session versus not
+
+- Verified: full C++ build with CMake + Ninja (252 tests pass), Python bindings build (non-abi3, Python 3.12) with 261
+  Python tests passing (6 skipped: pydantic; `test_run.py` was not run), limited-API compile of both `.pyx` files.
+- NOT verified: a full abi3 wheel build, Windows (MSVC) and macOS, free-threaded builds, and a proper benchmark. My one quick
+  measurement (6.7 MB JSON): stb decode about 3x slower than zlib (63 ms vs 20 ms, process start included), level 1 compress much
+  slower than zlib, but the stb output is a bit smaller at levels 6 and 9. Treat as rough.
+
+### Decisions pending (owner has NOT decided; ask in the `agent.md` format where critical)
+
+- **Real zlib later?** The owner asked whether I had a better zlib to vendor; I recommended official madler/zlib (about 15 C
+  files, listed explicitly in CMake rather than `add_subdirectory`) and a **git submodule** pinned to a tag (matching how
+  mbedtls/asio/liburlparser are held; llhttp/cpp-httplib/stb are the vendored ones). The owner said: drop it for now, note it
+  for later. If it is picked up: replace the two stb headers, keep the wrapper API and the tests, delete `stb_*`, update ADR-0019,
+  and check that sdist includes the submodule (`pyproject.toml` `sdist.include`).
+- **WebSocket** (owner said "not now"): the backpressure question (ADR-worthy, risk 6 in Architecture.md) was asked and not answered.
+  My recommendation was a bounded queue from the start (awaitable send, close with 1008/1013 past the cap), message cap about 1 MiB,
+  no wss/permessage-deflate in v1, `@app.websocket` on the existing asyncio loop, and do `set_max_connections` together with it.
+- **Swagger UI body is copied per request** (checklist): fixing it changes the type of `response.body` (public API), so ask first.
+- **GZip middleware (server) and request-body compression:** the compressor exists, nothing uses it. Needs the middleware design
+  (a critical decision) first.
+
+### Next steps I proposed (order NOT confirmed)
+
+0. Get CI green (wheels workflow) and look at any new failures. 1. Small items: 405 instead of 404 for a wrong method, symlink
+protection for static files, 422 with `{"detail": [...]}` for bad path params. 2. `HTTPException` and Response classes
+(JSONResponse, HTMLResponse, RedirectResponse, ...): new public Python API, so show the design to the owner first.
+3. `set_max_connections` and slowloris protection.
+
+### Build and tool notes (this sandbox: 1 CPU core, no cmake/ninja/Cython preinstalled)
+
+- Install: `pip install cmake ninja cython jsonschema jinja2 cython-cmake pytest scikit-build-core --break-system-packages`.
+- C++: `cmake -B /tmp/bld -G Ninja -DHTTPP_BUILD_TESTS=ON -DHTTPP_BUILD_PYTHON=OFF -DCMAKE_BUILD_TYPE=Release` then
+  `ninja -C /tmp/bld test_httpp_cpp` (about 5 minutes cold). Python: `-DHTTPP_BUILD_PYTHON=ON -DHTTPP_BUILD_TESTS=OFF`, then run with
+  `PYTHONPATH=/tmp/bldpy/python/install python3 -m pytest tests/python`. A tool call times out, so start long builds with
+  `setsid nohup bash -c '...' &` and poll with `sleep`.
+- Gotchas found: headers inside `src/core/internal/` must include siblings by bare name (`"inflate.hpp"`); `httpp_core` has no
+  `src/core` include path. The C++ test binary compiles internal `.cpp` files itself (hidden visibility), so a new internal `.cpp`
+  must also be added to `tests/cpp/CMakeLists.txt` `target_sources`, and `src/third_party` is a SYSTEM include there. utest uses the
+  macro argument text as a printf format, so a `%` inside `ASSERT_*(...)` triggers `-Wformat` (put the string in a variable).
+  Python `Response.content` is bytes and `.text` is str. The zip is not a git repository (git commands do nothing).
+- Owner preferences seen in this chat: send the project back as a zip automatically (no asking); for coding tasks prefer the
+  simplest working solution (the "ponytail" style: YAGNI, reuse stdlib/existing code, short explanations, a `ponytail:` comment on
+  deliberate simplifications) while still doing full validation, error handling and security. No em dashes in project files.
 
 ## Update 2: FastAPI-compatible layer (STARTED, about a third done)
 

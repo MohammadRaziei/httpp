@@ -183,10 +183,11 @@
 
 ## Phase 4.5: server resource limits (security, risk 7)
 
-- [ ] `set_max_connections` (today only a backoff when fds run out)
-- [ ] Header timeout and a limit on slow requests
+- [x] `set_max_connections(n)` / `Server(max_connections=n)`: one connection over the limit gets a 503 and is closed (default: no limit; the backoff when fds run out stays)
+- [x] Header timeout: `set_header_timeout(s)` / `Server(header_timeout=s)`, the whole request head within 10 s by default
+- [ ] A total deadline for a slowly dripped request BODY (today only `read_timeout` per read holds it)
 - [ ] Per-route timeout
-- [ ] Slowloris test (an expected failure until these exist; record it in ADR-0015 when added)
+- [x] Slowloris test for the request head (`httpp_server_limits`, passes; no expected failure needed)
 - [x] ThreadSanitizer on the server engine and the `io` path: no reports
 - [x] ThreadSanitizer on the TLS client: the data race inside mbedtls is fixed ([ADR-0010](docs/adr/0010-mbedtls-threading.md))
 - [ ] AddressSanitizer
@@ -292,8 +293,9 @@ async def ws(websocket):
 
 ### Steps (Starlette level)
 
-- [ ] `Request` / `Response` types with Starlette's interface (`JSONResponse`, `HTMLResponse`, `RedirectResponse`, `PlainTextResponse`, streaming, cookies)
-- [ ] `HTTPException` and default exception handlers (today the 422/500 bodies are hand-made); `status` constants
+- [x] Response classes with Starlette's names: `JSONResponse`, `HTMLResponse`, `RedirectResponse`, `PlainTextResponse`, `StreamingResponse`, `FileResponse` ([ADR-0020](docs/adr/0020-http-exception-and-response-classes.md))
+- [ ] A `Response` base class in the top-level namespace and an injected `response: Response` parameter (`httpp.Response` is the client's response; see ADR-0020), `Request` with Starlette's full interface, `background=` on responses
+- [x] `HTTPException` (default answer `{"detail": ...}`, overridable with `@app.exception_handler(HTTPException)`) and `httpp.status` constants
 - [ ] `APIRouter` / `Router` / `Mount` / `include_router` (prefix, tags, dependencies)
 - [x] `{id}` syntax in paths (Python layer)
 - [ ] Middleware (CORS, GZip; the compressor is vendored and tested, see `httpp::detail::deflate`, only the middleware is missing)
@@ -345,8 +347,8 @@ async def ws(websocket):
 - [x] `CHANGELOG.md` 0.7.0 says "Async HTTP/HTTPS server"; the server has no TLS, check and reword
 - [ ] Add `pydantic` and `openapi-spec-validator` to a CI job so the 278 differential tests run there (see [ADR-0015](docs/adr/0015-testing-and-ci.md))
 - [ ] Run the C++ tests on Windows in CI (today only the build runs)
-- [ ] 405 instead of 404 for a wrong method
-- [ ] Symlink protection for static files
+- [x] 405 with an `Allow` header instead of 404 for a wrong method
+- [x] Symlink protection for static files (a link that leaves the mounted directory answers 404; one that stays inside is served)
 - [ ] Example of using the TLS client
 - [x] Stale comments in `progress.hpp` (around lines 16 and 43)
 - [ ] `/docs` was only seen in Chromium; check other browsers

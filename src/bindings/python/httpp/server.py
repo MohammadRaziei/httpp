@@ -60,6 +60,7 @@ from . import _log, _params, _schema
 from . import _validate as V
 from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox
 from .models import BaseModel, to_jsonable
+from .responses import HTTPException, Response as _ResponseBase
 
 
 _ROUTE_META = frozenset(("summary", "description", "tags", "response_model", "status_code", "deprecated", "include_in_schema"))
@@ -273,8 +274,8 @@ def _stream(gen):
     Called from whatever thread writes the response. An async generator is pulled on the shared
     event loop and waited for here, so the loop never blocks on a slow client.
     ponytail: a generator that raises mid-body drops the connection (the client sees a truncated
-    body, the traceback goes to stderr); a client that hangs up leaves the generator to be
-    garbage-collected, not closed on the spot.
+    body, the traceback goes to stderr); a client that hangs up closes a sync generator on the
+    spot, an async generator is left to the garbage collector.
     """
     if inspect.isasyncgen(gen):
         loop = _get_loop()
@@ -304,6 +305,8 @@ def _stream(gen):
             if piece:  # an empty piece would only make the server spin
                 return bytes(piece)
 
+    if hasattr(gen, "close") and not inspect.isasyncgen(gen):
+        provider.close = gen.close  # the release closes it at once: its `finally` runs now, not at GC time
     return provider
 
 
@@ -330,11 +333,25 @@ class ResponseValidationError(ValueError):
 def _shape(rv, check):
     """Run a handler's return value through its response_model; (body, status, ...) tuples keep their extras."""
     body, *rest = rv if isinstance(rv, tuple) else (rv,)
+    if isinstance(body, _ResponseBase):
+        return rv  # a ready-made response is sent as it is
     errors = []
     out = check(body, ("response",), errors)
     if out is V.INVALID:
         raise ResponseValidationError(errors)
     return (_Json(to_jsonable(out)), *rest)
+
+
+# FastAPI's wording for a path parameter that does not parse (Pydantic v2 lax mode)
+_PARSE_ERRORS = {
+    int: ("int_parsing", "Input should be a valid integer, unable to parse string as an integer"),
+    float: ("float_parsing", "Input should be a valid number, unable to parse string as a number"),
+}
+
+
+def _http_exception_handler(request, exc):
+    """The default answer for an HTTPException (override it with @app.exception_handler(HTTPException))."""
+    return _Json({"detail": to_jsonable(exc.detail)}), exc.status_code, exc.headers
 
 
 def _unprocessable(errors):
@@ -343,6 +360,8 @@ def _unprocessable(errors):
 
 
 def _to_response(rv, default_status=200):
+    if isinstance(rv, _ResponseBase):
+        rv = rv._as_return()
     status, headers = default_status, []
     if isinstance(rv, tuple):
         rv, *extra = rv
@@ -407,12 +426,16 @@ def _prepare(fn, plan=None):
             kwargs = {n: found[n] for n in wanted if n in found}
         else:
             kwargs = {}
-        try:
-            for k, typ in convert.items():
-                if k in kwargs:
+        bad = []
+        for k, typ in convert.items():
+            if k in kwargs:
+                try:
                     kwargs[k] = typ(kwargs[k])
-        except ValueError:
-            return None, _to_response(({"error": f"path parameter {k!r} must be {typ.__name__}"}, 422))
+                except ValueError:
+                    bad.append({"type": _PARSE_ERRORS[typ][0], "loc": ["path", k],
+                                "msg": _PARSE_ERRORS[typ][1], "input": kwargs[k]})
+        if bad:
+            return None, _unprocessable(bad)
         if plan is not None and plan.active:
             errors = plan.run(raw, kwargs)
             if errors:
@@ -642,13 +665,16 @@ class Server(_Server):
     least 8; under load up to max_threads, default 4 x threads).  read_timeout / write_timeout /
     keep_alive_timeout: seconds (defaults 5).  keep_alive_max: requests per connection (100).
     max_body: largest request body in bytes, refused above it with a 413 (a client still
-    sending a huge body may see the connection closed instead); 0 = no limit.  handler_timeout:
+    sending a huge body may see the connection closed instead); 0 = no limit.  header_timeout: seconds the
+    whole request head may take to arrive, however slowly it is dripped (default 10, 0 = no limit).
+    max_connections: open connections allowed, one more gets a 503 (default: no limit).  handler_timeout:
     seconds an async handler may take before it is cancelled and answered with a 504 (default 60,
     None = never).  Everything left as None keeps the C++ default.
     """
 
     def __init__(self, *, threads=None, max_threads=None, read_timeout=None, write_timeout=None,
-                 keep_alive_timeout=None, keep_alive_max=None, max_body=None, handler_timeout=60,
+                 keep_alive_timeout=None, keep_alive_max=None, max_body=None, header_timeout=None,
+                 max_connections=None, handler_timeout=60,
                  title="httpp", version="0.1.0", description=None, openapi_url="/openapi.json", docs_url="/docs"):
         _Server.__init__(self)
         self._routes, self._openapi_doc = [], None
@@ -665,7 +691,9 @@ class Server(_Server):
                               (write_timeout, self.set_write_timeout),
                               (keep_alive_timeout, self.set_keep_alive_timeout),
                               (keep_alive_max, self.set_keep_alive_max),
-                              (max_body, self.set_max_body)):
+                              (max_body, self.set_max_body),
+                              (header_timeout, self.set_header_timeout),
+                              (max_connections, self.set_max_connections)):
             if value is not None:
                 setter(value)
 
@@ -811,12 +839,16 @@ class Server(_Server):
             handler = self._exception_handlers.get(cls)
             if handler is not None:
                 return handler
-        return None
+        return _http_exception_handler if isinstance(exc, HTTPException) else None
 
     def _run_before(self, *raw):
         for fn, prepare in self._before:
             kwargs, _ = prepare(*raw)
-            rv = _call(fn, **kwargs)
+            try:
+                rv = _call(fn, **kwargs)
+            except HTTPException as exc:  # the usual way to refuse a request in a hook (auth)
+                handler = self._exception_handler_for(exc)
+                return _to_response(_call(handler, ServerRequest(*raw), exc), 500)
             if rv is not None:
                 return _to_response(rv)
         return None

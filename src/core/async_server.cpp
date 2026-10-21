@@ -120,7 +120,9 @@ struct poster {
 
 struct async_server::impl {
     std::atomic<int> read_to, write_to, ka_to;
+    std::atomic<int> head_to{10};          // seconds for a whole request head to arrive (slowloris), 0 = no limit
     std::atomic<std::size_t> ka_max, max_body;
+    std::atomic<std::size_t> max_conn{0};  // 0 = no limit
     request_fn on_request;
     blocking_fn run_blocking;
 
@@ -171,6 +173,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     std::size_t header_bytes = 0;
     int reject = 0;           // set by a parser callback that wants the request refused with this status
     bool got_bytes = false;   // part of a request has arrived (read timeout instead of idle timeout)
+    std::chrono::steady_clock::time_point head_start; // when the first byte of this request arrived
     bool req_keep = false;    // the client allows keep-alive
     bool req_head = false;
     int req_minor = 1;
@@ -261,6 +264,13 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
             if (!ec && gen == self->armed) self->close();
         });
     }
+    void arm_ms(long long ms) {
+        const std::uint64_t gen = ++armed;
+        timer.expires_after(std::chrono::milliseconds(ms));
+        timer.async_wait([self = shared_from_this(), gen](std::error_code ec) {
+            if (!ec && gen == self->armed) self->close();
+        });
+    }
     void disarm() { ++armed; timer.cancel(); }
 
     void close() {
@@ -291,6 +301,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
             std::string d = std::move(leftover);
             leftover.clear();
             got_bytes = true;
+            head_start = std::chrono::steady_clock::now();
             feed(d.data(), d.size());
         } else {
             got_bytes = false;
@@ -299,10 +310,26 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     }
 
     void read() {
-        arm(got_bytes ? srv.read_to.load() : srv.ka_to.load());
+        const int per_read = got_bytes ? srv.read_to.load() : srv.ka_to.load();
+        const int head = srv.head_to.load();
+        if (got_bytes && !headers_done && head > 0) {
+            // A client that sends a byte now and then keeps every single read alive: the whole head has
+            // one deadline too (slowloris). ponytail: a slowly dripped BODY is only held by the per-read
+            // timeout; upgrade path: a total deadline for the body.
+            const long long left = head * 1000LL - std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                       std::chrono::steady_clock::now() - head_start).count();
+            if (left <= 0) {
+                HTTPP_LOG(debug) << "request head took longer than " << head << " s: closing";
+                return close();
+            }
+            arm_ms(per_read > 0 ? std::min<long long>(left, per_read * 1000LL) : left);
+        } else {
+            arm(per_read);
+        }
         sock.async_read_some(asio::buffer(rbuf), [self = shared_from_this()](std::error_code ec, std::size_t n) {
             if (self->closed) return;
             if (ec) return self->close(); // peer closed, or timeout/shutdown cancelled the read
+            if (!self->got_bytes) self->head_start = std::chrono::steady_clock::now();
             self->got_bytes = true;
             self->feed(self->rbuf.data(), n);
         });
@@ -513,6 +540,15 @@ void async_server::impl::accept_next() {
         if (closing) return; // `s` closes itself
         if (!ec) {
             std::error_code ignore;
+            const std::size_t cap = max_conn.load();
+            if (cap && conns.size() >= cap) { // over the limit: a short 503, then hang up
+                static const char busy[] = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+                s.send(asio::buffer(busy, sizeof busy - 1), 0, ignore); // best effort into an empty send buffer
+                HTTPP_LOG(debug) << "connection refused: " << cap << " connections already open";
+                s.close(ignore);
+                accept_next();
+                return;
+            }
             s.set_option(tcp::no_delay(true), ignore);
             auto c = std::make_shared<conn>(*this, std::move(s));
             conns.insert(c);
@@ -548,6 +584,8 @@ void async_server::set_write_timeout(int seconds) { impl_->write_to = seconds; }
 void async_server::set_keep_alive_timeout(int seconds) { impl_->ka_to = seconds; }
 void async_server::set_keep_alive_max(std::size_t requests) { impl_->ka_max = requests == 0 ? 1 : requests; }
 void async_server::set_max_body(std::size_t bytes) { impl_->max_body = bytes; }
+void async_server::set_header_timeout(int seconds) { impl_->head_to = seconds; }
+void async_server::set_max_connections(std::size_t n) { impl_->max_conn = n; }
 void async_server::set_reuse_port(bool on) { impl_->reuse_port = on; }
 
 void async_server::after(std::chrono::milliseconds delay, std::function<void()> fn) {

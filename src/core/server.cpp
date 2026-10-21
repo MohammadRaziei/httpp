@@ -13,12 +13,14 @@
 #include <cctype>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <charconv>
 #include <cstdint>
 #include <limits>
 #include <map>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
@@ -464,6 +466,24 @@ struct server::impl {
         return &routes[best];
     }
 
+    // The methods that have a route for this path (for a 405 answer). Only runs when nothing matched,
+    // so a normal request never pays for it. A GET route also answers HEAD.
+    std::string allowed_methods(const std::string& raw_path) const {
+        std::set<std::string> methods;
+        for (const route_entry& r : routes) methods.insert(r.method);
+        std::set<std::string> allowed;
+        std::vector<std::pair<std::string, std::string>> scratch;
+        for (const std::string& m : methods) {
+            if (match(m, raw_path, scratch)) {
+                allowed.insert(m);
+                if (m == "GET") allowed.insert("HEAD");
+            }
+        }
+        std::string out;
+        for (const std::string& m : allowed) out += (out.empty() ? "" : ", ") + m;
+        return out;
+    }
+
     // ---- static files ----
     enum class range_result { none, ok, unsatisfiable };
     static range_result parse_range(const std::string& header, long long size, long long& start, long long& end) {
@@ -499,6 +519,19 @@ struct server::impl {
         return false;
     }
 
+    // True when `file` (symlinks resolved) is still inside `dir` (resolved too). A file that does not
+    // exist counts as inside: the caller's file_size() answers that case.
+    static bool inside_dir(const std::string& file, const std::string& dir) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path real = fs::canonical(fs::path(file), ec);
+        if (ec) return true;
+        const fs::path root = fs::canonical(fs::path(dir.empty() ? "." : dir), ec);
+        if (ec) return false;
+        const fs::path rel = real.lexically_relative(root);
+        return !rel.empty() && *rel.begin() != "..";
+    }
+
     bool serve_static(const request& req, const send_fn& send) {
         for (const auto& m : mounts) {
             const std::string& p = req.path;
@@ -512,6 +545,7 @@ struct server::impl {
             if (!full.empty() && full.back() != '/' && full.back() != '\\') full += '/';
             full += rel.empty() ? "" : rel.substr(1);
             if (rel.empty() || rel.back() == '/') full += "index.html";
+            if (!inside_dir(full, m.dir)) continue; // a symlink must not lead out of the mounted directory
             const long long size = file_size(full);
             if (size < 0) continue;
 
@@ -677,6 +711,11 @@ struct server::impl {
         if (!r) {
             response nf;
             nf.status = 404;
+            // ponytail: one scan per miss, no index; a miss is not the hot path
+            if (const std::string allow = allowed_methods(pr.raw_path); !allow.empty()) {
+                nf.status = 405;
+                nf.headers.emplace_back("Allow", allow);
+            }
             return send(std::move(nf), 0, -1);
         }
 
@@ -807,6 +846,8 @@ server& server::set_write_timeout(int seconds) { impl_->engine->set_write_timeou
 server& server::set_keep_alive_timeout(int seconds) { impl_->engine->set_keep_alive_timeout(seconds); return *this; }
 server& server::set_keep_alive_max(std::size_t requests) { impl_->engine->set_keep_alive_max(requests); return *this; }
 server& server::set_max_body(std::size_t bytes) { impl_->engine->set_max_body(bytes); return *this; }
+server& server::set_header_timeout(int seconds) { impl_->engine->set_header_timeout(seconds); return *this; }
+server& server::set_max_connections(std::size_t n) { impl_->engine->set_max_connections(n); return *this; }
 server& server::set_reuse_port(bool on) { impl_->engine->set_reuse_port(on); return *this; }
 server& server::set_async_timeout(int seconds) {
     impl_->async_timeout = seconds < 0 ? 0 : seconds;

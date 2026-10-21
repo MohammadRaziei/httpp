@@ -152,7 +152,7 @@ UTEST(httpp_routing, methods_are_kept_apart_and_head_uses_the_get_route) {
     ASSERT_STREQ("0|id=5;", fetch(srv, "/m/5").body.c_str());
     ASSERT_STREQ("1|id=5;", fetch(srv, "/m/5", "POST").body.c_str());
     ASSERT_STREQ("2|", fetch(srv, "/m/fixed", "PUT").body.c_str());
-    ASSERT_EQ(404, fetch(srv, "/m/fixed", "DELETE").status);
+    ASSERT_EQ(405, fetch(srv, "/m/fixed", "DELETE").status);
     ASSERT_EQ(200, fetch(srv, "/m/5", "HEAD").status);
 }
 
@@ -209,7 +209,7 @@ UTEST(httpp_routing, random_routes_and_paths_agree_with_the_old_linear_scan) {
         }
         const std::string expected = oracle(routes, method, decoded);
         auto res = fetch(srv, path, method);
-        const std::string got = res.status == 404 ? "404" : res.body;
+        const std::string got = (res.status == 404 || res.status == 405) ? "404" : res.body; // "no route for this method"
         if (expected != got) {
             std::fprintf(stderr, "MISMATCH %s %s status=%d expected=[%s] got=[%s]\n", method.c_str(), path.c_str(), res.status,
                          expected.c_str(), got.c_str());

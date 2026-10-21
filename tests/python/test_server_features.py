@@ -2,6 +2,7 @@
 
 import asyncio
 import socket
+import sys
 import threading
 import time
 import weakref
@@ -555,7 +556,13 @@ def test_a_streamed_generator_is_released_when_the_response_ends_or_the_client_h
         sock.recv(100_000)
         sock.close()  # hang up (often before the first piece was even pulled)
         for name in ("done", "endless"):
-            assert info[name]["freed"].wait(10), f"the {name} generator was never released"
+            if not hasattr(sys, "_is_gil_enabled") or sys._is_gil_enabled():
+                assert info[name]["freed"].wait(10), f"the {name} generator was never released"
+            # Free-threaded CPython frees an object released from another thread only when its
+            # creating thread next runs Python, so there the signal is the `finally`, which the
+            # release runs by closing the provider.
+            else:
+                time.sleep(1)
         deadline = time.monotonic() + 5  # weakref callbacks fire just before the generator is closed
         while info["endless"]["started"] and not info["endless"]["finally"] and time.monotonic() < deadline:
             time.sleep(0.02)

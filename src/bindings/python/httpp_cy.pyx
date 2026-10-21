@@ -98,6 +98,8 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cpp_server& set_keep_alive_timeout(int seconds) except +
         cpp_server& set_keep_alive_max(size_t requests) except +
         cpp_server& set_max_body(size_t nbytes) except +
+        cpp_server& set_header_timeout(int seconds) except +
+        cpp_server& set_max_connections(size_t n) except +
         cpp_server& set_async_timeout(int seconds) except +
         cpp_server& set_reuse_port(cbool on) except +
         int bind_to_any_port(string host) except +
@@ -131,6 +133,18 @@ cdef extern from *:
         };
     }
     static void httpp_py_reset(httpp::response& res) { res = httpp::response(); }
+    // Pool threads are not Python threads. PyGILState_Ensure/Release would create a thread state on
+    // every request and destroy it again (the counter drops to 0), which is very slow on free-threaded
+    // CPython. One Ensure per thread that is never released keeps the state alive, so the later
+    // `with gil` blocks only attach and detach it.
+    // ponytail: the state of an exited pool thread is freed at interpreter shutdown, not earlier.
+    static void httpp_py_pin_thread() {
+        static thread_local bool pinned = false;
+        if (pinned) return;
+        pinned = true;
+        PyGILState_Ensure();
+        PyEval_SaveThread();
+    }
     typedef void (*httpp_py_trampoline)(void*, const httpp::request&, httpp::response&);
     static httpp::handler httpp_py_make_handler(httpp_py_trampoline fn, void* ctx) {
         return [fn, ctx](const httpp::request& q, httpp::response& r) { fn(ctx, q, r); };
@@ -148,6 +162,7 @@ cdef extern from *:
         return [fn, ctx](std::shared_ptr<const httpp::request> q, httpp::responder r) { fn(ctx, std::move(q), r); };
     }
     """
+    void httpp_py_pin_thread() noexcept nogil
     ctypedef void (*trampoline_fn "httpp_py_trampoline")(void*, const cpp_request&, response&) noexcept nogil
     cpp_handler make_handler "httpp_py_make_handler"(trampoline_fn fn, void* ctx)
     ctypedef void (*async_trampoline_fn "httpp_py_async_trampoline")(void*, const cpp_request&, const cpp_responder&) noexcept nogil
@@ -620,7 +635,18 @@ cdef int _stream_next(void* ctx, size_t offset, string& chunk) noexcept nogil:
 
 
 cdef void _stream_release(void* ctx) noexcept nogil:
+    # The provider's `finally` (an open file, a connection) must run now. On free-threaded CPython the
+    # object itself is freed only when the thread that created it next runs Python (its refcounts
+    # are merged then), and that thread may sit idle in the pool until the next request.
     with gil:
+        provider = <object>ctx
+        close = getattr(provider, "close", None)
+        if close is not None:
+            try:
+                close()
+            except BaseException:
+                traceback.print_exc()
+        provider = None
         Py_DECREF(<object>ctx)
 
 
@@ -655,6 +681,7 @@ cdef void _run_handler(object fn, const cpp_request& req, response& res) except 
 cdef void _dispatch(void* ctx, const cpp_request& req, response& res) noexcept nogil:
     # Called from a cpp-httplib worker thread that Python knows nothing about,
     # hence the explicit GIL acquire.
+    httpp_py_pin_thread()
     with gil:
         try:
             _run_handler(<object>ctx, req, res)
@@ -667,6 +694,7 @@ cdef void _dispatch(void* ctx, const cpp_request& req, response& res) noexcept n
 
 cdef void _dispatch_raw(void* ctx, shared_ptr[const cpp_request] req, response& res) noexcept nogil:
     # Like _dispatch, but the handler gets a RawRequest (shared with C++, built on demand).
+    httpp_py_pin_thread()
     with gil:
         try:
             status, body, headers = (<object>ctx)(_new_raw(req))
@@ -678,6 +706,7 @@ cdef void _dispatch_raw(void* ctx, shared_ptr[const cpp_request] req, response& 
 
 cdef cbool _dispatch_before(void* ctx, const cpp_request& req, response& res) noexcept nogil:
     # hook(*request_args) -> None (go on to the route) | (status, body, headers) (answer it here)
+    httpp_py_pin_thread()
     with gil:
         try:
             out = (<object>ctx)(*_request_args(req))
@@ -694,6 +723,7 @@ cdef cbool _dispatch_before(void* ctx, const cpp_request& req, response& res) no
 
 cdef void _dispatch_after(void* ctx, const cpp_request& req, response& res) noexcept nogil:
     # hook(*request_args, status, headers) -> None | (status, headers). A failing hook makes it a 500.
+    httpp_py_pin_thread()
     with gil:
         try:
             out = (<object>ctx)(*_request_args(req), res.status, _pairs(res.headers))
@@ -709,6 +739,7 @@ cdef void _dispatch_after(void* ctx, const cpp_request& req, response& res) noex
 
 cdef void _dispatch_error(void* ctx, const cpp_request& req, response& res) noexcept nogil:
     # hook(*request_args, status) -> None (keep the plain error) | (status, body, headers)
+    httpp_py_pin_thread()
     with gil:
         try:
             out = (<object>ctx)(*_request_args(req), res.status)
@@ -1010,6 +1041,16 @@ cdef class Server:
     def set_max_body(self, size_t nbytes):
         """Largest request body accepted (413 above it); 0 = no limit."""
         self._srv.set_max_body(nbytes)
+        return self
+
+    def set_header_timeout(self, int seconds):
+        """Seconds the whole request head may take to arrive (slowloris guard); 0 = no limit."""
+        self._srv.set_header_timeout(seconds)
+        return self
+
+    def set_max_connections(self, size_t n):
+        """Open connections allowed at once (one more gets a 503 and is closed); 0 = no limit."""
+        self._srv.set_max_connections(n)
         return self
 
     def set_async_timeout(self, int seconds):

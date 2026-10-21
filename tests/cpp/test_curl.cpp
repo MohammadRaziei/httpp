@@ -69,7 +69,7 @@ UTEST(httpp_curl, data_defaults_method_to_post) {
     running_server rs(std::move(s));
 
     // no POST route registered on purpose: since httpp::server only
-    // supports .get() so far, a POST here should 404 rather than hit the
+    // supports .get() so far, a POST here should be refused (405, the path exists for GET only) rather than hit the
     // GET-registered "/should-not-hit" route above - proving .data()
     // switched the method away from GET.
     std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/should-not-hit";
@@ -77,7 +77,7 @@ UTEST(httpp_curl, data_defaults_method_to_post) {
                                .data("field=value")
                                .run();
 
-    ASSERT_EQ(404, res.status);
+    ASSERT_EQ(405, res.status);
 }
 
 UTEST(httpp_curl, explicit_method_overrides_data_default) {

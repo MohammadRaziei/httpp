@@ -406,4 +406,5 @@ This is the most important security item, and the slowloris test in `agent.md` *
 **Problem:** on 3.13t/3.14t/3.15t, `def` handlers on the pool threads are truly parallel and the user's global dicts and counters are touched at the same time.
 Without declaring `freethreading_compatible`, the interpreter turns the GIL back on at import (proven; the declaration was added).
 CI runs a test that checks the GIL stays off on the free-threaded wheels; the whole Python test suite and a stress test were also run on 3.14t with the GIL off, **on one core**. Multi-core speed-up has not been measured.
-**Suggestion:** a multi-core benchmark before any claim; document thread safety for users.
+**Measured (2 cores, `benchmarks/cpu_bench.py`, `oha` in a separate process):** a CPU-bound `def` handler scales about 1.9x from 1 to 8 connections on 3.14t and not at all on 3.13 (GIL); `async def` handlers run on one loop thread and gain little. A per-request thread-state create/destroy made `def` handlers 5x slower on 3.14t; fixed by pinning the thread state per pool thread.
+**Suggestion:** document thread safety for users; the longer thread-safety review of module-level state is still open.
