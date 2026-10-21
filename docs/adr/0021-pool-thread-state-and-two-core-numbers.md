@@ -22,6 +22,13 @@ about 5 times slower (1.9k req/s on `hello`, against 9.4k on 3.13).
   spread over all 8 pool threads and they fought for the Python lock. An experiment with a fixed pool showed it: `hello` on 3.13 with
   1, 2, 4, 8 pool threads gave 34.9k, 29.8k, 22.5k, 19.9k req/s. A blocked thread still never leaves queued work waiting
   (a chain wake on every dequeue); `tests/cpp/test_worker_pool.cpp` covers it and runs clean under ThreadSanitizer.
+- **A job does not wake a second thread while another thread is running or about to run.** That thread usually finishes in
+  microseconds and takes the next job itself; two threads handing the Python lock to each other cost more than they gain
+  (the profile showed about 10 us of Python per `item` request, `json.dumps` a quarter of it, yet 80 us of wall time per request:
+  the rest was the Python lock changing hands). A scout thread, asleep unless a job is waiting behind a busy thread, wakes or adds a
+  thread when a job has waited 500 us (`help_after`), so a blocked handler delays queued work by about that long and not more
+  (`a_long_job_gets_help_after_a_short_delay`). Under a saturating CPU-bound load the scout adds one thread per 500 us until
+  every core is busy, so 3.14t still scales.
 - ponytail: the state of a pool thread that exits is freed at interpreter shutdown, not earlier. The pool lives as long as the server.
   Upgrade path: release the pinned state from a thread-exit hook if pools ever shrink.
 
@@ -56,10 +63,14 @@ CPU-bound handler (about 3 ms of pure Python, `benchmarks/cpu_bench.py`), 1 and 
 
 - Only `def` handlers on free-threaded CPython use both cores (about 2.1 times from 1 to 8 connections). `async def` handlers share one loop
   thread, so they cannot gain from free-threading (a small gain on 3.14t is probably I/O on the Asio thread; not investigated).
-- After the pool change (same session, noise about 10 percent): `def` `hello` 21.8k to 22.5k on 3.13 and 24.6k to 26.0k on 3.14t, against
+- After the delayed-help change (2 cores, 32 connections, median of 3 rounds, noise about 10 percent), `def` `hello` / `item`:
+  3.13 35.9k / 24.9k (uvicorn 17.2k / 11.9k, `async def` 25.2k / 19.8k), 3.14t 33.2k / 29.8k (uvicorn 18.2k / 14.0k, `async def`
+  22.8k / 21.8k). CPU-bound on 3.14t, 8 connections: 751 req/s. `def` is now faster than `async def` here: the `async def` path
+  has not had the same treatment (its hop to the asyncio loop thread is the same kind of handover) and is the next candidate.
+  Eight concurrent 200 ms blocking handlers finish in 0.21 s (the very first batch after start-up takes 0.49 s, cause not looked into).
+- Before the delayed-help change (LIFO wake only): `def` `hello` 21.8k to 22.5k on 3.13 and 24.6k to 26.0k on 3.14t, against
   uvicorn 15.0k to 18.7k and 18.0k. `def` `item` is 12.5k on 3.13 (uvicorn 14.4k) and 17.7k to 18.6k on 3.14t. The CPU-bound numbers did not change
-  (3.14t, 8 connections: 640 to 740 req/s, three runs). Open: `def` `item` costs about 10k req/s more than `def` `hello` on 3.13, and
-  `async def` pays much less for the same route (17.3k): the difference is in the Python per-request work of the `def` path, not yet profiled.
+  (3.14t, 8 connections: 640 to 740 req/s, three runs). That `item` gap was the Python lock changing hands, not the Python work.
 - Not verified: Windows, macOS, more than two cores, a real network (client and server share the machine), FastAPI with `response_model`
   or dependencies, and a longer thread-safety review of module-level Python state under free-threading.
 - `test_pool_thread_state.py` guards the reuse. On 3.14t `test_a_streamed_generator_is_released...` no longer waits for the weakref

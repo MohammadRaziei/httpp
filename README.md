@@ -311,7 +311,7 @@ httpp run main:app --workers auto          # one per usable CPU
   httptools) and against FastAPI on uvicorn. On two cores, with the server and the load generator sharing them,
   `async def` routes did about 1.1 to 1.4 times the requests per second of bare uvicorn, and 5 to 17 times
   FastAPI, which also validates and routes (hello, a path parameter with a JSON body, the last of 300 routes). Plain `def`
-  routes are about as fast as bare uvicorn on CPython 3.13 and ahead of it on free-threaded 3.14t, where a CPU-bound
+  routes did about 2 times bare uvicorn on both CPython 3.13 and free-threaded 3.14t, where a CPU-bound
   `def` handler also uses both cores (about 2 times from 1 to 8 connections); `async def` handlers share one loop thread
   and do not. Run to run the numbers move by about 10 percent, so only comparisons inside one run mean anything.
   Details, tables and what is not verified: [ADR-0021](docs/adr/0021-pool-thread-state-and-two-core-numbers.md).

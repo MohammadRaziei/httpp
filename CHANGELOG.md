@@ -8,8 +8,10 @@ such changes are listed under **Changed**).
 ## [Unreleased]
 
 ### Changed
-- **The worker pool wakes threads last-in first-out** and only as many as there are queued jobs, so a light load stays on one or two
-  hot threads. `def` `hello` on two cores: about 16k to 22k req/s (3.13) and 19k to 25k req/s (3.14t). New `tests/cpp/test_worker_pool.cpp`.
+- **The worker pool wakes threads last-in first-out, and does not wake a second thread until a job has waited 500 us** (a scout
+  thread watches the queue), so light `def` handlers run on one hot thread instead of passing the Python lock around. On two cores,
+  `def` `hello` went from 16k to 36k req/s (3.13) and from 19k to 33k (3.14t); `item` from 12k to 25k and from 17k to 30k. A
+  blocked handler delays queued requests by about 500 us. New `tests/cpp/test_worker_pool.cpp` (also run under ThreadSanitizer).
 
 ### Fixed
 - **`def` handlers were slow: a Python thread state was created and destroyed for every request.** Each pool thread now keeps

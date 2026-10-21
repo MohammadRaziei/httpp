@@ -67,3 +67,37 @@ UTEST(worker_pool, grows_when_every_thread_is_busy) {
     ASSERT_EQ(4, done.load());
     ASSERT_TRUE(std::chrono::steady_clock::now() - t0 < 900ms); // in parallel, not 4 x 300 ms
 }
+
+UTEST(worker_pool, a_backlog_of_short_jobs_is_drained_by_the_running_thread) {
+    // While one thread is busy with short jobs, queued jobs wait for it a moment instead of waking
+    // another thread for each of them (two threads handing the Python lock back and forth is slower than one).
+    worker_pool pool(8, 8);
+    std::this_thread::sleep_for(50ms); // the threads have gone to sleep (fresh threads would all grab jobs)
+    std::mutex mu;
+    std::set<std::thread::id> seen;
+    std::atomic<int> n{0};
+    std::promise<void> all;
+    for (int i = 0; i < 40; ++i)
+        pool.enqueue([&] {
+            { std::lock_guard<std::mutex> lk(mu); seen.insert(std::this_thread::get_id()); }
+            for (auto end = std::chrono::steady_clock::now() + 5us; std::chrono::steady_clock::now() < end;) {} // far shorter than the extra-thread delay
+            if (++n == 40) all.set_value();
+        });
+    ASSERT_TRUE(all.get_future().wait_for(10s) == std::future_status::ready);
+    ASSERT_TRUE(seen.size() <= 3u);
+}
+
+UTEST(worker_pool, a_long_job_gets_help_after_a_short_delay) {
+    std::promise<void> release, started;
+    std::atomic<int> n{0};
+    auto gate = release.get_future().share();
+    worker_pool pool(4, 4);
+    pool.enqueue([&] { started.set_value(); gate.wait(); });
+    started.get_future().wait();
+    const auto t0 = std::chrono::steady_clock::now();
+    pool.enqueue([&] { ++n; });
+    while (n == 0 && std::chrono::steady_clock::now() - t0 < 2s) std::this_thread::sleep_for(1ms);
+    ASSERT_EQ(1, n.load());
+    ASSERT_TRUE(std::chrono::steady_clock::now() - t0 < 100ms);
+    release.set_value();
+}
