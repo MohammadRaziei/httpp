@@ -126,6 +126,18 @@ that the answers are the same), and the `handler_timeout` deadline is registered
 `server.py` from before this session and the new compiled module, 3 alternating rounds, median (the box was slower than in the earlier
 runs, compare only inside this pair): `hello` 39.6k to 47.4k, `item` 35.6k to 43.1k req/s (about 20 percent), better in every round.
 
+### Stress run and the decision on option C
+
+`benchmarks/stress.py 20 16` (16 client threads, sync, async, streaming, failing and slow routes, clients hanging up early) with the code
+above: 3.13 two runs of about 51k answers, 3.14t three runs of 74k to 77k answers, no wrong answer, no unexpected line on stderr, server
+alive. The first runs of the day failed, but the harness was at fault: the server's stderr went to a pipe nobody read, so after about
+1100 requests (64 KB of log lines) the server blocked on its own log; stderr now goes to a file. A full log pipe stalls any server that
+logs to it; httpp does not guard against that.
+
+Option C (answers of one loop turn handed to C++ in one call) is not taken for now: the measured cost it could save is the `send` (about
+2 us of about 18 us on the loop thread, one extra wake-up per answer), it changes the internal `done` protocol, and it adds latency for the
+first answer of a burst. The owner delegated the choice ("decide the right thing"); reopen it if `async def` throughput becomes the limit.
+
 ## Related
 
 ADR-0009 (hot path), ADR-0013 (free-threaded wheels), `Architecture.md` risk 1 and risk 8.
