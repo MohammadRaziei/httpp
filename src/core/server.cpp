@@ -13,7 +13,12 @@
 #include <cctype>
 #include <chrono>
 #include <cstring>
+#ifdef _WIN32
 #include <filesystem>
+#else
+#include <climits>
+#include <cstdlib>
+#endif
 #include <fstream>
 #include <charconv>
 #include <cstdint>
@@ -522,6 +527,7 @@ struct server::impl {
     // True when `file` (symlinks resolved) is still inside `dir` (resolved too). A file that does not
     // exist counts as inside: the caller's file_size() answers that case.
     static bool inside_dir(const std::string& file, const std::string& dir) {
+#ifdef _WIN32
         namespace fs = std::filesystem;
         std::error_code ec;
         const fs::path real = fs::canonical(fs::path(file), ec);
@@ -530,6 +536,20 @@ struct server::impl {
         if (ec) return false;
         const fs::path rel = real.lexically_relative(root);
         return !rel.empty() && *rel.begin() != "..";
+#else
+        // ponytail: realpath, not <filesystem> (it needs macOS >= 10.15 and the wheels target 10.13).
+        char* f = ::realpath(file.c_str(), nullptr);
+        if (!f) return true;
+        std::string real(f);
+        std::free(f);
+        char* d = ::realpath(dir.empty() ? "." : dir.c_str(), nullptr);
+        if (!d) return false;
+        std::string root(d);
+        std::free(d);
+        if (root.size() > 1 && root.back() == '/') root.pop_back();
+        if (root == "/") return true;
+        return real == root || (real.size() > root.size() && real.compare(0, root.size(), root) == 0 && real[root.size()] == '/');
+#endif
     }
 
     bool serve_static(const request& req, const send_fn& send) {

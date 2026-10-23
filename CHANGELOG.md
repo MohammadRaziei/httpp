@@ -24,6 +24,9 @@ such changes are listed under **Changed**).
   (together with the eager start about 20 percent on `hello` / `item`, 2 cores).
 
 ### Fixed
+- **The macOS wheel build works again:** `serve_directory` checked symlinks with `std::filesystem`, which needs macOS 10.15 while the
+  wheels target 10.13. It now uses `realpath` on Linux and macOS (`std::filesystem` stays on Windows only). The tests also cover a sibling
+  directory whose name starts like the mounted one, and a mounted directory given with a trailing slash.
 - **`def` handlers were slow: a Python thread state was created and destroyed for every request.** Each pool thread now keeps
   its state (`httpp_py_pin_thread`). Measured on 2 cores, `oha`, 32 connections, plain `hello` route: CPython 3.13 9.4k -> 17.9k
   req/s, free-threaded 3.14.6t 1.9k -> 24.6k req/s. A CPU-bound `def` handler on 3.14t now scales with the cores

@@ -265,11 +265,21 @@ UTEST(httpp_server_static, symlink_out_of_the_directory_is_not_served) {
     fs::create_symlink(base / "secret" / "s.txt", base / "pub" / "leak.txt", ec);
     if (ec) { fs::remove_all(base); return; } // no symlinks here (Windows without the privilege)
     fs::create_symlink(base / "pub" / "a.txt", base / "pub" / "inner.txt", ec);
+    // a sibling whose name only starts like the mounted directory ("pub2" next to "pub") is outside it too
+    fs::create_directories(base / "pub2");
+    { std::ofstream(base / "pub2" / "s.txt") << "sibling"; }
+    fs::create_symlink(base / "pub2" / "s.txt", base / "pub" / "leak2.txt", ec);
     {
         local_server srv([&](httpp::server& s) { s.serve_directory("/f", (base / "pub").string()); });
         ASSERT_EQ(200, httpp::client::fetch(srv.url("/f/a.txt")).status);
         ASSERT_EQ(200, httpp::client::fetch(srv.url("/f/inner.txt")).status); // a link that stays inside is fine
         ASSERT_EQ(404, httpp::client::fetch(srv.url("/f/leak.txt")).status);
+        ASSERT_EQ(404, httpp::client::fetch(srv.url("/f/leak2.txt")).status);
+    }
+    {
+        local_server srv([&](httpp::server& s) { s.serve_directory("/f", (base / "pub").string() + "/"); }); // trailing slash
+        ASSERT_EQ(200, httpp::client::fetch(srv.url("/f/a.txt")).status);
+        ASSERT_EQ(404, httpp::client::fetch(srv.url("/f/leak2.txt")).status);
     }
     fs::remove_all(base);
 }
