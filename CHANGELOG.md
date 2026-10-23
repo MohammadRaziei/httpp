@@ -13,6 +13,16 @@ such changes are listed under **Changed**).
   `def` `hello` went from 16k to 36k req/s (3.13) and from 19k to 33k (3.14t); `item` from 12k to 25k and from 17k to 30k. A
   blocked handler delays queued requests by about 500 us. New `tests/cpp/test_worker_pool.cpp` (also run under ThreadSanitizer).
 
+### Changed (async)
+- **`async def` routes are about 30 percent faster:** one shared timer for `handler_timeout` instead of a timer per request, and a prebuilt JSON
+  encoder (same output as `json.dumps`; CPython only, a circular structure now ends in a RecursionError, still a 500).
+- **`async def` handlers start eagerly on Python 3.12+:** a handler that never waits finishes inside `dispatch` without a trip through the
+  loop's ready queue (2 to 8 percent on `hello` / `item`).
+- **The `async def` inbox is drained in batches:** one lock per batch of queued requests instead of one per request (about 12 percent on
+  `hello`, 17 percent on `item`, 2 cores).
+- **Faster answers for `str`, `dict` and `list` results,** and no `handler_timeout` bookkeeping for a handler that finishes at once
+  (together with the eager start about 20 percent on `hello` / `item`, 2 cores).
+
 ### Fixed
 - **`def` handlers were slow: a Python thread state was created and destroyed for every request.** Each pool thread now keeps
   its state (`httpp_py_pin_thread`). Measured on 2 cores, `oha`, 32 connections, plain `hello` route: CPython 3.13 9.4k -> 17.9k

@@ -892,3 +892,91 @@ def test_a_burst_that_piles_up_while_the_loop_is_busy_is_served_in_full():
             s.close()
             assert data.startswith(b"HTTP/1.1 200") and data.endswith(f"n{i}".encode()), (i, data[:80])
         blocker.join()
+
+
+def test_finished_async_requests_leave_no_deadline_behind():
+    # One shared timer watches every in-flight async request; a finished one must be forgotten at once.
+    app = Server(handler_timeout=30)
+
+    @app.get("/fast")
+    async def fast():
+        return "ok"
+
+    @app.get("/slow")
+    async def slow():
+        await asyncio.sleep(0.2)
+        return "late"
+
+    port = app.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=app.listen_after_bind)
+    th.start()
+    time.sleep(0.05)
+    try:
+        for _ in range(40):
+            assert Request(f"http://127.0.0.1:{port}/fast").run().body == "ok"
+        assert Request(f"http://127.0.0.1:{port}/slow").run().body == "late"
+        time.sleep(0.05)
+        assert len(app._deadlines.pending) == 0
+    finally:
+        app.stop()
+        th.join()
+
+
+def test_async_requests_that_finish_at_once_or_fail_leave_no_task_behind():
+    # A handler that never suspends may run to the end inside dispatch (eager start): its task must not be kept alive.
+    import httpp.server as srv
+
+    app = Server(handler_timeout=30)
+
+    @app.get("/fast")
+    async def fast():
+        return "ok"
+
+    @app.get("/boom")
+    async def boom():
+        raise RuntimeError("expected by the test")
+
+    @app.get("/slow")
+    async def slow():
+        await asyncio.sleep(0.1)
+        return "late"
+
+    port = app.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=app.listen_after_bind)
+    th.start()
+    time.sleep(0.05)
+    before = set(srv._tasks)  # other tests share the loop and may have left tasks of their own
+    try:
+        for _ in range(20):
+            assert Request(f"http://127.0.0.1:{port}/fast").run().body == "ok"
+        assert Request(f"http://127.0.0.1:{port}/boom").run().status == 500
+        assert Request(f"http://127.0.0.1:{port}/slow").run().body == "late"
+        time.sleep(0.05)
+        assert not (set(srv._tasks) - before)
+        assert len(app._deadlines.pending) == 0
+    finally:
+        app.stop()
+        th.join()
+
+
+def test_to_response_common_types_give_the_same_answer_on_the_fast_path():
+    # str, bytes, dict and list (exact types) are answered without the general checks: same result as before.
+    import collections
+
+    from httpp.server import _to_response
+
+    text = [("Content-Type", "text/plain; charset=utf-8")]
+    js = [("Content-Type", "application/json")]
+    assert _to_response("hi") == (200, b"hi", text)
+    assert _to_response("hé") == (200, "hé".encode("utf-8"), text)
+    assert _to_response("hi", 201) == (201, b"hi", text)
+    assert _to_response(b"\x00\x01") == (200, b"\x00\x01", [("Content-Type", "application/octet-stream")])
+    assert _to_response({"a": 1, "b": [True, None]}) == (200, b'{"a": 1, "b": [true, null]}', js)
+    assert _to_response([1, "x"], 202) == (202, b'[1, "x"]', js)
+    assert _to_response(collections.OrderedDict(a=1)) == (200, b'{"a": 1}', js)  # a subclass takes the general path
+    assert _to_response(None) == (200, b"", text)
+    assert _to_response(("x", 404)) == (404, b"x", text)
+    # every call gets its own header list: a caller may append to it
+    first = _to_response("hi")[2]
+    first.append(("X-Test", "1"))
+    assert _to_response("hi")[2] == text

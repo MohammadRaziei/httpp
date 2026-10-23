@@ -803,6 +803,7 @@ cdef extern from *:
     #include <cerrno>
     #include <deque>
     #include <mutex>
+    #include <vector>
     #ifdef _WIN32
     #include <winsock2.h>
     #else
@@ -841,14 +842,15 @@ cdef extern from *:
             if (!full) { std::lock_guard<std::mutex> lock(b.mu); b.armed = false; }
         }
     }
-    // false (and disarmed, atomically with the emptiness check) when nothing is left.
-    static bool httpp_py_inbox_pop(httpp_py_item& out) {
+    // Moves up to `max` queued items into `out` under ONE lock. Returns 0 (and disarms, atomically with the
+    // emptiness check) when nothing is left. A lock per item cost about 2.5 us per request under load.
+    static std::size_t httpp_py_inbox_pop_many(std::vector<httpp_py_item>& out, std::size_t max) {
         auto& b = httpp_py_box();
         std::lock_guard<std::mutex> lock(b.mu);
-        if (b.q.empty()) { b.armed = false; return false; }
-        out = std::move(b.q.front());
-        b.q.pop_front();
-        return true;
+        if (b.q.empty()) { b.armed = false; return 0; }
+        std::size_t n = 0;
+        while (n < max && !b.q.empty()) { out.push_back(std::move(b.q.front())); b.q.pop_front(); ++n; }
+        return n;
     }
     """
     cdef cppclass inbox_item "httpp_py_item":
@@ -858,7 +860,7 @@ cdef extern from *:
         inbox_item()
     void inbox_attach "httpp_py_inbox_attach"(int fd) nogil
     void inbox_push "httpp_py_inbox_push"(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r) nogil
-    cbool inbox_pop "httpp_py_inbox_pop"(inbox_item& out) nogil
+    size_t inbox_pop_many "httpp_py_inbox_pop_many"(vector[inbox_item]& out, size_t maxn) nogil
 
 
 cdef void _dispatch_inbox(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r) noexcept nogil:
@@ -889,14 +891,19 @@ def _attach_inbox(int wake_fd):
 def _drain_inbox(int budget=256):
     """Loop thread, GIL held: dispatch up to `budget` queued requests. True if some may remain, so
     the caller should call again after letting other callbacks run (a huge burst must not starve them).
-    The pop is done WITH the GIL held on purpose: the mutex is only ever held for a moment and never
+    The batch is taken WITH the GIL held on purpose: the mutex is only ever held for a moment and never
     by anyone waiting for the GIL, and letting go of the GIL per request would invite a thread switch."""
-    cdef inbox_item item
-    while budget > 0:
-        if not inbox_pop(item):
+    cdef vector[inbox_item] batch
+    cdef size_t left = <size_t>budget
+    cdef size_t n, i
+    while left > 0:
+        n = inbox_pop_many(batch, left)  # 0 means empty, and the inbox is disarmed
+        if n == 0:
             return False
-        _start_raw(item.ctx, item.req, item.rsp)
-        budget -= 1
+        for i in range(n):
+            _start_raw(batch[i].ctx, batch[i].req, batch[i].rsp)
+        batch.clear()
+        left -= n
     return True
 
 

@@ -53,6 +53,7 @@ import mimetypes
 import os
 import re
 import socket
+import sys
 import threading
 import traceback
 
@@ -359,7 +360,37 @@ def _unprocessable(errors):
     return 422, body, [("Content-Type", "application/json")]
 
 
+def _make_dumps():
+    """json.dumps(obj).encode() without the per-call work of json.dumps: it builds a new C encoder every
+    call (about 1.6 us of 2.7 us for a small dict). Same output as json.dumps with its defaults.
+    ponytail: CPython only (c_make_encoder), json.dumps elsewhere; a circular structure ends in a
+    RecursionError instead of json's ValueError (both become a 500)."""
+    make = getattr(json.encoder, "c_make_encoder", None)
+    if make is None:
+        return lambda obj: json.dumps(obj).encode("utf-8")
+
+    def default(o):
+        raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+
+    enc = make(None, default, json.encoder.encode_basestring_ascii, None, ": ", ", ", False, False, True)
+    return lambda obj: "".join(enc(obj, 0)).encode("utf-8")
+
+
+_dumps = _make_dumps()
+
+
+_TEXT = "text/plain; charset=utf-8"
+_JSON_TYPE = "application/json"
+
+
 def _to_response(rv, default_status=200):
+    # Fast path for the exact common types: the same answer as the general code below, without its checks
+    # (no tuple, no response object, no custom header to validate). Subclasses take the general path.
+    t = type(rv)
+    if t is str:
+        return default_status, rv.encode("utf-8"), [("Content-Type", _TEXT)]
+    if t is dict or t is list:
+        return default_status, _dumps(rv), [("Content-Type", _JSON_TYPE)]
     if isinstance(rv, _ResponseBase):
         rv = rv._as_return()
     status, headers = default_status, []
@@ -379,9 +410,9 @@ def _to_response(rv, default_status=200):
     elif isinstance(rv, str):
         body, ctype = rv.encode("utf-8"), "text/plain; charset=utf-8"
     elif isinstance(rv, (dict, list)):
-        body, ctype = json.dumps(rv).encode("utf-8"), "application/json"
+        body, ctype = _dumps(rv), "application/json"
     elif isinstance(rv, _Json):
-        body, ctype = json.dumps(rv.value).encode("utf-8"), "application/json"
+        body, ctype = _dumps(rv.value), "application/json"
     elif isinstance(rv, BaseModel) or (hasattr(rv, "model_dump") and not isinstance(rv, type)) \
             or (dataclasses.is_dataclass(rv) and not isinstance(rv, type)):
         body, ctype = json.dumps(to_jsonable(rv)).encode("utf-8"), "application/json"
@@ -541,6 +572,7 @@ _loop = None
 _loop_lock = threading.Lock()
 _wake = None  # (reader, writer) socket pair kept alive for the loop's whole life
 _tasks = set()  # the loop only holds weak references to tasks; this keeps running handlers alive
+_EAGER = sys.version_info >= (3, 12)  # asyncio.Task(..., eager_start=True) exists
 
 
 def _get_loop():
@@ -583,6 +615,48 @@ def _get_loop():
         return _loop
 
 
+class _Deadlines:
+    """One timer for every in-flight async request. A `call_later` per request (create, push on the heap,
+    cancel) cost about a fifth of the request rate. Loop thread only, so no locking.
+    ponytail: a sweep walks every in-flight request once per firing (a firing is at the oldest deadline,
+    so about once per timeout when requests are quick); upgrade path: a heap if tens of thousands are in flight."""
+
+    def __init__(self):
+        self.pending = {}  # task -> deadline on the loop's clock
+        self.expired = set()  # tasks cancelled by the sweep, until they have noticed
+        self._timer = None
+        self._at = None
+
+    def add(self, loop, task, timeout):
+        deadline = loop.time() + timeout
+        self.pending[task] = deadline
+        if self._timer is None or deadline < self._at:
+            self._arm(loop, deadline)
+
+    def forget(self, task):
+        self.pending.pop(task, None)
+        self.expired.discard(task)
+
+    def _arm(self, loop, deadline):
+        if self._timer is not None:
+            self._timer.cancel()
+        self._at = deadline
+        self._timer = loop.call_at(deadline, self._sweep, loop)
+
+    def _sweep(self, loop):
+        self._timer = None
+        now, soonest = loop.time(), None
+        for task, deadline in list(self.pending.items()):
+            if deadline <= now:
+                del self.pending[task]
+                self.expired.add(task)
+                task.cancel()  # frees the coroutine; its answer would be too late anyway
+            elif soonest is None or deadline < soonest:
+                soonest = deadline
+        if soonest is not None:
+            self._arm(loop, soonest)
+
+
 def _adapt_async(fn, app, plan=None, status=200, shape=None):
     """Async handler -> a dispatcher for the compiled core's loop routes: `dispatch(raw, done)` runs on
     the loop thread, returns at once, and the response is sent through `done` when the handler is finished.
@@ -601,17 +675,7 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
     async def run(raw, done):
         task = asyncio.current_task()
         loop = asyncio.get_running_loop()
-        timeout = app._handler_timeout
-        timed_out = False
-        timer = None
-        if timeout:
-
-            def expire():
-                nonlocal timed_out
-                timed_out = True
-                task.cancel()  # frees the coroutine; its answer would be too late anyway
-
-            timer = loop.call_later(timeout, expire)
+        deadlines = app._deadlines
         try:
             kwargs, early = prepare(raw)
             if early is not None:
@@ -632,15 +696,14 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                         rv = await rv
                     result = _to_response(rv, 500)
         except asyncio.CancelledError:
-            if not timed_out:
+            if task not in deadlines.expired:
                 raise  # the loop is shutting down: `done` is dropped and the connection closes unanswered
             result = (504, b"Gateway Timeout", [])
         except BaseException:
             traceback.print_exc()
             result = (500, b"Internal Server Error", [])
         finally:
-            if timer is not None:
-                timer.cancel()
+            deadlines.forget(task)
             _tasks.discard(task)
         # done() only posts the write to the C++ loop (it never waits on the client), so with no
         # hooks it is safe, and cheaper, to call it right here. after/error hooks run inside
@@ -652,8 +715,21 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
             done(*result)
 
     def dispatch(raw, done):
-        task = asyncio.get_running_loop().create_task(run(raw, done))
+        loop = asyncio.get_running_loop()
+        if _EAGER:
+            # Python 3.12+: the handler runs to its first suspension right here, so a handler that never
+            # waits finishes without a trip through the loop's ready queue. A task that is already done
+            # is not kept (nothing would ever remove it).
+            task = asyncio.Task(run(raw, done), loop=loop, eager_start=True)
+            if not task.done():
+                _tasks.add(task)  # the loop only keeps weak references to tasks
+                if app._handler_timeout:  # a handler that finished at once needs no deadline
+                    app._deadlines.add(loop, task, app._handler_timeout)
+            return
+        task = loop.create_task(run(raw, done))
         _tasks.add(task)  # the loop only keeps weak references to tasks
+        if app._handler_timeout:
+            app._deadlines.add(loop, task, app._handler_timeout)
 
     return dispatch
 
@@ -700,6 +776,7 @@ class Server(_Server):
         if handler_timeout is not None and handler_timeout < 0:
             raise ValueError("handler_timeout can't be negative")
         self._handler_timeout = handler_timeout or None  # 0 and None both mean "never"
+        self._deadlines = _Deadlines()
         self._has_async = False  # set by the first `async def` route
         # The C++ timer is only the backstop for the Python one (it can't cancel the coroutine).
         # ponytail: fixed 5 s grace.

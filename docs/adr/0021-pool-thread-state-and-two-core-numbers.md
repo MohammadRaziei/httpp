@@ -32,6 +32,14 @@ about 5 times slower (1.9k req/s on `hello`, against 9.4k on 3.13).
 - ponytail: the state of a pool thread that exits is freed at interpreter shutdown, not earlier. The pool lives as long as the server.
   Upgrade path: release the pinned state from a thread-exit hook if pools ever shrink.
 
+- **`async def`: one shared deadline timer and a prebuilt JSON encoder** (`_Deadlines`, `_dumps` in `server.py`). A profile of the loop
+  thread (py-spy, GIL samples) put `call_later` at 9 percent, `create_task` at 9 percent and `json.dumps` at 14 percent. Switching
+  `handler_timeout` off alone gave +18 percent (`hello`, 23.5k to 27.9k) and +25 percent (`item`, 16.6k to 20.6k). Now one timer watches all
+  in-flight requests and a finished request is forgotten at once (`test_finished_async_requests_leave_no_deadline_behind`).
+  Measured in a later run on a faster machine state (uvicorn itself doubled, so compare ratios only; 2 cores, 32 connections):
+  `async def` `hello` / `item` on 3.13 47.5k / 43.7k against uvicorn 34.0k / 22.8k (1.4x / 1.9x, before 1.1x / 1.4x), on 3.14t
+  48.7k / 44.8k against 31.9k / 26.1k; `def` 61.9k / 55.3k and 62.1k / 57.2k.
+
 ## Rejected alternatives
 
 - Keep per-request states on GIL builds and pin only on free-threaded builds: the GIL build also doubled (9.4k to 17.9k), so no reason.
@@ -66,7 +74,7 @@ CPU-bound handler (about 3 ms of pure Python, `benchmarks/cpu_bench.py`), 1 and 
 - After the delayed-help change (2 cores, 32 connections, median of 3 rounds, noise about 10 percent), `def` `hello` / `item`:
   3.13 35.9k / 24.9k (uvicorn 17.2k / 11.9k, `async def` 25.2k / 19.8k), 3.14t 33.2k / 29.8k (uvicorn 18.2k / 14.0k, `async def`
   22.8k / 21.8k). CPU-bound on 3.14t, 8 connections: 751 req/s. `def` is now faster than `async def` here: the `async def` path
-  has not had the same treatment (its hop to the asyncio loop thread is the same kind of handover) and is the next candidate.
+  had a different cost: per-request timer and task creation, see the `async def` item below.
   Eight concurrent 200 ms blocking handlers finish in 0.21 s (the very first batch after start-up takes 0.49 s, cause not looked into).
 - Before the delayed-help change (LIFO wake only): `def` `hello` 21.8k to 22.5k on 3.13 and 24.6k to 26.0k on 3.14t, against
   uvicorn 15.0k to 18.7k and 18.0k. `def` `item` is 12.5k on 3.13 (uvicorn 14.4k) and 17.7k to 18.6k on 3.14t. The CPU-bound numbers did not change
@@ -75,6 +83,48 @@ CPU-bound handler (about 3 ms of pure Python, `benchmarks/cpu_bench.py`), 1 and 
   or dependencies, and a longer thread-safety review of module-level Python state under free-threading.
 - `test_pool_thread_state.py` guards the reuse. On 3.14t `test_a_streamed_generator_is_released...` no longer waits for the weakref
   to fire (the object may live until the creating thread runs Python again); it checks the generator's `finally` instead.
+
+## I/O-bound handlers (10 ms wait), `benchmarks/io_bench.py`
+
+Why `async def` is slower than `def` on trivial handlers but not in general. Syscalls per request (`strace -c -f`, `item`, 32 connections):
+uvicorn 3.1, httpp `async def` 3.2, so the extra wake-ups are not the cost (hypothesis H1 rejected; the time cost of a thread
+hand-off was not measured). A `def` handler runs on a pool thread with no event loop, Task or callback, which is the likely
+reason it is faster on a handler that does nothing (a hypothesis, see the CPU split below). With a 10 ms wait the picture flips (3.13, 2 cores, one run, req/s with p99 in ms):
+
+| connections | 32 | 128 | 512 |
+|---|---|---|---|
+| uvicorn (asyncio loop) | 2.9k, 13 | 10.5k, 15 | 25.9k, 41 |
+| httpp `def` (`time.sleep`) | 3.0k, 12 | 3.1k, 65 | 3.2k, 167 |
+| httpp `async def` (`asyncio.sleep`) | 2.8k, 13 | 10.2k, 16 | 32.5k, 25 |
+
+A blocking `def` handler is capped by the pool (about 32 threads over 10 ms, 3.1k req/s) and its p99 grows with the connections;
+`async def` keeps scaling because a waiting coroutine holds no thread. On 3.14t httpp gives the same numbers (2.8k, 10.5k, 31.6k);
+the uvicorn row there (1.9k, 5.1k, 5.0k) is not comparable, because uvloop was not installed in that venv.
+Rule of thumb for the README: `def` for CPU work or blocking libraries, `async def` for waiting on the network.
+
+### Where the `async def` gap comes from (CPU per request, `item`, 32 connections, 2 cores, 3.13)
+
+Per-thread CPU from `/proc/<pid>/task/*/stat` over 6 s: `async def` costs about 29.5 us of server CPU per request, `def` about 20.1 us.
+Loop thread (Python) 15.9 us against 8.8 us of Python work on the pool thread for `def`, so about 7 us of the 9.4 us gap is on the Python
+side (asyncio machinery); the Asio thread costs 13.6 us against 11.3 us, about 2.3 us (one extra `post` and wake-up per answer).
+Neither thread is at 100 percent because `oha` shares the two cores. With `py-spy --gil --native`, about 31 percent of the loop thread's
+GIL time is inside the compiled `_drain_inbox` (inbox pop, `_Done` and responder copy, `_new_raw`), and about 12 percent is a libc private
+lock wait (not identified; glibc `arena_max=1` and a larger tcache changed nothing within noise). Starting a task eagerly
+(`asyncio.Task(..., eager_start=True)` on 3.12+, `dispatch` in `server.py`) gained 2 to 8 percent on `hello` / `item` (3 alternating
+rounds, inside the noise).
+
+Nanosecond timers inside the compiled module (temporary build, `async def` `item`, loop thread, per request): `inbox_pop` 2.5 us,
+making `_Done` 0.24 us, making the raw request 0.13 us, the Python dispatch call 15.3 us (of which `_fill_response` 0.95 us and the
+`send` into C++, which posts to the Asio thread, 2.9 us). So about 5.7 us of about 18 us is the Python/C++ boundary. The inbox popped one
+item per lock; `_drain_inbox` now takes a whole batch under one lock (`httpp_py_inbox_pop_many`, same arming rules). A/B with the old and
+new compiled module, 3 alternating rounds, median: `hello` 46.1k to 51.5k, `item` 40.5k to 47.3k req/s (about 12 and 17 percent). The
+remaining boundary cost is the `send` (one `asio::post` and wake-up per answer): batching the answers is option C of risk 1, an internal
+protocol change that still needs the owner's decision.
+
+Python side after that (all in `server.py`): `_to_response` answers an exact `str`, `dict` or `list` without its general checks (a test pins
+that the answers are the same), and the `handler_timeout` deadline is registered only for a task that did not finish at once. A/B with the
+`server.py` from before this session and the new compiled module, 3 alternating rounds, median (the box was slower than in the earlier
+runs, compare only inside this pair): `hello` 39.6k to 47.4k, `item` 35.6k to 43.1k req/s (about 20 percent), better in every round.
 
 ## Related
 
