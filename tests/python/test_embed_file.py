@@ -56,6 +56,9 @@ int main() {{
 """
 
 
+# ponytail: a build-system test (it configures and compiles a C++ program), so the native cmake workflow runs it; inside
+# cibuildwheel (CIBUILDWHEEL=1) it only slowed the macOS x86_64 run under emulation to a halt.
+@pytest.mark.skipif(bool(os.environ.get("CIBUILDWHEEL")), reason="compiles a program: run by the native cmake workflow")
 @pytest.mark.skipif(shutil.which("cmake") is None or not (shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")),
                     reason="needs cmake and a C++ compiler")
 @pytest.mark.parametrize("as_array", [False, True], ids=["string_literals", "byte_arrays"])

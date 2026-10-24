@@ -566,7 +566,7 @@ void async_server::impl::accept_next() {
         // Transient (aborted handshake) or resource exhaustion (out of fds): pause briefly, keep accepting.
         const bool exhausted = ec == asio::error::no_descriptors || ec == asio::error::no_buffer_space ||
                                ec == asio::error::no_memory;
-        if (exhausted) HTTPP_LOG(warning) << "accept failed (" << ec.message() << "): out of resources, retrying";
+        if (exhausted) { HTTPP_LOG(warning) << "accept failed (" << ec.message() << "): out of resources, retrying"; } // braces: the macro ends in an else
         backoff.expires_after(std::chrono::milliseconds(exhausted ? 20 : 1));
         backoff.async_wait([this](std::error_code e) {
             if (!e && !closing) accept_next();
