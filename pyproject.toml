@@ -100,7 +100,7 @@ skip = "*i686*"
 # 120 s (it does not kill the test), so a hang shows where it is stuck.
 # pytest-timeout (thread method) prints every thread's stack and ends the run after 600 s in one test, so a hang fails
 # the job at once instead of holding it for 90 minutes.
-test-command = "pytest {project}/tests -o faulthandler_timeout=120 --timeout=600 --timeout-method=thread"
+test-command = "pytest {project}/tests -o faulthandler_timeout=120 --timeout=600 --timeout-method=thread --durations=20"
 test-extras = ["test"]
 
 [tool.cibuildwheel.linux]
