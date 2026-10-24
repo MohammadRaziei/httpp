@@ -55,6 +55,7 @@ import re
 import socket
 import sys
 import threading
+import time
 import traceback
 
 from . import _log, _params, _schema
@@ -973,13 +974,13 @@ class Server(_Server):
 
         The compiled listen() blocks outside the interpreter, so Python never
         sees Ctrl+C while inside it; run it on a thread and keep the main
-        thread in Python. # ponytail: 0.2s poll; upgrade path is signal.set_wakeup_fd.
+        thread in Python. # ponytail: 50 ms poll; upgrade path is signal.set_wakeup_fd.
         """
         if _defer_listen:  # `httpp run` owns host, port and workers
             return _skipped("listen", host, port)
         _log.sync()  # a root-level change the "httpp" logger only inherits is not announced; pick it up here
         failure = []
-        done = threading.Event()
+        finished = []  # a plain list, not a threading.Event: see the note below
 
         def serve():
             try:
@@ -987,19 +988,22 @@ class Server(_Server):
             except BaseException as e:
                 failure.append(e)
             finally:
-                done.set()
+                finished.append(True)
 
         with self._lifecycle():
             threading.Thread(target=serve, daemon=True).start()
+            # ponytail: this thread polls a flag every 50 ms instead of waiting on a threading.Event. A Ctrl+C that lands
+            # inside Event.wait() can leave the Event's internal lock taken (or released twice) on free-threaded CPython,
+            # and then this thread and the serving thread both block on it for ever. time.sleep holds no lock.
+            # Upgrade path: signal.set_wakeup_fd, which wakes at once with no polling.
             try:
-                while not done.wait(0.2):
-                    pass
+                while not finished:
+                    time.sleep(0.05)
             except KeyboardInterrupt:
-                # stop() does nothing until the port is bound, so repeat it until the server is
-                # really done. An Event, not Thread.join(): a KeyboardInterrupt inside join() can
-                # make a running thread look dead on some CPython versions.
-                while not done.wait(0.05):
+                # stop() does nothing until the port is bound, so repeat it until the server is really done.
+                while not finished:
                     self.stop()
+                    time.sleep(0.05)
         if failure:
             raise failure[0]
 

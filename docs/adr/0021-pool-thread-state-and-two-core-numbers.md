@@ -138,6 +138,16 @@ Option C (answers of one loop turn handed to C++ in one call) is not taken for n
 2 us of about 18 us on the loop thread, one extra wake-up per answer), it changes the internal `done` protocol, and it adds latency for the
 first answer of a burst. The owner delegated the choice ("decide the right thing"); reopen it if `async def` throughput becomes the limit.
 
+### A hang that looked like the pool and was not (macOS free-threaded 3.15 wheel test)
+
+`test_interrupt_before_the_port_is_bound_still_stops_listen` hung for 10 minutes on the macOS cp315t wheel. The thread dump (pytest-timeout,
+thread method) showed the serving thread in `Event.set()` and the main thread in `Event.wait()`, both blocked entering the same
+`Condition`: not the worker pool, not `stop()`. A KeyboardInterrupt (the test sends one with `_thread.interrupt_main`, a user with Ctrl+C)
+that lands inside `Event.wait()` can leave the Event's lock taken, or released twice, on free-threaded CPython: a stand-alone loop that
+interrupts `Event.wait()` at random moments raised `RuntimeError: release unlocked lock` on 3.14t (Linux), and 0 problems in 3000 tries on
+3.13. `Server.listen()` now polls a flag with `time.sleep`. Cost: a normal `stop()` is noticed within 50 ms instead of at once. My first guess
+(the pool shutting down right after it was built) was wrong; the thread dump is what settled it, which is why CI keeps the hard timeout.
+
 ## Related
 
 ADR-0009 (hot path), ADR-0013 (free-threaded wheels), `Architecture.md` risk 1 and risk 8.

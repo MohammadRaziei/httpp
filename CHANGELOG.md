@@ -24,6 +24,10 @@ such changes are listed under **Changed**).
   (together with the eager start about 20 percent on `hello` / `item`, 2 cores).
 
 ### Fixed
+- **`Server.listen()` could hang for ever after Ctrl+C on free-threaded Python (seen on the macOS 3.15t wheel test):** it waited on a
+  `threading.Event`, and an interrupt that lands inside `Event.wait()` can leave that Event's internal lock taken (or released twice), after which
+  `listen()` and the serving thread both block on it. It now polls a plain flag every 50 ms (`time.sleep` holds no lock). Two tests: Ctrl+C at
+  many different moments, and a deterministic one that `listen()` never creates an `Event` or `Condition`.
 - **The macOS wheel build works again:** `serve_directory` checked symlinks with `std::filesystem`, which needs macOS 10.15 while the
   wheels target 10.13. It now uses `realpath` on Linux and macOS (`std::filesystem` stays on Windows only). The tests also cover a sibling
   directory whose name starts like the mounted one, and a mounted directory given with a trailing slash.

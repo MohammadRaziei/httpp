@@ -450,3 +450,61 @@ def test_keep_alive_connection_is_reused_for_sync_and_async_routes():
             sock = sock or conn.sock
             assert conn.sock is sock  # same TCP connection every time
         conn.close()
+
+
+def test_ctrl_c_at_any_moment_never_wedges_listen():
+    """Regression (hung the free-threaded macOS wheel test): a KeyboardInterrupt that lands inside Event.wait()
+    can leave the Event's internal lock taken or released twice on free-threaded CPython, and then both listen()
+    and the serving thread block on that lock for ever. listen() must wait without a lock. The interrupt is sent
+    at many different moments, from before the port is bound to after it is serving."""
+    import _thread
+    import random
+    import socket
+
+    rnd = random.Random(7)
+    for _ in range(12):
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        app = Server()
+        sender = threading.Timer(rnd.uniform(0.0, 0.12), _thread.interrupt_main)
+        watchdog = threading.Timer(8, app.stop)  # a wedged listen() would never see this either: the test then times out
+        sender.start()
+        watchdog.start()
+        started = time.time()
+        try:
+            app.listen("127.0.0.1", port)
+        except KeyboardInterrupt:
+            pass  # the interrupt landed before listen() was ready for it; the next one must not wedge anything
+        finally:
+            watchdog.cancel()
+            sender.join()
+        assert time.time() - started < 6
+
+
+def test_listen_waits_without_an_event_or_a_condition(monkeypatch):
+    """The reason for the test above, made deterministic: the moment of the race is too narrow to hit on demand, so
+    pin the cause instead. listen() must not wait on a threading.Event (its Condition lock can be left taken by a
+    KeyboardInterrupt on free-threaded CPython); it polls a plain flag."""
+    import socket
+    import types
+
+    import httpp.server as server_module
+
+    class NoEvent(types.ModuleType):
+        def __getattr__(self, name):
+            if name in ("Event", "Condition"):
+                raise AssertionError(f"listen() used threading.{name}")
+            return getattr(threading, name)
+
+    monkeypatch.setattr(server_module, "threading", NoEvent("threading"))
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    app = Server()
+    stopper = threading.Timer(0.3, app.stop)  # a normal stop: no interrupt involved
+    stopper.start()
+    try:
+        app.listen("127.0.0.1", port)
+    finally:
+        stopper.cancel()
