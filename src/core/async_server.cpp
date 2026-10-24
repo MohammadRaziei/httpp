@@ -121,6 +121,7 @@ struct poster {
 struct async_server::impl {
     std::atomic<int> read_to, write_to, ka_to;
     std::atomic<int> head_to{10};          // seconds for a whole request head to arrive (slowloris), 0 = no limit
+    std::atomic<int> body_to{120};         // seconds for a whole request body to arrive after its head, 0 = no limit
     std::atomic<std::size_t> ka_max, max_body;
     std::atomic<std::size_t> max_conn{0};  // 0 = no limit
     request_fn on_request;
@@ -174,6 +175,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     int reject = 0;           // set by a parser callback that wants the request refused with this status
     bool got_bytes = false;   // part of a request has arrived (read timeout instead of idle timeout)
     std::chrono::steady_clock::time_point head_start; // when the first byte of this request arrived
+    std::chrono::steady_clock::time_point body_start; // when the head of this request was complete
     bool req_keep = false;    // the client allows keep-alive
     bool req_head = false;
     int req_minor = 1;
@@ -223,6 +225,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         settings.on_headers_complete = [](llhttp_t* p) -> int {
             auto* c = static_cast<conn*>(p->data);
             c->headers_done = true;
+            c->body_start = std::chrono::steady_clock::now();
             c->req.method = llhttp_method_name(static_cast<llhttp_method_t>(p->method));
             c->req.version_minor = p->http_minor;
             c->req_minor = p->http_minor;
@@ -311,15 +314,17 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
 
     void read() {
         const int per_read = got_bytes ? srv.read_to.load() : srv.ka_to.load();
-        const int head = srv.head_to.load();
-        if (got_bytes && !headers_done && head > 0) {
-            // A client that sends a byte now and then keeps every single read alive: the whole head has
-            // one deadline too (slowloris). ponytail: a slowly dripped BODY is only held by the per-read
-            // timeout; upgrade path: a total deadline for the body.
-            const long long left = head * 1000LL - std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                       std::chrono::steady_clock::now() - head_start).count();
+        // A client that sends a byte now and then keeps every single read alive: the whole head and
+        // the whole body each have one deadline too (slowloris).
+        const bool in_head = !headers_done;
+        const int total = in_head ? srv.head_to.load() : srv.body_to.load();
+        if (got_bytes && total > 0) {
+            const auto since = in_head ? head_start : body_start;
+            const long long left = total * 1000LL - std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                        std::chrono::steady_clock::now() - since).count();
             if (left <= 0) {
-                HTTPP_LOG(debug) << "request head took longer than " << head << " s: closing";
+                HTTPP_LOG(debug) << "request " << (in_head ? "head" : "body") << " took longer than " << total
+                                 << " s: closing";
                 return close();
             }
             arm_ms(per_read > 0 ? std::min<long long>(left, per_read * 1000LL) : left);
@@ -585,6 +590,7 @@ void async_server::set_keep_alive_timeout(int seconds) { impl_->ka_to = seconds;
 void async_server::set_keep_alive_max(std::size_t requests) { impl_->ka_max = requests == 0 ? 1 : requests; }
 void async_server::set_max_body(std::size_t bytes) { impl_->max_body = bytes; }
 void async_server::set_header_timeout(int seconds) { impl_->head_to = seconds; }
+void async_server::set_body_timeout(int seconds) { impl_->body_to = seconds; }
 void async_server::set_max_connections(std::size_t n) { impl_->max_conn = n; }
 void async_server::set_reuse_port(bool on) { impl_->reuse_port = on; }
 

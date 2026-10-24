@@ -27,6 +27,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0019](0019-vendored-deflate-inflate.md) | gzip and deflate on vendored stb code, no system zlib | accepted |
 | [0020](0020-http-exception-and-response-classes.md) | HTTPException and response classes (Starlette names, native) | accepted |
 | [0021](0021-pool-thread-state-and-two-core-numbers.md) | Pool threads keep their Python thread state; first two-core numbers incl. FastAPI | accepted |
+| [0022](0022-dual-api-rule-and-delegated-decisions.md) | Dual C++/Python rule; decisions the owner delegated | accepted |
 
 ## Not decided yet
 

@@ -99,6 +99,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cpp_server& set_keep_alive_max(size_t requests) except +
         cpp_server& set_max_body(size_t nbytes) except +
         cpp_server& set_header_timeout(int seconds) except +
+        cpp_server& set_body_timeout(int seconds) except +
         cpp_server& set_max_connections(size_t n) except +
         cpp_server& set_async_timeout(int seconds) except +
         cpp_server& set_reuse_port(cbool on) except +
@@ -1053,6 +1054,11 @@ cdef class Server:
     def set_header_timeout(self, int seconds):
         """Seconds the whole request head may take to arrive (slowloris guard); 0 = no limit."""
         self._srv.set_header_timeout(seconds)
+        return self
+
+    def set_body_timeout(self, int seconds):
+        """Seconds the whole request body may take to arrive after its head (slow-drip guard); 0 = no limit."""
+        self._srv.set_body_timeout(seconds)
         return self
 
     def set_max_connections(self, size_t n):

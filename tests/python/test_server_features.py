@@ -980,3 +980,50 @@ def test_to_response_common_types_give_the_same_answer_on_the_fast_path():
     first = _to_response("hi")[2]
     first.append(("X-Test", "1"))
     assert _to_response("hi")[2] == text
+
+
+def test_body_timeout_is_a_constructor_setting_and_a_setter():
+    from httpp import Server
+    app = Server(openapi_url=None, body_timeout=7)
+    assert app.set_body_timeout(0) is app  # chainable, like the other settings
+
+
+def test_a_body_dripped_slowly_is_closed_at_the_body_timeout():
+    import socket
+    import threading
+    import time
+    from httpp import Server
+
+    app = Server(openapi_url=None, read_timeout=5, body_timeout=1)
+
+    @app.post("/")
+    def post(request):
+        return "ok"
+
+    port = app.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=app.listen_after_bind)
+    th.start()
+    try:
+        s = socket.create_connection(("127.0.0.1", port))
+        s.settimeout(0.25)
+        s.sendall(b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n")
+        t0 = time.monotonic()
+        closed = False
+        for _ in range(40):
+            try:
+                s.sendall(b"a")
+                if s.recv(100) == b"":
+                    closed = True
+                    break
+            except socket.timeout:
+                pass
+            except OSError:
+                closed = True
+                break
+        took = time.monotonic() - t0
+        s.close()
+        assert closed
+        assert 0.8 < took < 3.0
+    finally:
+        app.stop()
+        th.join()

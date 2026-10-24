@@ -334,6 +334,54 @@ UTEST(httpp_server_limits, a_request_head_dripped_slowly_is_closed_at_the_header
     ASSERT_EQ(200, httpp::client::fetch(srv.url("/")).status);
 }
 
+// Same attack on the body: a byte now and then keeps every single read alive, so the whole body needs a deadline.
+UTEST(httpp_server_limits, a_request_body_dripped_slowly_is_closed_at_the_body_timeout) {
+    local_server srv([](httpp::server& s) {
+        s.set_read_timeout(5).set_body_timeout(1);
+        s.post("/", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+        s.get("/", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+    });
+    asio::io_context io;
+    auto sock = connect_raw(io, srv.port);
+    const std::string head = "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n";
+    std::error_code ec;
+    asio::write(sock, asio::buffer(head), ec);
+    const auto t0 = std::chrono::steady_clock::now();
+    bool closed = false;
+    for (int i = 0; i < 40 && !closed; ++i) {
+        asio::write(sock, asio::buffer("a", 1), ec);
+        std::string ignored = drain(sock, 250, closed); // a byte every 250 ms: far inside read_timeout
+        if (ec) closed = true;
+    }
+    const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    ASSERT_TRUE(closed);
+    ASSERT_GT(took, 800);
+    ASSERT_LT(took, 3000);
+    ASSERT_EQ(200, httpp::client::fetch(srv.url("/")).status);
+}
+
+UTEST(httpp_server_limits, a_body_that_arrives_in_time_is_not_cut_by_the_body_timeout) {
+    local_server srv([](httpp::server& s) {
+        s.set_body_timeout(3);
+        s.post("/", [](const httpp::request& req, httpp::response& res) { res.body = std::to_string(req.body.size()); });
+    });
+    asio::io_context io;
+    auto sock = connect_raw(io, srv.port);
+    const std::string head = "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\nConnection: close\r\n\r\n";
+    std::error_code ec;
+    asio::write(sock, asio::buffer(head), ec);
+    std::string got;
+    bool closed = false;
+    int sent = 0;
+    for (char c : std::string("abcd")) {
+        asio::write(sock, asio::buffer(&c, 1), ec);
+        got += drain(sock, 100, closed);
+        if (++sent < 4) ASSERT_FALSE(closed); // the answer (and the close) may only come after the last byte
+    }
+    got += drain(sock, 500, closed);
+    ASSERT_NE(std::string::npos, got.find("200 OK"));
+}
+
 UTEST(httpp_server_limits, connections_over_the_limit_get_503_and_a_freed_slot_is_reused) {
     local_server srv([](httpp::server& s) {
         s.set_max_connections(2);

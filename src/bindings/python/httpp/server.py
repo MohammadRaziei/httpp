@@ -744,6 +744,7 @@ class Server(_Server):
     max_body: largest request body in bytes, refused above it with a 413 (a client still
     sending a huge body may see the connection closed instead); 0 = no limit.  header_timeout: seconds the
     whole request head may take to arrive, however slowly it is dripped (default 10, 0 = no limit).
+    body_timeout: the same for the request body, counted from the end of the head (default 120, 0 = no limit).
     max_connections: open connections allowed, one more gets a 503 (default: no limit).  handler_timeout:
     seconds an async handler may take before it is cancelled and answered with a 504 (default 60,
     None = never).  Everything left as None keeps the C++ default.
@@ -751,7 +752,7 @@ class Server(_Server):
 
     def __init__(self, *, threads=None, max_threads=None, read_timeout=None, write_timeout=None,
                  keep_alive_timeout=None, keep_alive_max=None, max_body=None, header_timeout=None,
-                 max_connections=None, handler_timeout=60,
+                 body_timeout=None, max_connections=None, handler_timeout=60,
                  title="httpp", version="0.1.0", description=None, openapi_url="/openapi.json", docs_url="/docs"):
         _Server.__init__(self)
         self._routes, self._openapi_doc = [], None
@@ -770,6 +771,7 @@ class Server(_Server):
                               (keep_alive_max, self.set_keep_alive_max),
                               (max_body, self.set_max_body),
                               (header_timeout, self.set_header_timeout),
+                              (body_timeout, self.set_body_timeout),
                               (max_connections, self.set_max_connections)):
             if value is not None:
                 setter(value)

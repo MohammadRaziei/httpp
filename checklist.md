@@ -185,7 +185,7 @@
 
 - [x] `set_max_connections(n)` / `Server(max_connections=n)`: one connection over the limit gets a 503 and is closed (default: no limit; the backoff when fds run out stays)
 - [x] Header timeout: `set_header_timeout(s)` / `Server(header_timeout=s)`, the whole request head within 10 s by default
-- [ ] A total deadline for a slowly dripped request BODY (today only `read_timeout` per read holds it)
+- [x] A total deadline for a slowly dripped request BODY: `set_body_timeout` / `body_timeout`, default 120 s ([ADR-0022](docs/adr/0022-dual-api-rule-and-delegated-decisions.md))
 - [ ] Per-route timeout
 - [x] Slowloris test for the request head (`httpp_server_limits`, passes; no expected failure needed)
 - [x] ThreadSanitizer on the server engine and the `io` path: no reports

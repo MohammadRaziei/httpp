@@ -7,6 +7,11 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Added
+- **`server::set_body_timeout(seconds)` and `Server(body_timeout=...)`**: the whole request body must arrive within this time after
+  its head (default 120 s, `0` = no limit). Before, a body dripped one byte at a time was held only by the per-read `read_timeout`.
+- ADR-0022: the dual C++/Python rule and the decisions the owner delegated.
+
 ### Changed
 - **The worker pool wakes threads last-in first-out, and does not wake a second thread until a job has waited 500 us** (a scout
   thread watches the queue), so light `def` handlers run on one hot thread instead of passing the Python lock around. On two cores,

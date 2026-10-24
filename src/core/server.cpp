@@ -867,6 +867,7 @@ server& server::set_keep_alive_timeout(int seconds) { impl_->engine->set_keep_al
 server& server::set_keep_alive_max(std::size_t requests) { impl_->engine->set_keep_alive_max(requests); return *this; }
 server& server::set_max_body(std::size_t bytes) { impl_->engine->set_max_body(bytes); return *this; }
 server& server::set_header_timeout(int seconds) { impl_->engine->set_header_timeout(seconds); return *this; }
+server& server::set_body_timeout(int seconds) { impl_->engine->set_body_timeout(seconds); return *this; }
 server& server::set_max_connections(std::size_t n) { impl_->engine->set_max_connections(n); return *this; }
 server& server::set_reuse_port(bool on) { impl_->engine->set_reuse_port(on); return *this; }
 server& server::set_async_timeout(int seconds) {
