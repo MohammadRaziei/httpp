@@ -33,7 +33,7 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - [Features](#features)
 - [Install](#install)
 - [Python](#python)
-  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [Streaming and files](#streaming-and-files) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async)
+  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [`def` or `async def`](#def-or-async-def) · [Streaming and files](#streaming-and-files) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async)
 - [Build from source](#build-from-source)
 - [Status](#status)
 - [Logging](#logging)
@@ -147,6 +147,25 @@ Error behavior:
   `@app.exception_handler(...)` and `@app.error_handler(...)` let you shape these answers (see
   [Hooks and error handling](#hooks-and-error-handling)).
 - A response header whose name or value contains a line break is refused (a 500), never sent.
+
+### `def` or `async def`
+
+Use `def` for CPU work and for blocking libraries (a database driver, `requests`, `time.sleep`). It
+runs on a pool thread, which is the faster path when the handler does nothing slow. Use `async def`
+when the handler mostly waits on the network and you can `await` it.
+
+The difference shows when handlers wait. With a 10 ms wait per request (2 cores, Python 3.13, one
+run; see `benchmarks/io_bench.py`):
+
+| connections | 32 | 128 | 512 |
+|---|---|---|---|
+| `def` with `time.sleep` | 3.0k req/s | 3.1k | 3.2k |
+| `async def` with `asyncio.sleep` | 2.8k req/s | 10.2k | 32.5k |
+
+A blocking `def` handler holds one pool thread (about 32) for the whole wait, so throughput stops at
+roughly 3k req/s and latency grows with the load. A waiting coroutine holds no thread, so `async def`
+keeps scaling. Never call a blocking function inside `async def`: it stalls the shared event loop
+for every request.
 
 ### Streaming and files
 
