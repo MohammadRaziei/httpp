@@ -38,8 +38,17 @@ ADR-0016/0017 said the FastAPI-like layer is "Python by design" and that Python 
   on 3.14t against 51k on 3.13). A second thread model would duplicate the pool without a measured gain. Reopen with a measurement on more than 2 cores.
 
 ## Order of work
-1. body deadline (done) 2. GZip 3. router 4. `response` injection and `defer` 5. forms and uploads 6. `ServerRequest` parity.
+1. body deadline (done) 2. GZip (done) 3. router 4. `response` injection and `defer` 5. forms and uploads 6. `ServerRequest` parity.
 Each step: tests first, C++ and Python together, ADR note if the design changes, zip.
+
+## Notes from finished steps
+- **GZip.** `httpp::detail::response_compression` (one class, `src/core/response_compression.cpp`), called once in the server's sender after
+  the hooks. Cost when off: one inline check. Measured with the vendored stb deflate (one run, 2 cores, 20 KB of repetitive JSON-like text):
+  level 1 takes 135 us and gives 937 bytes, level 6 takes 173 us and gives 866 bytes, so level 1 is the default. That is a few
+  times slower than zlib at the same level (not measured here), the price of zero system dependencies; `min_size` and the level are
+  the two knobs. Compression runs on the thread that answers (a pool thread for `def` handlers; for `async def` most likely the Python asyncio loop thread, not verified,
+  where it holds up the loop for those 100+ us). ponytail: no offload of big async answers to the pool; upgrade path: send them through
+  `blocking_pool` when a profile shows it.
 
 ## Rejected alternatives
 - Middleware stack as in Starlette: flexible, but a per-request cost on every route and a different C++ and Python model.

@@ -10,6 +10,10 @@ such changes are listed under **Changed**).
 ### Added
 - **`server::set_body_timeout(seconds)` and `Server(body_timeout=...)`**: the whole request body must arrive within this time after
   its head (default 120 s, `0` = no limit). Before, a body dripped one byte at a time was held only by the per-read `read_timeout`.
+- **`server::set_compression(min_size, level = 1)` and `Server(compression=..., compression_level=...)`**: gzip for text answers
+  (`text/*`, JSON, XML, JavaScript, SVG) when the client sends `Accept-Encoding: gzip`. Off by default. It runs after the hooks, adds
+  `Vary: Accept-Encoding`, and leaves files, streams, partial answers, already encoded bodies and bodies it cannot shrink alone. On a
+  `route_io` answer the work moves to a worker, never the I/O thread. Uses the vendored deflate: no new dependency.
 - ADR-0022: the dual C++/Python rule and the decisions the owner delegated.
 
 ### Changed

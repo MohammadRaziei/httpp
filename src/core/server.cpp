@@ -6,6 +6,7 @@
 
 #include "internal/async_server.hpp"
 #include "internal/log.hpp"
+#include "internal/response_compression.hpp"
 #include "internal/worker_pool.hpp"
 
 #include <algorithm>
@@ -154,6 +155,7 @@ struct config { // read-only once listening; shared with answers that may outliv
     server::after_hook after;
     server::error_hook error;
     server::exception_hook exception;
+    detail::response_compression compression; // off unless set_compression() was called
 };
 
 struct route_entry {
@@ -363,9 +365,9 @@ struct server::impl {
         return [this, weak, req, answer = std::move(answer)](response res, long long offset, long long length) {
             auto c = weak.lock();
             if (!c) return; // the server is gone
-            if ((c->error || c->after) && std::this_thread::get_id() == io_thread.load()) {
+            if ((c->error || c->after || c->compression.worth_a_thread(res)) && std::this_thread::get_id() == io_thread.load()) {
                 // A route_io handler answered on the spot. The hooks may block (Python code waits for
-                // the GIL), and the I/O thread must never do that: a worker finishes the job.
+                // the GIL) and compressing a big body takes a while; the I/O thread must never wait: a worker finishes the job.
                 auto* p = pool.load();
                 auto job = [this, weak, req, answer, res = std::move(res), offset, length]() mutable {
                     make_sender(req, answer)(std::move(res), offset, length);
@@ -399,6 +401,7 @@ struct server::impl {
                     res.status = out.status;
                     res.headers = std::move(out.headers);
                 }
+                c->compression.apply(*req, res); // after the hooks, so they see the plain headers; a no-op when off
                 w = to_wire(std::move(res), offset, length);
             } catch (...) {
                 HTTPP_LOG(warning) << "after hook or response building failed (" << describe(std::current_exception()) << ") for " << req->method << ' ' << req->path << ": answering 500";
@@ -870,6 +873,10 @@ server& server::set_header_timeout(int seconds) { impl_->engine->set_header_time
 server& server::set_body_timeout(int seconds) { impl_->engine->set_body_timeout(seconds); return *this; }
 server& server::set_max_connections(std::size_t n) { impl_->engine->set_max_connections(n); return *this; }
 server& server::set_reuse_port(bool on) { impl_->engine->set_reuse_port(on); return *this; }
+server& server::set_compression(std::size_t min_size, int level) {
+    impl_->cfg->compression.configure(min_size, level);
+    return *this;
+}
 server& server::set_async_timeout(int seconds) {
     impl_->async_timeout = seconds < 0 ? 0 : seconds;
     return *this;

@@ -182,6 +182,12 @@ public:
     HTTPP_API server& set_body_timeout(int seconds);        // whole request body must arrive within this after its head (slow drip); default 120, 0 = no limit
     HTTPP_API server& set_max_connections(std::size_t n);   // open connections allowed; one more gets a 503; default 0 = no limit
     HTTPP_API server& set_async_timeout(int seconds);       // route_async: answer within this or 504; 0 = never
+    // Gzip text answers (text/*, JSON, XML, JavaScript, SVG) of at least `min_size` bytes when the client sends
+    // Accept-Encoding with gzip. Off by default; min_size 0 turns it off. `level` is zlib's 1 (fastest, default)
+    // to 9 (smallest), else std::invalid_argument. Files, streamed bodies, partial answers and bodies that
+    // already have a Content-Encoding are never touched. Compressing a body takes CPU time on the thread that
+    // answers, so use a larger min_size or a lower level when answers are big and latency matters.
+    HTTPP_API server& set_compression(std::size_t min_size, int level = 1);
     // Let several processes listen on the same port, the kernel balancing connections between them
     // (SO_REUSEPORT: Linux only; elsewhere listening fails). Off by default, because it also lets an
     // unrelated process of the same user bind the port silently.

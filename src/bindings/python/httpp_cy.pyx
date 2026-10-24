@@ -100,6 +100,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cpp_server& set_max_body(size_t nbytes) except +
         cpp_server& set_header_timeout(int seconds) except +
         cpp_server& set_body_timeout(int seconds) except +
+        cpp_server& set_compression(size_t min_size, int level) except +
         cpp_server& set_max_connections(size_t n) except +
         cpp_server& set_async_timeout(int seconds) except +
         cpp_server& set_reuse_port(cbool on) except +
@@ -1059,6 +1060,12 @@ cdef class Server:
     def set_body_timeout(self, int seconds):
         """Seconds the whole request body may take to arrive after its head (slow-drip guard); 0 = no limit."""
         self._srv.set_body_timeout(seconds)
+        return self
+
+    def set_compression(self, size_t min_size, int level=1):
+        """Gzip text answers of at least min_size bytes for clients that accept it (level 1 fastest .. 9 smallest);
+        min_size 0 turns it off. Files, streams and already encoded bodies are never touched."""
+        self._srv.set_compression(min_size, level)
         return self
 
     def set_max_connections(self, size_t n):

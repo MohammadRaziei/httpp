@@ -1027,3 +1027,56 @@ def test_a_body_dripped_slowly_is_closed_at_the_body_timeout():
     finally:
         app.stop()
         th.join()
+
+
+def test_compression_gzips_big_text_for_clients_that_accept_it_and_only_them():
+    import gzip
+    import http.client
+    from httpp import Server
+
+    app = Server(openapi_url=None, compression=1024)
+    big = "The quick brown fox jumps over the lazy dog. " * 500
+
+    @app.get("/text")
+    def text():
+        return big
+
+    @app.get("/data")
+    async def data():
+        return {"rows": [big]}
+
+    @app.get("/small")
+    def small():
+        return "tiny"
+
+    with running(app) as base:
+        host, port = base[len("http://"):].split(":")
+
+        def get(path, accept):
+            c = http.client.HTTPConnection(host, int(port))
+            c.request("GET", path, headers={"Accept-Encoding": accept})
+            r = c.getresponse()
+            body = r.read()
+            headers = {k.lower(): v for k, v in r.getheaders()}
+            c.close()
+            return r.status, headers, body
+
+        for path in ("/text", "/data"):
+            status, headers, body = get(path, "gzip")
+            assert status == 200
+            assert headers["content-encoding"] == "gzip"
+            assert "accept-encoding" in headers["vary"].lower()
+            assert len(body) < 2000
+            assert big in gzip.decompress(body).decode()
+            status, headers, body = get(path, "identity")
+            assert "content-encoding" not in headers
+            assert big in body.decode()
+        assert "content-encoding" not in get("/small", "gzip")[1]
+
+
+def test_compression_level_is_checked():
+    from httpp import Server
+    app = Server(openapi_url=None)
+    with pytest.raises(ValueError):
+        app.set_compression(1024, 10)
+    assert app.set_compression(0) is app
