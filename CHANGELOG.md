@@ -23,6 +23,8 @@ such changes are listed under **Changed**).
 - **Forms and uploads**: `request::form()` in C++ (`form_data`, `upload_file`) parses urlencoded and `multipart/form-data` bodies, only when a
   handler asks. Python: `request.form()` (a malformed body answers 400), and FastAPI-style `Form()`, `File()` and `UploadFile` parameters
   with 422 errors and OpenAPI request bodies. `percent_decode` and `parse_query` moved to one internal header.
+- `ServerRequest.header()`, `.query_param()`, `.path_param()` and `.cookie()`: the lookups the C++ `request` already had, same names,
+  `""` when absent (a second argument sets another default).
 - ADR-0022: the dual C++/Python rule and the decisions the owner delegated.
 
 ### Changed

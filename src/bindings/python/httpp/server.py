@@ -138,6 +138,21 @@ class ServerRequest:
     def text(self):
         return self.body.decode("utf-8", errors="replace")
 
+    # The lookups the C++ `httpp::request` has under the same names. The default is "" like in C++ (pass None to tell
+    # "absent" from "empty"); a repeated name gives its first value.
+    def header(self, name, default=""):
+        """A header by name, case-insensitive."""
+        return self.headers.get(name.lower(), default)
+
+    def query_param(self, name, default=""):
+        return self.query.get(name, default)
+
+    def path_param(self, name, default=""):
+        return self.path_params.get(name, default)
+
+    def cookie(self, name, default=""):
+        return self.cookies.get(name, default)
+
     def form(self):
         """A FormData for an urlencoded or multipart body (any other Content-Type gives an empty one), parsed by C++ the
         first time. A malformed body raises HTTPException(400), so an uncaught one answers 400."""

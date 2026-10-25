@@ -43,7 +43,7 @@ ADR-0016/0017 said the FastAPI-like layer is "Python by design" and that Python 
   on 3.14t against 51k on 3.13). A second thread model would duplicate the pool without a measured gain. Reopen with a measurement on more than 2 cores.
 
 ## Order of work
-1. body deadline (done) 2. GZip (done) 3. router (done) 4. `response` injection and `after_send` (done) 5. forms and uploads (done) 6. `ServerRequest` parity.
+1. body deadline (done) 2. GZip (done) 3. router (done) 4. `response` injection and `after_send` (done) 5. forms and uploads (done) 6. `ServerRequest` parity (done).
 Each step: tests first, C++ and Python together, ADR note if the design changes, zip.
 
 ## Notes from finished steps
@@ -70,6 +70,9 @@ Each step: tests first, C++ and Python together, ADR note if the design changes,
   the body is already whole in memory because the engine reads it before the handler runs. Only `\"` is an escape inside a quoted
   parameter (browsers send Windows paths with raw backslashes). Not done: streaming an upload to disk without holding it in memory
   (needs the engine to stream request bodies, a bigger change), `filename*=` (RFC 5987) and per-part charsets.
+- **ServerRequest parity.** C++ `request` has `header`, `query_param`, `path_param`, `cookie` and `form`; Python now has all five. Two
+  differences remain on purpose: Python `headers`, `query` and `path_params` are first-wins dicts (C++ keeps every repeat, in order), and
+  `body` is `bytes` with `text` and `json()` helpers.
 
 ## Rejected alternatives
 - Middleware stack as in Starlette: flexible, but a per-request cost on every route and a different C++ and Python model.

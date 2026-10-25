@@ -223,3 +223,17 @@ def test_the_timeout_timer_does_not_fire_for_a_fast_async_handler():
         assert Request(url + "/fast").run().body == "ok"
         time.sleep(0.6)  # the cancelled timer must not disturb the next request
         assert Request(url + "/fast").run().body == "ok"
+
+
+def test_request_has_the_same_lookups_as_the_cpp_request():
+    app = Server(openapi_url=None)
+
+    @app.get("/u/{uid}")
+    def u(request, uid):
+        return {"h": request.header("X-Token"), "q": request.query_param("a"), "p": request.path_param("uid"),
+                "c": request.cookie("sid"), "none": request.header("x-nope", None), "empty": request.query_param("zz")}
+
+    with running(app) as base:
+        from httpp import Client
+        res = Client(base).get("/u/7?a=1&a=2", headers={"X-Token": "t", "Cookie": "sid=s1; other=2"})
+        assert res.json() == {"h": "t", "q": "1", "p": "7", "c": "s1", "none": None, "empty": ""}
