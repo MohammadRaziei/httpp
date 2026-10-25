@@ -39,6 +39,9 @@ struct wire_response {
     std::function<bool(std::string&)> next;
     long long length = -1;
     bool close = false;                     // end the connection after this response
+    // Runs once on a pool thread after the response has been written, or when the connection ended while writing it.
+    // Never called for status 0 or when the server is gone. Exceptions are logged and dropped.
+    std::function<void()> after_send;
 };
 
 class async_server {

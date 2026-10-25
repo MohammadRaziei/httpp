@@ -33,7 +33,7 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - [Features](#features)
 - [Install](#install)
 - [Python](#python)
-  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [`def` or `async def`](#def-or-async-def) · [Streaming and files](#streaming-and-files) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async)
+  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [`def` or `async def`](#def-or-async-def) · [Routers](#routers) · [Forms and uploads](#forms-and-uploads) · [`response` and background work](#the-response-argument-and-background-work) · [Streaming and files](#streaming-and-files) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async)
 - [Build from source](#build-from-source)
 - [Status](#status)
 - [Logging](#logging)
@@ -166,6 +166,84 @@ A blocking `def` handler holds one pool thread (about 32) for the whole wait, so
 roughly 3k req/s and latency grows with the load. A waiting coroutine holds no thread, so `async def`
 keeps scaling. Never call a blocking function inside `async def`: it stalls the shared event loop
 for every request.
+
+### Routers
+
+Group routes under a shared prefix and add them to a server with `include()`. The same idea exists in C++
+(`httpp::router`, `server::include`), with the same rules:
+
+```python
+from httpp import APIRouter, Server
+
+users = APIRouter("/users", tags=["users"])
+
+@users.get("/{user_id}")
+def one(user_id: int):
+    return {"id": user_id}
+
+api = APIRouter("/api")
+api.include(users)            # GET /api/users/{user_id}
+
+app = Server()
+app.include(api, "/v1")       # GET /v1/api/users/{user_id}  (include_router is the same method)
+```
+
+The order is: outer prefix, the router's own prefix, then the route's path. A route path `/` under a prefix is the
+prefix itself (`/users`, never `/users/`). Prefixes are joined once, when `include()` runs, so a request costs the same as
+with plain `@app.get(...)`. A router is not kept by the server: routes added to it afterwards are not on the server.
+
+### The `response` argument and background work
+
+A handler that declares an argument called `response` gets a mutable object, the Python side of the C++ `response&`.
+What you set is added to the answer; the handler still returns the body:
+
+```python
+from httpp import BackgroundTasks
+
+@app.post("/signup")
+def signup(request, response, tasks: BackgroundTasks):
+    response.status = 201                       # wins over a status the handler returns
+    response.add_header("X-Trace", "abc")
+    response.set_cookie("sid", "token")
+    tasks.add_task(send_welcome_mail, "a@b.c")  # runs after the answer was written
+    return {"ok": True}
+```
+
+`tasks` is found by its annotation (`BackgroundTasks`), any name works. Tasks run in order on a worker thread after the
+answer was written, so the client never waits for them; an `async def` task is awaited on the shared event loop. A task
+that raises is printed and the next one still runs. If the handler raises, no task runs. Both are available to
+routes only, not to dependencies.
+
+Underneath there is one job per answer, `response.after_send` (C++: `res.after_send = [] { ... };`), which you can set
+yourself. It never runs when the answer was never sent (the server stopped first).
+
+### Forms and uploads
+
+`request.form()` returns a `FormData` for an `application/x-www-form-urlencoded` or `multipart/form-data` body (any other
+`Content-Type` gives an empty one). C++ parses it, and only when you ask. In C++ it is `req.form()` with the same names:
+
+```python
+@app.post("/upload")
+def upload(request):
+    form = request.form()            # a malformed body answers 400 by itself
+    doc = form.file("doc")           # an UploadFile: filename, content_type, data, size, text(), save(path)
+    return {"who": form.field("who"), "tags": form.getlist("tag"), "name": doc.filename, "size": doc.size}
+```
+
+Or declare what you need, like FastAPI. These are converted and checked like query parameters (a bad one answers **422**,
+`loc` starting with `"body"`), and they appear in the OpenAPI document as a form body:
+
+```python
+from httpp import File, Form, UploadFile
+
+@app.post("/profile")
+async def profile(name: str = Form(), age: int = Form(18), avatar: UploadFile = File(), extra: list[UploadFile] = File(None)):
+    ...
+```
+
+`File()` can also be annotated `bytes`. The whole body is in memory: size it with `max_body` (default 100 MiB). `filename` is what the
+client sent, cut to its last path component; never build a disk path from it unchecked. At most 1024 parts and 8 KiB of headers per part.
+`UploadFile.read()` is not there: the data is already in `data` (no `await` needed).
 
 ### Streaming and files
 

@@ -15,6 +15,33 @@
 
 namespace httpp {
 
+class router; // router.hpp
+
+// One uploaded file of a multipart/form-data body.
+struct upload_file {
+    std::string field;         // the form field name
+    std::string filename;      // as sent, without any directory part; "" when the browser sent an empty file input
+    std::string content_type;  // as sent; "application/octet-stream" when the part had none
+    std::string data;
+};
+
+// The decoded form of a request, see request::form().
+struct form_data {
+    std::vector<std::pair<std::string, std::string>> fields;  // in wire order, repeated names kept
+    std::vector<upload_file> files;                           // in wire order
+
+    // First value of a field, "" if absent.
+    std::string field(const std::string& name) const {
+        for (const auto& [k, v] : fields) if (k == name) return v;
+        return "";
+    }
+    // First file sent under this field name, nullptr if none.
+    const upload_file* file(const std::string& name) const {
+        for (const auto& f : files) if (f.field == name) return &f;
+        return nullptr;
+    }
+};
+
 // Minimal per-request info handed to a route handler.
 struct request {
     std::string method;
@@ -44,6 +71,11 @@ struct request {
         for (const auto& [k, v] : path_params) if (k == name) return v;
         return "";
     }
+    // The body as a form: application/x-www-form-urlencoded (fields only) or multipart/form-data (fields and files).
+    // Any other Content-Type gives an empty form. Parsed on every call, so call it once. A malformed multipart body
+    // (no boundary, a part that never ends, a part without a name, more than 1024 parts, a part header over 8 KiB)
+    // throws std::invalid_argument: answer it with a 400. The whole body is already in memory (see set_max_body).
+    HTTPP_API form_data form() const;
     // From the Cookie header ("a=1; b=2"); "" if absent.
     std::string cookie(const std::string& name) const {
         const std::string all = header("Cookie");
@@ -144,6 +176,8 @@ public:
     // A before hook (it may block) or a mounted directory that has the file still runs first, on a
     // worker thread, and then the handler runs there instead.
     HTTPP_API void route_io(const std::string& method, const std::string& path, io_handler h);
+    // Registers every route of `r` under `prefix` + r.prefix() (see router.hpp). The router is not kept.
+    HTTPP_API void include(const router& r, const std::string& prefix = "");
     HTTPP_API void serve_directory(const std::string& mount_path, const std::string& local_dir);
 
     HTTPP_API int bind_to_any_port(const std::string& host);

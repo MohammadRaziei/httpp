@@ -19,6 +19,8 @@ import re
 import typing
 
 from . import _validate as V
+from ._background import BackgroundTasks
+from ._forms import FormData, UploadFile
 from .models import FieldInfo, _copy_default
 
 # '/users/{id}', '/users/<id>' and cpp-httplib's own '/users/:id'
@@ -85,6 +87,16 @@ def Body(default=V.MISSING, *, embed=False, **kw):
     return ParamInfo("body", default, embed=embed, **kw)
 
 
+def Form(default=V.MISSING, **kw):
+    """A field of an urlencoded or multipart form body; converted and checked like Query()."""
+    return ParamInfo("form", default, **kw)
+
+
+def File(default=V.MISSING, **kw):
+    """A file of a multipart form body: annotate it UploadFile, list[UploadFile] or bytes."""
+    return ParamInfo("file", default, **kw)
+
+
 class Depends:
     """`def f(db = Depends(get_db))` or `db: Annotated[Db, Depends(get_db)]`: call get_db first (with its own
     parameters resolved the same way) and pass the result. A function that `yield`s is cleaned up after the
@@ -104,16 +116,23 @@ class Depends:
 class Param:
     """A query / header / cookie / body parameter."""
 
-    __slots__ = ("name", "kind", "hint", "default", "info", "check", "is_seq", "wire")
+    __slots__ = ("name", "kind", "hint", "default", "info", "check", "is_seq", "wire", "as_bytes")
 
     def __init__(self, name, kind, hint, default, info):
         self.name = name
         self.kind = kind
         self.hint = hint
         self.info = info
+        self.as_bytes = False
         self.default = default  # V.MISSING when the caller must supply it
-        self.check = V.compile_type(hint, info.constraints if info is not None else None)
-        self.is_seq = V.sequence_item_hint(hint) is not None
+        if kind == "file":  # not a value to validate: an UploadFile (or a list of them, or bytes) taken from the form
+            base = typing.get_args(hint)[0] if typing.get_origin(hint) is typing.Annotated else hint
+            self.check = None
+            self.is_seq = typing.get_origin(base) in (list, tuple, set, frozenset)
+            self.as_bytes = base is bytes or typing.get_args(base) == (bytes,)
+        else:
+            self.check = V.compile_type(hint, info.constraints if info is not None else None)
+            self.is_seq = V.sequence_item_hint(hint) is not None
         wire = (info.alias if info is not None and info.alias else None) or name
         if kind == "header":
             if info is None or (info.convert_underscores and not info.alias):
@@ -132,7 +151,7 @@ class Param:
 
 
 class Plan:
-    __slots__ = ("path", "path_info", "path_checks", "path_from_raw", "params", "body", "embed", "deps", "wants_request", "active")
+    __slots__ = ("path", "path_info", "path_checks", "path_from_raw", "params", "body", "embed", "deps", "wants_request", "wants_response", "background_name", "active")
 
     def __init__(self):
         self.path = {}         # name -> hint, or None when the handler didn't annotate it
@@ -144,6 +163,8 @@ class Plan:
         self.embed = False
         self.deps = []         # [(argument name, Dependency)]
         self.wants_request = False
+        self.wants_response = False   # a route handler asked for the injected `response`
+        self.background_name = None   # ... or for BackgroundTasks, under this argument name
         self.active = False
 
     def run(self, raw, kwargs):
@@ -162,6 +183,14 @@ class Plan:
                     kwargs[name] = value
         sources = {}
         for p in self.params:
+            if p.kind in ("form", "file"):
+                try:
+                    self._run_form_param(p, raw, sources, kwargs, errors)
+                except ValueError as exc:  # a malformed multipart body: one error, not one per parameter
+                    if not any(e["type"] == "form_invalid" for e in errors):
+                        errors.append({"type": "form_invalid", "loc": ("body",), "msg": "Form data is malformed", "input": {},
+                                       "ctx": {"error": str(exc)}})
+                continue
             src = sources.get(p.kind)
             if src is None:
                 src = sources[p.kind] = _source(raw, p.kind)
@@ -183,6 +212,36 @@ class Plan:
         if self.body:
             self._run_body(raw, kwargs, errors)
         return errors
+
+    def _run_form_param(self, p, raw, sources, kwargs, errors):
+        """A Form() or File() parameter. The body is parsed once per request, by C++ (ValueError when malformed)."""
+        form = sources.get("form")
+        if form is None:
+            form = sources["form"] = FormData._from_tuple(raw.form())
+        loc = ("body", p.wire)
+        if p.kind == "file":
+            found = [f for f in form.files if f.field == p.wire]
+            if not found:
+                if p.required:
+                    errors.append({"type": "missing", "loc": loc, "msg": "Field required", "input": None})
+                else:
+                    kwargs[p.name] = p.default_value()
+                return
+            if p.is_seq:
+                kwargs[p.name] = [f.data for f in found] if p.as_bytes else found
+            else:
+                kwargs[p.name] = found[0].data if p.as_bytes else found[0]
+            return
+        values = [v for k, v in form.fields if k == p.wire]
+        if not values:
+            if p.required:
+                errors.append({"type": "missing", "loc": loc, "msg": "Field required", "input": None})
+            else:
+                kwargs[p.name] = p.default_value()
+            return
+        value = p.check(values if p.is_seq else values[0], loc, errors)
+        if value is not V.INVALID:
+            kwargs[p.name] = value
 
     def _run_body(self, raw, kwargs, errors):
         text = raw.body
@@ -421,6 +480,12 @@ def make_plan(fn, path, top=True):
             plan.wants_request = True
             continue
         hint = hints.get(name, None if p.annotation is p.empty else p.annotation)
+        if top and name == "response":  # like `request`: injected by name (a dependency does not get it)
+            plan.wants_response = True
+            continue
+        if top and hint is BackgroundTasks:
+            plan.background_name = name
+            continue
         info, dep, default = _markers(hint, V.MISSING if p.default is p.empty else p.default)
         where = f"{getattr(fn, '__name__', fn)}({name})"
 
@@ -451,6 +516,9 @@ def make_plan(fn, path, top=True):
         if kind is None:
             base = typing.get_args(hint)[0] if typing.get_origin(hint) is typing.Annotated else hint
             item = V.sequence_item_hint(base)
+            if base is UploadFile or (typing.get_origin(base) is list and typing.get_args(base) == (UploadFile,)):
+                kind = "file"
+        if kind is None:
             kind = "query" if V.is_scalar_hint(base) or (item is not None and V.is_scalar_hint(item)) else "body"
         param = Param(name, kind, hint, default, info)
         (plan.body if kind == "body" else plan.params).append(param)

@@ -14,9 +14,19 @@ such changes are listed under **Changed**).
   (`text/*`, JSON, XML, JavaScript, SVG) when the client sends `Accept-Encoding: gzip`. Off by default. It runs after the hooks, adds
   `Vary: Accept-Encoding`, and leaves files, streams, partial answers, already encoded bodies and bodies it cannot shrink alone. On a
   `route_io` answer the work moves to a worker, never the I/O thread. Uses the vendored deflate: no new dependency.
+- **Routers**: `httpp::router` and `server::include(router, prefix)` in C++, `APIRouter` and `Server.include` (alias `include_router`) in
+  Python. Same rules in both: outer prefix, the router's own prefix, then the path; `/` under a prefix is the prefix. Nesting works.
+  No request-time cost: prefixes are joined when the router is included.
+- **`response::after_send`** (C++) and, in Python, the injected **`response`** argument and **`BackgroundTasks`**: a job that runs on a
+  worker thread after the answer was written, for work the client should not wait for. The injected `response` adds a status,
+  headers and cookies to a handler's answer. A throwing job is logged and ignored.
+- **Forms and uploads**: `request::form()` in C++ (`form_data`, `upload_file`) parses urlencoded and `multipart/form-data` bodies, only when a
+  handler asks. Python: `request.form()` (a malformed body answers 400), and FastAPI-style `Form()`, `File()` and `UploadFile` parameters
+  with 422 errors and OpenAPI request bodies. `percent_decode` and `parse_query` moved to one internal header.
 - ADR-0022: the dual C++/Python rule and the decisions the owner delegated.
 
 ### Changed
+- A failing `done()` of an `async def` route (for example a bad header) now answers a 500 at once instead of leaving the client to the 504.
 - **The worker pool wakes threads last-in first-out, and does not wake a second thread until a job has waited 500 us** (a scout
   thread watches the queue), so light `def` handlers run on one hot thread instead of passing the Python lock around. On two cores,
   `def` `hello` went from 16k to 36k req/s (3.13) and from 19k to 33k (3.14t); `item` from 12k to 25k and from 17k to 30k. A

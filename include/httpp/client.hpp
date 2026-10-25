@@ -48,6 +48,12 @@ struct response {
     // true, or return false when the body is complete (a non-empty `chunk` returned together with
     // false is still sent).
     std::function<bool(std::size_t offset, std::string& chunk)> stream;
+    // If set, runs once on a worker thread after the answer has been written to the connection (or the
+    // connection failed while writing it): the place for work the client should not wait for (an email, a log
+    // line, a cache refresh). The client already has its answer, so nothing it throws can reach it: a throw is
+    // logged and ignored. It does not run if the answer was never sent (the handler gave up, the server was
+    // stopped first). Keep it short: it holds a worker thread, like any sync handler.
+    std::function<void()> after_send;
 
     response& redirect(const std::string& location, int code = 302) {
         status = code;

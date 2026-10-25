@@ -53,6 +53,16 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
 
 
 cdef extern from "httpp/server.hpp" namespace "httpp":
+    cdef cppclass cpp_upload_file "httpp::upload_file":
+        string field
+        string filename
+        string content_type
+        string data
+
+    cdef cppclass cpp_form_data "httpp::form_data":
+        vector[pair[string, string]] fields
+        vector[cpp_upload_file] files
+
     cdef cppclass cpp_request "httpp::request":
         string method
         string path
@@ -60,6 +70,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         vector[pair[string, string]] headers
         vector[pair[string, string]] query
         vector[pair[string, string]] path_params
+        cpp_form_data form() except +  # std::invalid_argument -> ValueError
 
     cdef cppclass cpp_handler "httpp::handler":
         pass
@@ -134,6 +145,13 @@ cdef extern from *:
             return r > 0;
         };
     }
+    // The job to run after the answer was written (response::after_send). `ctx` is an owned reference, released
+    // when the last copy of the std::function is gone, wherever that happens.
+    typedef void (*httpp_py_run_fn)(void*);
+    static void httpp_py_set_after_send(httpp::response& res, httpp_py_run_fn run, httpp_py_release_fn release, void* ctx) {
+        std::shared_ptr<void> keep(ctx, release);
+        res.after_send = [run, keep]() { run(keep.get()); };
+    }
     static void httpp_py_reset(httpp::response& res) { res = httpp::response(); }
     // Pool threads are not Python threads. PyGILState_Ensure/Release would create a thread state on
     // every request and destroy it again (the counter drops to 0), which is very slow on free-threaded
@@ -177,6 +195,8 @@ cdef extern from *:
     cpp_before_hook make_before "httpp_py_make_before"(before_trampoline_fn fn, void* ctx)
     ctypedef int (*stream_fn "httpp_py_stream_fn")(void*, size_t, string&) noexcept nogil
     ctypedef void (*release_fn "httpp_py_release_fn")(void*) noexcept nogil
+    ctypedef void (*run_fn "httpp_py_run_fn")(void*) noexcept nogil
+    void set_after_send "httpp_py_set_after_send"(response& res, run_fn run, release_fn release, void* ctx)
     void reset_response "httpp_py_reset"(response& res)
     void set_stream "httpp_py_set_stream"(response& res, stream_fn next, release_fn release, void* ctx)
 
@@ -602,9 +622,38 @@ cdef class RawRequest:
                 out[name] = r.path_params[i].second.decode("utf-8", errors="replace")
         return out
 
+    def form(self):
+        """(fields, files) of a urlencoded or multipart body, parsed by C++ on the spot: fields is [(name, value), ...],
+        files is [(field, filename, content_type, data_bytes), ...]. ValueError for a malformed multipart body."""
+        return _form_tuple(deref(self._req.get()).form())
+
     def _args(self):
         """The old flat shape (method, path, body, headers, query, path_params-as-pairs)."""
         return _request_args(deref(self._req.get()))
+
+
+cdef tuple _form_tuple(cpp_form_data form):
+    cdef list fields = []
+    cdef list files = []
+    cdef size_t i
+    cdef bytes data
+    for i in range(form.fields.size()):
+        fields.append((form.fields[i].first.decode("utf-8", errors="replace"),
+                       form.fields[i].second.decode("utf-8", errors="replace")))
+    for i in range(form.files.size()):
+        data = form.files[i].data
+        files.append((form.files[i].field.decode("utf-8", errors="replace"),
+                      form.files[i].filename.decode("utf-8", errors="replace"),
+                      form.files[i].content_type.decode("utf-8", errors="replace"), data))
+    return fields, files
+
+
+def parse_form(bytes body, str content_type):
+    """The same parser for a body and Content-Type that are not a C++ request (a hook's request): (fields, files)."""
+    cdef cpp_request req
+    req.body = body
+    req.headers.push_back(pair[string, string](b"Content-Type", content_type.encode("utf-8")))
+    return _form_tuple(req.form())
 
 
 cdef RawRequest _new_raw(shared_ptr[const cpp_request] req):
@@ -652,6 +701,21 @@ cdef void _stream_release(void* ctx) noexcept nogil:
         Py_DECREF(<object>ctx)
 
 
+cdef void _after_send_run(void* ctx) noexcept nogil:
+    # Runs on a pool thread, after the answer was written.
+    httpp_py_pin_thread()
+    with gil:
+        try:
+            (<object>ctx)()
+        except BaseException:
+            traceback.print_exc()
+
+
+cdef void _after_send_release(void* ctx) noexcept nogil:
+    with gil:
+        Py_DECREF(<object>ctx)
+
+
 cdef void _fill_response(response& res, int status, object body, object headers) except *:
     # body: bytes (as is) | str (path of a file to stream, trusted) | callable (stream provider).
     if isinstance(body, bytes):
@@ -665,6 +729,11 @@ cdef void _fill_response(response& res, int status, object body, object headers)
         raise TypeError("response body must be bytes, a file path (str) or a stream provider")
     res.status = status
     _push_headers(res, headers)
+    if type(headers) is not list:  # a list subclass (httpp.server._AfterHeaders) carries the after_send job
+        after = getattr(headers, "after_send", None)
+        if after is not None:
+            Py_INCREF(after)  # owned by the C++ side now, dropped by _after_send_release
+            set_after_send(res, _after_send_run, _after_send_release, <void*>after)
 
 
 cdef void _fail(response& res) noexcept:
@@ -766,7 +835,7 @@ cdef class _Done:
             del self._r
             self._r = NULL
 
-    def __call__(self, int status, object body, list headers):
+    def __call__(self, int status, object body, object headers):  # a list, or a list subclass carrying after_send
         cdef response res
         _fill_response(res, status, body, headers)
         with nogil:

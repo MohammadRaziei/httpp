@@ -341,7 +341,7 @@ def _operation(route, method, defs):
         op["deprecated"] = True
 
     # the route's own parameters and those of every dependency below it, once each
-    params, seen, body = [], set(), []
+    params, seen, body, form = [], set(), [], []
     for sub in route.plan.walk():
         for n, h in sub.path.items():
             if ("path", n) not in seen:
@@ -349,6 +349,9 @@ def _operation(route, method, defs):
                 info = sub.path_info.get(n)
                 params.append(_describe({"name": n, "in": "path", "required": True, "schema": _param_schema(h, defs, info=info)}, info))
         for p in sub.params:
+            if p.kind in ("form", "file"):
+                form.append(p)
+                continue
             if (p.kind, p.wire) not in seen:
                 seen.add((p.kind, p.wire))
                 wire = p.wire if p.kind == "header" and p.info is None else (p.info.alias if p.info is not None and p.info.alias else p.wire)
@@ -357,7 +360,24 @@ def _operation(route, method, defs):
         body.extend((sub.embed, p) for p in sub.body)
     if params:
         op["parameters"] = params
-    if body:
+    if form:  # a form body: multipart when it has a file, urlencoded otherwise
+        props, required = {}, []
+        for p in form:
+            key = p.info.alias if p.info is not None and p.info.alias else p.name
+            if p.kind == "file":
+                one = {"type": "string", "format": "binary"}
+                props[key] = {"type": "array", "items": one} if p.is_seq else one
+            else:
+                props[key] = {**_param_schema(p.hint, defs, p.default, p.info)}
+            props[key]["title"] = _title(p.name)
+            if p.required:
+                required.append(key)
+        fschema = {"type": "object", "properties": props, "title": "Body_" + op["operationId"]}
+        if required:
+            fschema["required"] = required
+        ctype = "multipart/form-data" if any(p.kind == "file" for p in form) else "application/x-www-form-urlencoded"
+        op["requestBody"] = {"required": bool(required), "content": {ctype: {"schema": fschema}}}
+    elif body:
         if len(body) == 1 and not body[0][0]:
             p = body[0][1]
             schema = _param_schema(p.hint, defs, info=p.info)
@@ -379,7 +399,7 @@ def _operation(route, method, defs):
     response_model = meta.get("response_model")
     ok["content"] = {"application/json": {"schema": type_schema(response_model, defs) if response_model is not None else {}}}
     op["responses"] = {str(meta.get("status_code") or 200): ok}
-    with_422 = bool(params or body)
+    with_422 = bool(params or body or form)
     if with_422:
         op["responses"]["422"] = {"description": "Validation Error", "content": {
             "application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}

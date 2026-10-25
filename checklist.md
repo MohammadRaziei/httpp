@@ -312,7 +312,7 @@ async def ws(websocket):
 - [x] OpenAPI and Swagger UI
 - [ ] `app.dependency_overrides`
 - [ ] `Security()`
-- [ ] Forms and file upload (multipart; today the body is JSON only)
+- [x] Forms and file upload: `request::form()`, `Form()`, `File()`, `UploadFile` (in memory; streaming an upload to disk is not done), see ADR-0022
 - [ ] `response_model_exclude_unset` and similar
 - [ ] Differential test against FastAPI (the same app on both, compare responses and `openapi.json`) to find how far "replacement" is true
 

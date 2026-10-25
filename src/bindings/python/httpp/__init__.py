@@ -30,7 +30,10 @@ from . import _log
 from ._log import set_log_level
 from . import progress, utils
 from .server import Server, ServerRequest, ResponseHead, file, redirect, set_cookie
-from ._params import Query, Path, Header, Cookie, Body, Depends
+from ._router import APIRouter
+from ._background import BackgroundTasks
+from ._params import Query, Path, Header, Cookie, Body, Depends, Form, File
+from ._forms import UploadFile, FormData
 from .responses import (HTTPException, JSONResponse, PlainTextResponse, HTMLResponse, RedirectResponse,
                         StreamingResponse, FileResponse)
 from . import responses, status
@@ -61,7 +64,7 @@ def get_cmake_dir():
 __all__ = [
     "Client", "AsyncClient", "Request", "Response", "request", "get", "head", "options", "post", "put",
     "patch", "delete", "Server", "run", "ServerRequest", "ResponseHead", "file", "redirect", "set_cookie", "download", "Download", "DownloadResult", "URL", "progress", "utils",
-    "Query", "Path", "Header", "Cookie", "Body", "Depends",
+    "Query", "Path", "Header", "Cookie", "Body", "Depends", "APIRouter", "BackgroundTasks", "Form", "File", "UploadFile", "FormData",
     "HTTPException", "JSONResponse", "PlainTextResponse", "HTMLResponse", "RedirectResponse",
     "StreamingResponse", "FileResponse", "responses", "status",
     "Error", "HTTPError", "RequestError", "Timeout", "TLSError", "TooManyRedirects", "InvalidURL",

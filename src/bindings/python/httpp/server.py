@@ -58,9 +58,9 @@ import threading
 import time
 import traceback
 
-from . import _log, _params, _schema
+from . import _background, _forms, _log, _params, _router, _schema
 from . import _validate as V
-from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox
+from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox, parse_form as _parse_form
 from .models import BaseModel, to_jsonable
 from .responses import HTTPException, Response as _ResponseBase
 
@@ -79,10 +79,11 @@ class ServerRequest:
     The fields are read-only.
     """
 
-    __slots__ = ("_raw", "_method", "_path", "_body", "_headers", "_query", "_path_params")
+    __slots__ = ("_raw", "_method", "_path", "_body", "_headers", "_query", "_path_params", "_form")
 
     def __init__(self, method, path, body, headers, query, path_params):
         self._raw = None
+        self._form = None
         self._method = method
         self._path = path
         self._body = body  # bytes
@@ -94,7 +95,7 @@ class ServerRequest:
     def _from_raw(cls, raw):
         self = cls.__new__(cls)
         self._raw = raw
-        self._method = self._path = self._body = self._headers = self._query = self._path_params = None
+        self._method = self._path = self._body = self._headers = self._query = self._path_params = self._form = None
         return self
 
     @property
@@ -137,6 +138,20 @@ class ServerRequest:
     def text(self):
         return self.body.decode("utf-8", errors="replace")
 
+    def form(self):
+        """A FormData for an urlencoded or multipart body (any other Content-Type gives an empty one), parsed by C++ the
+        first time. A malformed body raises HTTPException(400), so an uncaught one answers 400."""
+        if self._form is None:
+            try:
+                if self._raw is not None:
+                    parsed = self._raw.form()
+                else:
+                    parsed = _parse_form(self.body, self.headers.get("content-type", ""))
+            except ValueError as exc:
+                raise HTTPException(400, f"malformed form data: {exc}") from None
+            self._form = _forms.FormData._from_tuple(parsed)
+        return self._form
+
     def json(self):
         return json.loads(self.body)
 
@@ -170,13 +185,18 @@ class ResponseHead:
 
     `headers` is a list of (name, value) pairs you may edit in place. The body isn't
     passed (it may be huge or streamed) and can't be changed here.
+
+    A route handler gets the same object when it declares an argument called `response` (like `request`): it starts
+    with `status` None and no headers; what you set is added to the handler's answer (a `status` you set wins over a
+    status the handler returned), and `after_send` is a callable the server runs after the answer was written.
     """
 
-    __slots__ = ("status", "headers")
+    __slots__ = ("status", "headers", "after_send")
 
     def __init__(self, status, headers):
         self.status = status
         self.headers = headers
+        self.after_send = None  # a route handler may set a callable to run after the answer was written
 
     def header(self, name):
         """First value of `name` (case-insensitive), or None."""
@@ -186,6 +206,10 @@ class ResponseHead:
     def add_header(self, name, value):
         _check_header(name, value)
         self.headers.append((name, value))
+
+    def set_cookie(self, name, value, **options):
+        """Add a Set-Cookie header (the options of httpp.set_cookie)."""
+        self.headers.append(set_cookie(name, value, **options))
 
     def set_header(self, name, value):
         """Replace every `name` header by this one."""
@@ -436,6 +460,35 @@ def _to_response(rv, default_status=200):
 _NO_ARGS = ({}, None)
 
 
+class _AfterHeaders(list):
+    """The headers of an answer that also carries a job for C++ to run after sending (read by _fill_response in httpp_cy.pyx)."""
+
+    __slots__ = ("after_send",)
+
+
+def _merge_out(result, kwargs, plan):
+    """Fold the injected `response` and BackgroundTasks of a finished handler into its (status, body, headers)."""
+    status, body, headers = result
+    resp = kwargs.get("response") if plan.wants_response else None
+    tasks = kwargs.get(plan.background_name) if plan.background_name is not None else None
+    first = None
+    if resp is not None:
+        if resp.status is not None:
+            status = int(resp.status)
+        if resp.headers:
+            for k, v in resp.headers:
+                _check_header(k, v)
+            headers = headers + list(resp.headers)
+        first = resp.after_send
+        if first is not None and not callable(first):
+            raise TypeError("response.after_send must be a callable")
+    if first is None and not (tasks is not None and len(tasks)):
+        return status, body, headers
+    out = _AfterHeaders(headers)
+    out.after_send = _background.AfterSend(first, tasks if tasks is not None and len(tasks) else None)
+    return status, body, out
+
+
 def _prepare(fn, plan=None):
     """Build the kwargs for `fn` from a RawRequest: path params (converted per annotation), the query / body
     parameters of its `plan` (see _params.py; hooks have none) plus `request` if asked for, and nothing else. Returns (kwargs, early_response); early_response is a
@@ -444,11 +497,14 @@ def _prepare(fn, plan=None):
     params = inspect.signature(fn).parameters
     takes_all = any(p.kind is p.VAR_KEYWORD for p in params.values())
     wants_request = "request" in params
+    wants_response = plan is not None and plan.wants_response
+    background_name = plan.background_name if plan is not None else None
     wanted = tuple(n for n in params if n != "request")
     convert = {n: p.annotation for n, p in params.items() if p.annotation in (int, float)}
 
     if not (takes_all or wants_request or wanted):
         return lambda raw: _NO_ARGS
+    injected = wants_response or background_name is not None
 
     def prepare(raw):
         if takes_all:
@@ -474,6 +530,11 @@ def _prepare(fn, plan=None):
                 return None, _unprocessable(errors)
         if wants_request:
             kwargs["request"] = ServerRequest._from_raw(raw)
+        if injected:
+            if wants_response:
+                kwargs["response"] = ResponseHead(None, [])
+            if background_name is not None:
+                kwargs[background_name] = _background.BackgroundTasks()
         return kwargs, None
 
     return prepare
@@ -497,6 +558,10 @@ class _FlatRaw:
     def path_params(self):
         return _first_wins(self._params)
 
+    def form(self):
+        ctype = next((v for k, v in self._headers if k.lower() == "content-type"), "")
+        return _parse_form(self.body, ctype)
+
 
 def _prepare_flat(fn):
     """_prepare for the hooks: called with the six values, not with a RawRequest."""
@@ -507,6 +572,7 @@ def _prepare_flat(fn):
 def _adapt(fn, app, plan=None, status=200, shape=None):
     """Sync handler -> what the compiled core calls on a worker thread: raw request in, (status, body, headers) out."""
     prepare = _prepare(fn, plan)
+    has_out = plan is not None and (plan.wants_response or plan.background_name is not None)
 
     if plan is not None and plan.deps:
 
@@ -520,7 +586,8 @@ def _adapt(fn, app, plan=None, status=200, shape=None):
                     if errors:
                         return _unprocessable(errors)
                     rv = fn(**kwargs)
-                    return _to_response(rv if shape is None else shape(rv), status)
+                    result = _to_response(rv if shape is None else shape(rv), status)
+                    return _merge_out(result, kwargs, plan) if has_out else result
             except Exception as exc:
                 handler = app._exception_handler_for(exc)
                 if handler is None:
@@ -535,7 +602,8 @@ def _adapt(fn, app, plan=None, status=200, shape=None):
             return early
         try:
             rv = fn(**kwargs)
-            return _to_response(rv if shape is None else shape(rv), status)
+            result = _to_response(rv if shape is None else shape(rv), status)
+            return _merge_out(result, kwargs, plan) if has_out else result
         except Exception as exc:
             handler = app._exception_handler_for(exc)
             if handler is None:
@@ -664,6 +732,7 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
     One task per request does everything: the handler, its exception handler and the timeout."""
     prepare = _prepare(fn, plan)
     has_deps = plan is not None and bool(plan.deps)
+    has_out = plan is not None and (plan.wants_response or plan.background_name is not None)
 
     async def produce(raw, kwargs):
         async with contextlib.AsyncExitStack() as stack:  # a `yield` dependency is closed after the handler, also when it raised
@@ -671,7 +740,8 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
             if errors:
                 return _unprocessable(errors)
             rv = await fn(**kwargs)
-            return _to_response(rv if shape is None else shape(rv), status)
+            result = _to_response(rv if shape is None else shape(rv), status)
+            return _merge_out(result, kwargs, plan) if has_out else result
 
     async def run(raw, done):
         task = asyncio.current_task()
@@ -688,6 +758,8 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                     else:
                         rv = await fn(**kwargs)
                         result = _to_response(rv if shape is None else shape(rv), status)
+                        if has_out:
+                            result = _merge_out(result, kwargs, plan)
                 except Exception as exc:
                     handler = app._exception_handler_for(exc)
                     if handler is None:
@@ -713,7 +785,11 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
         if app._after or app._error_handlers:
             await loop.run_in_executor(None, done, *result)
         else:
-            done(*result)
+            try:
+                done(*result)
+            except Exception:  # e.g. a bad header: answer something instead of leaving the client to the 504
+                traceback.print_exc()
+                done(500, b"Internal Server Error", [])
 
     def dispatch(raw, done):
         loop = asyncio.get_running_loop()
@@ -842,6 +918,13 @@ class Server(_Server):
 
     def delete(self, path, **meta):
         return self.route(path, ("DELETE",), **meta)
+
+    def include(self, router, prefix=""):
+        """Register every route of an APIRouter under prefix + router.prefix (the router is not kept)."""
+        _router.include_into(self, router, prefix)
+        return self
+
+    include_router = include  # FastAPI's name
 
     # --- OpenAPI and the Swagger UI page ---
 

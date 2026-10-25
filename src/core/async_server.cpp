@@ -194,6 +194,9 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         bool keep = false;
     };
     std::shared_ptr<stream_state> stream;
+    // Holds the answer's after_send job. Dropping it (the answer is written, or the connection closed) hands the job to
+    // the pool, so the job runs exactly once whichever way the answer ends.
+    std::shared_ptr<void> sent_guard;
 
     conn(impl& s, tcp::socket sk) : srv(s), sock(std::move(sk)), timer(s.io), remaining(s.ka_max.load()) {
         llhttp_settings_init(&settings);
@@ -285,6 +288,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         timer.cancel();
         sock.close(ec);
         stream.reset(); // releases a body generator whose client went away
+        sent_guard.reset();
         srv.conns.erase(self);
     }
 
@@ -406,6 +410,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         if (closed || !answering) return;
         answering = false;
         if (r.status == 0) return close(); // convention: no answer at all (a handler that gave up)
+        if (r.after_send) sent_guard = make_sent_guard(std::move(r.after_send));
         if (!log_what.empty()) {  // the access log
             HTTPP_LOG(info) << log_what << ' ' << r.status;
             log_what.clear();
@@ -503,7 +508,25 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         write(std::move(out), [self = shared_from_this()] { self->pump(); });
     }
 
+    std::shared_ptr<void> make_sent_guard(std::function<void()> job) {
+        // The deleter runs on the loop thread: it only enqueues, the job itself runs on a pool thread.
+        return std::shared_ptr<void>(static_cast<void*>(this), [job = std::move(job), run = srv.run_blocking, post = srv.poster_](void*) {
+            {
+                std::lock_guard<std::mutex> lk(post->mu);
+                if (!post->io) return; // the server is being destroyed: its pool may be gone, drop the job
+            }
+            run([job] {
+                try {
+                    job();
+                } catch (...) {
+                    HTTPP_LOG(warning) << "an after_send job threw: ignored";
+                }
+            });
+        });
+    }
+
     void done(bool keep) {
+        sent_guard.reset();
         if (closed) return;
         if (!keep) return linger();
         --remaining;

@@ -55,6 +55,8 @@ TARGETS = {
     ("download.hpp", "download"): httpp.Download,
     ("progress.hpp", "bar"): httpp.progress.bar,
     ("server.hpp", "server"): httpp.Server,
+    ("router.hpp", "router"): httpp.APIRouter,
+    ("server.hpp", "request"): httpp.ServerRequest,  # httpp::request: the handler's request object
     ("url.hpp", "url"): httpp.URL,
     ("log.hpp", ""): httpp,
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
@@ -71,6 +73,11 @@ ALIASES = {
         "del": "delete", "before": "before_request", "after": "after_request",
         "set_error_handler": "error_handler", "set_exception_handler": "exception_handler",
         # an `async def` handler goes through the ordinary decorator in Python
+        "route_async": "route", "get_async": "get", "post_async": "post", "put_async": "put",
+        "patch_async": "patch", "del_async": "delete",
+    },
+    "router": {
+        "del": "delete",
         "route_async": "route", "get_async": "get", "post_async": "post", "put_async": "put",
         "patch_async": "patch", "del_async": "delete",
     },
@@ -98,6 +105,8 @@ CTOR_ARGS = {
 NOT_EXPOSED = {
     ("server", "route_io"): "not necessary: Python handlers need the GIL anyway, so add_loop_route is the fast path",
     ("server", "route_shared"): "not necessary: add_route already hands Python the request on a pool thread",
+    ("router", "route_io"): "same as server::route_io",
+    ("router", "route_shared"): "same as server::route_shared",
     ("", "find_swagger_ui_asset"): "internal lookup behind mount_swagger_ui, not meant for users",
 }
 
@@ -145,7 +154,7 @@ def test_not_exposed_names_are_still_unbound():
         api.setdefault(owner, set()).update(names)
     for (owner, name), reason in NOT_EXPOSED.items():
         assert name in api.get(owner, set()), f"{owner}::{name} is no longer in the C++ headers: drop it from NOT_EXPOSED"
-        target = {"server": httpp.Server, "": httpp}[owner]
+        target = {"server": httpp.Server, "router": httpp.APIRouter, "": httpp}[owner]
         assert name not in _py_names(target), f"{owner}::{name} now exists in Python ({reason}): drop it from NOT_EXPOSED"
 
 

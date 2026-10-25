@@ -7,6 +7,7 @@
 #include "internal/async_server.hpp"
 #include "internal/log.hpp"
 #include "internal/response_compression.hpp"
+#include "internal/urlencoded.hpp"
 #include "internal/worker_pool.hpp"
 
 #include <algorithm>
@@ -44,46 +45,8 @@ bool ieq(const std::string& a, const char* b) {
     });
 }
 
-int hex_value(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return -1;
-}
-
-// %XX decoding; a malformed escape is kept as is. `plus` turns '+' into a space (query strings).
-std::string percent_decode(const std::string& in, bool plus) {
-    std::string out;
-    out.reserve(in.size());
-    for (std::size_t i = 0; i < in.size(); ++i) {
-        const char c = in[i];
-        if (c == '%' && i + 2 < in.size() + 0 && hex_value(in[i + 1]) >= 0 && hex_value(in[i + 2]) >= 0) {
-            out += static_cast<char>(hex_value(in[i + 1]) * 16 + hex_value(in[i + 2]));
-            i += 2;
-        } else if (c == '+' && plus) {
-            out += ' ';
-        } else {
-            out += c;
-        }
-    }
-    return out;
-}
-
-// "a=1&b=%20&c" -> [(a,1),(b," "),(c,"")], appended to `out`.
-void parse_query(const std::string& q, std::vector<std::pair<std::string, std::string>>& out) {
-    std::size_t pos = 0;
-    while (pos <= q.size()) {
-        std::size_t end = q.find('&', pos);
-        if (end == std::string::npos) end = q.size();
-        if (end > pos) {
-            const std::string item = q.substr(pos, end - pos);
-            const std::size_t eq = item.find('=');
-            if (eq == std::string::npos) out.emplace_back(percent_decode(item, true), "");
-            else out.emplace_back(percent_decode(item.substr(0, eq), true), percent_decode(item.substr(eq + 1), true));
-        }
-        pos = end + 1;
-    }
-}
+using detail::parse_query;
+using detail::percent_decode;
 
 std::vector<std::string> split_path(const std::string& path) {
     std::vector<std::string> parts;
@@ -348,6 +311,7 @@ struct server::impl {
         } else {
             w.body = std::move(res.body);
         }
+        w.after_send = std::move(res.after_send);
         return w;
     }
 
