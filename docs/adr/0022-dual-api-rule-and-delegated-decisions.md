@@ -73,6 +73,26 @@ Each step: tests first, C++ and Python together, ADR note if the design changes,
 - **ServerRequest parity.** C++ `request` has `header`, `query_param`, `path_param`, `cookie` and `form`; Python now has all five. Two
   differences remain on purpose: Python `headers`, `query` and `path_params` are first-wins dicts (C++ keeps every repeat, in order), and
   `body` is `bytes` with `text` and `json()` helpers.
+- **Measured after the six steps (2026-10-25).** C++ suite (287 tests) under ThreadSanitizer: all pass, no report. `benchmarks/bench.py`,
+  `oha`, 2 cores shared with the load generator, Python 3.13, 1 worker, 32 connections, 2 rounds of 4 s, median req/s, no gzip, no hooks:
+  `hello` httpp `def` 52.8k, `async def` 49.1k, uvicorn (bare ASGI, uvloop, httptools) 34.5k, FastAPI + uvicorn 7.9k;
+  `item` (int path parameter, JSON) 50.3k, 44.9k, 24.2k, 6.4k. One run, rounds within 3 percent of each other; compare only inside the table.
+  uvicorn's `item` is a bare ASGI app with no routing or validation, so FastAPI is the like-for-like row.
+- **Why `async def` is about 10 to 15 percent behind `def` (investigated 2026-10-25; 2 cores shared with `oha`, 3.13, `/async` and `/`, 32
+  connections; script medians of 5 interleaved rounds of 5 s, so treat differences under about 5 percent as noise).** Server CPU per request:
+  `def` about 17 to 18 us (52k req/s), `async def` about 22 to 23.5 us (43 to 45k req/s); the machine is CPU bound because the load generator
+  takes the other core, so every extra us per request shows up as lost throughput. Where the extra 4 to 5 us is:
+  (a) A loop route that answers from the dispatcher with no Task and no coroutine (`_add_raw_loop_route`, no tracking) costs 21.4 us:
+  the whole Python asyncio part (Task, `run`, deadlines, `_to_response`) is only about 2 us (under 10 percent). (b) The C++ 504 backstop
+  (`track`, a mutex and a map entry per request) costs about 0 to 3 percent: removing it (`handler_timeout=None`) gave 45.4k against 43.9k, inside the noise.
+  (c) The rest, about 4 us, is the design: the request is parsed and matched on the I/O thread, queued to the loop thread, run there,
+  and the answer posted back, against a worker that does all of it for `def`. `py-spy --gil --native` shows 41 percent of the loop thread's
+  GIL-held samples inside `free()` waiting on a glibc arena lock (memory made on the I/O thread is freed on the loop thread), but the GIL is
+  held only about a quarter of the wall time, `MALLOC_ARENA_MAX=1` made it worse (40k) and a larger tcache did nothing (46k), so this is
+  one more small cost and not a fix that is waiting to be applied. Syscalls per request are fewer than for `def` (2.6 against many futex waits).
+  Not done, with the ceiling: skipping the Task for a handler that finishes without waiting (needs a manual coroutine driver that has to get
+  cancellation right; best case about 2 us, 9 percent); batching answers (ADR-0021, about 2 us). Both stay open if `async def` throughput becomes the limit.
+  `async def` is still 1.3 to 1.9 times uvicorn on the same box.
 
 ## Rejected alternatives
 - Middleware stack as in Starlette: flexible, but a per-request cost on every route and a different C++ and Python model.
