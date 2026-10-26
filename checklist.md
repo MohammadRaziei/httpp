@@ -116,6 +116,7 @@
 ## Phase 1.5: speed improvements
 
 - [x] Remove one hop for `async def` (route match on the Asio thread when there is no `before_request`)
+- [x] Remove the hop for `async def` handlers that cannot suspend: inline on the I/O thread behind a gate ([ADR-0023](docs/adr/0023-inline-async-handlers.md)). Handlers that await keep the hop (open, needs a real-handler measurement)
 - [x] Build only the fields the handler needs (and keep the behavior of exception hooks)
 - [ ] `get_const` for constant responses
 - [ ] `--workers auto` is implemented; check its behavior on free-threaded Python (one process)

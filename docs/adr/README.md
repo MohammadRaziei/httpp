@@ -28,12 +28,13 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0020](0020-http-exception-and-response-classes.md) | HTTPException and response classes (Starlette names, native) | accepted |
 | [0021](0021-pool-thread-state-and-two-core-numbers.md) | Pool threads keep their Python thread state; first two-core numbers incl. FastAPI | accepted |
 | [0022](0022-dual-api-rule-and-delegated-decisions.md) | Dual C++/Python rule; decisions the owner delegated | accepted |
+| [0023](0023-inline-async-handlers.md) | `async def` handlers that cannot suspend run on the I/O thread (gate, busy count) | accepted |
 
 ## Not decided yet
 
 These have no ADR because they are not decisions yet. They are tracked in `docs/Architecture.md` section 7 and must be decided **with the project owner**:
 the shared memory library and the scope of `app.shared`, the coupling level, the exact API scope (Starlette-like, or FastAPI-like as well),
-removing the hop on the `async def` path, WebSocket backpressure, the sub-interpreter experiment, a lighter replacement for Swagger UI.
+removing the hop for `async def` handlers that await (see ADR-0023), WebSocket backpressure, the sub-interpreter experiment, a lighter replacement for Swagger UI.
 
 ## Writing a new ADR
 

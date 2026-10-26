@@ -103,3 +103,7 @@ Nothing here is measured yet except what each step reports. Windows and macOS ru
 
 ## Related
 ADR-0016, ADR-0017, ADR-0020, ADR-0021
+
+## Answer batching (2026-10-26)
+
+The owner said the `async def` gap is an architecture problem, not tuning. A pure C++ floor (no Python) agrees in part: answering from the I/O thread gave about 72k req/s, handing the answer to one other thread about 61k, so the thread hop alone costs around 15 percent. Answers now go through a batched poster in `async_server.cpp`: only the push that finds the queue empty posts a drain task to Asio. Measured with interleaved runs: C++ pool path +10 percent, `async def` +4 percent, `def` +4 percent (the last two are close to the noise). It helps both APIs because it lives in the core. The bigger step, running the `async def` handler without a hop, is still open.

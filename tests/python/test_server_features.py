@@ -847,6 +847,7 @@ def test_async_handlers_run_on_the_loop_thread_not_on_a_pool_thread():
 
     @app.get("/who")
     async def who():
+        await asyncio.sleep(0)  # a handler that can suspend always runs on the loop thread
         return threading.current_thread().name
 
     @app.get("/who-sync")

@@ -45,13 +45,16 @@ Register routes and hooks BEFORE calling listen().
 
 import asyncio
 import contextlib
+import contextvars
 import dataclasses
+import dis
 import functools
 import inspect
 import json
 import mimetypes
 import os
 import re
+import selectors
 import socket
 import sys
 import threading
@@ -60,7 +63,7 @@ import traceback
 
 from . import _background, _forms, _log, _params, _router, _schema
 from . import _validate as V
-from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox, parse_form as _parse_form
+from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, parse_form as _parse_form
 from .models import BaseModel, to_jsonable
 from .responses import HTTPException, Response as _ResponseBase
 
@@ -656,6 +659,22 @@ _loop = None
 _loop_lock = threading.Lock()
 _wake = None  # (reader, writer) socket pair kept alive for the loop's whole life
 _tasks = set()  # the loop only holds weak references to tasks; this keeps running handlers alive
+_base_context = None  # the loop thread's context: a request handled on the I/O thread starts from a copy of it
+_set_running_loop = asyncio.events._set_running_loop
+
+
+class _GatedSelector(selectors.DefaultSelector):
+    """The loop's selector. While the loop thread sleeps in it, the gate is open: the I/O thread may then run a
+    handler that cannot suspend right on the spot (httpp_cy `_dispatch_hybrid`), which is exactly like running
+    it on the loop thread between two iterations: nothing else runs asyncio code at that moment, so the
+    "code between two awaits is atomic" rule that asyncio programs rely on still holds."""
+
+    def select(self, timeout=None):
+        _gate_leave()
+        try:
+            return super().select(timeout)
+        finally:
+            _gate_enter()  # waits (GIL released) while the I/O thread is running a handler
 _EAGER = sys.version_info >= (3, 12)  # asyncio.Task(..., eager_start=True) exists
 
 
@@ -669,7 +688,7 @@ def _get_loop():
     with _loop_lock:
         if _loop is None:
             # A selector loop on every platform: the default Proactor loop on Windows has no add_reader.
-            loop = asyncio.SelectorEventLoop()
+            loop = asyncio.SelectorEventLoop(_GatedSelector())
             reader, writer = socket.socketpair()
             reader.setblocking(False)
             writer.setblocking(False)
@@ -690,6 +709,9 @@ def _get_loop():
             _attach_inbox(writer.fileno())
 
             def run():
+                global _base_context
+                _gate_enter()  # held from now on, except while sleeping in the selector
+                _base_context = contextvars.copy_context()
                 asyncio.set_event_loop(loop)
                 loop.run_forever()
 
@@ -697,6 +719,20 @@ def _get_loop():
             loop.call_soon_threadsafe(drain)  # requests queued before the inbox was attached
             _loop = loop
         return _loop
+
+
+_SUSPENDING = frozenset({"GET_AWAITABLE", "SEND", "YIELD_FROM", "YIELD_VALUE", "GET_AITER", "GET_ANEXT",
+                         "BEFORE_ASYNC_WITH", "END_ASYNC_FOR"})
+
+
+def _cannot_suspend(fn):
+    """True for a coroutine function whose own code has no `await`, `async with` or `async for`: it always
+    runs to its end in the first step. Anything without a code object (a callable instance, a partial) is
+    not trusted."""
+    code = getattr(fn, "__code__", None)
+    if code is None or not inspect.iscoroutinefunction(fn):
+        return False
+    return not any(i.opname in _SUSPENDING for i in dis.get_instructions(code))
 
 
 class _Deadlines:
@@ -806,7 +842,27 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                 traceback.print_exc()
                 done(500, b"Internal Server Error", [])
 
-    def dispatch(raw, done):
+    def dispatch(raw, done, inline=False):
+        if inline:
+            # On the I/O thread, holding the gate: the loop thread is asleep in its selector, so this is the
+            # loop's own work done early. The loop must look "running" to the code in the handler; whatever
+            # the handler scheduled (a task, a timer) is seen by the loop thread once we wake it.
+            loop = _loop
+            if loop.get_debug():  # debug mode checks the thread of every call: not for us
+                raise RuntimeError("inline handlers need a loop that is not in debug mode")
+            ready, scheduled = len(loop._ready), len(loop._scheduled)
+            _set_running_loop(loop)
+            try:
+                task = asyncio.Task(run(raw, done), loop=loop, eager_start=True, context=_base_context.copy())
+            finally:
+                _set_running_loop(None)
+            if not task.done():
+                _tasks.add(task)
+                if app._handler_timeout:
+                    app._deadlines.add(loop, task, app._handler_timeout)
+            if not task.done() or len(loop._ready) != ready or len(loop._scheduled) != scheduled:
+                _wake[1].send(b"\0")  # the loop sleeps with a timeout that does not know about this
+            return
         loop = asyncio.get_running_loop()
         if _EAGER:
             # Python 3.12+: the handler runs to its first suspension right here, so a handler that never
@@ -907,7 +963,10 @@ class Server(_Server):
             check = V.compile_type(model) if model is not None else None
             shape = (lambda rv: _shape(rv, check)) if check is not None else None
             if inspect.iscoroutinefunction(fn):
-                adapted, add = _adapt_async(fn, self, plan, status, shape), self._add_raw_loop_route
+                adapted = _adapt_async(fn, self, plan, status, shape)
+                # A handler that cannot suspend may run on the I/O thread (see _GatedSelector).
+                inline = _EAGER and not plan.deps and _cannot_suspend(fn)
+                add = self._add_raw_hybrid_route if inline else self._add_raw_loop_route
                 self._has_async = True
             else:
                 adapted, add = _adapt(fn, self, plan, status, shape), self._add_raw_route

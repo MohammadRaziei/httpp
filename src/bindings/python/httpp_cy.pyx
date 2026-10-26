@@ -197,6 +197,52 @@ cdef extern from *:
     ctypedef void (*release_fn "httpp_py_release_fn")(void*) noexcept nogil
     ctypedef void (*run_fn "httpp_py_run_fn")(void*) noexcept nogil
     void set_after_send "httpp_py_set_after_send"(response& res, run_fn run, release_fn release, void* ctx)
+
+
+# The "gate" and the busy count. They let an `async def` handler that cannot suspend run on the I/O thread
+# (no hop to the asyncio loop thread) without breaking two rules:
+#  1. The I/O thread never waits for the GIL. So it only takes the inline path while no `def` handler, hook
+#     or stream callback is running or waiting for the GIL on another C++ thread (`busy` is zero). Python
+#     threads that httpp does not know about (user threads, executors) can still hold the GIL; that wait is
+#     bounded by the interpreter's switch interval, and is the one case this does not cover.
+#  2. Code that runs on an asyncio loop never runs at the same time as other code of that loop (asyncio code
+#     between two awaits is atomic, and user code relies on it). The loop thread owns the gate while it runs
+#     callbacks and gives it up only while it sleeps in its selector (see httpp/server.py `_GatedSelector`).
+#     The I/O thread may use the loop only while it holds the gate. `loop_waits` keeps the I/O thread from
+#     re-taking the gate for ever while the loop thread wants it back.
+cdef extern from *:
+    """
+    #include <atomic>
+    #include <mutex>
+    struct httpp_py_gate {
+        std::mutex m;
+        std::atomic<bool> loop_waits{false};
+        std::atomic<int> busy{0};
+    };
+    // Leaked on purpose: a late call during interpreter exit must still find it alive.
+    static httpp_py_gate& httpp_py_gate_get() { static httpp_py_gate* g = new httpp_py_gate; return *g; }
+    static void httpp_py_busy_enter() { ++httpp_py_gate_get().busy; }
+    static void httpp_py_busy_exit() { --httpp_py_gate_get().busy; }
+    static bool httpp_py_gate_try() {
+        auto& g = httpp_py_gate_get();
+        if (g.loop_waits.load() || g.busy.load() != 0) return false;
+        return g.m.try_lock();
+    }
+    static void httpp_py_gate_unlock() { httpp_py_gate_get().m.unlock(); }
+    static void httpp_py_gate_loop_enter() {
+        auto& g = httpp_py_gate_get();
+        g.loop_waits = true;
+        g.m.lock();
+        g.loop_waits = false;
+    }
+    static void httpp_py_gate_loop_leave() { httpp_py_gate_get().m.unlock(); }
+    """
+    void busy_enter "httpp_py_busy_enter"() noexcept nogil
+    void busy_exit "httpp_py_busy_exit"() noexcept nogil
+    bint gate_try "httpp_py_gate_try"() noexcept nogil
+    void gate_unlock "httpp_py_gate_unlock"() noexcept nogil
+    void gate_loop_enter "httpp_py_gate_loop_enter"() noexcept nogil
+    void gate_loop_leave "httpp_py_gate_loop_leave"() noexcept nogil
     void reset_response "httpp_py_reset"(response& res)
     void set_stream "httpp_py_set_stream"(response& res, stream_fn next, release_fn release, void* ctx)
 
@@ -673,47 +719,63 @@ cdef void _push_headers(response& res, object headers) except *:
 cdef int _stream_next(void* ctx, size_t offset, string& chunk) noexcept nogil:
     # The provider returns the next piece (bytes) or None at the end. Runs on whatever thread is
     # writing the response, which Python knows nothing about.
-    with gil:
-        try:
-            piece = (<object>ctx)()
-            if piece is None:
-                return 0
-            chunk = piece  # bytes only; anything else raises TypeError -> -1
-        except BaseException:
-            traceback.print_exc()
-            return -1
-        return 1
+    busy_enter()  # see the gate comment above
+    try:
+        with gil:
+            try:
+                piece = (<object>ctx)()
+                if piece is None:
+                    return 0
+                chunk = piece  # bytes only; anything else raises TypeError -> -1
+            except BaseException:
+                traceback.print_exc()
+                return -1
+            return 1
+    finally:
+        busy_exit()
 
 
 cdef void _stream_release(void* ctx) noexcept nogil:
     # The provider's `finally` (an open file, a connection) must run now. On free-threaded CPython the
     # object itself is freed only when the thread that created it next runs Python (its refcounts
     # are merged then), and that thread may sit idle in the pool until the next request.
-    with gil:
-        provider = <object>ctx
-        close = getattr(provider, "close", None)
-        if close is not None:
-            try:
-                close()
-            except BaseException:
-                traceback.print_exc()
-        provider = None
-        Py_DECREF(<object>ctx)
+    busy_enter()  # see the gate comment above
+    try:
+        with gil:
+            provider = <object>ctx
+            close = getattr(provider, "close", None)
+            if close is not None:
+                try:
+                    close()
+                except BaseException:
+                    traceback.print_exc()
+            provider = None
+            Py_DECREF(<object>ctx)
+    finally:
+        busy_exit()
 
 
 cdef void _after_send_run(void* ctx) noexcept nogil:
     # Runs on a pool thread, after the answer was written.
-    httpp_py_pin_thread()
-    with gil:
-        try:
-            (<object>ctx)()
-        except BaseException:
-            traceback.print_exc()
+    busy_enter()  # see the gate comment above
+    try:
+        httpp_py_pin_thread()
+        with gil:
+            try:
+                (<object>ctx)()
+            except BaseException:
+                traceback.print_exc()
+    finally:
+        busy_exit()
 
 
 cdef void _after_send_release(void* ctx) noexcept nogil:
-    with gil:
-        Py_DECREF(<object>ctx)
+    busy_enter()  # see the gate comment above
+    try:
+        with gil:
+            Py_DECREF(<object>ctx)
+    finally:
+        busy_exit()
 
 
 cdef void _fill_response(response& res, int status, object body, object headers) except *:
@@ -752,73 +814,93 @@ cdef void _run_handler(object fn, const cpp_request& req, response& res) except 
 cdef void _dispatch(void* ctx, const cpp_request& req, response& res) noexcept nogil:
     # Called from a cpp-httplib worker thread that Python knows nothing about,
     # hence the explicit GIL acquire.
-    httpp_py_pin_thread()
-    with gil:
-        try:
-            _run_handler(<object>ctx, req, res)
-        except BaseException:
-            # The traceback goes to stderr for the developer; the client only
-            # ever sees a generic 500 (no internals leaked).
-            traceback.print_exc()
-            _fail(res)
+    busy_enter()  # see the gate comment above
+    try:
+        httpp_py_pin_thread()
+        with gil:
+            try:
+                _run_handler(<object>ctx, req, res)
+            except BaseException:
+                # The traceback goes to stderr for the developer; the client only
+                # ever sees a generic 500 (no internals leaked).
+                traceback.print_exc()
+                _fail(res)
+    finally:
+        busy_exit()
 
 
 cdef void _dispatch_raw(void* ctx, shared_ptr[const cpp_request] req, response& res) noexcept nogil:
     # Like _dispatch, but the handler gets a RawRequest (shared with C++, built on demand).
-    httpp_py_pin_thread()
-    with gil:
-        try:
-            status, body, headers = (<object>ctx)(_new_raw(req))
-            _fill_response(res, status, body, headers)
-        except BaseException:
-            traceback.print_exc()
-            _fail(res)
+    busy_enter()  # see the gate comment above
+    try:
+        httpp_py_pin_thread()
+        with gil:
+            try:
+                status, body, headers = (<object>ctx)(_new_raw(req))
+                _fill_response(res, status, body, headers)
+            except BaseException:
+                traceback.print_exc()
+                _fail(res)
+    finally:
+        busy_exit()
 
 
 cdef cbool _dispatch_before(void* ctx, const cpp_request& req, response& res) noexcept nogil:
     # hook(*request_args) -> None (go on to the route) | (status, body, headers) (answer it here)
-    httpp_py_pin_thread()
-    with gil:
-        try:
-            out = (<object>ctx)(*_request_args(req))
-            if out is None:
-                return False
-            status, body, headers = out
-            _fill_response(res, status, body, headers)
-            return True
-        except BaseException:
-            traceback.print_exc()
-            _fail(res)
-            return True
+    busy_enter()  # see the gate comment above
+    try:
+        httpp_py_pin_thread()
+        with gil:
+            try:
+                out = (<object>ctx)(*_request_args(req))
+                if out is None:
+                    return False
+                status, body, headers = out
+                _fill_response(res, status, body, headers)
+                return True
+            except BaseException:
+                traceback.print_exc()
+                _fail(res)
+                return True
+    finally:
+        busy_exit()
 
 
 cdef void _dispatch_after(void* ctx, const cpp_request& req, response& res) noexcept nogil:
     # hook(*request_args, status, headers) -> None | (status, headers). A failing hook makes it a 500.
-    httpp_py_pin_thread()
-    with gil:
-        try:
-            out = (<object>ctx)(*_request_args(req), res.status, _pairs(res.headers))
-            if out is not None:
-                status, headers = out
-                res.status = status
-                res.headers.clear()
-                _push_headers(res, headers)
-        except BaseException:
-            traceback.print_exc()
-            res.status = 500
+    busy_enter()  # see the gate comment above
+    try:
+        httpp_py_pin_thread()
+        with gil:
+            try:
+                out = (<object>ctx)(*_request_args(req), res.status, _pairs(res.headers))
+                if out is not None:
+                    status, headers = out
+                    res.status = status
+                    res.headers.clear()
+                    _push_headers(res, headers)
+            except BaseException:
+                traceback.print_exc()
+                res.status = 500
+    finally:
+        busy_exit()
 
 
 cdef void _dispatch_error(void* ctx, const cpp_request& req, response& res) noexcept nogil:
     # hook(*request_args, status) -> None (keep the plain error) | (status, body, headers)
-    httpp_py_pin_thread()
-    with gil:
-        try:
-            out = (<object>ctx)(*_request_args(req), res.status)
-            if out is not None:
-                status, body, headers = out
-                _fill_response(res, status, body, headers)
-        except BaseException:
-            traceback.print_exc()
+    busy_enter()  # see the gate comment above
+    try:
+        httpp_py_pin_thread()
+        with gil:
+            try:
+                out = (<object>ctx)(*_request_args(req), res.status)
+                if out is not None:
+                    status, body, headers = out
+                    _fill_response(res, status, body, headers)
+            except BaseException:
+                traceback.print_exc()
+    finally:
+        busy_exit()
 
 
 cdef class _Done:
@@ -859,8 +941,12 @@ cdef void _start_dispatch(void* ctx, const cpp_request& req, const cpp_responder
 
 cdef void _dispatch_async(void* ctx, const cpp_request& req, const cpp_responder& r) noexcept nogil:
     # Runs on a pool thread that Python knows nothing about, hence the explicit GIL acquire.
-    with gil:
-        _start_dispatch(ctx, req, r)
+    busy_enter()  # see the gate comment above
+    try:
+        with gil:
+            _start_dispatch(ctx, req, r)
+    finally:
+        busy_exit()
 
 
 # The "loop inbox": requests for `async def` routes go from the C++ side to the asyncio loop thread
@@ -939,19 +1025,47 @@ cdef void _dispatch_inbox(void* ctx, shared_ptr[const cpp_request] req, const cp
     inbox_push(ctx, req, r)
 
 
-cdef void _start_raw(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r) noexcept:
-    # GIL held, on the loop thread. Hands the request to the route's `dispatch(raw, done)`, which must
-    # return quickly; the response is sent later through `done`. Never raises: a failing dispatch answers 500.
+cdef void _start_raw(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r, bint inline=False) noexcept:
+    # GIL held, on the loop thread (or, for inline=True, on the I/O thread holding the gate). Hands the request
+    # to the route's `dispatch(raw, done)` (a hybrid route's takes a third argument, `True` when inline),
+    # which must return quickly; the response is sent later through `done`. Never raises: a failing
+    # dispatch answers 500.
     done = _Done.__new__(_Done)
     (<_Done>done)._r = new cpp_responder(r)
     try:
-        (<object>ctx)(_new_raw(req), done)
+        if inline:
+            (<object>ctx)(_new_raw(req), done, True)
+        else:
+            (<object>ctx)(_new_raw(req), done)
     except BaseException:
         traceback.print_exc()
         try:
             done(500, b"Internal Server Error", [])
         except BaseException:
             pass
+
+
+cdef void _dispatch_hybrid(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r) noexcept nogil:
+    # Runs on the I/O thread (route_io). The inline path only when the loop thread is asleep and nothing
+    # else is running Python (see the gate comment); anything else is queued for the loop thread.
+    if not gate_try():
+        inbox_push(ctx, req, r)
+        return
+    httpp_py_pin_thread()
+    with gil:
+        _start_raw(ctx, req, r, True)
+    gate_unlock()
+
+
+def _gate_enter():
+    """Loop thread: take the gate (waits, without the GIL, while an inline handler runs on the I/O thread)."""
+    with nogil:
+        gate_loop_enter()
+
+
+def _gate_leave():
+    """Loop thread: give the gate up, just before sleeping in the selector."""
+    gate_loop_leave()
 
 
 def _attach_inbox(int wake_fd):
@@ -1057,6 +1171,16 @@ cdef class Server:
         self._handlers.append(dispatch)
         self._srv.route_io(method.encode("utf-8"), path.encode("utf-8"),
                            make_io_handler(_dispatch_inbox, <void*>dispatch))
+
+    def _add_raw_hybrid_route(self, str method, str path, dispatch):
+        """Like _add_raw_loop_route, for a handler that cannot suspend: `dispatch(raw, done, inline=False)`
+        runs on the I/O thread itself (inline=True) when the loop thread sleeps and no `def` handler runs,
+        and on the loop thread otherwise. Needs the loop to use httpp.server's _GatedSelector."""
+        if not callable(dispatch):
+            raise TypeError("dispatch must be callable")
+        self._handlers.append(dispatch)
+        self._srv.route_io(method.encode("utf-8"), path.encode("utf-8"),
+                           make_io_handler(_dispatch_hybrid, <void*>dispatch))
 
     # --- Hooks. Each one replaces the previous (like the C++ setters); httpp/server.py chains several. ---
     def set_before_hook(self, hook):

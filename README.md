@@ -154,6 +154,10 @@ Use `def` for CPU work and for blocking libraries (a database driver, `requests`
 runs on a pool thread, which is the faster path when the handler does nothing slow. Use `async def`
 when the handler mostly waits on the network and you can `await` it.
 
+An `async def` handler with no `await` at all (and no `Depends`) skips the hop to the event loop thread when the server is idle
+enough: it runs right on the I/O thread, while the loop thread sleeps and no `def` handler runs (Python 3.12+; ADR-0023). It gives the same
+answers as before; it only makes such handlers about 30 percent cheaper. A handler that awaits always runs on the loop thread.
+
 The difference shows when handlers wait. With a 10 ms wait per request (2 cores, Python 3.13, one
 run; see `benchmarks/io_bench.py`):
 

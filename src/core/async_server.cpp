@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <ctime>
 #include <mutex>
+#include <vector>
 #include <unordered_set>
 
 namespace httpp::detail {
@@ -110,9 +111,23 @@ const std::string& http_date() {
 struct poster {
     std::mutex mu;
     asio::io_context* io = nullptr;
+    std::vector<std::function<void()>> pending;  // answers waiting for the I/O thread
+    // ponytail: answers are batched. Only the push that finds `pending` empty posts a drain task, so a
+    // burst of answers costs one asio post (one allocation, one reactor wake) instead of one each.
     void post(std::function<void()> fn) {
         std::lock_guard<std::mutex> lk(mu);
-        if (io) asio::post(*io, std::move(fn));
+        if (!io) return;
+        const bool first = pending.empty();
+        pending.push_back(std::move(fn));
+        if (first) asio::post(*io, [this] { drain(); });
+    }
+    void drain() {
+        std::vector<std::function<void()>> batch;
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            batch.swap(pending);
+        }
+        for (auto& f : batch) f();
     }
 };
 
@@ -149,8 +164,12 @@ struct async_server::impl {
         poster_->io = &io;
     }
     ~impl() {
-        std::lock_guard<std::mutex> lk(poster_->mu);
-        poster_->io = nullptr;
+        std::vector<std::function<void()>> dropped;
+        {
+            std::lock_guard<std::mutex> lk(poster_->mu);
+            poster_->io = nullptr;
+            dropped.swap(poster_->pending);
+        }
     }
 
     void begin_close();

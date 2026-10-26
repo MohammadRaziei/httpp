@@ -7,6 +7,11 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+- Answers from other threads are batched into one Asio post per burst, which cuts the cost of the thread hop.
+- An `async def` handler that cannot suspend (no `await`, `async with` or `async for`, no `Depends`; Python 3.12+) runs on the I/O thread when the
+  loop thread is asleep and no `def` handler is running, so it skips the hop to the asyncio loop: 54.7k to 71.5k req/s on the `hello` benchmark
+  (2 cores, one box, interleaved). Handlers that await are unchanged. See [ADR-0023](docs/adr/0023-inline-async-handlers.md).
+
 ### Added
 - **`server::set_body_timeout(seconds)` and `Server(body_timeout=...)`**: the whole request body must arrive within this time after
   its head (default 120 s, `0` = no limit). Before, a body dripped one byte at a time was held only by the per-read `read_timeout`.
