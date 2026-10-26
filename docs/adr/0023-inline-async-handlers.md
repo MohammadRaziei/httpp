@@ -57,7 +57,23 @@ the kind of difference ADR-0022 allows.
   bounded by the switch interval (5 ms). Not covered.
 
 ## Not verified
-Windows and macOS. Free-threaded builds (3.14t) were not run with this change. TSan covers the C++ core only; this change touches none of it.
+Windows and macOS. Free-threaded Python 3.14t (GIL off) was run on 2026-10-26: the whole Python suite (618 passed, 3 skipped, the inline tests included) and `benchmarks/stress.py` (20 s, 8 threads: 57.9k good answers, 0 wrong, no traceback) are clean. On 3.14t a no-await `async def` (59.0k req/s) and a `def` (59.7k) are equal, as expected without a GIL; an awaiting `async def` gets 49.4k. TSan covers the C++ core only; the gate is in the Cython layer and is not covered by it.
 
 ## Related
 ADR-0009, ADR-0021, ADR-0022
+
+## Addendum: fewer allocations and frees on the other thread (2026-10-26)
+The handlers that await still pay the hop, so the cost of the hop was looked at again.
+- **Allocations.** A malloc counter (one keep-alive connection, 20000 requests) gave 21.1 per `route` request but about 30 per `route_async` /
+  `route_io` request. `responder::impl` had three `std::function` members and a wrapper closure around each way out; it now holds the way out,
+  the way to close, and the 504 backstop entry as plain members. That gives 22 to 23 per request.
+- **Where the memory is freed.** The per-request state is made on the I/O thread but was freed by whoever dropped the last reference, usually the
+  asyncio loop thread. `wire_response::keep` now carries the responder state to the I/O thread with the answer, so it is freed there.
+- **Bound (not shipped).** The same awaiting handler run with `LD_PRELOAD=libjemalloc.so.2` gave 58.0k against 50.6k req/s (+15 percent), but a `def`
+  route gained 3.9 percent and the inline `async def` 4.9 percent from jemalloc alone, so only about 10 percent of that is the cross-thread free.
+  httpp cannot ship an allocator (zero system dependencies).
+- **Result** (interleaved, awaiting `async def`, old wheel against new, 7 and 9 rounds of 5 s): 43.4k to 45.2k and 44.4k to 46.3k req/s (+4 percent),
+  CPU per request 25.7 to 23.5 and 25.1 to 23.2 us (-8 percent). The two runs agree, but the throughput gain is under the 5 percent noise line;
+  the CPU number is the steadier one. Kept because it also removes code (no closure around each way out).
+- **Not done.** The answer body is allocated on the loop thread and freed on the I/O thread, the mirror case. A body that fits the small-string
+  buffer (15 bytes) costs nothing, a bigger one does. Not measured separately.

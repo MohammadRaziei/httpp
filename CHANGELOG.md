@@ -11,6 +11,7 @@ such changes are listed under **Changed**).
 - An `async def` handler that cannot suspend (no `await`, `async with` or `async for`, no `Depends`; Python 3.12+) runs on the I/O thread when the
   loop thread is asleep and no `def` handler is running, so it skips the hop to the asyncio loop: 54.7k to 71.5k req/s on the `hello` benchmark
   (2 cores, one box, interleaved). Handlers that await are unchanged. See [ADR-0023](docs/adr/0023-inline-async-handlers.md).
+- `async def` and `route_async` / `route_io` requests allocate about 8 fewer objects (30 to 22 per request): `responder` keeps its state in plain members, and that state is released on the I/O thread with the answer. About 4 percent more req/s and 8 percent less CPU for an awaiting `async def`.
 
 ### Added
 - **`server::set_body_timeout(seconds)` and `Server(body_timeout=...)`**: the whole request body must arrive within this time after

@@ -143,28 +143,44 @@ struct mount_entry {
     std::string dir;
 };
 
-using send_fn = std::function<void(response, long long /*file offset*/, long long /*file length, -1 = all*/)>;
+// The way out of a request: (response, file offset, file length or -1 = all, what to release on the I/O thread afterwards).
+// The last argument is optional for callers.
+struct send_fn : std::function<void(response, long long, long long, std::shared_ptr<void>)> {
+    using base = std::function<void(response, long long, long long, std::shared_ptr<void>)>;
+    using base::base;
+    void operator()(response res, long long offset, long long length, std::shared_ptr<void> keep = {}) const {
+        base::operator()(std::move(res), offset, length, std::move(keep));
+    }
+};
 
 } // namespace
 
 struct responder::impl {
-    std::function<void(response)> sender;
-    std::function<void()> abandon;
-    std::function<void()> settle; // forget this request (it no longer waits for an answer); runs once
+    // One object per async request, one allocation of its own: the way out and the way to close are kept
+    // as they are (no wrapper closure around them), and the 504 backstop entry is a plain pointer and number.
+    send_fn send;                                   // hooks, then the engine
+    detail::async_server::answer_fn answer;         // to close the connection when every copy was dropped unanswered
+    std::shared_ptr<void> wait;                     // the list this request waits in (see server::impl::waiting)
+    std::uint64_t wait_id = 0;
+    void (*unwait)(void* list, std::uint64_t id) = nullptr; // forget this request (it no longer waits for an answer)
     std::atomic<bool> answered{false};
     std::atomic<bool> settled{false};
     void settle_once() {
-        if (settle && !settled.exchange(true)) settle();
+        if (unwait && !settled.exchange(true)) unwait(wait.get(), wait_id);
     }
     ~impl() {
-        if (!answered.load() && abandon) abandon(); // every copy dropped without an answer: close, say nothing
+        if (!answered.load() && answer) { // every copy dropped without an answer: close, say nothing
+            detail::wire_response none;
+            none.status = 0;
+            answer(std::move(none));
+        }
         settle_once();
     }
 };
 
 void responder::send(response res) const {
     if (!impl_ || impl_->answered.exchange(true)) return; // only the first answer counts
-    impl_->sender(std::move(res));
+    impl_->send(std::move(res), 0, -1, impl_); // impl_ rides along and is released on the I/O thread
     impl_->settle_once();
 }
 
@@ -326,15 +342,15 @@ struct server::impl {
     // The way out for every response: error handler, after hook, then the engine.
     send_fn make_sender(const std::shared_ptr<request>& req, detail::async_server::answer_fn answer) {
         std::weak_ptr<config> weak = cfg;
-        return [this, weak, req, answer = std::move(answer)](response res, long long offset, long long length) {
+        return [this, weak, req, answer = std::move(answer)](response res, long long offset, long long length, std::shared_ptr<void> keep) {
             auto c = weak.lock();
             if (!c) return; // the server is gone
             if ((c->error || c->after || c->compression.worth_a_thread(res)) && std::this_thread::get_id() == io_thread.load()) {
                 // A route_io handler answered on the spot. The hooks may block (Python code waits for
                 // the GIL) and compressing a big body takes a while; the I/O thread must never wait: a worker finishes the job.
                 auto* p = pool.load();
-                auto job = [this, weak, req, answer, res = std::move(res), offset, length]() mutable {
-                    make_sender(req, answer)(std::move(res), offset, length);
+                auto job = [this, weak, req, answer, res = std::move(res), offset, length, keep = std::move(keep)]() mutable {
+                    make_sender(req, answer)(std::move(res), offset, length, std::move(keep));
                 };
                 if (p && p->enqueue(job)) return;
                 // no pool (shutting down): carry on here rather than lose the answer
@@ -371,6 +387,7 @@ struct server::impl {
                 HTTPP_LOG(warning) << "after hook or response building failed (" << describe(std::current_exception()) << ") for " << req->method << ' ' << req->path << ": answering 500";
                 w = failure(500, "Internal Server Error");
             }
+            w.keep = std::move(keep);
             answer(std::move(w));
         };
     }
@@ -577,9 +594,12 @@ struct server::impl {
             if (!w->armed) w->armed = arm = true;
         }
         // erasing an id that a sweep already took out is harmless
-        state->settle = [w, id] {
-            std::lock_guard<std::mutex> lock(w->mu);
-            w->by_arrival.erase(id);
+        state->wait = w;
+        state->wait_id = id;
+        state->unwait = [](void* list, std::uint64_t at) {
+            auto* l = static_cast<waiting*>(list);
+            std::lock_guard<std::mutex> lock(l->mu);
+            l->by_arrival.erase(at);
         };
         if (arm) arm_sweep(deadline);
     }
@@ -674,7 +694,7 @@ struct server::impl {
     // (If such a handler answers on the spot, make_sender moves the after/error hooks to a worker.)
     void run(prepared pr, detail::async_server::answer_fn answer) {
         const std::shared_ptr<request>& req = pr.req;
-        const send_fn send = make_sender(req, answer);
+        send_fn send = make_sender(req, answer);
 
         bool handled = false;
         response early;
@@ -720,12 +740,8 @@ struct server::impl {
 
         // Asynchronous route: the handler may return at once; whoever holds the responder answers later.
         auto state = std::make_shared<responder::impl>();
-        state->sender = [send](response res) { send(std::move(res), 0, -1); };
-        state->abandon = [answer] {
-            detail::wire_response none;
-            none.status = 0; // close without an answer
-            answer(std::move(none));
-        };
+        state->send = std::move(send);
+        state->answer = std::move(answer);
         responder rsp;
         rsp.impl_ = state;
 

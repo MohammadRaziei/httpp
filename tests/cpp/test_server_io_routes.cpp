@@ -7,6 +7,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -313,4 +315,57 @@ UTEST(httpp_server_io, a_server_can_listen_again_and_the_timeout_still_works) {
     }
     ASSERT_EQ(504, statuses[0]);
     ASSERT_EQ(504, statuses[1]);
+}
+
+// The request and the responder are dropped on other threads than the one that made them, many at once.
+// Under ThreadSanitizer this also checks that whoever frees them hands them over safely.
+UTEST(httpp_server_io, requests_and_responders_dropped_on_other_threads_all_get_their_answer) {
+    constexpr int clients = 4, per_client = 150, workers = 3;
+    std::mutex mu;
+    std::condition_variable cv;
+    std::deque<std::pair<std::shared_ptr<const httpp::request>, httpp::responder>> jobs;
+    bool stop = false;
+    std::vector<std::thread> pool;
+    for (int i = 0; i < workers; ++i) {
+        pool.emplace_back([&] {
+            for (;;) {
+                std::unique_lock<std::mutex> lock(mu);
+                cv.wait(lock, [&] { return stop || !jobs.empty(); });
+                if (jobs.empty()) return;
+                auto job = std::move(jobs.front());
+                jobs.pop_front();
+                lock.unlock();
+                answer(job.second, 200, "n=" + job.first->path_param("n")); // then both are dropped here
+            }
+        });
+    }
+    std::atomic<int> good{0};
+    {
+        local_server srv([&](httpp::server& s) {
+            s.route_io("GET", "/n/:n", [&](std::shared_ptr<const httpp::request> req, httpp::responder r) {
+                {
+                    std::lock_guard<std::mutex> lock(mu);
+                    jobs.emplace_back(std::move(req), std::move(r));
+                }
+                cv.notify_one();
+            });
+        });
+        std::vector<std::thread> users;
+        for (int c = 0; c < clients; ++c) {
+            users.emplace_back([&, c] {
+                for (int i = 0; i < per_client; ++i) {
+                    const std::string n = std::to_string(c * 1000 + i);
+                    if (get(srv, "/n/" + n) == "n=" + n) ++good;
+                }
+            });
+        }
+        for (auto& t : users) t.join();
+    }
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        stop = true;
+    }
+    cv.notify_all();
+    for (auto& t : pool) t.join();
+    ASSERT_EQ(clients * per_client, good.load());
 }

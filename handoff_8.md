@@ -9,9 +9,14 @@ Read `handoff_7.md` for the working rules (they still apply), then `docs/adr/002
 - Numbers (interleaved, 2 cores): no-await `async def` 54.7k to 71.5k req/s; awaiting handler unchanged; mixed-app static file latency unchanged.
 - A first prototype (GIL on the I/O thread, no gate) was measured and rejected: static file p50 2 ms to 22 ms in a mixed app.
 
+- Allocation work (ADR-0023 addendum): `responder::impl` collapsed (30 to 22 mallocs per async request), `wire_response::keep` frees the state on the I/O thread.
+  Awaiting `async def` +4 percent req/s, -8 percent CPU (under the 5 percent noise line for req/s). C++ 288 of 288, also under TSan.
+  New C++ test: `requests_and_responders_dropped_on_other_threads_all_get_their_answer`.
+- jemalloc bound: +15 percent on the awaiting handler, only about 10 percent of that is cross-thread frees. The mirror case (answer body freed on the I/O thread) is untouched.
+
 ## Open
 1. Handlers that await still pay the hop. Options and why they are not done: ADR-0023 "Not done". Needs a measurement with a real handler first.
-2. Not verified: 3.14t with this change (run `tests/python` and `benchmarks/stress.py`), Windows and macOS (the selector wrapper and the mutex gate are portable in principle).
+2. Not verified: Windows and macOS (the selector wrapper and the mutex gate are portable in principle). 3.14t is done: suite 618 passed, stress clean (ADR-0023).
 3. Earlier list from hand-off 7, item 3 (FastAPI benchmark with dependencies, free-threading review, first batch of 8 blocking handlers, `listen()` signal wakeup fd, README items) is untouched.
 
 ## Tooling reminders

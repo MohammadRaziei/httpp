@@ -42,6 +42,10 @@ struct wire_response {
     // Runs once on a pool thread after the response has been written, or when the connection ended while writing it.
     // Never called for status 0 or when the server is gone. Exceptions are logged and dropped.
     std::function<void()> after_send;
+    // Whatever the caller wants released on the I/O thread once this answer has been handled there (or dropped).
+    // The server keeps its per-request memory in it, so that memory is freed by the thread that allocated it
+    // and not by the thread that answered (a free on another thread waits for the allocator's lock).
+    std::shared_ptr<void> keep;
 };
 
 class async_server {
