@@ -145,6 +145,7 @@ def test_a_failing_handler_answers_500_and_the_server_goes_on():
 
 
 @inline_only
+@pytest.mark.skipif(hasattr(sys, "_is_gil_enabled") and not sys._is_gil_enabled(), reason="without a GIL the I/O thread has nothing to wait for")
 def test_a_running_def_handler_keeps_the_io_thread_away_from_the_gil():
     app = make_app()
     with running(app) as base:

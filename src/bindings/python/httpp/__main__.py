@@ -36,7 +36,8 @@ def _cmd_run(args):
     from httpp import run
 
     try:
-        return run(args.app, args.host, args.port, workers=args.workers, reuse_port=args.reuse_port, log_level=args.log_level)
+        return run(args.app, args.host, args.port, workers=args.workers, reuse_port=args.reuse_port, log_level=args.log_level,
+                   io_threads=args.io_threads)
     except (ValueError, TypeError, OSError) as e:
         print(f"httpp: error: {e}", file=sys.stderr)
         return 1
@@ -195,6 +196,9 @@ def build_parser():
     p_run.add_argument("--workers", "-w", type=_workers_arg, default=1, metavar="N|auto",
                        help="processes sharing the port (Linux only); gets past the GIL. "
                             "'auto' = one per usable CPU (default 1)")
+    p_run.add_argument("--io-threads", type=int, default=None, metavar="N",
+                       help="I/O threads sharing the port inside each process (default 1); on a free-threaded Python "
+                            "each also gets its own asyncio loop")
     p_run.add_argument("--reuse-port", action="store_true", help="let other httpp processes share the port (Linux only)")
     p_run.add_argument("--log-level", choices=("trace", "debug", "info", "warning", "error", "off"), default=None)
     p_run.set_defaults(func=_cmd_run)

@@ -143,6 +143,9 @@ struct mount_entry {
     std::string dir;
 };
 
+// True on the threads that run an engine (the I/O threads) while the server listens.
+thread_local bool tl_on_io_thread = false;
+
 // The way out of a request: (response, file offset, file length or -1 = all, what to release on the I/O thread afterwards).
 // The last argument is optional for callers.
 struct send_fn : std::function<void(response, long long, long long, std::shared_ptr<void>)> {
@@ -241,13 +244,18 @@ struct server::impl {
     };
     std::shared_ptr<waiting> wait = std::make_shared<waiting>();
 
-    std::unique_ptr<detail::async_server> engine;
+    // One engine per I/O thread. engines[0] is the one that runs on the thread that calls listen, owns the timers
+    // (`engine`), and is the only one before set_io_threads() is called. Every setting that reaches an engine is
+    // remembered in `applied` and replayed on engines made later.
+    std::vector<std::unique_ptr<detail::async_server>> engines;
+    detail::async_server* engine = nullptr; // engines[0]
+    std::vector<std::function<void(detail::async_server&)>> applied;
+    std::size_t max_conn_total = 0; // 0 = no limit; shared out over the engines
     std::atomic<detail::worker_pool*> pool{nullptr}; // alive only while listening
     std::size_t io_route_count = 0;                  // routes added with route_io (set before listening)
-    std::atomic<std::thread::id> io_thread{};        // the thread running the engine while listening
 
-    impl() {
-        engine = std::make_unique<detail::async_server>(
+    std::unique_ptr<detail::async_server> make_engine() {
+        auto e = std::make_unique<detail::async_server>(
             detail::async_server::options{},
             [this](detail::http_request r, detail::async_server::answer_fn answer) {
                 return on_request(std::move(r), std::move(answer));
@@ -256,6 +264,41 @@ struct server::impl {
                 auto* p = pool.load();
                 return p && p->enqueue(std::move(job));
             });
+        for (auto& f : applied) f(*e);
+        return e;
+    }
+    // Applies a setting to every engine, now and on the ones made later.
+    template <class F>
+    void configure(F f) {
+        for (auto& e : engines) f(*e);
+        applied.push_back(std::move(f));
+    }
+    void share_max_connections() {
+        const std::size_t n = engines.size();
+        const std::size_t each = max_conn_total == 0 ? 0 : (max_conn_total + n - 1) / n;
+        for (auto& e : engines) e->set_max_connections(each);
+    }
+    // Binds every engine to the same port. Falls back to one engine when the others cannot share it.
+    int bind_all(const std::string& host, int port) {
+        if (engines.size() > 1) {
+            for (auto& e : engines) e->set_reuse_port(true);
+        }
+        const int bound = engines[0]->bind(host, port);
+        if (bound < 0) return bound;
+        for (std::size_t i = 1; i < engines.size(); ++i) {
+            if (engines[i]->bind(host, bound) < 0) {
+                HTTPP_LOG(warning) << "the port cannot be shared between I/O threads here: using one I/O thread";
+                engines.resize(1);
+                break;
+            }
+        }
+        share_max_connections();
+        return bound;
+    }
+
+    impl() {
+        engines.push_back(make_engine());
+        engine = engines[0].get();
     }
 
     // ---- request ----
@@ -345,7 +388,7 @@ struct server::impl {
         return [this, weak, req, answer = std::move(answer)](response res, long long offset, long long length, std::shared_ptr<void> keep) {
             auto c = weak.lock();
             if (!c) return; // the server is gone
-            if ((c->error || c->after || c->compression.worth_a_thread(res)) && std::this_thread::get_id() == io_thread.load()) {
+            if ((c->error || c->after || c->compression.worth_a_thread(res)) && tl_on_io_thread) {
                 // A route_io handler answered on the spot. The hooks may block (Python code waits for
                 // the GIL) and compressing a big body takes a while; the I/O thread must never wait: a worker finishes the job.
                 auto* p = pool.load();
@@ -844,15 +887,27 @@ server& server::set_thread_pool(std::size_t base, std::size_t max) {
     impl_->pool_max = max;
     return *this;
 }
-server& server::set_read_timeout(int seconds) { impl_->engine->set_read_timeout(seconds); return *this; }
-server& server::set_write_timeout(int seconds) { impl_->engine->set_write_timeout(seconds); return *this; }
-server& server::set_keep_alive_timeout(int seconds) { impl_->engine->set_keep_alive_timeout(seconds); return *this; }
-server& server::set_keep_alive_max(std::size_t requests) { impl_->engine->set_keep_alive_max(requests); return *this; }
-server& server::set_max_body(std::size_t bytes) { impl_->engine->set_max_body(bytes); return *this; }
-server& server::set_header_timeout(int seconds) { impl_->engine->set_header_timeout(seconds); return *this; }
-server& server::set_body_timeout(int seconds) { impl_->engine->set_body_timeout(seconds); return *this; }
-server& server::set_max_connections(std::size_t n) { impl_->engine->set_max_connections(n); return *this; }
-server& server::set_reuse_port(bool on) { impl_->engine->set_reuse_port(on); return *this; }
+server& server::set_read_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_read_timeout(seconds); }); return *this; }
+server& server::set_write_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_write_timeout(seconds); }); return *this; }
+server& server::set_keep_alive_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_keep_alive_timeout(seconds); }); return *this; }
+server& server::set_keep_alive_max(std::size_t requests) { impl_->configure([requests](detail::async_server& e) { e.set_keep_alive_max(requests); }); return *this; }
+server& server::set_max_body(std::size_t bytes) { impl_->configure([bytes](detail::async_server& e) { e.set_max_body(bytes); }); return *this; }
+server& server::set_header_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_header_timeout(seconds); }); return *this; }
+server& server::set_body_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_body_timeout(seconds); }); return *this; }
+server& server::set_max_connections(std::size_t n) { impl_->max_conn_total = n; impl_->share_max_connections(); return *this; }
+server& server::set_reuse_port(bool on) { impl_->configure([on](detail::async_server& e) { e.set_reuse_port(on); }); return *this; }
+server& server::set_io_threads(std::size_t n) {
+#ifdef _WIN32
+    n = 1; // no SO_REUSEPORT to share the port with
+#endif
+    if (n == 0) n = 1;
+    if (n > 256) n = 256;
+    while (impl_->engines.size() < n) impl_->engines.push_back(impl_->make_engine());
+    impl_->engines.resize(n);
+    impl_->engine = impl_->engines[0].get();
+    impl_->share_max_connections();
+    return *this;
+}
 server& server::set_compression(std::size_t min_size, int level) {
     impl_->cfg->compression.configure(min_size, level);
     return *this;
@@ -870,7 +925,7 @@ void server::serve_directory(const std::string& mount_path, const std::string& l
 }
 
 int server::bind_to_any_port(const std::string& host) {
-    const int port = impl_->engine->bind(host, 0);
+    const int port = impl_->bind_all(host, 0);
     if (port >= 0) { HTTPP_LOG(info) << "listening on http://" << host << ':' << port; }
     return port;
 }
@@ -880,21 +935,34 @@ bool server::listen_after_bind() {
     const std::size_t max = impl_->pool_max ? impl_->pool_max : base * 4;
     detail::worker_pool pool(base, max);
     impl_->pool = &pool;
-    impl_->io_thread = std::this_thread::get_id(); // the engine's loop runs on this very thread
     {
         std::lock_guard<std::mutex> lock(impl_->wait->mu); // a previous run's timer died with its loop
         impl_->wait->by_arrival.clear();
         impl_->wait->armed = false;
     }
-    const bool ok = impl_->engine->run(); // returns after stop()
-    impl_->io_thread = std::thread::id{};
+    // The other I/O threads; this thread runs engines[0] (and owns the timers).
+    std::vector<std::thread> more;
+    std::atomic<bool> others_ok{true};
+    for (std::size_t i = 1; i < impl_->engines.size(); ++i) {
+        detail::async_server* e = impl_->engines[i].get();
+        more.emplace_back([e, &others_ok] {
+            tl_on_io_thread = true;
+            if (!e->run()) others_ok = false;
+            tl_on_io_thread = false;
+        });
+    }
+    tl_on_io_thread = true; // the engine's loop runs on this very thread
+    const bool ok = impl_->engines[0]->run(); // returns after stop()
+    tl_on_io_thread = false;
+    for (auto& e : impl_->engines) e->stop(); // if this one ended on its own, the others must end too
+    for (auto& t : more) t.join();
     impl_->pool = nullptr;
     pool.shutdown(); // joins the workers
-    return ok;
+    return ok && others_ok.load();
 }
 
 bool server::listen(const std::string& host, int port) {
-    const int bound = impl_->engine->bind(host, port);
+    const int bound = impl_->bind_all(host, port);
     if (bound < 0) {
         HTTPP_LOG(error) << "cannot listen on " << host << ':' << port;
         return false;
@@ -903,6 +971,6 @@ bool server::listen(const std::string& host, int port) {
     return listen_after_bind();
 }
 
-void server::stop() { impl_->engine->stop(); }
+void server::stop() { for (auto& e : impl_->engines) e->stop(); }
 
 } // namespace httpp

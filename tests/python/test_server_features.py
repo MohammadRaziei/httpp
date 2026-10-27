@@ -13,6 +13,11 @@ import pytest
 import httpp
 from httpp import Request, ResponseHead, Server
 from httpp.httpp_cy import Server as RawServer
+import httpp.server as server_mod
+
+
+def pending_deadlines():
+    return sum(len(ln.deadlines.pending) for ln in server_mod._lanes)
 
 
 @contextmanager
@@ -908,6 +913,7 @@ def test_finished_async_requests_leave_no_deadline_behind():
         await asyncio.sleep(0.2)
         return "late"
 
+    before = pending_deadlines()
     port = app.bind_to_any_port("127.0.0.1")
     th = threading.Thread(target=app.listen_after_bind)
     th.start()
@@ -917,7 +923,7 @@ def test_finished_async_requests_leave_no_deadline_behind():
             assert Request(f"http://127.0.0.1:{port}/fast").run().body == "ok"
         assert Request(f"http://127.0.0.1:{port}/slow").run().body == "late"
         time.sleep(0.05)
-        assert len(app._deadlines.pending) == 0
+        assert pending_deadlines() == before  # the lanes are shared by every server of the process
     finally:
         app.stop()
         th.join()
@@ -942,6 +948,7 @@ def test_async_requests_that_finish_at_once_or_fail_leave_no_task_behind():
         await asyncio.sleep(0.1)
         return "late"
 
+    dl_before = pending_deadlines()
     port = app.bind_to_any_port("127.0.0.1")
     th = threading.Thread(target=app.listen_after_bind)
     th.start()
@@ -954,7 +961,7 @@ def test_async_requests_that_finish_at_once_or_fail_leave_no_task_behind():
         assert Request(f"http://127.0.0.1:{port}/slow").run().body == "late"
         time.sleep(0.05)
         assert not (set(srv._tasks) - before)
-        assert len(app._deadlines.pending) == 0
+        assert pending_deadlines() == dl_before  # the lanes are shared by every server of the process
     finally:
         app.stop()
         th.join()

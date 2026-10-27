@@ -115,6 +115,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cpp_server& set_max_connections(size_t n) except +
         cpp_server& set_async_timeout(int seconds) except +
         cpp_server& set_reuse_port(cbool on) except +
+        cpp_server& set_io_threads(size_t n) except +
         int bind_to_any_port(string host) except +
         cbool listen_after_bind() except + nogil
         cbool listen(string host, int port) except + nogil
@@ -214,35 +215,63 @@ cdef extern from *:
     """
     #include <atomic>
     #include <mutex>
-    struct httpp_py_gate {
+    // A "lane" is one I/O thread together with one asyncio loop thread: its own inbox, its own gate. With a GIL
+    // there is a single lane (more loops would only fight for it); on a free-threaded Python there is one per
+    // I/O thread. An I/O thread always feeds the lane it was given the first time it dispatched a request.
+    static constexpr int HTTPP_PY_MAX_LANES = 64;
+    struct httpp_py_gate_lane {
         std::mutex m;
         std::atomic<bool> loop_waits{false};
+    };
+    struct httpp_py_state {
+        httpp_py_gate_lane gates[HTTPP_PY_MAX_LANES];
+        std::atomic<int> nlanes{1};
+        std::atomic<int> next_lane{0};
         std::atomic<int> busy{0};
+        std::atomic<bool> gil_free{false};
     };
     // Leaked on purpose: a late call during interpreter exit must still find it alive.
-    static httpp_py_gate& httpp_py_gate_get() { static httpp_py_gate* g = new httpp_py_gate; return *g; }
-    static void httpp_py_busy_enter() { ++httpp_py_gate_get().busy; }
-    static void httpp_py_busy_exit() { --httpp_py_gate_get().busy; }
-    static bool httpp_py_gate_try() {
-        auto& g = httpp_py_gate_get();
-        if (g.loop_waits.load() || g.busy.load() != 0) return false;
+    static httpp_py_state& httpp_py_st() { static httpp_py_state* g = new httpp_py_state; return *g; }
+    static void httpp_py_busy_enter() { ++httpp_py_st().busy; }
+    static void httpp_py_busy_exit() { --httpp_py_st().busy; }
+    static void httpp_py_set_lanes(int n, bool gil_free) {
+        auto& st = httpp_py_st();
+        if (n < 1) n = 1;
+        if (n > HTTPP_PY_MAX_LANES) n = HTTPP_PY_MAX_LANES;
+        st.nlanes = n;
+        st.next_lane = 0; // the I/O threads of the next listen() start again from lane 0
+        st.gil_free = gil_free;
+    }
+    static int httpp_py_my_lane() {
+        static thread_local int lane = -1;
+        auto& st = httpp_py_st();
+        if (lane < 0) lane = st.next_lane++;
+        return lane % st.nlanes.load();
+    }
+    static bool httpp_py_gate_try(int lane) {
+        auto& st = httpp_py_st();
+        auto& g = st.gates[lane];
+        if (g.loop_waits.load()) return false;
+        if (!st.gil_free.load() && st.busy.load() != 0) return false;
         return g.m.try_lock();
     }
-    static void httpp_py_gate_unlock() { httpp_py_gate_get().m.unlock(); }
-    static void httpp_py_gate_loop_enter() {
-        auto& g = httpp_py_gate_get();
+    static void httpp_py_gate_unlock(int lane) { httpp_py_st().gates[lane].m.unlock(); }
+    static void httpp_py_gate_loop_enter(int lane) {
+        auto& g = httpp_py_st().gates[lane];
         g.loop_waits = true;
         g.m.lock();
         g.loop_waits = false;
     }
-    static void httpp_py_gate_loop_leave() { httpp_py_gate_get().m.unlock(); }
+    static void httpp_py_gate_loop_leave(int lane) { httpp_py_st().gates[lane].m.unlock(); }
     """
     void busy_enter "httpp_py_busy_enter"() noexcept nogil
     void busy_exit "httpp_py_busy_exit"() noexcept nogil
-    bint gate_try "httpp_py_gate_try"() noexcept nogil
-    void gate_unlock "httpp_py_gate_unlock"() noexcept nogil
-    void gate_loop_enter "httpp_py_gate_loop_enter"() noexcept nogil
-    void gate_loop_leave "httpp_py_gate_loop_leave"() noexcept nogil
+    void set_lanes_c "httpp_py_set_lanes"(int n, bint gil_free) noexcept nogil
+    int my_lane "httpp_py_my_lane"() noexcept nogil
+    bint gate_try "httpp_py_gate_try"(int lane) noexcept nogil
+    void gate_unlock "httpp_py_gate_unlock"(int lane) noexcept nogil
+    void gate_loop_enter "httpp_py_gate_loop_enter"(int lane) noexcept nogil
+    void gate_loop_leave "httpp_py_gate_loop_leave"(int lane) noexcept nogil
     void reset_response "httpp_py_reset"(response& res)
     void set_stream "httpp_py_set_stream"(response& res, stream_fn next, release_fn release, void* ctx)
 
@@ -973,11 +1002,11 @@ cdef extern from *:
         bool armed = false;               // a wake byte is on its way (or the loop is draining)
         std::atomic<long long> wake_fd{-1};
     };
-    // Leaked on purpose: a late push during interpreter exit must still find it alive.
-    static httpp_py_inbox& httpp_py_box() { static httpp_py_inbox* b = new httpp_py_inbox; return *b; }
-    static void httpp_py_inbox_attach(int fd) { httpp_py_box().wake_fd = fd; }
-    static void httpp_py_inbox_push(void* ctx, std::shared_ptr<const httpp::request> q, const httpp::responder& r) {
-        auto& b = httpp_py_box();
+    // Leaked on purpose: a late push during interpreter exit must still find it alive. One inbox per lane.
+    static httpp_py_inbox& httpp_py_box(int lane) { static httpp_py_inbox* b = new httpp_py_inbox[64]; return b[lane]; }
+    static void httpp_py_inbox_attach(int lane, int fd) { httpp_py_box(lane).wake_fd = fd; }
+    static void httpp_py_inbox_push(int lane, void* ctx, std::shared_ptr<const httpp::request> q, const httpp::responder& r) {
+        auto& b = httpp_py_box(lane);
         bool wake = false;
         {
             std::lock_guard<std::mutex> lock(b.mu);
@@ -1001,8 +1030,8 @@ cdef extern from *:
     }
     // Moves up to `max` queued items into `out` under ONE lock. Returns 0 (and disarms, atomically with the
     // emptiness check) when nothing is left. A lock per item cost about 2.5 us per request under load.
-    static std::size_t httpp_py_inbox_pop_many(std::vector<httpp_py_item>& out, std::size_t max) {
-        auto& b = httpp_py_box();
+    static std::size_t httpp_py_inbox_pop_many(int lane, std::vector<httpp_py_item>& out, std::size_t max) {
+        auto& b = httpp_py_box(lane);
         std::lock_guard<std::mutex> lock(b.mu);
         if (b.q.empty()) { b.armed = false; return 0; }
         std::size_t n = 0;
@@ -1015,26 +1044,26 @@ cdef extern from *:
         shared_ptr[const cpp_request] req
         cpp_responder rsp
         inbox_item()
-    void inbox_attach "httpp_py_inbox_attach"(int fd) nogil
-    void inbox_push "httpp_py_inbox_push"(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r) nogil
-    size_t inbox_pop_many "httpp_py_inbox_pop_many"(vector[inbox_item]& out, size_t maxn) nogil
+    void inbox_attach "httpp_py_inbox_attach"(int lane, int fd) nogil
+    void inbox_push "httpp_py_inbox_push"(int lane, void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r) nogil
+    size_t inbox_pop_many "httpp_py_inbox_pop_many"(int lane, vector[inbox_item]& out, size_t maxn) nogil
 
 
 cdef void _dispatch_inbox(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r) noexcept nogil:
-    # Runs on the I/O thread (route_io): queue the request for the asyncio loop. No GIL, no copy.
-    inbox_push(ctx, req, r)
+    # Runs on an I/O thread (route_io): queue the request for that thread's asyncio loop. No GIL, no copy.
+    inbox_push(my_lane(), ctx, req, r)
 
 
-cdef void _start_raw(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r, bint inline=False) noexcept:
-    # GIL held, on the loop thread (or, for inline=True, on the I/O thread holding the gate). Hands the request
-    # to the route's `dispatch(raw, done)` (a hybrid route's takes a third argument, `True` when inline),
-    # which must return quickly; the response is sent later through `done`. Never raises: a failing
+cdef void _start_raw(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r, bint inline=False, int lane=0) noexcept:
+    # GIL held, on a loop thread (or, for inline=True, on an I/O thread holding that lane's gate). Hands the
+    # request to the route's `dispatch(raw, done)` (a hybrid route's takes two more arguments, `inline` and
+    # `lane`), which must return quickly; the response is sent later through `done`. Never raises: a failing
     # dispatch answers 500.
     done = _Done.__new__(_Done)
     (<_Done>done)._r = new cpp_responder(r)
     try:
         if inline:
-            (<object>ctx)(_new_raw(req), done, True)
+            (<object>ctx)(_new_raw(req), done, True, lane)
         else:
             (<object>ctx)(_new_raw(req), done)
     except BaseException:
@@ -1046,34 +1075,40 @@ cdef void _start_raw(void* ctx, shared_ptr[const cpp_request] req, const cpp_res
 
 
 cdef void _dispatch_hybrid(void* ctx, shared_ptr[const cpp_request] req, const cpp_responder& r) noexcept nogil:
-    # Runs on the I/O thread (route_io). The inline path only when the loop thread is asleep and nothing
-    # else is running Python (see the gate comment); anything else is queued for the loop thread.
-    if not gate_try():
-        inbox_push(ctx, req, r)
+    # Runs on an I/O thread (route_io). The inline path only when that thread's loop is asleep and (with a GIL)
+    # nothing else is running Python (see the gate comment); anything else is queued for the loop thread.
+    cdef int lane = my_lane()
+    if not gate_try(lane):
+        inbox_push(lane, ctx, req, r)
         return
     httpp_py_pin_thread()
     with gil:
-        _start_raw(ctx, req, r, True)
-    gate_unlock()
+        _start_raw(ctx, req, r, True, lane)
+    gate_unlock(lane)
 
 
-def _gate_enter():
-    """Loop thread: take the gate (waits, without the GIL, while an inline handler runs on the I/O thread)."""
+def _gate_enter(int lane=0):
+    """Loop thread: take the lane's gate (waits, without the GIL, while an inline handler runs on the I/O thread)."""
     with nogil:
-        gate_loop_enter()
+        gate_loop_enter(lane)
 
 
-def _gate_leave():
+def _gate_leave(int lane=0):
     """Loop thread: give the gate up, just before sleeping in the selector."""
-    gate_loop_leave()
+    gate_loop_leave(lane)
 
 
-def _attach_inbox(int wake_fd):
-    """Tell the inbox which socket to poke when requests arrive (the loop watches its other end)."""
-    inbox_attach(wake_fd)
+def _set_lanes(int n, bint gil_free):
+    """Before listening: how many lanes (I/O thread + loop thread pairs) the I/O threads are spread over."""
+    set_lanes_c(n, gil_free)
 
 
-def _drain_inbox(int budget=256):
+def _attach_inbox(int lane, int wake_fd):
+    """Tell the lane's inbox which socket to poke when requests arrive (the loop watches its other end)."""
+    inbox_attach(lane, wake_fd)
+
+
+def _drain_inbox(int lane=0, int budget=256):
     """Loop thread, GIL held: dispatch up to `budget` queued requests. True if some may remain, so
     the caller should call again after letting other callbacks run (a huge burst must not starve them).
     The batch is taken WITH the GIL held on purpose: the mutex is only ever held for a moment and never
@@ -1082,7 +1117,7 @@ def _drain_inbox(int budget=256):
     cdef size_t left = <size_t>budget
     cdef size_t n, i
     while left > 0:
-        n = inbox_pop_many(batch, left)  # 0 means empty, and the inbox is disarmed
+        n = inbox_pop_many(lane, batch, left)  # 0 means empty, and the inbox is disarmed
         if n == 0:
             return False
         for i in range(n):
@@ -1276,6 +1311,12 @@ cdef class Server:
         """Several processes may listen on one port, the kernel balancing between them (Linux only;
         listen() then fails elsewhere). Used by `run(workers=N)`."""
         self._srv.set_reuse_port(on)
+        return self
+
+    def set_io_threads(self, size_t n):
+        """How many I/O threads read, parse and answer (default 1); each has its own acceptor on the same port
+        (needs SO_REUSEPORT; without it the server keeps one). Before listening."""
+        self._srv.set_io_threads(n)
         return self
 
     def bind_to_any_port(self, str host):

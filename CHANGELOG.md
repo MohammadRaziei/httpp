@@ -14,6 +14,12 @@ such changes are listed under **Changed**).
 - `async def` and `route_async` / `route_io` requests allocate about 8 fewer objects (30 to 22 per request): `responder` keeps its state in plain members, and that state is released on the I/O thread with the answer. About 4 percent more req/s and 8 percent less CPU for an awaiting `async def`.
 
 ### Added
+- **`server::set_io_threads(n)`, `Server(io_threads=N)` and `httpp run --io-threads N`**: several I/O threads share the port (one engine and
+  one acceptor each, `SO_REUSEPORT`; not on Windows, which keeps one). On a free-threaded Python every I/O thread also gets its own asyncio
+  loop thread, so `async def` handlers use several cores; with a GIL there is still one loop. Default 1. See
+  [ADR-0024](docs/adr/0024-io-threads-and-lanes.md). Not yet measured on a many-core machine: `benchmarks/Makefile`.
+- **`benchmarks/Makefile`** (`make bench`): builds venvs for 3.13, 3.14 and 3.14t, the C++ benchmark server and `oha`, then compares
+  uvicorn, httpp `def` / `async def` / `await` and the C++ API at several I/O thread counts into one text file.
 - **`server::set_body_timeout(seconds)` and `Server(body_timeout=...)`**: the whole request body must arrive within this time after
   its head (default 120 s, `0` = no limit). Before, a body dripped one byte at a time was held only by the per-read `read_timeout`.
 - **`server::set_compression(min_size, level = 1)` and `Server(compression=..., compression_level=...)`**: gzip for text answers

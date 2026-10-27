@@ -226,6 +226,13 @@ public:
     // (SO_REUSEPORT: Linux only; elsewhere listening fails). Off by default, because it also lets an
     // unrelated process of the same user bind the port silently.
     HTTPP_API server& set_reuse_port(bool on);
+    // How many I/O threads read, parse and answer (default 1). Each runs its own event loop and its own
+    // acceptor on the same port (SO_REUSEPORT), the kernel spreads new connections over them, and a
+    // connection stays on its thread for good, so the requests of one connection never overlap. route_io
+    // handlers run on these threads. Needs SO_REUSEPORT (Linux, macOS, BSD): where it is missing, or the bind
+    // fails, the server keeps one thread. Setting it turns reuse_port on (see above for the catch).
+    // set_max_connections is then a total, shared out evenly. Call before listening.
+    HTTPP_API server& set_io_threads(std::size_t n);
 
 private:
     struct impl;

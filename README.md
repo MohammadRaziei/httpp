@@ -301,6 +301,7 @@ app = Server(threads=8, read_timeout=10, max_body=5_000_000, handler_timeout=30)
 | `header_timeout` | seconds the whole request head (request line and headers) may take, however slowly it is dripped (default 10, `0` = no limit): the slowloris guard. |
 | `body_timeout` | the same guard for the request body, counted from the end of the head (default 120, `0` = no limit) |
 | `compression` | gzip text answers (`text/*`, JSON, XML, JavaScript, SVG) of at least this many bytes, for clients that send `Accept-Encoding: gzip` (default: off). `compression_level` is 1 (fastest, default) to 9. Files, streams and already encoded bodies are left alone; a `Vary: Accept-Encoding` header is added |
+| `io_threads` | I/O threads sharing the port (default 1; not on Windows). On a free-threaded Python each also gets an asyncio loop of its own |
 | `max_connections` | open connections allowed at once; one more gets a **503** and is closed (default: no limit) |
 | `handler_timeout` | seconds an `async def` handler may take (default **60**, `None` = never): after that the coroutine is **cancelled** and the client gets a **504** |
 

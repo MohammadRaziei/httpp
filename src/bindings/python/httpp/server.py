@@ -63,7 +63,7 @@ import traceback
 
 from . import _background, _forms, _log, _params, _router, _schema
 from . import _validate as V
-from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, parse_form as _parse_form
+from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, _set_lanes, parse_form as _parse_form
 from .models import BaseModel, to_jsonable
 from .responses import HTTPException, Response as _ResponseBase
 
@@ -655,70 +655,99 @@ def _skipped(call, host, port):
         f"httpp: ignoring app.{call}({host!r}, {port!r}): `httpp run` decides host, port and workers "
         f"(call it under `if __name__ == \"__main__\":` to keep both ways working)\n")
     sys.stderr.flush()
-_loop = None
+_loop = None  # lane 0's loop: what code outside the lanes (a sync handler calling an async one) uses
 _loop_lock = threading.Lock()
-_wake = None  # (reader, writer) socket pair kept alive for the loop's whole life
+_lanes = []  # one per I/O thread on a free-threaded Python, else just one
 _tasks = set()  # the loop only holds weak references to tasks; this keeps running handlers alive
-_base_context = None  # the loop thread's context: a request handled on the I/O thread starts from a copy of it
 _set_running_loop = asyncio.events._set_running_loop
-
-
-class _GatedSelector(selectors.DefaultSelector):
-    """The loop's selector. While the loop thread sleeps in it, the gate is open: the I/O thread may then run a
-    handler that cannot suspend right on the spot (httpp_cy `_dispatch_hybrid`), which is exactly like running
-    it on the loop thread between two iterations: nothing else runs asyncio code at that moment, so the
-    "code between two awaits is atomic" rule that asyncio programs rely on still holds."""
-
-    def select(self, timeout=None):
-        _gate_leave()
-        try:
-            return super().select(timeout)
-        finally:
-            _gate_enter()  # waits (GIL released) while the I/O thread is running a handler
 _EAGER = sys.version_info >= (3, 12)  # asyncio.Task(..., eager_start=True) exists
 
 
-def _get_loop():
-    """The one event loop all async handlers run on (started on first use).
+class _Lane:
+    """An asyncio loop thread with its own inbox (C++ side), gate, wake socket and deadlines. An I/O thread feeds one lane."""
 
-    Requests for `async def` routes arrive through the C++ inbox: a C++ thread queues the request
-    and pokes `_wake`, this loop wakes up and dispatches the whole burst while holding the GIL once.
-    """
-    global _loop, _wake
+    __slots__ = ("index", "loop", "wake", "base_context", "deadlines")
+
+    def __init__(self, index):
+        self.index = index
+        self.loop = None
+        self.wake = None  # (reader, writer) socket pair kept alive for the loop's whole life
+        self.base_context = None  # the loop thread's context: a request handled on the I/O thread starts from a copy of it
+        self.deadlines = None
+
+
+class _GatedSelector(selectors.DefaultSelector):
+    """The loop's selector. While the loop thread sleeps in it, the lane's gate is open: the I/O thread may then run
+    a handler that cannot suspend right on the spot (httpp_cy `_dispatch_hybrid`), which is exactly like running
+    it on the loop thread between two iterations: nothing else runs asyncio code at that moment, so the
+    "code between two awaits is atomic" rule that asyncio programs rely on still holds."""
+
+    def __init__(self, lane):
+        super().__init__()
+        self._lane = lane
+
+    def select(self, timeout=None):
+        _gate_leave(self._lane)
+        try:
+            return super().select(timeout)
+        finally:
+            _gate_enter(self._lane)  # waits (GIL released) while the I/O thread is running a handler
+
+
+def _make_lane(index):
+    lane = _Lane(index)
+    # A selector loop on every platform: the default Proactor loop on Windows has no add_reader.
+    loop = asyncio.SelectorEventLoop(_GatedSelector(index))
+    loop._httpp_lane = lane
+    reader, writer = socket.socketpair()
+    reader.setblocking(False)
+    writer.setblocking(False)
+
+    def drain():
+        if _drain_inbox(index):  # a big burst: let the loop breathe, then go on
+            loop.call_soon(drain)
+
+    def on_wake():
+        try:
+            reader.recv(4096)  # the byte only means "look at the inbox"
+        except BlockingIOError:
+            pass
+        drain()
+
+    loop.add_reader(reader.fileno(), on_wake)  # fine before run_forever: the loop isn't running yet
+    lane.loop, lane.wake, lane.deadlines = loop, (reader, writer), _Deadlines()
+    _attach_inbox(index, writer.fileno())
+
+    def run():
+        _gate_enter(index)  # held from now on, except while sleeping in the selector
+        lane.base_context = contextvars.copy_context()
+        asyncio.set_event_loop(loop)
+        loop.run_forever()
+
+    threading.Thread(target=run, name="httpp-asyncio" if index == 0 else f"httpp-asyncio-{index}", daemon=True).start()
+    loop.call_soon_threadsafe(drain)  # requests queued before the inbox was attached
+    return lane
+
+
+def _ensure_lanes(n):
+    """At least n lanes exist (started on first use). Requests for `async def` routes arrive through the C++ inbox of
+    their lane: a C++ thread queues the request and pokes the lane's wake socket, the loop wakes up and dispatches the
+    whole burst while holding the GIL once."""
+    global _loop
     with _loop_lock:
-        if _loop is None:
-            # A selector loop on every platform: the default Proactor loop on Windows has no add_reader.
-            loop = asyncio.SelectorEventLoop(_GatedSelector())
-            reader, writer = socket.socketpair()
-            reader.setblocking(False)
-            writer.setblocking(False)
+        while len(_lanes) < max(1, n):
+            _lanes.append(_make_lane(len(_lanes)))
+        _loop = _lanes[0].loop
+        return _lanes
 
-            def drain():
-                if _drain_inbox():  # a big burst: let the loop breathe, then go on
-                    loop.call_soon(drain)
 
-            def on_wake():
-                try:
-                    reader.recv(4096)  # the byte only means "look at the inbox"
-                except BlockingIOError:
-                    pass
-                drain()
+def _get_loop():
+    """The first loop (lane 0), started on first use."""
+    return _ensure_lanes(1)[0].loop
 
-            loop.add_reader(reader.fileno(), on_wake)  # fine before run_forever: the loop isn't running yet
-            _wake = (reader, writer)
-            _attach_inbox(writer.fileno())
 
-            def run():
-                global _base_context
-                _gate_enter()  # held from now on, except while sleeping in the selector
-                _base_context = contextvars.copy_context()
-                asyncio.set_event_loop(loop)
-                loop.run_forever()
-
-            threading.Thread(target=run, name="httpp-asyncio", daemon=True).start()
-            loop.call_soon_threadsafe(drain)  # requests queued before the inbox was attached
-            _loop = loop
-        return _loop
+def _gil_free():
+    return hasattr(sys, "_is_gil_enabled") and not sys._is_gil_enabled()
 
 
 _SUSPENDING = frozenset({"GET_AWAITABLE", "SEND", "YIELD_FROM", "YIELD_VALUE", "GET_AITER", "GET_ANEXT",
@@ -797,7 +826,7 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
     async def run(raw, done):
         task = asyncio.current_task()
         loop = asyncio.get_running_loop()
-        deadlines = app._deadlines
+        deadlines = loop._httpp_lane.deadlines
         try:
             kwargs, early = prepare(raw)
             if early is not None:
@@ -842,26 +871,27 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                 traceback.print_exc()
                 done(500, b"Internal Server Error", [])
 
-    def dispatch(raw, done, inline=False):
+    def dispatch(raw, done, inline=False, lane=0):
         if inline:
-            # On the I/O thread, holding the gate: the loop thread is asleep in its selector, so this is the
-            # loop's own work done early. The loop must look "running" to the code in the handler; whatever
+            # On an I/O thread, holding its lane's gate: the loop thread is asleep in its selector, so this is
+            # the loop's own work done early. The loop must look "running" to the code in the handler; whatever
             # the handler scheduled (a task, a timer) is seen by the loop thread once we wake it.
-            loop = _loop
+            ln = _lanes[lane]
+            loop = ln.loop
             if loop.get_debug():  # debug mode checks the thread of every call: not for us
                 raise RuntimeError("inline handlers need a loop that is not in debug mode")
             ready, scheduled = len(loop._ready), len(loop._scheduled)
             _set_running_loop(loop)
             try:
-                task = asyncio.Task(run(raw, done), loop=loop, eager_start=True, context=_base_context.copy())
+                task = asyncio.Task(run(raw, done), loop=loop, eager_start=True, context=ln.base_context.copy())
             finally:
                 _set_running_loop(None)
             if not task.done():
                 _tasks.add(task)
                 if app._handler_timeout:
-                    app._deadlines.add(loop, task, app._handler_timeout)
+                    ln.deadlines.add(loop, task, app._handler_timeout)
             if not task.done() or len(loop._ready) != ready or len(loop._scheduled) != scheduled:
-                _wake[1].send(b"\0")  # the loop sleeps with a timeout that does not know about this
+                ln.wake[1].send(b"\0")  # the loop sleeps with a timeout that does not know about this
             return
         loop = asyncio.get_running_loop()
         if _EAGER:
@@ -872,12 +902,12 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
             if not task.done():
                 _tasks.add(task)  # the loop only keeps weak references to tasks
                 if app._handler_timeout:  # a handler that finished at once needs no deadline
-                    app._deadlines.add(loop, task, app._handler_timeout)
+                    loop._httpp_lane.deadlines.add(loop, task, app._handler_timeout)
             return
         task = loop.create_task(run(raw, done))
         _tasks.add(task)  # the loop only keeps weak references to tasks
         if app._handler_timeout:
-            app._deadlines.add(loop, task, app._handler_timeout)
+            loop._httpp_lane.deadlines.add(loop, task, app._handler_timeout)
 
     return dispatch
 
@@ -896,14 +926,22 @@ class Server(_Server):
     body_timeout: the same for the request body, counted from the end of the head (default 120, 0 = no limit).
     max_connections: open connections allowed, one more gets a 503 (default: no limit).  handler_timeout:
     seconds an async handler may take before it is cancelled and answered with a 504 (default 60,
-    None = never).  Everything left as None keeps the C++ default.
+    None = never).  io_threads: I/O threads sharing the port (default 1; needs SO_REUSEPORT, so not on Windows). On a
+    free-threaded Python each also gets its own asyncio loop thread, so `async def` handlers use several cores; with a
+    GIL there is still one loop. A connection stays on one thread, and so on one loop.  Everything left as None keeps
+    the C++ default.
     """
 
     def __init__(self, *, threads=None, max_threads=None, read_timeout=None, write_timeout=None,
                  keep_alive_timeout=None, keep_alive_max=None, max_body=None, header_timeout=None,
                  body_timeout=None, compression=None, compression_level=1, max_connections=None, handler_timeout=60,
-                 title="httpp", version="0.1.0", description=None, openapi_url="/openapi.json", docs_url="/docs"):
+                 io_threads=1, title="httpp", version="0.1.0", description=None, openapi_url="/openapi.json", docs_url="/docs"):
         _Server.__init__(self)
+        if io_threads < 1:
+            raise ValueError("io_threads must be at least 1")
+        self._io_threads = 1
+        if io_threads > 1:
+            self.set_io_threads(io_threads)
         self._routes, self._openapi_doc = [], None
         self._title, self._version, self._description = title, version, description
         self._before, self._after, self._startup, self._shutdown = [], [], [], []
@@ -931,7 +969,6 @@ class Server(_Server):
         if handler_timeout is not None and handler_timeout < 0:
             raise ValueError("handler_timeout can't be negative")
         self._handler_timeout = handler_timeout or None  # 0 and None both mean "never"
-        self._deadlines = _Deadlines()
         self._has_async = False  # set by the first `async def` route
         # The C++ timer is only the backstop for the Python one (it can't cancel the coroutine).
         # ponytail: fixed 5 s grace.
@@ -1116,7 +1153,10 @@ class Server(_Server):
     @contextlib.contextmanager
     def _lifecycle(self):
         if self._has_async:
-            _get_loop()  # the inbox must be draining before the first request can arrive
+            free = _gil_free()
+            lanes = self._io_threads if free else 1  # more loops than one only pay without a GIL
+            _set_lanes(lanes, free)
+            _ensure_lanes(lanes)  # the inboxes must be draining before the first request can arrive
         for fn in self._startup:
             _call(fn)
         try:
@@ -1170,6 +1210,15 @@ class Server(_Server):
                     time.sleep(0.05)
         if failure:
             raise failure[0]
+
+    def set_io_threads(self, n):
+        """Same as the constructor's io_threads. Before listening."""
+        n = int(n)
+        if n < 1:
+            raise ValueError("io_threads must be at least 1")
+        _Server.set_io_threads(self, n)
+        self._io_threads = n
+        return self
 
     def run(self, host="127.0.0.1", port=8000, **options):
         """The usual entry point: `if __name__ == "__main__": app.run()`. Same as httpp.run(app, ...)."""

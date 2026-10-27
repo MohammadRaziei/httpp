@@ -15,6 +15,7 @@
 - [x] Async client engine: TLS (mbedTLS), keep-alive pool, proxy (HTTP and CONNECT), redirects, cookies/auth
 - [x] Internal logging (AixLog) with a C++ and a Python API; access log and `listening on ...` line at `info` ([ADR-0011](docs/adr/0011-logging.md)); in Python it goes through `logging` automatically and the `"httpp"` logger level controls the C++ level ([ADR-0018](docs/adr/0018-python-logging-bridge.md))
 - [x] `httpp run main:app`, `app.run()`, SIGINT/SIGTERM with a clean shutdown; `httpp run` wins over a `listen` inside the file ([ADR-0012](docs/adr/0012-run-wins-over-listen.md))
+- [x] `io_threads` (C++ `set_io_threads`, Python `io_threads=` / `--io-threads`): one engine per I/O thread on one port, one asyncio loop per I/O thread without a GIL ([ADR-0024](docs/adr/0024-io-threads-and-lanes.md)); tests pass on 3.13, 3.14 and 3.14t, scaling on many cores NOT measured yet (`benchmarks/Makefile`)
 - [x] `--workers N` (fresh processes + `SO_REUSEPORT`; Linux only; no respawn)
 - [x] Async bridge without the GIL on the C++ side (loop inbox) and the rebuilt hot path ([ADR-0009](docs/adr/0009-hot-path.md))
 - [x] FastAPI-like layer: `Query/Path/Header/Cookie/Body/Depends`, OpenAPI 3.1 from the same plan, 422 errors as `{"detail": [...]}` ([ADR-0007](docs/adr/0007-openapi-from-one-plan.md))

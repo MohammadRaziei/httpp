@@ -83,7 +83,7 @@ def _resolve_workers(workers):
     raise ValueError('workers must be an integer >= 1 or "auto"')
 
 
-def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_level=None):
+def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_level=None, io_threads=None):
     """Serve `app` (an httpp.Server, or an import string 'module:attr') until Ctrl+C or SIGTERM.
 
     Shutdown is graceful: in-flight work ends and the app's on_shutdown hooks run.
@@ -93,7 +93,8 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
     "warning" keeps only problems, "off" nothing. workers="auto" means one per CPU this process can use (the affinity mask,
     capped by a container CPU quota): one process on a single CPU, off Linux, or when `app`
     is an object rather than an import string. reuse_port lets separate httpp processes
-    share one port the same way.
+    share one port the same way. io_threads (default: what the app set, else 1) is the number of I/O threads
+    sharing the port inside each process; on a free-threaded Python each also gets its own asyncio loop.
     """
     from .server import Server
 
@@ -114,7 +115,7 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
     if workers > 1:
         if not isinstance(app, str):
             raise TypeError("workers > 1 needs an import string like 'main:app': each worker process imports the app itself")
-        return _supervise(app, host, port, workers, log_level)
+        return _supervise(app, host, port, workers, log_level, io_threads)
 
     if isinstance(app, str):
         # The file may also start itself (`app.listen(...)` / `app.run()` outside an `if __name__` guard);
@@ -130,12 +131,14 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
         raise TypeError(f"expected an httpp.Server, got {type(app).__name__} (ASGI/WSGI apps are not supported yet)")
     if reuse_port:
         app.set_reuse_port(True)
+    if io_threads is not None:
+        app.set_io_threads(io_threads)
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGTERM, signal.default_int_handler)  # SIGTERM stops like Ctrl+C: graceful
     app.listen(host, port)  # logs "listening on ..." (info) once the port is really bound  # returns after Ctrl+C / stop(); raises OSError if the port can't be bound
 
 
-def _supervise(target, host, port, workers, log_level):
+def _supervise(target, host, port, workers, log_level, io_threads=None):
     """Start `workers` fresh `httpp run` processes on one port and keep them until a signal or a death.
 
     ponytail: a worker that dies stops the whole group (exit code 1) instead of being restarted;
@@ -146,6 +149,8 @@ def _supervise(target, host, port, workers, log_level):
     cmd = [sys.executable, "-m", "httpp", "run", target, "--host", host, "--port", str(port), "--reuse-port"]
     if log_level:
         cmd += ["--log-level", log_level]
+    if io_threads is not None:
+        cmd += ["--io-threads", str(io_threads)]
     # Own session: Ctrl+C reaches only this supervisor, which then sends each worker exactly one SIGTERM.
     procs = [subprocess.Popen(cmd, start_new_session=True) for _ in range(workers)]
     stop = []

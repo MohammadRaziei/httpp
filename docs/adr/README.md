@@ -29,6 +29,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0021](0021-pool-thread-state-and-two-core-numbers.md) | Pool threads keep their Python thread state; first two-core numbers incl. FastAPI | accepted |
 | [0022](0022-dual-api-rule-and-delegated-decisions.md) | Dual C++/Python rule; decisions the owner delegated | accepted |
 | [0023](0023-inline-async-handlers.md) | `async def` handlers that cannot suspend run on the I/O thread (gate, busy count) | accepted |
+| [0024](0024-io-threads-and-lanes.md) | Several I/O threads; one asyncio loop per I/O thread on a free-threaded Python | accepted |
 
 ## Not decided yet
 
