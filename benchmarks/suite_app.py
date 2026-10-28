@@ -5,7 +5,10 @@ import os
 import httpp
 
 # BENCH_INLINE=1 runs `async def` handlers that cannot suspend on the I/O thread (ADR-0023); off otherwise.
-app = httpp.Server(openapi_url=None, inline_async=os.environ.get("BENCH_INLINE") == "1")
+# BENCH_THREADS=n starts the worker pool at n threads (maximum 4 n); unset keeps the default.
+_threads = int(os.environ.get("BENCH_THREADS", "0")) or None
+app = httpp.Server(openapi_url=None, inline_async=os.environ.get("BENCH_INLINE") == "1", threads=_threads,
+                   max_threads=_threads * 4 if _threads else None)
 
 
 @app.get("/sync")

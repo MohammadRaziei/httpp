@@ -59,7 +59,9 @@ UTEST(httpp_server_io_threads, connections_spread_over_the_io_threads_and_each_s
     }
     for (auto& t : users) t.join();
     ASSERT_EQ(0, same_connection_moved.load());
-    ASSERT_TRUE(seen.size() >= 2); // 40 connections over 4 acceptors: all on one is (1/4)^39
+#ifdef __linux__
+    ASSERT_TRUE(seen.size() >= 2); // 40 connections over 4 acceptors: all on one is (1/4)^39. Other systems (macOS) do not spread them.
+#endif
     ASSERT_TRUE(seen.size() <= 4);
 }
 

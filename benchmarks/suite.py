@@ -101,6 +101,11 @@ class Variant:
         self.runs = []  # (req/s, us/req, p50 ms, p99 ms, errors)
 
 
+def _gil_free(py):
+    out = subprocess.run([py, "-c", "import sys;print(not getattr(sys,'_is_gil_enabled',lambda:True)())"], capture_output=True, text=True).stdout
+    return out.strip() == "True"
+
+
 def build_variants(args):
     v = []
     for label, py in args.pys:
@@ -121,6 +126,9 @@ def build_variants(args):
                                      ("/acpu", "httpp async def CPU-bound", "cpu")):
                 if what in args.only:
                     v.append(Variant(f"{what} (py {label})", f"{name}, io_threads={n}", path, ht()))
+            if "cpu" in args.only and n == args.io_threads[0] and not _gil_free(py):
+                for t in (1, 2, 4, 16):  # under a GIL the size of the worker pool matters for CPU-bound handlers
+                    v.append(Variant(f"cpu (py {label})", f"httpp def CPU-bound, pool={t}, io_threads={n}", "/cpu", ht(), {"BENCH_THREADS": str(t)}))
             if "hello" in args.only:
                 v.append(Variant(f"hello (py {label})", f"httpp async def INLINE, io_threads={n}", "/async", ht(), {"BENCH_INLINE": "1"}))
     if "latency" in args.only and args.pys:

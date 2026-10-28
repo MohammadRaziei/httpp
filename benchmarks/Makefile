@@ -49,15 +49,17 @@ uv:
 	@command -v uv >/dev/null || { echo "installing uv (a single binary, in ~/.local/bin)"; curl -LsSf https://astral.sh/uv/install.sh | sh; }
 
 venvs: uv
-	@for v in $(PYS); do \
+	@export PATH=$$HOME/.local/bin:$$PATH; for v in $(PYS); do \
 		d=$(VENVS)/py$$(echo $$v | tr -d .); \
-		if [ ! -x $$d/bin/python ]; then \
-			echo "== venv $$v"; \
-			PATH=$$HOME/.local/bin:$$PATH uv venv --python $$v $$d || exit 1; \
+		case $$v in *t) want=nogil; req=$$v ;; *) want=gil; req=$$v+gil ;; esac; \
+		if [ -x $$d/bin/python ]; then \
+			have=$$($$d/bin/python -c "import sys;print('gil' if getattr(sys,'_is_gil_enabled',lambda:True)() else 'nogil')"); \
+			[ "$$have" = "$$want" ] || { echo "== $$d has the wrong build ($$have, want $$want): recreating"; rm -rf $$d; }; \
 		fi; \
+		if [ ! -x $$d/bin/python ]; then echo "== venv $$v ($$req)"; uv venv --python $$req $$d || exit 1; fi; \
 		echo "== installing httpp (built from this tree) and uvicorn into $$d"; \
-		PATH=$$HOME/.local/bin:$$PATH uv pip install --python $$d/bin/python --reinstall $(ROOT) uvicorn httptools || exit 1; \
-		PATH=$$HOME/.local/bin:$$PATH uv pip install --python $$d/bin/python uvloop || echo "(no uvloop for $$v: uvicorn uses asyncio there)"; \
+		uv pip install --python $$d/bin/python --reinstall $(ROOT) uvicorn httptools || exit 1; \
+		uv pip install --python $$d/bin/python uvloop || echo "(no uvloop for $$v: uvicorn uses asyncio there)"; \
 	done
 
 oha:
