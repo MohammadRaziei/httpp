@@ -133,5 +133,5 @@ What the run shows:
 7. Fixed-rate (half of each maximum): p99.9 0.8 to 1.2 ms for Python at 1 and 8 I/O threads, 0.8 ms for C++ at 412k req/s.
 
 Build hygiene found while reading the log: `-Wreorder` in `worker_pool` (member order against the constructor list; harmless, fixed), uv hard-link warnings (the project is on another filesystem than the uv cache; the
-Makefile now sets `UV_LINK_MODE=copy`), CMake finding the conda Python (only used by the `liburlparser` configure, never for the measurement; the Makefile now passes the venv Python), mbedtls deprecation notes (third party, silenced for the bench build).
+Makefile now sets `UV_LINK_MODE=copy`), CMake finding the conda Python (only used by the `liburlparser` configure, never for the measurement; the Makefile now passes the venv Python, which then needs `jsonschema` and `jinja2` for the mbedtls code generator: they are installed next to cmake and ninja, so the configure no longer depends on whatever Python the machine has), mbedtls deprecation notes (third party, silenced for the bench build).
 Not touched: the configure step of `liburlparser` downloads the public suffix list and rewrites the tracked `src/third_party/liburlparser/src/public_suffix_list.dat`.

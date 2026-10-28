@@ -75,10 +75,10 @@ oha:
 # The C++ server links the library built from this tree; cmake and ninja come from pip, no system packages.
 cpp: venvs
 	@mkdir -p $(BIN)
-	PATH=$$HOME/.local/bin:$$PATH uv pip install --python $(word 1,$(VENV_PYS)) cmake ninja
+	PATH=$$HOME/.local/bin:$$PATH uv pip install --python $(word 1,$(VENV_PYS)) cmake ninja jsonschema jinja2
 	$(dir $(word 1,$(VENV_PYS)))cmake -S $(ROOT) -B $(HERE)/.build -G Ninja -DCMAKE_BUILD_TYPE=Release \
 		-DHTTPP_BUILD_TESTS=OFF -DHTTPP_BUILD_PYTHON=OFF -DCMAKE_MAKE_PROGRAM=$(dir $(word 1,$(VENV_PYS)))ninja \
-		-DPython3_EXECUTABLE=$(word 1,$(VENV_PYS)) -Wno-dev -Wno-deprecated
+		-DPython3_EXECUTABLE=$(word 1,$(VENV_PYS)) -Wno-deprecated
 	$(dir $(word 1,$(VENV_PYS)))cmake --build $(HERE)/.build --target httpp_core
 	$(or $(CXX),g++) -O2 -std=c++17 -I$(ROOT)/include cpp/cpp_bench.cpp -o $(BIN)/cpp_bench \
 		-L$(HERE)/.build -lhttpp_core -Wl,-rpath,$(HERE)/.build -pthread
