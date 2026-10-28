@@ -1,20 +1,20 @@
 # One command for the whole comparison:   make bench   (about 15 minutes; `make quick` is 3 minutes)
 # Then send back the file it prints at the end (benchmarks/results/*.txt).
 #
-#   make venvs    Python 3.13, 3.14 and 3.14t virtualenvs with this httpp, uvicorn and uvloop (needs network)
+#   make venvs    Python 3.14 (with GIL) and 3.14t (free-threaded, no GIL) virtualenvs with this httpp, uvicorn and uvloop (needs network)
 #   make oha      the load generator, one static binary (needs network)
 #   make cpp      the C++ server of the suite
 #   make check    prints what could disturb the numbers (governor, battery, turbo)
 #   make bench    everything above, then the measurement
 #   make clean    removes venvs, binaries and build files (results stay)
 #
-# Variables: SECONDS=5 ROUNDS=3 CONC=64 IO_THREADS=1,2,4 SERVER_CPUS=0-7 LOAD_CPUS=8-11 PYS="3.13 3.14 3.14t"
+# Variables: SECONDS=5 ROUNDS=3 CONC=64 IO_THREADS=1,2,4 SERVER_CPUS=0-7 LOAD_CPUS=8-11 PYS="3.14 3.14t"
 
 ROOT      := $(abspath ..)
 HERE      := $(abspath .)
 VENVS     := $(HERE)/.venvs
 BIN       := $(HERE)/bin
-PYS       ?= 3.13 3.14 3.14t
+PYS       ?= 3.14 3.14t
 SECONDS   ?= 5
 ROUNDS    ?= 3
 CONC      ?= 64
