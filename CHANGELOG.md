@@ -17,7 +17,10 @@ such changes are listed under **Changed**).
 - **Defaults from the first 16-thread measurement ([ADR-0025](docs/adr/0025-measured-defaults-on-16-threads.md))**: `Server(io_threads=None)` now
   means `min(4, CPUs // 4)` with a GIL (1 on a free-threaded Python and on Windows); the inline `async def` path of ADR-0023 is on by default only
   with 2 CPUs or fewer (`Server(inline_async=True/False)` forces it): on a machine with cores to spare it was 20 percent slower at saturation.
-- With a GIL the worker pool starts at 4 threads instead of one per CPU (the maximum is unchanged): fewer threads fight for the GIL, blocking handlers still grow it within 0.5 ms (ADR-0025).
+- **`set_thread_pool(base, max, grow_after)`** (Python: `grow_after_ms`): how long a job waits for a free worker before the pool grows. The pool now doubles
+  at every growth step (as far as jobs are queued) instead of adding one thread.
+- With a GIL the worker pool starts with one thread and grows after a 10 ms wait (the maximum is unchanged): on 16 threads one worker gave 16.7k req/s on
+  a CPU-bound `def` handler, sixteen 10.6k (ADR-0025).
 
 ### Added
 - **`server::set_io_threads(n)`, `Server(io_threads=N)` and `httpp run --io-threads N`**: several I/O threads share the port (one engine and

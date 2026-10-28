@@ -101,3 +101,33 @@ UTEST(worker_pool, a_long_job_gets_help_after_a_short_delay) {
     ASSERT_TRUE(std::chrono::steady_clock::now() - t0 < 100ms);
     release.set_value();
 }
+
+UTEST(worker_pool, a_burst_of_blocked_jobs_gets_its_threads_in_a_few_doubling_steps) {
+    // One starting thread, a 5 ms wait before growing: 32 jobs that all block must still all be running
+    // after about 6 steps (1, 2, 4, 8, 16, 32), not after 32 steps.
+    std::promise<void> release;
+    auto gate = release.get_future().share();
+    std::atomic<int> running{0};
+    worker_pool pool(1, 64, 5ms);
+    const auto t0 = std::chrono::steady_clock::now();
+    for (int i = 0; i < 32; ++i) pool.enqueue([&] { ++running; gate.wait(); });
+    while (running < 32 && std::chrono::steady_clock::now() - t0 < 2s) std::this_thread::sleep_for(1ms);
+    ASSERT_EQ(32, running.load());
+    ASSERT_TRUE(std::chrono::steady_clock::now() - t0 < 120ms);
+    release.set_value();
+}
+
+UTEST(worker_pool, short_jobs_do_not_make_a_pool_with_a_long_wait_grow) {
+    worker_pool pool(1, 64, 50ms);
+    std::mutex mu;
+    std::set<std::thread::id> seen;
+    std::atomic<int> done{0};
+    for (int i = 0; i < 2000; ++i) {
+        pool.enqueue([&] {
+            { std::lock_guard<std::mutex> lk(mu); seen.insert(std::this_thread::get_id()); }
+            ++done;
+        });
+    }
+    while (done < 2000) std::this_thread::sleep_for(1ms);
+    ASSERT_TRUE(seen.size() <= 2u);
+}

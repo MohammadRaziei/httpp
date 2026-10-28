@@ -19,7 +19,8 @@ namespace httpp::detail {
 
 class worker_pool {
 public:
-    worker_pool(std::size_t base, std::size_t max) : base_(std::max<std::size_t>(base, 1)), max_(std::max(max, base_)) {
+    worker_pool(std::size_t base, std::size_t max, std::chrono::microseconds grow_after = std::chrono::microseconds(500))
+        : base_(std::max<std::size_t>(base, 1)), max_(std::max(max, base_)), help_after(grow_after) {
         std::lock_guard<std::mutex> lk(mu_);
         for (std::size_t i = 0; i < base_; ++i) add_thread_locked(false);
         scout_ = std::thread([this] { scout(); });
@@ -99,7 +100,13 @@ private:
             scout_cv_.wait_for(lk, help_after, [this] { return stop_; });
             if (stop_) return;
             if (jobs_.empty()) { armed_ = false; continue; }
-            if (std::chrono::steady_clock::now() - jobs_.front().at >= help_after) wake_locked(true);
+            if (std::chrono::steady_clock::now() - jobs_.front().at >= help_after) {
+                // The pool doubles at every step, as far as there are queued jobs without a thread: a burst of
+                // blocked handlers gets its threads in a few steps, a CPU-bound load that only now and then waits
+                // that long grows by one or two.
+                const std::size_t step = std::max<std::size_t>(1, live_locked());
+                for (std::size_t i = 0; i < step; ++i) wake_locked(true);
+            }
         }
     }
 
@@ -155,7 +162,7 @@ private:
         std::function<void()> fn;
         std::chrono::steady_clock::time_point at;
     };
-    static constexpr std::chrono::microseconds help_after{500};
+    const std::chrono::microseconds help_after;
     std::deque<queued> jobs_;
     std::unordered_map<std::thread::id, std::thread> threads_;
     std::vector<std::thread::id> exited_;

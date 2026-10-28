@@ -962,10 +962,11 @@ class Server(_Server):
             if max_threads is not None:
                 raise ValueError("max_threads needs threads")
             if not _gil_free():
-                # With a GIL, workers only take turns at running Python: 16 of them fed back p99 33 ms against 9 ms
-                # with 4 on the same CPU-bound handler (ADR-0025). Handlers that block make the pool grow within
-                # half a millisecond, up to what the C++ default would have been, so they lose almost nothing.
-                self.set_thread_pool(4, max(8, cpus) * 4)
+                # With a GIL, workers only take turns at running Python: on a CPU-bound handler one worker gave 16.7k
+                # req/s and p99 8 ms, sixteen 10.6k and 35 ms (ADR-0025). So the pool starts with one thread and grows
+                # only when a job has waited 10 ms for a free one (a blocked handler makes that certain, CPU-bound
+                # work at saturation rarely waits that long), up to what the C++ default would have been.
+                self.set_thread_pool(1, max(8, cpus) * 4, grow_after_ms=10)
         else:
             self.set_thread_pool(threads, max_threads or 0)
         for value, setter in ((read_timeout, self.set_read_timeout),

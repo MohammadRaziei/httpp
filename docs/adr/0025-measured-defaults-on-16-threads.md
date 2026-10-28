@@ -52,3 +52,19 @@ scout adds threads after 0.5 ms of waiting. Decision: with a GIL the default poo
 grows under CPU load (queued jobs wait more than 0.5 ms), so this is a small help only: with the default, p99 was still 25 ms in the
 sandbox. A real fix needs the pool to know whether a handler computes or blocks, which it cannot. Free-threaded Python does not have the problem
 (63k to 70k req/s). Rerun `make bench ONLY=cpu` on the 16-thread machine to see what the change did there.
+
+## Addendum 2: the pool size on 16 threads (2026-10-28, Python 3.14 with a GIL, CPU-bound `def`, 64 connections)
+| pool (max 4 x base) | req/s | us/req | p99 ms |
+|---|---|---|---|
+| 1 | 16.7k | 81 | 8 |
+| 2 | 12.2k | 121 | 11 |
+| 4 | 12.2k | 123 | 15 |
+| 16 | 10.6k | 140 | 35 |
+
+The same work in `async def`: 19.3k, uvicorn 15.7k. So with a GIL the best pool for CPU-bound work is the smallest, and the "4 threads" of
+the first addendum was too many. A blocked handler needs the pool to grow, which a fixed small pool cannot do.
+Decision: with a GIL the pool starts with one thread and grows only when a job has waited 10 ms for a free thread
+(`set_thread_pool(base, max, grow_after)`, Python `grow_after_ms`); at every growth step the pool doubles, as far as jobs are queued, so
+a burst of 64 blocking handlers gets its threads in 6 steps (measured 0.42 s for 64 handlers of 0.2 s on a 32-thread maximum; one
+thread per step would have been 0.66 s). The C++ default wait stays 500 us. Not yet measured on 16 threads: `make bench` has a `default` row
+next to the fixed pools.

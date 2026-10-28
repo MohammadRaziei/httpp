@@ -110,12 +110,15 @@ def test_the_command_line_takes_io_threads(tmp_path):
     import socket
     import subprocess
 
+    import httpp
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(httpp.__file__)))  # the child runs in another cwd: point it at THIS httpp
     (tmp_path / "tapp.py").write_text("import httpp\napp = httpp.Server()\n\n@app.get('/')\nasync def hi():\n    return 'hi'\n")
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     proc = subprocess.Popen([sys.executable, "-m", "httpp", "run", "tapp:app", "--port", str(port), "--io-threads", "3",
-                             "--log-level", "error"], cwd=tmp_path, env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [str(tmp_path), os.environ.get("PYTHONPATH")]))})
+                             "--log-level", "error"], cwd=tmp_path, env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [str(tmp_path), root, os.environ.get("PYTHONPATH")]))})
     try:
         for _ in range(100):
             try:

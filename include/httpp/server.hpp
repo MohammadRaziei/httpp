@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstddef>
 #include <exception>
 #include <functional>
@@ -205,8 +206,12 @@ public:
 
     // --- Settings; call them before listening. Each returns *this. ---
     // Worker threads for sync handlers: `base` are kept, up to `max` are used under load
-    // (default max = 4 x base; default pool: about one thread per core, at least 8).
-    HTTPP_API server& set_thread_pool(std::size_t base, std::size_t max = 0);
+    // (default max = 4 x base; default pool: about one thread per core, at least 8). A job that has waited
+    // `grow_after` for a free thread makes the pool grow by one: short means blocking handlers get their thread
+    // at once, long keeps CPU-bound handlers on few threads (more of them only fight over a lock, such as
+    // Python's GIL).
+    HTTPP_API server& set_thread_pool(std::size_t base, std::size_t max = 0,
+                                      std::chrono::microseconds grow_after = std::chrono::microseconds(500));
     HTTPP_API server& set_read_timeout(int seconds);        // reading a request (default 5)
     HTTPP_API server& set_write_timeout(int seconds);       // writing a response (default 5)
     HTTPP_API server& set_keep_alive_timeout(int seconds);  // idle keep-alive connection (default 5)

@@ -224,6 +224,7 @@ struct server::impl {
     std::vector<mount_entry> mounts;
     std::size_t pool_base = std::max<std::size_t>(8, std::thread::hardware_concurrency());
     std::size_t pool_max = 0; // 0 = 4 x base
+    std::chrono::microseconds pool_grow_after{500};
     std::atomic<int> async_timeout{60};
 
     // Requests that wait for the answer of a route_async / route_io handler, oldest first. They all have
@@ -880,11 +881,12 @@ server& server::after(after_hook hook) { impl_->cfg->after = std::move(hook); re
 server& server::set_error_handler(error_hook hook) { impl_->cfg->error = std::move(hook); return *this; }
 server& server::set_exception_handler(exception_hook hook) { impl_->cfg->exception = std::move(hook); return *this; }
 
-server& server::set_thread_pool(std::size_t base, std::size_t max) {
+server& server::set_thread_pool(std::size_t base, std::size_t max, std::chrono::microseconds grow_after) {
     if (base == 0) base = 1;
     if (max < base) max = base * 4;
     impl_->pool_base = base;
     impl_->pool_max = max;
+    impl_->pool_grow_after = grow_after.count() > 0 ? grow_after : std::chrono::microseconds(1);
     return *this;
 }
 server& server::set_read_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_read_timeout(seconds); }); return *this; }
@@ -933,7 +935,7 @@ int server::bind_to_any_port(const std::string& host) {
 bool server::listen_after_bind() {
     const std::size_t base = impl_->pool_base;
     const std::size_t max = impl_->pool_max ? impl_->pool_max : base * 4;
-    detail::worker_pool pool(base, max);
+    detail::worker_pool pool(base, max, impl_->pool_grow_after);
     impl_->pool = &pool;
     {
         std::lock_guard<std::mutex> lock(impl_->wait->mu); // a previous run's timer died with its loop

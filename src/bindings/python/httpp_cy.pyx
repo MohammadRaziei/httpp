@@ -103,7 +103,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cpp_server& before(cpp_before_hook h) except +
         cpp_server& after(cpp_handler h) except +
         cpp_server& set_error_handler(cpp_handler h) except +
-        cpp_server& set_thread_pool(size_t base, size_t max) except +
+        cpp_server& set_thread_pool(size_t base, size_t max, microseconds grow_after) except +
         cpp_server& set_read_timeout(int seconds) except +
         cpp_server& set_write_timeout(int seconds) except +
         cpp_server& set_keep_alive_timeout(int seconds) except +
@@ -284,6 +284,8 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         string error
         string sha256
 
+    cdef cppclass microseconds "std::chrono::microseconds":
+        microseconds(long long)
     cdef cppclass cpp_milliseconds "std::chrono::milliseconds":
         cpp_milliseconds(long long)
 
@@ -1246,14 +1248,14 @@ cdef class Server:
         return self
 
     # --- Settings; call them before listening. Each returns self. ---
-    def set_thread_pool(self, size_t base, size_t max_threads=0):
+    def set_thread_pool(self, size_t base, size_t max_threads=0, grow_after_ms=0.5):
         """Worker threads for sync handlers: `base` are kept, up to `max_threads` used under load
-        (0 = 4 x base)."""
+        (0 = 4 x base). A job that waited `grow_after_ms` for a free thread adds one more thread to the pool."""
         if base == 0:
             raise ValueError("the thread pool needs at least 1 thread")
         if 0 < max_threads < base:
             raise ValueError("max_threads can't be smaller than threads")
-        self._srv.set_thread_pool(base, max_threads)
+        self._srv.set_thread_pool(base, max_threads, microseconds(<long long>(grow_after_ms * 1000)))
         return self
 
     def set_read_timeout(self, int seconds):
