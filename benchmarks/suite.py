@@ -170,7 +170,7 @@ def build_variants(args):
                 if what in args.only:
                     v.append(Variant(f"{what} (py {label})", f"{name}, io_threads={n}", path, ht(),
                                      rate=(what == "hello" and name in ("httpp def", "httpp async def") and n in (1, args.io_threads[-1]))))
-            if "cpu" in args.only and n == args.io_threads[0]:
+            if "cpu" in args.only and n in (args.io_threads[0], 4):
                 # The size of the worker pool matters for CPU-bound handlers: under a GIL the smallest is best, without
                 # one the question is how fast the default pool reaches the size the machine can use (ADR-0025, addendum 4).
                 for t in ((1, 4, 16) if not _gil_free(py) else (2, 4, 8)):

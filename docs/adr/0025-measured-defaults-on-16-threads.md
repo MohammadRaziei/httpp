@@ -104,3 +104,34 @@ cores (here server 0-7, load generator 8-15 with the efficiency cores).
 ## Next measurement
 `make bench` again with the governor on `performance`, with the new split and with ONLY=hello,json,cpu,latency (the default). Read: free-threaded `def`
 CPU-bound at 1 I/O thread (about 60k expected from the current tree), its fixed-pool rows, the fixed-rate p99.9 table, FastAPI and JSON rows.
+
+## Addendum 5: the second full `make bench` (2026-10-28 evening, same machine, core-aligned split: server CPUs 0-7, `oha` on 8-15)
+Tree hash f08eea4db0 (not the hash of the copy this was written from: the owner's working tree has other files; `worker_pool.hpp` matches).
+This run replaces addendum 4 where they disagree.
+
+**The CPU split mattered a lot.** The first run shared hyper-thread pair 8/9 between server and load generator and gave `oha` only 3 CPUs. With whole cores
+and 8 CPUs for `oha` every row moved: uvicorn hello 65k to 84k, httpp `def` at 1 I/O thread 170k to 217k, C++ at 8 I/O threads 392k to 824k.
+Consequences, all corrections of earlier text:
+- Addendum 4 point 4 ("C++ stops at about 390k") was the load generator. C++ now scales 213k / 375k / 542k / 701k (824k `route_io`) for 1 / 2 / 4 / 8 I/O threads.
+- The p99 of 3 to 6 ms at 4+ I/O threads (addendum 4 point 5) is gone: 0.3 to 0.4 ms at every thread count, p99.9 about 1 ms at half load. It was the benchmark setup, not httpp.
+- **The GIL pool effect on throughput does not reproduce.** CPU-bound `def` with a GIL: default 23.9k, pool 1 / 4 / 16 23.0k / 22.6k / 22.4k. Only the tail differs:
+  p99 3.1 ms (default), 3.7, 5.5, 11.1 ms. So the 2x throughput loss of addenda 1 to 3 (11k against 20k) came from the old split. The pool default stays, justified by p99 only
+  (3.1 against 11.1 ms) and by the 6 percent throughput gap to a pool of 16.
+
+What the run shows:
+1. Python `def` peaks at 4 I/O threads: 516k (GIL and no GIL; C++ 542k); at 8 it falls to 416k to 425k while C++ keeps rising (the server has 4 physical cores, and Python adds pool threads).
+   So `io_threads = min(4, CPUs // 4)` stays.
+2. Python `async def` under a GIL is capped by the one loop: 314k / 310k / 278k for 2 / 4 / 8. On 3.14t it scales: 310k / 481k / 459k.
+3. Free-threaded CPU-bound `def` is back at 65k to 72k (65.0k / 67.9k / 68.4k / 71.8k for 1 / 2 / 4 / 8): the revert of the doubling step is confirmed.
+   A pool that starts at 2 threads gave 76.4k at 1 I/O thread (against 65.0k for the default, which starts at max(8, CPUs) = 16; pools of 4 and 8 equal the default; sd under 1.3 percent). Not adopted yet: it is one row at one I/O thread.
+   The suite now also runs the fixed pools at 4 I/O threads.
+4. Inline `async def`: 1 I/O thread loses (159k against 198k GIL, 150k against 198k no GIL); 2 threads loses on no GIL (262k against 310k), ties on GIL (302k against 314k). On 3.14t it is not monotone: 346k at 4 threads against 481k, but
+   557k at 8 against 459k. Unexplained; the default (off with more than 2 CPUs) stays. One connection: inline has the best latency (68.8k req/s, p50 0.01 ms against 57.9k for `def`, 48.2k for `async def`; C++ `route_io` 84.9k).
+5. JSON on 3.14t: `def JSON` stops at about 300k from 2 I/O threads (318k / 298k / 284k) while `async def JSON` reaches 442k at 4 threads (hello `def` reaches 517k, so it is not the pool hand-off alone).
+   Suspects, not tested: refcount contention on shared objects in the free-threaded build, or the pool queue lock. Needs a profile (perf) before any change.
+6. FastAPI + uvicorn: 22k hello, 17k JSON. httpp `def` is 9.7x (hello) and 11.8x (JSON) at 1 I/O thread, 23x at 4. Bare ASGI uvicorn 84k.
+7. Fixed-rate (half of each maximum): p99.9 0.8 to 1.2 ms for Python at 1 and 8 I/O threads, 0.8 ms for C++ at 412k req/s.
+
+Build hygiene found while reading the log: `-Wreorder` in `worker_pool` (member order against the constructor list; harmless, fixed), uv hard-link warnings (the project is on another filesystem than the uv cache; the
+Makefile now sets `UV_LINK_MODE=copy`), CMake finding the conda Python (only used by the `liburlparser` configure, never for the measurement; the Makefile now passes the venv Python), mbedtls deprecation notes (third party, silenced for the bench build).
+Not touched: the configure step of `liburlparser` downloads the public suffix list and rewrites the tracked `src/third_party/liburlparser/src/public_suffix_list.dat`.

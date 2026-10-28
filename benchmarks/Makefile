@@ -11,6 +11,8 @@
 # Variables: SECONDS=5 ROUNDS=3 CONC=64 IO_THREADS=1,2,4,8 SERVER_CPUS=0-7 LOAD_CPUS=8-11 PYS="3.14 3.14t"
 
 ROOT      := $(abspath ..)
+# uv copies instead of hard-linking (the project may sit on another filesystem than the uv cache): no warning, same result
+export UV_LINK_MODE := copy
 HERE      := $(abspath .)
 VENVS     := $(HERE)/.venvs
 BIN       := $(HERE)/bin
@@ -75,7 +77,8 @@ cpp: venvs
 	@mkdir -p $(BIN)
 	PATH=$$HOME/.local/bin:$$PATH uv pip install --python $(word 1,$(VENV_PYS)) cmake ninja
 	$(dir $(word 1,$(VENV_PYS)))cmake -S $(ROOT) -B $(HERE)/.build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-		-DHTTPP_BUILD_TESTS=OFF -DHTTPP_BUILD_PYTHON=OFF -DCMAKE_MAKE_PROGRAM=$(dir $(word 1,$(VENV_PYS)))ninja
+		-DHTTPP_BUILD_TESTS=OFF -DHTTPP_BUILD_PYTHON=OFF -DCMAKE_MAKE_PROGRAM=$(dir $(word 1,$(VENV_PYS)))ninja \
+		-DPython3_EXECUTABLE=$(word 1,$(VENV_PYS)) -Wno-dev -Wno-deprecated
 	$(dir $(word 1,$(VENV_PYS)))cmake --build $(HERE)/.build --target httpp_core
 	$(or $(CXX),g++) -O2 -std=c++17 -I$(ROOT)/include cpp/cpp_bench.cpp -o $(BIN)/cpp_bench \
 		-L$(HERE)/.build -lhttpp_core -Wl,-rpath,$(HERE)/.build -pthread

@@ -20,7 +20,7 @@ namespace httpp::detail {
 class worker_pool {
 public:
     worker_pool(std::size_t base, std::size_t max, std::chrono::microseconds grow_after = std::chrono::microseconds(500))
-        : base_(std::max<std::size_t>(base, 1)), max_(std::max(max, base_)), help_after(grow_after) {
+        : help_after(grow_after), base_(std::max<std::size_t>(base, 1)), max_(std::max(max, base_)) {
         std::lock_guard<std::mutex> lk(mu_);
         for (std::size_t i = 0; i < base_; ++i) add_thread_locked(false);
         scout_ = std::thread([this] { scout(); });
