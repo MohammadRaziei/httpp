@@ -96,8 +96,8 @@ def sysinfo(args, server_cpus, load_cpus):
 
 
 class Variant:
-    def __init__(self, group, name, path, cmd, env=None):
-        self.group, self.name, self.path, self.cmd, self.env = group, name, path, cmd, env or {}
+    def __init__(self, group, name, path, cmd, env=None, conc=None):
+        self.group, self.name, self.path, self.cmd, self.env, self.conc = group, name, path, cmd, env or {}, conc
         self.runs = []  # (req/s, us/req, p50 ms, p99 ms, errors)
 
 
@@ -121,6 +121,18 @@ def build_variants(args):
                                      ("/acpu", "httpp async def CPU-bound", "cpu")):
                 if what in args.only:
                     v.append(Variant(f"{what} (py {label})", f"{name}, io_threads={n}", path, ht()))
+            if "hello" in args.only:
+                v.append(Variant(f"hello (py {label})", f"httpp async def INLINE, io_threads={n}", "/async", ht(), {"BENCH_INLINE": "1"}))
+    if "latency" in args.only and args.pys:
+        label, py = args.pys[0]
+        ht = lambda: [py, "-m", "httpp", "run", "suite_app:app", "--port", "{port}", "--log-level", "error", "--io-threads", "1"]
+        g = f"latency, 1 connection (py {label}, io_threads=1)"
+        v.append(Variant(g, "httpp def", "/sync", ht(), conc=1))
+        v.append(Variant(g, "httpp async def", "/async", ht(), conc=1))
+        v.append(Variant(g, "httpp async def INLINE", "/async", ht(), {"BENCH_INLINE": "1"}, conc=1))
+        v.append(Variant(g, "httpp async + await", "/await", ht(), conc=1))
+        if args.cpp and os.path.exists(args.cpp):
+            v.append(Variant(g, "C++ route_io", "/io", [args.cpp, "{port}", "1"], conc=1))
     if args.cpp and os.path.exists(args.cpp):
         for n in args.io_threads + [x for x in args.cpp_extra if x not in args.io_threads]:
             for path, name, what in (("/sync", "C++ route (worker pool)", "hello"), ("/io", "C++ route_io (inline)", "hello"),
@@ -135,9 +147,9 @@ def ticks(pid):
     return int(parts[11]) + int(parts[12])
 
 
-def oha(args, load_cpus, url, seconds):
+def oha(args, load_cpus, url, seconds, conc=None):
     cmd = ["taskset", "-c", cpu_ranges(load_cpus)] if shutil.which("taskset") else []
-    cmd += [args.oha, "-z", f"{seconds}s", "-c", str(args.conc), "--no-tui", "--output-format", "json", url]
+    cmd += [args.oha, "-z", f"{seconds}s", "-c", str(conc or args.conc), "--no-tui", "--output-format", "json", url]
     return json.loads(subprocess.run(cmd, capture_output=True, check=True).stdout)
 
 
@@ -160,9 +172,9 @@ def measure(var, args, server_cpus, load_cpus):
         else:
             raise RuntimeError("did not start")
         url = f"http://127.0.0.1:{port}{var.path}"
-        oha(args, load_cpus, url, 1)
+        oha(args, load_cpus, url, 1, var.conc)
         t0 = ticks(proc.pid)
-        data = oha(args, load_cpus, url, args.seconds)
+        data = oha(args, load_cpus, url, args.seconds, var.conc)
         t1 = ticks(proc.pid)
         dist = data["statusCodeDistribution"]
         ok = dist.get("200", 0)
@@ -189,7 +201,7 @@ def main():
     ap.add_argument("--conc", type=int, default=64)
     ap.add_argument("--io-threads", default="1,2,4", help="I/O thread counts for httpp")
     ap.add_argument("--cpp-extra", default="8", help="extra I/O thread counts only for the C++ server")
-    ap.add_argument("--only", default="hello,cpu", help="hello, cpu")
+    ap.add_argument("--only", default="hello,cpu,latency", help="hello, cpu, latency")
     ap.add_argument("--server-cpus", default="", help="e.g. 0-7 (default: derived from the topology)")
     ap.add_argument("--load-cpus", default="", help="e.g. 8-11")
     ap.add_argument("--out", default="")

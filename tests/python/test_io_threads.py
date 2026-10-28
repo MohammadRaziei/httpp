@@ -128,3 +128,31 @@ def test_the_command_line_takes_io_threads(tmp_path):
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+def test_defaults_follow_the_machine(monkeypatch):
+    monkeypatch.setattr("os.sched_getaffinity", lambda _pid: set(range(16)), raising=False)
+    assert Server(openapi_url=None)._io_threads == (1 if GIL_FREE or sys.platform == "win32" else 4)
+    monkeypatch.setattr("os.sched_getaffinity", lambda _pid: {0, 1}, raising=False)
+    few = Server(openapi_url=None)
+    assert few._io_threads == 1 and few._inline_async is True
+    assert Server(openapi_url=None, inline_async=False)._inline_async is False
+
+
+@pytest.mark.skipif(GIL_FREE, reason="the small starting pool is only for builds with a GIL")
+def test_blocking_handlers_still_run_together_with_the_small_default_pool():
+    app = Server(openapi_url=None, io_threads=1)
+
+    @app.get("/b")
+    def blocks():
+        time.sleep(0.2)
+        return "x"
+
+    with running(app) as base:
+        t0 = time.time()
+        users = [threading.Thread(target=lambda: Client(base).get("/b")) for _ in range(24)]
+        for t in users:
+            t.start()
+        for t in users:
+            t.join()
+        assert time.time() - t0 < 0.6  # serial would be 4.8 s; four workers alone 1.2 s

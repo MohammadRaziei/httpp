@@ -7,6 +7,7 @@ State: `io_threads` (ADR-0024) and the benchmark suite are done. C++: 293 tests,
 - `benchmarks/Makefile` + `suite.py`: `make bench` writes `benchmarks/results/<time>.txt`.
 
 ## Next
+0. GIL builds: CPU-bound `def` is still slow on 16 threads (ADR-0025 addendum): pool base is now 4; check `make bench ONLY=cpu`. Free-threaded Python does not have the problem.
 1. Read the owner's `make bench` output (16 threads, P-cores 0-11): pick the default `io_threads`, check that `async def` scales on 3.14t,
    that C++ `route_io` scales with threads, that CPU-bound `def` scales on 3.14t. Record the numbers in ADR-0024 (addendum).
 2. WebSocket (RFC 6455) in the C++ core, then the Python binding; ADR and tests first.

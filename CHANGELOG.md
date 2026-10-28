@@ -13,6 +13,12 @@ such changes are listed under **Changed**).
   (2 cores, one box, interleaved). Handlers that await are unchanged. See [ADR-0023](docs/adr/0023-inline-async-handlers.md).
 - `async def` and `route_async` / `route_io` requests allocate about 8 fewer objects (30 to 22 per request): `responder` keeps its state in plain members, and that state is released on the I/O thread with the answer. About 4 percent more req/s and 8 percent less CPU for an awaiting `async def`.
 
+### Changed
+- **Defaults from the first 16-thread measurement ([ADR-0025](docs/adr/0025-measured-defaults-on-16-threads.md))**: `Server(io_threads=None)` now
+  means `min(4, CPUs // 4)` with a GIL (1 on a free-threaded Python and on Windows); the inline `async def` path of ADR-0023 is on by default only
+  with 2 CPUs or fewer (`Server(inline_async=True/False)` forces it): on a machine with cores to spare it was 20 percent slower at saturation.
+- With a GIL the worker pool starts at 4 threads instead of one per CPU (the maximum is unchanged): fewer threads fight for the GIL, blocking handlers still grow it within 0.5 ms (ADR-0025).
+
 ### Added
 - **`server::set_io_threads(n)`, `Server(io_threads=N)` and `httpp run --io-threads N`**: several I/O threads share the port (one engine and
   one acceptor each, `SO_REUSEPORT`; not on Windows, which keeps one). On a free-threaded Python every I/O thread also gets its own asyncio

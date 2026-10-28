@@ -926,22 +926,33 @@ class Server(_Server):
     body_timeout: the same for the request body, counted from the end of the head (default 120, 0 = no limit).
     max_connections: open connections allowed, one more gets a 503 (default: no limit).  handler_timeout:
     seconds an async handler may take before it is cancelled and answered with a 504 (default 60,
-    None = never).  io_threads: I/O threads sharing the port (default 1; needs SO_REUSEPORT, so not on Windows). On a
+    None = never).  io_threads: I/O threads sharing the port (default: min(4, CPUs // 4) with a GIL, 1 on a free-threaded Python or Windows; needs SO_REUSEPORT). On a
     free-threaded Python each also gets its own asyncio loop thread, so `async def` handlers use several cores; with a
-    GIL there is still one loop. A connection stays on one thread, and so on one loop.  Everything left as None keeps
+    GIL there is still one loop. A connection stays on one thread, and so on one loop.  inline_async: run `async def`
+    handlers that cannot suspend on the I/O thread (ADR-0023); default on only with 2 CPUs or fewer.  Everything left as None keeps
     the C++ default.
     """
 
     def __init__(self, *, threads=None, max_threads=None, read_timeout=None, write_timeout=None,
                  keep_alive_timeout=None, keep_alive_max=None, max_body=None, header_timeout=None,
                  body_timeout=None, compression=None, compression_level=1, max_connections=None, handler_timeout=60,
-                 io_threads=1, title="httpp", version="0.1.0", description=None, openapi_url="/openapi.json", docs_url="/docs"):
+                 io_threads=None, inline_async=None, title="httpp", version="0.1.0", description=None, openapi_url="/openapi.json", docs_url="/docs"):
         _Server.__init__(self)
+        cpus = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+        if io_threads is None:
+            # Measured (16 threads, ADR-0024): two I/O threads nearly double the hello rate, four add little more.
+            # Not with a free-threaded Python: there every I/O thread brings an asyncio loop, which changes what shared
+            # state in async handlers must withstand, so that is asked for, not assumed. Windows has no SO_REUSEPORT.
+            io_threads = 1 if _gil_free() or sys.platform == "win32" else min(4, max(1, cpus // 4))
         if io_threads < 1:
             raise ValueError("io_threads must be at least 1")
         self._io_threads = 1
         if io_threads > 1:
             self.set_io_threads(io_threads)
+        # Running a handler that cannot suspend on the I/O thread saves CPU but puts parsing, the handler and the
+        # answer on one thread. With cores to spare the hop to the loop thread is the faster pipeline (measured on 16
+        # threads: 126k against 158k req/s), with one or two cores the saved CPU wins (about 30 percent more).
+        self._inline_async = (cpus <= 2) if inline_async is None else bool(inline_async)
         self._routes, self._openapi_doc = [], None
         self._title, self._version, self._description = title, version, description
         self._before, self._after, self._startup, self._shutdown = [], [], [], []
@@ -950,6 +961,11 @@ class Server(_Server):
         if threads is None:
             if max_threads is not None:
                 raise ValueError("max_threads needs threads")
+            if not _gil_free():
+                # With a GIL, workers only take turns at running Python: 16 of them fed back p99 33 ms against 9 ms
+                # with 4 on the same CPU-bound handler (ADR-0025). Handlers that block make the pool grow within
+                # half a millisecond, up to what the C++ default would have been, so they lose almost nothing.
+                self.set_thread_pool(4, max(8, cpus) * 4)
         else:
             self.set_thread_pool(threads, max_threads or 0)
         for value, setter in ((read_timeout, self.set_read_timeout),
@@ -1002,7 +1018,7 @@ class Server(_Server):
             if inspect.iscoroutinefunction(fn):
                 adapted = _adapt_async(fn, self, plan, status, shape)
                 # A handler that cannot suspend may run on the I/O thread (see _GatedSelector).
-                inline = _EAGER and not plan.deps and _cannot_suspend(fn)
+                inline = self._inline_async and _EAGER and not plan.deps and _cannot_suspend(fn)
                 add = self._add_raw_hybrid_route if inline else self._add_raw_loop_route
                 self._has_async = True
             else:

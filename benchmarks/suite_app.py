@@ -1,9 +1,11 @@
 """The httpp app of the benchmark suite. The same answers as suite_asgi.py and cpp/cpp_bench.cpp."""
 import asyncio
+import os
 
 import httpp
 
-app = httpp.Server(openapi_url=None)
+# BENCH_INLINE=1 runs `async def` handlers that cannot suspend on the I/O thread (ADR-0023); off otherwise.
+app = httpp.Server(openapi_url=None, inline_async=os.environ.get("BENCH_INLINE") == "1")
 
 
 @app.get("/sync")

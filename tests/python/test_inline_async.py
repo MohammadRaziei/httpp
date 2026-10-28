@@ -37,7 +37,7 @@ def running(app):
 
 
 def make_app():
-    app = Server(openapi_url=None)
+    app = Server(openapi_url=None, io_threads=1, inline_async=True)
     state = {"flag": False, "later": False, "in_section": False}
 
     @app.get("/who")
