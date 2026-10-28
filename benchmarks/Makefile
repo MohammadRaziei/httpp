@@ -8,7 +8,7 @@
 #   make bench    everything above, then the measurement
 #   make clean    removes venvs, binaries and build files (results stay)
 #
-# Variables: SECONDS=5 ROUNDS=3 CONC=64 IO_THREADS=1,2,4 SERVER_CPUS=0-7 LOAD_CPUS=8-11 PYS="3.14 3.14t"
+# Variables: SECONDS=5 ROUNDS=3 CONC=64 IO_THREADS=1,2,4,8 SERVER_CPUS=0-7 LOAD_CPUS=8-11 PYS="3.14 3.14t"
 
 ROOT      := $(abspath ..)
 HERE      := $(abspath .)
@@ -18,10 +18,10 @@ PYS       ?= 3.14 3.14t
 SECONDS   ?= 5
 ROUNDS    ?= 3
 CONC      ?= 64
-IO_THREADS ?= 1,2,4
+IO_THREADS ?= 1,2,4,8
 SERVER_CPUS ?=
 LOAD_CPUS ?=
-ONLY      ?= hello,cpu
+ONLY      ?= hello,json,cpu,latency
 STAMP     := $(shell date +%Y%m%d-%H%M%S)
 OUT       ?= $(HERE)/results/$(STAMP).txt
 OHA_URL   ?= https://github.com/hatoo/oha/releases/latest/download/oha-linux-amd64
@@ -39,7 +39,7 @@ space := $(empty) $(empty)
 bench: venvs oha cpp check
 	@mkdir -p results
 	python3 suite.py --pys "$(PY_ARGS)" --cpp $(BIN)/cpp_bench --oha $(BIN)/oha --seconds $(SECONDS) --rounds $(ROUNDS) \
-		--conc $(CONC) --io-threads $(IO_THREADS) --only $(ONLY) --server-cpus "$(SERVER_CPUS)" --load-cpus "$(LOAD_CPUS)" --out $(OUT) 2>&1 | tee $(OUT).log
+		--conc $(CONC) --io-threads $(IO_THREADS) --rate --only $(ONLY) --server-cpus "$(SERVER_CPUS)" --load-cpus "$(LOAD_CPUS)" --out $(OUT) 2>&1 | tee $(OUT).log
 	@echo; echo "Send me this file: $(OUT)"
 
 quick:
@@ -58,7 +58,7 @@ venvs: uv
 		fi; \
 		if [ ! -x $$d/bin/python ]; then echo "== venv $$v ($$req)"; uv venv --python $$req $$d || exit 1; fi; \
 		echo "== installing httpp (built from this tree) and uvicorn into $$d"; \
-		uv pip install --python $$d/bin/python --reinstall $(ROOT) uvicorn httptools || exit 1; \
+		uv pip install --python $$d/bin/python --reinstall $(ROOT) uvicorn httptools fastapi || exit 1; \
 		uv pip install --python $$d/bin/python uvloop || echo "(no uvloop for $$v: uvicorn uses asyncio there)"; \
 	done
 

@@ -39,3 +39,13 @@ def cpu():  # pure Python work: this is where a free-threaded interpreter can pa
 @app.get("/acpu")
 async def acpu():  # the same work inside an async handler (runs on a loop thread)
     return str(_work())
+
+
+@app.get("/item/{item_id}")
+def item(item_id: int):
+    return {"id": item_id, "ok": True}
+
+
+@app.get("/aitem/{item_id}")
+async def aitem(item_id: int):
+    return {"id": item_id, "ok": True}

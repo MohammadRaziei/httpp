@@ -64,7 +64,43 @@ sandbox. A real fix needs the pool to know whether a handler computes or blocks,
 The same work in `async def`: 19.3k, uvicorn 15.7k. So with a GIL the best pool for CPU-bound work is the smallest, and the "4 threads" of
 the first addendum was too many. A blocked handler needs the pool to grow, which a fixed small pool cannot do.
 Decision: with a GIL the pool starts with one thread and grows only when a job has waited 10 ms for a free thread
-(`set_thread_pool(base, max, grow_after)`, Python `grow_after_ms`); at every growth step the pool doubles, as far as jobs are queued, so
-a burst of 64 blocking handlers gets its threads in 6 steps (measured 0.42 s for 64 handlers of 0.2 s on a 32-thread maximum; one
-thread per step would have been 0.66 s). The C++ default wait stays 500 us. Not yet measured on 16 threads: `make bench` has a `default` row
+(`set_thread_pool(base, max, grow_after)`, Python `grow_after_ms`); a step adds one thread per 500 us of the wait (20 threads for 10 ms; one for the C++ default, as before), as far as jobs are
+queued, so a burst of 64 blocking handlers gets its threads in 3 steps. The C++ default wait stays 500 us. Not yet measured on 16 threads: `make bench` has a `default` row
 next to the fixed pools.
+
+## Addendum 3: result of the pool change on 16 threads (2026-10-28, Python 3.14 with a GIL)
+CPU-bound `def`: 19.9k req/s, p99 3.8 ms with the new default (it was 10.9k and 26 ms), the same as `async def` (19.3k) and 1.27x uvicorn (15.6k).
+It beat a fixed pool of 1 (15.8k). On the free-threaded build the doubling growth step of the first version of this change cost
+CPU-bound `def` about a fifth at one I/O thread (46k against 60k), so growth is back to one thread per 500 us of waiting (the step above).
+
+## Addendum 4: the first full `make bench` on 16 threads (2026-10-28, i7-13620H, powersave, Python 3.14.4 GIL and 3.14.7t)
+Settings: server CPUs 0-8, `oha` on CPUs 9-11, 64 connections, 3 x 5 s, medians. Only the `hello` and `cpu` groups were in this file: the JSON,
+FastAPI, one-connection and fixed-rate groups were not run, so the p99.9 question is still open.
+
+What the data confirms:
+1. **GIL, CPU-bound `def`:** 19.9k req/s, p99 3.75 ms with the default pool, the same at 1, 2 and 4 I/O threads (19.9k / 19.7k / 19.8k).
+   Fixed pools lose as in addendum 2 (1: 15.8k, 4: 11.5k, 16: 11.8k). uvicorn 15.6k. Nothing to change.
+2. **Inline `async def` stays off by default.** 1 I/O thread: 120k against 161k (GIL) and 120k against 164k (no GIL). 2 threads: 262k against 278k
+   (GIL), 211k against 304k (no GIL). At 4 threads it ties (284k against 285k, 340k against 344k) and only saves CPU (10.8 against 18.0 us/req on 3.14t).
+3. **A GIL build has one loop, and it caps `async def` at about 280k** (278k at 2 I/O threads, 285k at 4), while `def` keeps scaling (315k, 366k):
+   the I/O threads answer without the loop. On 3.14t `async def` scales with the lanes: 164k / 304k / 344k, `async` + `await` 140k / 256k / 344k.
+4. **C++ stops at about 370k to 390k** with 4 and with 8 I/O threads (364k, 382k at 8), and the server CPU per request grows with the thread count
+   (7.4, 8.3, 10.6, 13.0 us for `route`). The load generator and hyper-thread siblings are the limit, not the server design.
+5. **p99 at 4+ I/O threads** is 2.9 ms for Python `def` and 3.8 to 6.1 ms for C++ at p50 0.05 ms. The same tail in C++ says it is not Python.
+   The cause is still unknown (scheduler, load generator, powersave governor): the fixed-rate group has to answer it.
+
+What it does not confirm:
+6. **Free-threaded CPU-bound `def` is 46.5k / 55.1k / 72.5k (1 / 2 / 4 I/O threads), not the 60k to 70k of the earlier run.** These are exactly the numbers
+   of the version with the doubling growth step, so this file was probably produced before the revert described in addendum 3 (the header did not name the
+   tree, so it cannot be proven). The server spends 104 us per request on `def` against 66 us for the same work in `async def`: about 40 us per
+   request go to the hop through the worker pool (lock, wake, hand-off). At 4 I/O threads that is 72.5k x 104 us = 7.5 CPUs on 9 hyper-threads, so
+   that row is CPU-bound by the pool overhead, and at 1 I/O thread (4.8 CPUs) it is limited by how many workers the pool has reached.
+   Decision: no default change without data. The suite now (a) prints a `tree` hash in the header, (b) runs fixed pools of 2, 4 and 8 for the
+   free-threaded build next to the default, so the right base size without a GIL can be read from one run.
+
+Benchmark fix: the automatic CPU split gave the server 0-8 and the load generator 9-11, which cuts the hyper-thread pair 8/9 in half. The split is now made of whole
+cores (here server 0-7, load generator 8-15 with the efficiency cores).
+
+## Next measurement
+`make bench` again with the governor on `performance`, with the new split and with ONLY=hello,json,cpu,latency (the default). Read: free-threaded `def`
+CPU-bound at 1 I/O thread (about 60k expected from the current tree), its fixed-pool rows, the fixed-rate p99.9 table, FastAPI and JSON rows.

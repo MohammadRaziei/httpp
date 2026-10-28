@@ -8,7 +8,13 @@ def _work():
 async def app(scope, receive, send):
     if scope["type"] != "http":
         return
-    body = str(_work()).encode() if scope["path"] in ("/cpu", "/acpu") else b"hello"
+    path = scope["path"]
+    if path.startswith("/item/"):
+        body = b'{"id":%d,"ok":true}' % int(path[6:])
+        kind = b"application/json"
+    else:
+        body = str(_work()).encode() if path in ("/cpu", "/acpu") else b"hello"
+        kind = b"text/plain"
     await send({"type": "http.response.start", "status": 200,
-                "headers": [(b"content-type", b"text/plain"), (b"content-length", str(len(body)).encode())]})
+                "headers": [(b"content-type", kind), (b"content-length", str(len(body)).encode())]})
     await send({"type": "http.response.body", "body": body})

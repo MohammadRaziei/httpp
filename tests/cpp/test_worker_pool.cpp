@@ -102,9 +102,9 @@ UTEST(worker_pool, a_long_job_gets_help_after_a_short_delay) {
     release.set_value();
 }
 
-UTEST(worker_pool, a_burst_of_blocked_jobs_gets_its_threads_in_a_few_doubling_steps) {
-    // One starting thread, a 5 ms wait before growing: 32 jobs that all block must still all be running
-    // after about 6 steps (1, 2, 4, 8, 16, 32), not after 32 steps.
+UTEST(worker_pool, a_burst_of_blocked_jobs_gets_its_threads_in_a_few_steps_even_with_a_long_wait) {
+    // One starting thread, a 5 ms wait before growing (10 threads per step): 32 jobs that all block must all be
+    // running after a few steps, not after 32 of them.
     std::promise<void> release;
     auto gate = release.get_future().share();
     std::atomic<int> running{0};

@@ -17,12 +17,14 @@ such changes are listed under **Changed**).
 - **Defaults from the first 16-thread measurement ([ADR-0025](docs/adr/0025-measured-defaults-on-16-threads.md))**: `Server(io_threads=None)` now
   means `min(4, CPUs // 4)` with a GIL (1 on a free-threaded Python and on Windows); the inline `async def` path of ADR-0023 is on by default only
   with 2 CPUs or fewer (`Server(inline_async=True/False)` forces it): on a machine with cores to spare it was 20 percent slower at saturation.
-- **`set_thread_pool(base, max, grow_after)`** (Python: `grow_after_ms`): how long a job waits for a free worker before the pool grows. The pool now doubles
-  at every growth step (as far as jobs are queued) instead of adding one thread.
+- **`set_thread_pool(base, max, grow_after)`** (Python: `grow_after_ms`): how long a job waits for a free worker before the pool grows. A step adds one thread per 500 us of that wait
+  (so one thread with the default wait, as before).
 - With a GIL the worker pool starts with one thread and grows after a 10 ms wait (the maximum is unchanged): on 16 threads one worker gave 16.7k req/s on
   a CPU-bound `def` handler, sixteen 10.6k (ADR-0025).
 
 ### Added
+- Benchmark suite: JSON and FastAPI rows, `io_threads` 1, 2, 4, 8 for Python too, library versions and compiler in the header, standard deviation, a fixed-rate
+  latency phase (p99.9 at half of each maximum), efficiency cores for the load generator.
 - **`server::set_io_threads(n)`, `Server(io_threads=N)` and `httpp run --io-threads N`**: several I/O threads share the port (one engine and
   one acceptor each, `SO_REUSEPORT`; not on Windows, which keeps one). On a free-threaded Python every I/O thread also gets its own asyncio
   loop thread, so `async def` handlers use several cores; with a GIL there is still one loop. Default 1. See

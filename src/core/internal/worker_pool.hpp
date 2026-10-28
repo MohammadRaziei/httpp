@@ -101,10 +101,10 @@ private:
             if (stop_) return;
             if (jobs_.empty()) { armed_ = false; continue; }
             if (std::chrono::steady_clock::now() - jobs_.front().at >= help_after) {
-                // The pool doubles at every step, as far as there are queued jobs without a thread: a burst of
-                // blocked handlers gets its threads in a few steps, a CPU-bound load that only now and then waits
-                // that long grows by one or two.
-                const std::size_t step = std::max<std::size_t>(1, live_locked());
+                // One thread per 500 us of waiting, as before for the default wait: a pool that waits longer before it
+                // grows (to keep CPU-bound work on few threads) adds that many threads per step, so a burst of blocked
+                // handlers does not have to wait one step for every thread.
+                const std::size_t step = std::max<std::size_t>(1, static_cast<std::size_t>(help_after / std::chrono::microseconds(500)));
                 for (std::size_t i = 0; i < step; ++i) wake_locked(true);
             }
         }
