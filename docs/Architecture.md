@@ -284,7 +284,7 @@ Each one has an ADR with context, rejected alternatives and consequences: [docs/
 | Coupling level | open (risk 3) |
 | Exact API scope (Starlette-like / FastAPI-like, pydantic) | direction set, scope open (risk 4) |
 | `async def` path (removing the hop) | partly done, see [ADR-0009](adr/0009-hot-path.md) (risk 1) |
-| Backpressure in WebSocket | open (risk 6) |
+| Backpressure in WebSocket | decided: bounded queue, ADR-0026 (risk 6) |
 
 ---
 

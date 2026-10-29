@@ -198,18 +198,18 @@
 
 ## Phase 5: WebSocket
 
-> ⚠️ Decide backpressure (risk 6) before starting. Not started.
+> C++ core done (ADR-0026, bounded queue). The Python binding is next.
 
 ### Steps
 
-- [ ] Handshake (Upgrade)
-- [ ] Frame parsing (text)
-- [ ] Ping/Pong
-- [ ] Close handshake
-- [ ] Binary frames
-- [ ] Fragmentation
+- [x] Handshake (Upgrade) (C++)
+- [x] Frame parsing (text) (C++)
+- [x] Ping/Pong (C++)
+- [x] Close handshake (C++)
+- [x] Binary frames (C++)
+- [x] Fragmentation (C++)
 - [ ] wss:// (needs server TLS)
-- [ ] Backpressure (second pass)
+- [x] Backpressure (second pass) (C++)
 - [ ] permessage-deflate (optional)
 
 ### API

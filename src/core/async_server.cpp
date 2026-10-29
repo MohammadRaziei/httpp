@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstdio>
+#include <deque>
 #include <ctime>
 #include <mutex>
 #include <vector>
@@ -281,6 +282,171 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         parser.data = this;
     }
 
+    // ---- tunnel mode (after a 101, see tunnel in async_server.hpp) ----
+    struct tio_impl final : tunnel_io {
+        conn& c;
+        explicit tio_impl(conn& cc) : c(cc) {}
+        void write(std::string data) override { c.t_write(std::move(data)); }
+        std::size_t queued() const override { return c.tq_bytes; }
+        void pause_reading(bool pause) override { c.t_pause(pause); }
+        void close() override { c.close(); }
+        void close_after_flush() override { c.t_flush_close(); }
+        void set_idle(int seconds) override { c.t_set_idle(seconds); }
+        void set_deadline(std::chrono::milliseconds after) override { c.t_set_deadline(after); }
+    };
+    tio_impl tio{*this};
+    std::shared_ptr<tunnel> tun;
+    std::deque<std::string> tq;      // handed to write(), not yet given to the socket
+    std::size_t tq_bytes = 0;        // queued plus in flight (not counting the 101 head)
+    std::size_t head_bytes = 0;      // the 101 head, until it is written
+    bool twriting = false, treading = false, tpaused = false, tflush = false;
+    int idle_sec = 0;
+    std::unique_ptr<asio::steady_timer> idle_timer, deadline_timer;
+    std::uint64_t idle_gen = 0, deadline_gen = 0;
+
+    void start_tunnel(wire_response r) {
+        std::string head = "HTTP/1.1 101 Switching Protocols\r\n";
+        for (const auto& h : r.headers) {
+            if (h.first.find_first_of("\r\n:") != std::string::npos || h.second.find_first_of("\r\n") != std::string::npos) {
+                HTTPP_LOG(warning) << "an upgrade answer with a malformed header: dropping the connection";
+                return close();
+            }
+            head += h.first + ": " + h.second + "\r\n";
+        }
+        head += "\r\n";
+        if (!log_what.empty()) {
+            HTTPP_LOG(info) << log_what << " 101";
+            log_what.clear();
+        }
+        tun = std::move(r.upgrade);
+        // The head goes first in the queue, and the tunnel opens right away: whatever on_open sends follows the head in the same write,
+        // and a client that has seen the 101 knows on_open has run. The head is not part of what the tunnel counts (tq_bytes).
+        head_bytes = head.size();
+        tq.push_back(std::move(head));
+        tunnel_begin();
+    }
+
+    void tunnel_begin() {
+        if (closed || !tun) return;
+        auto t = tun;
+        std::weak_ptr<conn> weak = shared_from_this();
+        auto post = srv.poster_;
+        t->on_open(tio, [weak, post](std::function<void(tunnel_io&)> fn) {
+            post->post([weak, fn = std::move(fn)]() mutable {
+                if (auto c = weak.lock()) if (!c->closed && c->tun) fn(c->tio);
+            });
+        });
+        if (closed) return;
+        t_write_next();  // starts the write of the head (and of what on_open queued) if on_open did not already
+        if (!leftover.empty()) {
+            std::string d = std::move(leftover);
+            leftover.clear();
+            t->on_bytes(tio, d.data(), d.size());
+            if (closed) return;
+        }
+        t_read();
+    }
+
+    void t_read() {
+        if (closed || !tun || treading || (tpaused && !tflush)) return;
+        treading = true;
+        sock.async_read_some(asio::buffer(rbuf), [self = shared_from_this()](std::error_code ec, std::size_t n) {
+            self->treading = false;
+            if (self->closed) return;
+            if (ec) return self->close();
+            if (self->tflush) return self->t_read();  // closing: whatever the peer still sends is thrown away
+            self->t_idle_restart();
+            auto t = self->tun;                        // the connection may close inside the callback
+            t->on_bytes(self->tio, self->rbuf.data(), n);
+            self->t_read();
+        });
+    }
+
+    void t_pause(bool pause) {
+        tpaused = pause;
+        if (!pause) t_read();
+    }
+
+    void t_write(std::string data) {
+        if (closed || tflush || data.empty()) return;
+        tq_bytes += data.size();
+        tq.push_back(std::move(data));
+        if (!twriting) t_write_next();
+    }
+
+    void t_write_next() {
+        if (closed || twriting || tq.empty()) return;
+        if (tq.size() > 1) {  // one write for everything that is waiting
+            std::string all;
+            for (auto& piece : tq) all += piece;
+            tq.clear();
+            tq.push_back(std::move(all));
+        }
+        wbuf = std::move(tq.front());
+        tq.pop_front();
+        twriting = true;
+        arm(srv.write_to.load());
+        asio::async_write(sock, asio::buffer(wbuf), [self = shared_from_this()](std::error_code ec, std::size_t n) {
+            self->twriting = false;
+            if (self->closed) return;
+            if (ec) return self->close();
+            self->disarm();
+            const std::size_t head = std::min(n, self->head_bytes);  // the head rides in the first write and is not the tunnel's
+            self->head_bytes -= head;
+            n -= head;
+            self->tq_bytes -= n;
+            if (auto t = self->tun; t && !self->tflush && n > 0) t->on_written(self->tio, n);
+            if (self->closed) return;
+            if (!self->tq.empty()) return self->t_write_next();
+            if (self->tflush) self->t_finish_flush();
+        });
+    }
+
+    void t_flush_close() {
+        if (closed || tflush) return;
+        tflush = true;
+        if (!twriting && tq.empty()) t_finish_flush();
+    }
+
+    void t_finish_flush() {
+        std::error_code ec;
+        sock.shutdown(tcp::socket::shutdown_send, ec);
+        arm(linger_seconds);
+        if (!treading) t_read();  // keeps reading and discarding until the peer is done or the timer fires
+    }
+
+    void t_set_idle(int seconds) {
+        idle_sec = seconds;
+        t_idle_restart();
+    }
+    void t_idle_restart() {
+        if (idle_sec <= 0) {
+            if (idle_timer) { ++idle_gen; idle_timer->cancel(); }
+            return;
+        }
+        if (!idle_timer) idle_timer = std::make_unique<asio::steady_timer>(srv.io);
+        const std::uint64_t gen = ++idle_gen;
+        idle_timer->expires_after(std::chrono::seconds(idle_sec));
+        idle_timer->async_wait([self = shared_from_this(), gen](std::error_code ec) {
+            if (ec || gen != self->idle_gen || self->closed || self->tflush) return;
+            self->t_idle_restart();            // a new interval starts now; on_idle may end the connection
+            if (auto t = self->tun) t->on_idle(self->tio);
+        });
+    }
+
+    void t_set_deadline(std::chrono::milliseconds after) {
+        if (!deadline_timer) {
+            if (after.count() <= 0) return;
+            deadline_timer = std::make_unique<asio::steady_timer>(srv.io);
+        }
+        const std::uint64_t gen = ++deadline_gen;
+        if (after.count() <= 0) { deadline_timer->cancel(); return; }
+        deadline_timer->expires_after(after);
+        deadline_timer->async_wait([self = shared_from_this(), gen](std::error_code ec) {
+            if (!ec && gen == self->deadline_gen) self->close();
+        });
+    }
+
     // ---- timers ----
     void arm(int seconds) {
         const std::uint64_t gen = ++armed;
@@ -309,7 +475,14 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         sock.close(ec);
         stream.reset(); // releases a body generator whose client went away
         sent_guard.reset();
+        if (idle_timer) idle_timer->cancel();
+        if (deadline_timer) deadline_timer->cancel();
         srv.conns.erase(self);
+        if (tun) {
+            auto t = std::move(tun);
+            tq.clear();
+            t->on_close();
+        }
     }
 
     // ---- reading ----
@@ -430,6 +603,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         if (closed || !answering) return;
         answering = false;
         if (r.status == 0) return close(); // convention: no answer at all (a handler that gave up)
+        if (r.status == 101 && r.upgrade) return start_tunnel(std::move(r));
         if (r.after_send) sent_guard = make_sent_guard(std::move(r.after_send));
         if (!log_what.empty()) {  // the access log
             HTTPP_LOG(info) << log_what << ' ' << r.status;

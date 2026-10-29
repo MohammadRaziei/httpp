@@ -62,6 +62,7 @@ TARGETS = {
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("swagger_ui.hpp", ""): httpp,
     ("server.hpp", "responder"): None,  # handed to route_async handlers; Python handlers just return or await
+    ("websocket.hpp", "websocket"): None,  # the Python WebSocket API is the next step (ADR-0026), then this maps to it
 }
 
 # C++ name -> Python name, per owner, for names that differ on purpose.
@@ -105,6 +106,7 @@ CTOR_ARGS = {
 NOT_EXPOSED = {
     ("server", "route_io"): "not necessary: Python handlers need the GIL anyway, so add_loop_route is the fast path",
     ("server", "route_shared"): "not necessary: add_route already hands Python the request on a pool thread",
+    ("server", "route_ws"): "not bound yet: the Python WebSocket API is the next step (ADR-0026); the entry goes when it is bound",
     ("router", "route_io"): "same as server::route_io",
     ("router", "route_shared"): "same as server::route_shared",
     ("", "find_swagger_ui_asset"): "internal lookup behind mount_swagger_ui, not meant for users",

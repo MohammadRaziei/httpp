@@ -18,6 +18,32 @@
 
 namespace httpp::detail {
 
+// After a 101 answer the connection stops being HTTP and becomes a byte stream owned by a `tunnel` (WebSocket is the first user,
+// see websocket.hpp). The engine only moves bytes: it reads, queues and writes, applies the write timeout, and tells the tunnel when
+// bytes arrived, were written, or nothing came for a while. Everything here runs on the loop thread of the connection.
+struct tunnel_io {
+    virtual ~tunnel_io() = default;
+    virtual void write(std::string data) = 0;          // queued; written in order, one async write at a time
+    virtual std::size_t queued() const = 0;            // bytes handed to write() and not yet written
+    virtual void pause_reading(bool pause) = 0;        // stop (or resume) reading the socket; TCP pushes back on the peer
+    virtual void close() = 0;                          // now; the queue is dropped
+    virtual void close_after_flush() = 0;              // write the queue, half-close, drain the peer for a moment, close
+    virtual void set_idle(int seconds) = 0;            // on_idle every time this long passes without a byte received; 0 = never
+    virtual void set_deadline(std::chrono::milliseconds after) = 0; // hard close at that time; zero cancels
+};
+// Runs a function on the loop thread of the connection, with its tunnel_io. Thread-safe; does nothing once the connection is gone.
+using tunnel_post_fn = std::function<void(std::function<void(tunnel_io&)>)>;
+
+class tunnel {
+public:
+    virtual ~tunnel() = default;
+    virtual void on_open(tunnel_io& io, tunnel_post_fn post) = 0; // before any byte is delivered
+    virtual void on_bytes(tunnel_io& io, const char* data, std::size_t n) = 0;
+    virtual void on_written(tunnel_io& io, std::size_t n) { (void)io; (void)n; } // n bytes of the queue went out
+    virtual void on_idle(tunnel_io& io) { (void)io; }
+    virtual void on_close() = 0;                                   // exactly once, however the connection ends
+};
+
 struct http_request {
     std::string method;   // "GET", "POST", ...
     std::string target;   // raw request target: "/path?query" (not decoded)
@@ -46,6 +72,8 @@ struct wire_response {
     // The server keeps its per-request memory in it, so that memory is freed by the thread that allocated it
     // and not by the thread that answered (a free on another thread waits for the allocator's lock).
     std::shared_ptr<void> keep;
+    // Status 101 only: `headers` are written as they are (the engine adds nothing, not even Date), then the connection belongs to this tunnel.
+    std::shared_ptr<tunnel> upgrade;
 };
 
 class async_server {

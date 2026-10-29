@@ -2,6 +2,7 @@
 
 #include "httpp/export.hpp"
 #include "httpp/client.hpp" // reuses httpp::response for the outgoing side too
+#include "httpp/websocket.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -177,6 +178,10 @@ public:
     // A before hook (it may block) or a mounted directory that has the file still runs first, on a
     // worker thread, and then the handler runs there instead.
     HTTPP_API void route_io(const std::string& method, const std::string& path, io_handler h);
+    // A WebSocket endpoint (RFC 6455): GET `path` (":name" segments work as in route()) upgrades the connection and the callbacks of `h`
+    // then run on its I/O thread, see ws_handler and websocket. A request that is not a valid upgrade gets 400 (426 for a Sec-WebSocket-Version
+    // other than 13). The before hook runs first (and may refuse); the after hook does not run for the 101 answer. Needs no worker thread.
+    HTTPP_API void route_ws(const std::string& path, ws_handler h);
     // Registers every route of `r` under `prefix` + r.prefix() (see router.hpp). The router is not kept.
     HTTPP_API void include(const router& r, const std::string& prefix = "");
     HTTPP_API void serve_directory(const std::string& mount_path, const std::string& local_dir);

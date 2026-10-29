@@ -51,6 +51,8 @@ installed system-wide (no `apt`, `brew` or `choco`).
   almost no threads.
 - **Python, C++ and a CLI from the same wheel.** One binary core, three front ends.
 - **HTTP and HTTPS** on the client (mbedtls, vendored).
+- **WebSocket server (C++ so far).** `server::route_ws` with callbacks on the I/O thread, thread-safe sends and a bounded send
+  queue ([ADR-0026](docs/adr/0026-websocket.md)); the Python API follows.
 - **Hooks, streaming and files** on the server: `before_request` / `after_request`, error and exception
   handlers, generators as streamed bodies, files sent from disk, cookies and redirects.
 - **A client with a real error model**: `res.json()`, `res.error`, `raise_for_status()`, typed
