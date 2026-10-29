@@ -236,6 +236,12 @@ def measure(var, args, server_cpus, load_cpus, rate=None):
         # oha aborts the requests still in flight when the time is up ("aborted due to deadline"): not an error of the server
         bad = sum(dist.values()) - ok + sum(n for k, n in data.get("errorDistribution", {}).items() if "deadline" not in k)
         pct = data.get("latencyPercentiles", {})
+        if bad:  # say what happened: a dead server shows up as hundreds of thousands of refused connections
+            rc = proc.poll()
+            print(f"  ! {var.name}: {bad} errors, server {'is alive' if rc is None else f'exited with code {rc}'}; {data.get('errorDistribution', {})}",
+                  file=sys.stderr, flush=True)
+            if rc is not None:
+                print(proc.stderr.read().decode(errors="replace")[-1500:], file=sys.stderr, flush=True)
         return (ok / args.seconds, (t1 - t0) / os.sysconf("SC_CLK_TCK") * 1e6 / max(ok, 1),
                 (pct.get("p50") or 0) * 1000, (pct.get("p99") or 0) * 1000, bad, (pct.get("p99.9") or 0) * 1000)
     finally:

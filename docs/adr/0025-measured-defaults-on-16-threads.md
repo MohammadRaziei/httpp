@@ -135,3 +135,21 @@ What the run shows:
 Build hygiene found while reading the log: `-Wreorder` in `worker_pool` (member order against the constructor list; harmless, fixed), uv hard-link warnings (the project is on another filesystem than the uv cache; the
 Makefile now sets `UV_LINK_MODE=copy`), CMake finding the conda Python (only used by the `liburlparser` configure, never for the measurement; the Makefile now passes the venv Python, which then needs `jsonschema` and `jinja2` for the mbedtls code generator: they are installed next to cmake and ninja, so the configure no longer depends on whatever Python the machine has), mbedtls deprecation notes (third party, silenced for the bench build).
 Not touched: the configure step of `liburlparser` downloads the public suffix list and rewrites the tracked `src/third_party/liburlparser/src/public_suffix_list.dat`.
+
+## Addendum 6: a crash found by the second bench (2026-10-29)
+The full run (tree 9c83b41592) had two rounds that lost the server: Python `def` with a GIL at 8 I/O threads (131k req/s and 606,771 errors in the round: the server
+died about 1.5 s into it) and C++ `route` (worker pool) at 4 I/O threads (a round with 0 answers and 2,528,812 errors). About 150 server starts, so rare, and only with several I/O threads.
+The suite did not keep the exit code or the server's stderr, so the first look was blind. It now prints the exit code, the error kinds and the stderr tail when a run has errors.
+
+Cause, found with a ThreadSanitizer build of the core under `oha` load (4 and 8 I/O threads, `route` and `route_io`): `http_date()` in `async_server.cpp` kept its per-second cache
+(`cached`, `text`) in function-level statics, documented as "loop thread only". Since ADR-0024 there is one loop thread per I/O thread, so they all wrote and read the same
+`std::string`. Torn reads were harmless in practice, but the first answers of a fresh server can run the fill on two threads at once (`text.empty()` is true for both): two
+assignments to one heap string are a double free. TSan: 5 warnings per run before, 0 after, in three runs at 4 threads and one each (pool and inline route) at 8.
+Fix: the cache is `thread_local`. Regression test: `the_date_header_is_well_formed_when_every_io_thread_answers_at_once` (20 fresh servers, 16 clients each). It can only fail
+by luck in a normal build; the race itself is visible with `-fsanitize=thread`. ASan found nothing in six 5 s runs.
+
+Not shown by the evidence: that this race is the cause of both lost servers. It is the only race TSan reported, and it fits (rare, at startup or under several loops, pool and inline paths),
+but no core file was kept. The next `make bench` decides: the rows with errors must be gone, and if one appears again the new report says how the server died.
+
+Other reading of the run, same as addendum 5 unless stated: GIL pool rows are flat (22.4k to 23.2k) at 1 and 4 I/O threads, only p99 differs. On 3.14t a pool that starts at 2 threads is +17 percent at 1 I/O threads (76.7k against
+65.3k; the default for a free-threaded Python is 1 I/O thread, so this is the default configuration) and equal at 4 (69.8k against 68.0k). Half-load p99.9 is 0.8 to 1.3 ms for Python and 0.8 ms for C++ at 396k req/s.

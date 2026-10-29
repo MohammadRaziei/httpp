@@ -120,4 +120,28 @@ UTEST(httpp_server_io_threads, the_server_stops_and_listens_again_with_several_i
     }
 }
 
+UTEST(httpp_server_io_threads, the_date_header_is_well_formed_when_every_io_thread_answers_at_once) {
+    // The Date text is cached per second. The cache must belong to one I/O thread: shared, two threads fill and read it
+    // together (a data race that ThreadSanitizer reports, and that can corrupt the string on the very first answers).
+    for (int round = 0; round < 20; ++round) {
+        local_server srv([](httpp::server& s) {
+            s.set_io_threads(4);
+            s.route_io("GET", "/d", [](std::shared_ptr<const httpp::request>, httpp::responder r) { answer(r, 200, "x"); });
+        });
+        std::atomic<int> bad{0};
+        std::vector<std::thread> users;
+        for (int i = 0; i < 16; ++i) {
+            users.emplace_back([&] {
+                httpp::client c(srv.url());
+                for (int k = 0; k < 20; ++k) {
+                    const std::string d = c.get("/d").header("Date"); // "Sat, 10 Oct 2026 12:00:00 GMT"
+                    if (d.size() != 29 || d.compare(25, 4, " GMT") != 0 || d[3] != ',') ++bad;
+                }
+            });
+        }
+        for (auto& t : users) t.join();
+        ASSERT_EQ(0, bad.load());
+    }
+}
+
 #endif

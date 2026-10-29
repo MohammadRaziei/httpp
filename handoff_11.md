@@ -31,6 +31,9 @@ Read this first in the next session. It replaces handoff_10.md (older hand-offs 
 ## Bench read (ADR-0025 addenda 4 and 5)
 The first run had a bad CPU split (shared hyper-thread pair, 3 CPUs for `oha`); its C++ ceiling and p99 tails were artifacts. The second run (core-aligned split, tree f08eea4db0) is the reference: see addendum 5. Open: free-threaded pool base 2 (+17 percent at 1 I/O thread, not yet at 4), `def JSON` plateau on 3.14t, non-monotone inline on 3.14t.
 
+## Crash found (ADR-0025 addendum 6)
+Two bench rounds lost the server (Python `def` GIL io=8, C++ `route` io=4). TSan on the C++ bench server found a data race in `http_date()` (shared static cache across I/O threads); fixed with `thread_local`, regression test added. Not proven that it is THE cause: rerun `make bench` and look for error rows. The sandbox has no way to run the 16-thread bench but can run TSan/ASan builds of the core under `oha` (see `/home/claude/work/b_thread`, `cpp_bench_thread`, recipe: CMAKE_CXX_FLAGS=-fsanitize=thread, build `httpp_core`, compile `benchmarks/cpp/cpp_bench.cpp` with the same flag). The earlier statement that TSan was clean covered tests with one I/O thread only.
+
 ## Next
 1. Ask for `make bench` with the governor on `performance` and the new pool rows at 4 I/O threads. Read the next output (ask the owner to run it with the governor on `performance`): check that 3.14t `def` CPU-bound is back at about 60k, read the fixed-rate p99.9 table, check FastAPI and JSON rows, and the rows at 8 I/O threads. Record the numbers in an ADR-0025 addendum and fix defaults if the data says so.
 2. WebSocket (RFC 6455) in the C++ core first, then the Python binding. ADR and tests first: handshake, frames (text, binary, continuation), masking, ping/pong, close codes, size limits, fragmentation, per-message limits, backpressure. It must run on the I/O thread like `route_io`, and the Python side follows the lanes design.

@@ -83,12 +83,13 @@ bool ieq(const std::string& a, const char* b) {
     });
 }
 
-// "Sat, 10 Oct 2026 12:00:00 GMT"; locale independent; cached per second (loop thread only).
+// "Sat, 10 Oct 2026 12:00:00 GMT"; locale independent; cached per second. The cache is per thread: with several I/O
+// threads (set_io_threads) a shared one is a data race, and two first answers at once could corrupt the string.
 const std::string& http_date() {
     static const char* days[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
     static const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-    static std::time_t cached = 0;
-    static std::string text;
+    static thread_local std::time_t cached = 0;
+    static thread_local std::string text;
     const std::time_t now = std::time(nullptr);
     if (now != cached || text.empty()) {
         std::tm tm{};

@@ -7,6 +7,8 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+- Fixed a data race with several I/O threads (`set_io_threads`, Python `io_threads`): the cached `Date` header text was shared by all of them, so two threads could
+  write and read it together. ThreadSanitizer reported it, and in the benchmarks two runs out of about 150 lost the server (a round with zero answers). The cache is now per thread.
 - Answers from other threads are batched into one Asio post per burst, which cuts the cost of the thread hop.
 - An `async def` handler that cannot suspend (no `await`, `async with` or `async for`, no `Depends`; Python 3.12+) runs on the I/O thread when the
   loop thread is asleep and no `def` handler is running, so it skips the hop to the asyncio loop: 54.7k to 71.5k req/s on the `hello` benchmark
