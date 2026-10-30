@@ -56,6 +56,13 @@ jobs:
     uses: ./.github/workflows/wheels.yml
     needs: [init]
 
+  # Informational: release-wheels does not wait for it, a FAILED case must not block publishing the wheels (ADR-0028).
+  autobahn:
+    uses: ./.github/workflows/autobahn.yml
+    needs: [init]
+    permissions:
+      contents: write
+
   release-wheels:
     needs: [wheel, init]
     runs-on: ubuntu-latest

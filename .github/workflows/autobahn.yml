@@ -1,11 +1,11 @@
 name: autobahn
 
-# Runs on every push to master (and by hand). The summary lands on the __beta__ release a few minutes after the orchestrator has cleared it.
+# Called by the orchestrator after its `init` job (which clears the __beta__ assets), so the summary is uploaded after the clean-up
+# and never deleted by it. It can also be run by hand. ADR-0028.
 # WebSocket conformance (RFC 6455) with the Autobahn test suite against the Python echo server. Cases 12.* and 13.* (permessage-deflate) are excluded.
 on:
   workflow_dispatch:
-  push:
-    branches: [ master ]
+  workflow_call:
 
 permissions:
   contents: write
