@@ -35,6 +35,10 @@ void websocket::close(std::uint16_t code, std::string_view reason) const {
 
 void websocket::pause_reading() const { if (shared_) shared_->pause_reading(true); }
 void websocket::resume_reading() const { if (shared_) shared_->pause_reading(false); }
+const std::shared_ptr<void>& websocket::user() const {
+    static const std::shared_ptr<void> none;
+    return shared_ ? shared_->user() : none;
+}
 bool websocket::is_open() const { return shared_ && shared_->is_open(); }
 std::size_t websocket::buffered_amount() const { return shared_ ? shared_->buffered() : 0; }
 

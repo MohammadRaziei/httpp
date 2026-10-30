@@ -544,12 +544,39 @@ UTEST(httpp_ws_session, any_bytes_from_the_peer_clear_the_outstanding_ping) {
     ASSERT_FALSE(r.io.after_flush);
 }
 
-UTEST(httpp_ws_session, a_session_that_never_opened_reports_no_close) {
-    ws_events ev;
+UTEST(httpp_ws_session, a_session_that_never_opened_still_reports_its_close_once) {
     int closes = 0;
-    ev.on_close = [&](std::uint16_t, std::string_view) { ++closes; };
-    auto session = ws_session::make(std::move(ev), {});
-    session->on_close();  // the connection died before the 101 was written
-    ASSERT_EQ(0, closes);
-    ASSERT_FALSE(session->shared()->is_open());
+    std::uint16_t code = 0;
+    {
+        ws_events ev;
+        ev.on_close = [&](std::uint16_t c, std::string_view) { ++closes; code = c; };
+        auto session = ws_session::make(std::move(ev), {});
+        session->on_close();  // the connection died before the 101 was written
+        ASSERT_EQ(1, closes);
+        ASSERT_EQ(1006u, code);
+        ASSERT_FALSE(session->shared()->is_open());
+    }
+    ASSERT_EQ(1, closes);     // the destructor does not say it again
+    int dropped = 0;
+    {
+        ws_events ev;
+        ev.on_close = [&](std::uint16_t, std::string_view) { ++dropped; };
+        auto session = ws_session::make(std::move(ev), {});  // dropped without the engine ever touching it
+    }
+    ASSERT_EQ(1, dropped);
+}
+
+UTEST(httpp_ws_session, the_user_pointer_lives_with_the_handle) {
+    auto user = std::make_shared<int>(7);
+    std::weak_ptr<int> weak = user;
+    std::shared_ptr<ws_shared> handle;
+    {
+        auto session = ws_session::make({}, {}, user);
+        handle = session->shared();
+    }
+    user.reset();
+    ASSERT_FALSE(weak.expired());           // the handle still holds it
+    ASSERT_EQ(7, *static_cast<int*>(handle->user().get()));
+    handle.reset();
+    ASSERT_TRUE(weak.expired());
 }

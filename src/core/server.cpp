@@ -190,6 +190,101 @@ void responder::send(response res) const {
     impl_->settle_once();
 }
 
+// ---- WebSocket upgrade: the pending decision (see ws_acceptor in httpp/websocket.hpp) ----
+namespace {
+
+bool has_token(const std::string& list, const char* token) {
+    std::size_t pos = 0;
+    while (pos <= list.size()) {
+        std::size_t end = list.find(',', pos);
+        if (end == std::string::npos) end = list.size();
+        std::size_t a = pos, b = end;
+        while (a < b && (list[a] == ' ' || list[a] == '\t')) ++a;
+        while (b > a && (list[b - 1] == ' ' || list[b - 1] == '\t')) --b;
+        if (ieq(list.substr(a, b - a), token)) return true;
+        pos = end + 1;
+    }
+    return false;
+}
+
+} // namespace
+
+namespace detail {
+
+struct ws_upgrade {
+    std::shared_ptr<responder::impl> state;  // the request that waits for its answer
+    std::shared_ptr<request> req;
+    std::shared_ptr<const ws_handler> handler;
+    std::string key, offered;                // Sec-WebSocket-Key, and every Sec-WebSocket-Protocol the client sent
+
+    void reject(response res) {
+        if (state->answered.exchange(true)) return;  // only the first answer counts
+        state->send(std::move(res), 0, -1, state);
+        state->settle_once();
+    }
+
+    void accept(std::vector<std::pair<std::string, std::string>> extra, std::shared_ptr<void> user) {
+        if (state->answered.load()) return;
+        wire_response w;
+        std::string problem;
+        try {
+            w.status = 101;
+            w.headers.emplace_back("Upgrade", "websocket");
+            w.headers.emplace_back("Connection", "Upgrade");
+            w.headers.emplace_back("Sec-WebSocket-Accept", ws_accept_key(key));
+            for (auto& [name, value] : extra) {
+                if (ieq(name, "Upgrade") || ieq(name, "Connection") || ieq(name, "Sec-WebSocket-Accept") || ieq(name, "Content-Length") ||
+                    ieq(name, "Transfer-Encoding") || ieq(name, "Date") || ieq(name, "Content-Type"))
+                    continue;  // the handshake owns these
+                if (!header_ok(name, value)) { problem = "a header with a line break"; break; }
+                if (ieq(name, "Sec-WebSocket-Protocol") && !has_token(offered, value.c_str())) { problem = "a Sec-WebSocket-Protocol the client did not offer"; break; }
+                w.headers.emplace_back(name, value);
+            }
+        } catch (...) {
+            problem = "the handshake could not be built";
+        }
+        if (!problem.empty()) {
+            response res;
+            res.status = 500;
+            res.body = "Internal Server Error";
+            reject(std::move(res));
+            throw std::invalid_argument("httpp::ws_acceptor::accept: " + problem);
+        }
+        auto h = handler;
+        auto handle = std::make_shared<websocket>();
+        ws_events ev;
+        ev.on_open = [h, handle] { if (h->on_open) h->on_open(*handle); };
+        ev.on_message = [h, handle](std::string_view m, bool binary) { if (h->on_message) h->on_message(*handle, m, binary); };
+        ev.on_drain = [h, handle] { if (h->on_drain) h->on_drain(*handle); };
+        ev.on_close = [h, handle](std::uint16_t code, std::string_view reason) { if (h->on_close) h->on_close(*handle, code, reason); };
+        ws_limits limits;
+        limits.max_message = h->max_message;
+        limits.max_buffered = h->max_buffered;
+        limits.ping_interval = h->ping_interval;
+        auto session = ws_session::make(std::move(ev), limits, std::move(user));
+        *handle = websocket(session->shared(), req);
+        w.upgrade = std::move(session);
+        if (state->answered.exchange(true)) return;  // lost the race with another answer
+        state->answer(std::move(w));  // the 101 goes out as it is: the after hook does not run for it (see route_ws)
+        state->settle_once();
+    }
+};
+
+} // namespace detail
+
+void ws_acceptor::accept(std::vector<std::pair<std::string, std::string>> headers, std::shared_ptr<void> user) const {
+    if (upgrade_) upgrade_->accept(std::move(headers), std::move(user));
+}
+void ws_acceptor::reject(const response& res) const {
+    if (upgrade_) upgrade_->reject(res);
+}
+void ws_acceptor::reject(int status, std::string_view body) const {
+    response res;
+    res.status = status;
+    res.body = std::string(body.empty() ? (status == 403 ? "Forbidden" : "") : body);
+    if (upgrade_) upgrade_->reject(std::move(res));
+}
+
 struct server::impl {
     std::shared_ptr<config> cfg = std::make_shared<config>();
     std::vector<route_entry> routes;
@@ -824,20 +919,8 @@ struct server::impl {
 
 
     // ---- WebSocket handshake (RFC 6455 section 4.2.1), then the connection belongs to a ws_session ----
-    static bool has_token(const std::string& list, const char* token) {
-        std::size_t pos = 0;
-        while (pos <= list.size()) {
-            std::size_t end = list.find(',', pos);
-            if (end == std::string::npos) end = list.size();
-            std::size_t a = pos, b = end;
-            while (a < b && (list[a] == ' ' || list[a] == '\t')) ++a;
-            while (b > a && (list[b - 1] == ' ' || list[b - 1] == '\t')) --b;
-            if (ieq(list.substr(a, b - a), token)) return true;
-            pos = end + 1;
-        }
-        return false;
-    }
-
+    // The protocol checks happen here, on the I/O thread. The decision to accept is the handler's (ws_handler::on_handshake), possibly later
+    // and from another thread: the request waits like a route_async request (same 504 timeout, same fate when every acceptor copy is dropped).
     void run_ws(const std::shared_ptr<request>& req, const send_fn& send, detail::async_server::answer_fn answer,
                 const std::shared_ptr<const ws_handler>& h) {
         auto refuse = [&](int status, const char* text, std::vector<std::pair<std::string, std::string>> headers = {}) {
@@ -859,54 +942,39 @@ struct server::impl {
         if (req->method != "GET" || !upgrade || !connection || !detail::ws_key_is_valid(key)) return refuse(400, "Bad Request");
         if (version != "13") return refuse(426, "Upgrade Required", {{"Sec-WebSocket-Version", "13"}});
 
-        response out;
-        out.status = 403;
-        if (h->on_handshake) {
-            bool accepted = false;
-            try {
-                accepted = h->on_handshake(*req, out);
-            } catch (...) {
-                return on_exception(req, send, std::current_exception());
-            }
-            if (!accepted) {
-                if (out.status < 400) out.status = 403;
-                return send(std::move(out), 0, -1);
-            }
-        }
+        auto state = std::make_shared<responder::impl>();
+        state->send = send;
+        state->answer = std::move(answer);
+        auto up = std::make_shared<detail::ws_upgrade>();
+        up->state = state;
+        up->req = req;
+        up->handler = h;
+        up->key = std::move(key);
+        up->offered = std::move(offered);
+        if (!h->on_handshake) return up->accept({}, {});
 
-        detail::wire_response w;
+        const int timeout = async_timeout.load();
+        if (timeout > 0) track(state, req, timeout);
         try {
-            w.status = 101;
-            w.headers.emplace_back("Upgrade", "websocket");
-            w.headers.emplace_back("Connection", "Upgrade");
-            w.headers.emplace_back("Sec-WebSocket-Accept", detail::ws_accept_key(key));
-            for (auto& [name, value] : out.headers) {
-                if (ieq(name, "Upgrade") || ieq(name, "Connection") || ieq(name, "Sec-WebSocket-Accept") || ieq(name, "Content-Length") ||
-                    ieq(name, "Transfer-Encoding") || ieq(name, "Date") || ieq(name, "Content-Type"))
-                    continue;  // the handshake owns these
-                if (!header_ok(name, value)) return refuse(500, "Internal Server Error");
-                if (ieq(name, "Sec-WebSocket-Protocol") && !has_token(offered, value.c_str()))
-                    return refuse(500, "Internal Server Error"); // a protocol the client did not offer
-                w.headers.emplace_back(name, value);
-            }
-            auto handle = std::make_shared<websocket>();
-            detail::ws_events ev;
-            ev.on_open = [h, handle] { if (h->on_open) h->on_open(*handle); };
-            ev.on_message = [h, handle](std::string_view m, bool binary) { if (h->on_message) h->on_message(*handle, m, binary); };
-            ev.on_drain = [h, handle] { if (h->on_drain) h->on_drain(*handle); };
-            ev.on_close = [h, handle](std::uint16_t code, std::string_view reason) { if (h->on_close) h->on_close(*handle, code, reason); };
-            detail::ws_limits limits;
-            limits.max_message = h->max_message;
-            limits.max_buffered = h->max_buffered;
-            limits.ping_interval = h->ping_interval;
-            auto session = detail::ws_session::make(std::move(ev), limits);
-            *handle = websocket(session->shared(), req);
-            w.upgrade = std::move(session);
+            h->on_handshake(req, ws_acceptor(up));
         } catch (...) {
-            HTTPP_LOG(warning) << "websocket handshake failed (" << describe(std::current_exception()) << ") for " << req->path << ": answering 500";
-            return refuse(500, "Internal Server Error");
+            const std::exception_ptr ep = std::current_exception();
+            response err;
+            err.status = 500;
+            err.body = "Internal Server Error";
+            if (cfg->exception) {
+                try {
+                    cfg->exception(*req, err, ep);
+                } catch (...) {
+                    err = response{};
+                    err.status = 500;
+                    err.body = "Internal Server Error";
+                }
+            } else {
+                HTTPP_LOG(warning) << "websocket on_handshake for " << req->path << " threw: " << describe(ep);
+            }
+            up->reject(std::move(err));  // no-op if it had answered already
         }
-        answer(std::move(w));  // the 101 goes out as it is: the after hook does not run for it (see route_ws)
     }
 
     void add_route(const std::string& method, const std::string& path, route_entry r) {

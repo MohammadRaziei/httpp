@@ -31,7 +31,8 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0023](0023-inline-async-handlers.md) | `async def` handlers that cannot suspend run on the I/O thread (gate, busy count) | accepted |
 | [0024](0024-io-threads-and-lanes.md) | Several I/O threads; one asyncio loop per I/O thread on a free-threaded Python | accepted |
 | [0025](0025-measured-defaults-on-16-threads.md) | Defaults after the first 16-thread measurement (`io_threads`, inline `async def`) | accepted |
-| [0026](0026-websocket.md) | WebSocket (RFC 6455) in the C++ core, on the I/O thread; bounded send queue | accepted (C++ core done, Python next) |
+| [0026](0026-websocket.md) | WebSocket (RFC 6455) in the C++ core, on the I/O thread; bounded send queue | accepted (C++ core; handshake amended by 0027) |
+| [0027](0027-websocket-python-and-async-handshake.md) | WebSocket in Python, asynchronous handshake, bounded mailboxes | accepted |
 
 ## Not decided yet
 

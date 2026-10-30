@@ -117,6 +117,7 @@ public:
 
 private:
     friend class server;
+    friend struct detail::ws_upgrade;  // a pending WebSocket upgrade answers through the same state
     struct impl;
     std::shared_ptr<impl> impl_;
 };

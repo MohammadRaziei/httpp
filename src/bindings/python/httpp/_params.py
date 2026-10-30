@@ -20,6 +20,7 @@ import typing
 
 from . import _validate as V
 from ._background import BackgroundTasks
+from ._websocket import WebSocket
 from ._forms import FormData, UploadFile
 from .models import FieldInfo, _copy_default
 
@@ -151,7 +152,7 @@ class Param:
 
 
 class Plan:
-    __slots__ = ("path", "path_info", "path_checks", "path_from_raw", "params", "body", "embed", "deps", "wants_request", "wants_response", "background_name", "active")
+    __slots__ = ("path", "path_info", "path_checks", "path_from_raw", "params", "body", "embed", "deps", "wants_request", "wants_response", "background_name", "websocket_name", "active")
 
     def __init__(self):
         self.path = {}         # name -> hint, or None when the handler didn't annotate it
@@ -165,6 +166,7 @@ class Plan:
         self.wants_request = False
         self.wants_response = False   # a route handler asked for the injected `response`
         self.background_name = None   # ... or for BackgroundTasks, under this argument name
+        self.websocket_name = None    # a WebSocket route: the argument that gets the connection (named `websocket` or annotated WebSocket)
         self.active = False
 
     def run(self, raw, kwargs):
@@ -482,6 +484,9 @@ def make_plan(fn, path, top=True):
         hint = hints.get(name, None if p.annotation is p.empty else p.annotation)
         if top and name == "response":  # like `request`: injected by name (a dependency does not get it)
             plan.wants_response = True
+            continue
+        if top and (name == "websocket" or hint is WebSocket):
+            plan.websocket_name = name
             continue
         if top and hint is BackgroundTasks:
             plan.background_name = name

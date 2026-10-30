@@ -1,7 +1,7 @@
 # ADR-0026: WebSocket (RFC 6455) in the C++ core, on the I/O thread
 
 ## Status
-Accepted (2026-10-29). The owner asked for WebSocket and delegated the design. This ADR covers the C++ core only; the Python binding
+Accepted (2026-10-29). Amended by [ADR-0027](0027-websocket-python-and-async-handshake.md): the synchronous `on_handshake` described below became an asynchronous one with `ws_acceptor`. The owner asked for WebSocket and delegated the design. This ADR covers the C++ core only; the Python binding
 follows in its own ADR addendum (see "Python"). Backpressure is decided here, as `Architecture.md` risk 6 asked (option A, a bounded queue,
 from the start).
 

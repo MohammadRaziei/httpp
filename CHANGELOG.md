@@ -10,7 +10,11 @@ such changes are listed under **Changed**).
 - **WebSocket (RFC 6455) in the C++ core**: `server::route_ws(path, ws_handler)` with a `websocket` handle (`send_text`, `send_binary`, `ping`, `close`,
   `pause_reading`, `buffered_amount`). Callbacks run on the I/O thread; sends are thread-safe and the send queue is bounded (`max_buffered`, `status::full`,
   `on_drain`). Text, binary, fragmentation, ping/pong, close handshake, UTF-8 and size limits, optional keep-alive pings; no extensions (no `permessage-deflate`).
-  The engine got a generic upgrade "tunnel". The Python binding is the next step. See [ADR-0026](docs/adr/0026-websocket.md).
+  The engine got a generic upgrade "tunnel". See [ADR-0026](docs/adr/0026-websocket.md).
+- **WebSocket in Python**: `@app.websocket("/ws/{room}")` with an `async def` handler taking `websocket` (`accept`, `receive*`, `async for`, `send_*`, `ping`, `close`,
+  `WebSocketDisconnect`). One task per connection on the lane's loop; the I/O thread fills a per-connection mailbox without the GIL. Receiving is bounded (`max_queued`, the socket
+  is not read past it) and `await send_*` waits when the send queue is full. Browsers' `Origin` must match the host unless `origins=` says otherwise. The C++ handshake is now
+  asynchronous (`ws_acceptor`, `websocket::user()`, `on_close` exactly once per accepted upgrade). See [ADR-0027](docs/adr/0027-websocket-python-and-async-handshake.md).
 - Fixed a data race with several I/O threads (`set_io_threads`, Python `io_threads`): the cached `Date` header text was shared by all of them, so two threads could
   write and read it together. ThreadSanitizer reported it, and in the benchmarks two runs out of about 150 lost the server (a round with zero answers). The cache is now per thread.
 - Answers from other threads are batched into one Asio post per burst, which cuts the cost of the thread hop.

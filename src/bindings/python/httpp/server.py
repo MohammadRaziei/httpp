@@ -64,6 +64,7 @@ import traceback
 from . import _background, _forms, _log, _params, _router, _schema
 from . import _validate as V
 from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, _set_lanes, parse_form as _parse_form
+from ._websocket import WebSocket, WebSocketDisconnect
 from .models import BaseModel, to_jsonable
 from .responses import HTTPException, Response as _ResponseBase
 
@@ -912,6 +913,82 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
     return dispatch
 
 
+def _origin_ok(raw, allowed):
+    """The cross-site WebSocket hijacking check (browsers send Origin on a WebSocket handshake and let any page open one to
+    any host, cookies included). No Origin header: not a browser, allowed. `allowed` None = same origin only (the Origin's
+    host is the Host header); "*" in it = everything; otherwise those origins (and the same one)."""
+    origin = host = None
+    for name, value in raw.headers():
+        lower = name.lower()
+        if lower == "origin":
+            origin = value
+        elif lower == "host":
+            host = value
+    if origin is None:
+        return True
+    if allowed is not None and ("*" in allowed or origin.rstrip("/").lower() in allowed):
+        return True
+    netloc = origin.split("://", 1)[-1].rstrip("/")
+    return host is not None and netloc.lower() == host.lower()
+
+
+def _adapt_ws(fn, plan, origins):
+    """A WebSocket handler -> `dispatch(raw, core)` for the compiled core: runs on the loop thread, starts one task for the
+    connection and returns at once. The task answers the upgrade (accept / reject), runs the handler, and when it ends closes the
+    connection (1000, or 1011 after an exception) or, if the handler never accepted, rejects with 403 (500 after an exception)."""
+    prepare = _prepare(fn, plan)
+    ws_name = plan.websocket_name
+
+    async def run(raw, core):
+        task = asyncio.current_task()
+        ws = WebSocket(core, ServerRequest._from_raw(raw), asyncio.get_running_loop())
+        core.set_waiter(ws)
+        failed = False
+        try:
+            kwargs, early = prepare(raw)
+            if early is not None:
+                core.reject(early[0], early[1] if isinstance(early[1], bytes) else b"")
+            else:
+                kwargs[ws_name] = ws
+                await fn(**kwargs)
+        except WebSocketDisconnect:
+            pass
+        except HTTPException as exc:
+            if core.answered():
+                failed = True
+                traceback.print_exc()
+            else:
+                core.reject(exc.status_code, str(exc.detail).encode("utf-8"))
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            failed = True
+            traceback.print_exc()
+        finally:
+            try:
+                if not core.answered():
+                    core.reject(500 if failed else 403)
+                elif core.is_open():
+                    core.close(1011 if failed else 1000)
+            finally:
+                core.release()
+                _tasks.discard(task)
+
+    def dispatch(raw, core):
+        if not _origin_ok(raw, origins):
+            core.reject(403, b"")
+            return
+        loop = asyncio.get_running_loop()
+        if _EAGER:
+            task = asyncio.Task(run(raw, core), loop=loop, eager_start=True)
+        else:
+            task = loop.create_task(run(raw, core))
+        if not task.done():
+            _tasks.add(task)
+
+    return dispatch
+
+
 class Server(_Server):
     """httpp.Server plus @route/@get/@post/... decorators, hooks and settings.
 
@@ -1029,6 +1106,42 @@ class Server(_Server):
             self._routes.append(_params.Route(path, tuple(methods), fn, plan, meta))
             self._openapi_doc = None
             return fn  # unchanged, so it stays directly callable / testable
+
+        return register
+
+    def websocket(self, path, *, origins=None, max_message=1 << 20, max_buffered=1 << 20, max_queued=1 << 20, ping_interval=0):
+        """WebSocket route (RFC 6455), FastAPI / Starlette style:
+
+            @app.websocket("/ws/{room}")
+            async def chat(websocket, room):
+                await websocket.accept()
+                async for text in websocket:
+                    await websocket.send_text(text)
+
+        The handler must be `async def` and take the connection as `websocket` (or annotated `WebSocket`); path and query
+        parameters work as in `route`. It must `await websocket.accept()` first, else the upgrade is rejected with 403.
+        origins: allowed Origin values for browsers (default: the page must come from this server's own host; ["*"] allows
+        all). max_message: bytes of one message (more closes with 1009). max_buffered: bytes queued for sending; past it a
+        send waits. max_queued: received bytes waiting for the handler; past it the socket is not read (TCP pushes back on the
+        peer). ping_interval: seconds of silence before a ping, and again before the connection is closed; 0 = off."""
+        for name, value in (("max_message", max_message), ("max_buffered", max_buffered), ("max_queued", max_queued),
+                            ("ping_interval", ping_interval)):
+            if not isinstance(value, int) or isinstance(value, bool) or value < (0 if name == "ping_interval" else 1):
+                raise ValueError(f"{name} must be a {'non-negative' if name == 'ping_interval' else 'positive'} integer")
+        allowed = None if origins is None else frozenset(o.rstrip("/").lower() for o in origins)
+        pattern = _params.to_cpp_pattern(path)
+
+        def register(fn):
+            if not inspect.iscoroutinefunction(fn):
+                raise TypeError(f"{fn.__name__}: a WebSocket handler must be `async def`")
+            plan = _params.make_plan(fn, path)
+            if plan.websocket_name is None:
+                raise TypeError(f"{fn.__name__}: a WebSocket handler must take the connection as `websocket` (or annotated WebSocket)")
+            if plan.deps or plan.wants_response or plan.background_name is not None:
+                raise TypeError(f"{fn.__name__}: dependencies, `response` and background tasks are not supported on a WebSocket route")
+            self._add_ws_route(pattern, _adapt_ws(fn, plan, allowed), max_message, max_buffered, ping_interval, max_queued)
+            self._has_async = True  # the connection's lane (loop thread + inbox) must be running
+            return fn
 
         return register
 

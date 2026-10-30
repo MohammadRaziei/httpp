@@ -9,6 +9,7 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
@@ -246,10 +247,13 @@ UTEST(httpp_server_ws, other_methods_and_unknown_paths_are_the_usual_errors) {
     ASSERT_EQ(404, head_status(c.read_head()));
 }
 
-UTEST(httpp_server_ws, on_handshake_can_refuse_and_the_refusal_is_what_the_client_sees) {
+UTEST(httpp_server_ws, on_handshake_can_reject_and_the_rejection_is_what_the_client_sees) {
     local_server srv([](httpp::server& s) {
         auto h = echo();
-        h.on_handshake = [](const httpp::request& req, httpp::response&) { return req.header("Origin") == "https://good.example"; };
+        h.on_handshake = [](std::shared_ptr<const httpp::request> req, httpp::ws_acceptor acceptor) {
+            if (req->header("Origin") == "https://good.example") acceptor.accept();
+            else acceptor.reject();
+        };
         s.route_ws("/ws", h);
     });
     ws_client bad(srv.port);
@@ -263,9 +267,11 @@ UTEST(httpp_server_ws, on_handshake_can_refuse_and_the_refusal_is_what_the_clien
 UTEST(httpp_server_ws, on_handshake_can_choose_a_subprotocol_but_only_an_offered_one) {
     local_server srv([](httpp::server& s) {
         auto h = echo();
-        h.on_handshake = [](const httpp::request& req, httpp::response& out) {
-            out.headers.emplace_back("Sec-WebSocket-Protocol", req.query_param("pick"));
-            return true;
+        h.on_handshake = [](std::shared_ptr<const httpp::request> req, httpp::ws_acceptor acceptor) {
+            try {
+                acceptor.accept({{"Sec-WebSocket-Protocol", req->query_param("pick")}});
+            } catch (const std::invalid_argument&) {  // not offered: the client has been answered with a 500
+            }
         };
         s.route_ws("/ws", h);
     });
@@ -551,4 +557,156 @@ UTEST(httpp_server_ws, the_connection_limit_counts_websocket_connections) {
     ASSERT_EQ(101, head_status(first.handshake("/ws")));
     ws_client second(srv.port);
     ASSERT_EQ(503, head_status(second.read_head()));
+}
+
+// ---------------------------------------------------------------- the answer to the upgrade may come later, from anywhere
+
+UTEST(httpp_server_ws, the_acceptor_can_answer_later_from_another_thread) {
+    std::mutex mu;
+    httpp::ws_acceptor pending;
+    std::atomic<bool> have{false};
+    auto st = std::make_shared<log_state>();
+    local_server srv([&](httpp::server& s) {
+        auto h = echo();
+        watch(h, st);
+        h.on_handshake = [&](std::shared_ptr<const httpp::request>, httpp::ws_acceptor acceptor) {
+            std::lock_guard<std::mutex> lk(mu);
+            pending = acceptor;
+            have = true;
+        };
+        s.route_ws("/ws", h);
+    });
+    ws_client c(srv.port);
+    c.send_raw(ws_client::upgrade_request("/ws"));
+    for (int i = 0; i < 200 && !have; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    ASSERT_TRUE(have.load());
+    ASSERT_TRUE(c.read_head(std::chrono::milliseconds(200)).empty());       // nothing yet: the client waits
+    std::thread t([&] { httpp::ws_acceptor a; { std::lock_guard<std::mutex> lk(mu); a = pending; } a.accept(); });
+    t.join();
+    ASSERT_EQ(101, head_status(c.read_head()));
+    c.send_frame(op_text, "late but fine");
+    ws_frame_in f;
+    ASSERT_TRUE(c.read_frame(f));
+    ASSERT_TRUE(f.payload == "late but fine");
+    std::lock_guard<std::mutex> lk(st->mu);
+    ASSERT_EQ(1, st->opens);
+}
+
+UTEST(httpp_server_ws, the_acceptor_can_reject_later_with_its_own_response) {
+    httpp::ws_acceptor pending;
+    std::mutex mu;
+    std::atomic<bool> have{false};
+    local_server srv([&](httpp::server& s) {
+        auto h = echo();
+        h.on_handshake = [&](std::shared_ptr<const httpp::request>, httpp::ws_acceptor acceptor) {
+            std::lock_guard<std::mutex> lk(mu);
+            pending = acceptor;
+            have = true;
+        };
+        s.route_ws("/ws", h);
+    });
+    ws_client c(srv.port);
+    c.send_raw(ws_client::upgrade_request("/ws"));
+    for (int i = 0; i < 200 && !have; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    std::thread t([&] {
+        httpp::response res;
+        res.status = 401;
+        res.body = "who are you";
+        std::lock_guard<std::mutex> lk(mu);
+        pending.reject(res);
+        pending.accept();   // too late: the first answer counts
+    });
+    t.join();
+    const std::string head = c.read_head();
+    ASSERT_EQ(401, head_status(head));
+}
+
+UTEST(httpp_server_ws, an_acceptor_that_is_dropped_closes_the_connection_without_an_answer) {
+    local_server srv([](httpp::server& s) {
+        auto h = echo();
+        h.on_handshake = [](std::shared_ptr<const httpp::request>, httpp::ws_acceptor) {};  // forgets it
+        s.route_ws("/ws", h);
+    });
+    ws_client c(srv.port);
+    c.send_raw(ws_client::upgrade_request("/ws"));
+    ASSERT_TRUE(c.closed_by_peer());
+}
+
+UTEST(httpp_server_ws, an_acceptor_that_is_never_answered_gets_the_async_timeout) {
+    httpp::ws_acceptor keep;
+    std::mutex mu;
+    local_server srv([&](httpp::server& s) {
+        s.set_async_timeout(1);
+        auto h = echo();
+        h.on_handshake = [&](std::shared_ptr<const httpp::request>, httpp::ws_acceptor a) { std::lock_guard<std::mutex> lk(mu); keep = a; };
+        s.route_ws("/ws", h);
+    });
+    ws_client c(srv.port);
+    c.send_raw(ws_client::upgrade_request("/ws"));
+    ASSERT_EQ(504, head_status(c.read_head(std::chrono::milliseconds(5000))));
+    std::lock_guard<std::mutex> lk(mu);
+    keep.accept();   // after the 504: does nothing
+}
+
+UTEST(httpp_server_ws, a_handler_that_throws_in_on_handshake_gets_a_500) {
+    local_server srv([](httpp::server& s) {
+        auto h = echo();
+        h.on_handshake = [](std::shared_ptr<const httpp::request>, httpp::ws_acceptor) { throw std::runtime_error("no"); };
+        s.route_ws("/ws", h);
+    });
+    ws_client c(srv.port);
+    c.send_raw(ws_client::upgrade_request("/ws"));
+    ASSERT_EQ(500, head_status(c.read_head()));
+}
+
+UTEST(httpp_server_ws, the_user_pointer_given_to_accept_reaches_every_callback) {
+    std::mutex mu;
+    std::string seen;
+    local_server srv([&](httpp::server& s) {
+        httpp::ws_handler h;
+        h.on_handshake = [](std::shared_ptr<const httpp::request> req, httpp::ws_acceptor acceptor) {
+            acceptor.accept({}, std::make_shared<std::string>("conn-for-" + req->query_param("who")));
+        };
+        h.on_message = [&](const httpp::websocket& ws, std::string_view m, bool) {
+            std::lock_guard<std::mutex> lk(mu);
+            seen = *static_cast<std::string*>(ws.user().get()) + ":" + std::string(m);
+        };
+        s.route_ws("/ws", h);
+    });
+    ws_client c(srv.port);
+    ASSERT_EQ(101, head_status(c.handshake("/ws?who=ann")));
+    c.send_frame(op_text, "hi");
+    for (int i = 0; i < 200; ++i) {
+        { std::lock_guard<std::mutex> lk(mu); if (!seen.empty()) break; }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    std::lock_guard<std::mutex> lk(mu);
+    ASSERT_TRUE(seen == "conn-for-ann:hi");
+}
+
+UTEST(httpp_server_ws, a_client_that_left_before_the_acceptor_answered_still_gets_its_close_reported) {
+    auto st = std::make_shared<log_state>();
+    httpp::ws_acceptor pending;
+    std::mutex mu;
+    std::atomic<bool> have{false};
+    local_server srv([&](httpp::server& s) {
+        auto h = echo();
+        watch(h, st);
+        h.on_handshake = [&](std::shared_ptr<const httpp::request>, httpp::ws_acceptor a) { std::lock_guard<std::mutex> lk(mu); pending = a; have = true; };
+        s.route_ws("/ws", h);
+    });
+    {
+        ws_client c(srv.port);
+        c.send_raw(ws_client::upgrade_request("/ws"));
+        for (int i = 0; i < 200 && !have; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }                                                         // the client is gone
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // The engine does not read while a request waits for its answer, so it has not noticed that the client left: the accepted connection
+    // opens, and the first read finds the end. Either way the close is reported once, as 1006.
+    { std::lock_guard<std::mutex> lk(mu); pending.accept(); }
+    ASSERT_TRUE(st->wait_for_close());
+    std::lock_guard<std::mutex> lk(st->mu);
+    ASSERT_TRUE(st->opens <= 1);
+    ASSERT_EQ(1, st->closes);
+    ASSERT_EQ(1006u, st->close_code);
 }

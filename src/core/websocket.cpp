@@ -151,20 +151,24 @@ void ws_shared::pause_reading(bool pause) {
 
 // ---------------------------------------------------------------- the session
 
-std::shared_ptr<ws_session> ws_session::make(ws_events events, ws_limits limits) {
-    auto s = std::make_shared<ws_session>(private_tag{}, std::move(events), limits);
+std::shared_ptr<ws_session> ws_session::make(ws_events events, ws_limits limits, std::shared_ptr<void> user) {
+    auto s = std::make_shared<ws_session>(private_tag{}, std::move(events), limits, std::move(user));
     s->shared_->session_ = s;
     return s;
 }
 
-ws_session::ws_session(private_tag, ws_events events, ws_limits limits)
+ws_session::ws_session(private_tag, ws_events events, ws_limits limits, std::shared_ptr<void> user)
     : events_(std::move(events)), limits_(limits), shared_(std::make_shared<ws_shared>()) {
     shared_->max_buffered_ = limits.max_buffered;
+    shared_->user_ = std::move(user);
 }
+
+// An accepted upgrade whose connection was gone before the engine could open the tunnel is dropped without on_close: say it here, so that
+// whoever waits for the connection (a coroutine in accept()) is told. Normally on_close() has run and this does nothing.
+ws_session::~ws_session() { on_close(); }
 
 void ws_session::on_open(tunnel_io& io, tunnel_post_fn post) {
     io_ = &io;
-    opened_ = true;
     shared_->post_ = std::move(post);
     shared_->loop_thread_ = std::this_thread::get_id();
     shared_->open_.store(true, std::memory_order_release);
@@ -244,7 +248,7 @@ void ws_session::on_close() {
     closed_notified_ = true;
     shared_->open_.store(false, std::memory_order_release);
     io_ = nullptr;
-    if (opened_ && events_.on_close) {  // a connection that died before its 101 went out never opened
+    if (events_.on_close) {
         try {
             events_.on_close(peer_code_, peer_reason_);
         } catch (...) {

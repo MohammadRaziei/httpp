@@ -54,6 +54,7 @@ public:
     void close(std::uint16_t code, std::string_view reason);
     void pause_reading(bool pause);
     bool is_open() const { return open_.load(std::memory_order_acquire); }
+    const std::shared_ptr<void>& user() const { return user_; }
     std::size_t buffered() const { return buffered_.load(std::memory_order_relaxed); }
 
 private:
@@ -66,11 +67,13 @@ private:
     tunnel_post_fn post_;
     std::weak_ptr<ws_session> session_;
     std::thread::id loop_thread_;
+    std::shared_ptr<void> user_;             // set before the session exists, never changed
 };
 
 class ws_session : public tunnel, public std::enable_shared_from_this<ws_session> {
 public:
-    static std::shared_ptr<ws_session> make(ws_events events, ws_limits limits);
+    static std::shared_ptr<ws_session> make(ws_events events, ws_limits limits, std::shared_ptr<void> user = {});
+    ~ws_session() override;
     ws_session(const ws_session&) = delete;
     ws_session& operator=(const ws_session&) = delete;
 
@@ -86,7 +89,7 @@ private:
     friend class ws_shared;
     struct private_tag {};
 public:
-    ws_session(private_tag, ws_events events, ws_limits limits);
+    ws_session(private_tag, ws_events events, ws_limits limits, std::shared_ptr<void> user);
 private:
     void enqueue(tunnel_io& io, std::string frame);   // an already counted frame
     void start_close(tunnel_io& io, std::uint16_t code, std::string_view reason, bool wait_for_peer);
@@ -118,7 +121,6 @@ private:
     bool dead_ = false;             // a close was sent or received: bytes are ignored
     bool close_sent_ = false;
     bool ping_outstanding_ = false;
-    bool opened_ = false;           // on_open ran: on_close is reported only then
     bool closed_notified_ = false;
     bool got_close_ = false;
     std::uint16_t peer_code_ = 1006;

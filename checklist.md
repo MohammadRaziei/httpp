@@ -198,7 +198,7 @@
 
 ## Phase 5: WebSocket
 
-> C++ core done (ADR-0026, bounded queue). The Python binding is next.
+> C++ core (ADR-0026) and Python binding (ADR-0027) done, both with bounded queues. Open: Autobahn, a benchmark, memory with many idle connections.
 
 ### Steps
 
