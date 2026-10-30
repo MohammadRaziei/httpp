@@ -27,6 +27,14 @@ def running(app):
         th.join()
 
 
+def wait_until(cond, timeout=10.0):
+    """Poll `cond` until it is true or `timeout` passes. A fixed sleep is a race on a loaded CI runner (macOS failed at 0.1 s)."""
+    end = time.monotonic() + timeout
+    while not cond() and time.monotonic() < end:
+        time.sleep(0.01)
+    return cond()
+
+
 class Client:
     """A bare RFC 6455 client: handshake, masked frames."""
 
@@ -188,7 +196,7 @@ def test_peer_close_raises_disconnect_with_its_code():
         c = Client(port)
         c.close(4000)
         c.recv()
-        time.sleep(0.1)
+        wait_until(lambda: seen)
     assert seen == [(4000, "")]
 
 
@@ -208,7 +216,7 @@ def test_a_dropped_connection_is_1006():
         c = Client(port)
         time.sleep(0.05)
         c.drop()
-        time.sleep(0.2)
+        wait_until(lambda: seen)
     assert seen == [1006]
 
 
@@ -228,7 +236,7 @@ def test_messages_sent_before_a_close_are_still_read():
         c.text("a")
         c.text("b")
         c.close()
-        time.sleep(0.4)
+        wait_until(lambda: len(got) == 2)
     assert got == ["a", "b"]
 
 
@@ -359,7 +367,6 @@ def test_bad_arguments():
 
 def test_receiving_is_bounded_the_socket_is_not_read_while_the_handler_is_busy():
     total = 64 * 1024 * 1024  # far more than the kernel can buffer on both sides plus max_queued
-    state = {}
     app = Server()
 
     @app.websocket("/ws", max_queued=64 * 1024)
@@ -367,30 +374,26 @@ def test_receiving_is_bounded_the_socket_is_not_read_while_the_handler_is_busy()
         import asyncio
 
         await websocket.accept()
-        await asyncio.sleep(1.0)  # not reading at all for a while
-        n = 0
-        async for m in websocket:
-            n += len(m)
-            if n >= total:
-                break
-        state["bytes"] = n
-        await websocket.send_text("done")
+        await asyncio.sleep(2.0)  # not reading at all while the client pushes (the window below ends well before)
+        async for _ in websocket:
+            pass
 
     with running(app) as port:
         c = Client(port)
-        c.sock.settimeout(0.5)
+        c.sock.settimeout(0.1)
         chunk = b"y" * 32768
         sent = 0
-        stuck = False
+        # A fixed window, not "until one send times out": a trickle of window updates can restart a per-send timeout and
+        # a send then succeeds a moment before the handler wakes (this made the old form fail about one run in three).
+        end = time.monotonic() + 1.0
         try:
-            while sent < total:
+            while sent < total and time.monotonic() < end:
                 c.send(2, chunk)
                 sent += len(chunk)
         except (socket.timeout, TimeoutError):
-            stuck = True  # TCP pushed back: the server was not reading
-        assert stuck and sent < total, "the server kept reading while its handler did not"
+            pass  # TCP pushed back: the server was not reading
+        assert sent < total // 4, "the server kept reading while its handler did not"
         c.sock.settimeout(60)
-        # (a send that timed out may have written part of a frame, so just check the handler's own progress below)
         c.drop()
     time.sleep(0.2)
 
