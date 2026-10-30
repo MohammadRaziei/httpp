@@ -1,0 +1,52 @@
+name: autobahn
+
+# Runs on every push to master (and by hand). The summary lands on the __beta__ release a few minutes after the orchestrator has cleared it.
+# WebSocket conformance (RFC 6455) with the Autobahn test suite against the Python echo server. Cases 12.* and 13.* (permessage-deflate) are excluded.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+
+permissions:
+  contents: write
+
+jobs:
+  autobahn:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        submodules: recursive
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+    - name: Build and install httpp
+      run: pip install .
+    - name: Start the echo server
+      run: |
+        python tools/autobahn/echo_server.py 9001 &
+        sleep 2
+    - name: Run the Autobahn fuzzing client
+      working-directory: tools/autobahn
+      run: |
+        mkdir -p reports
+        docker run --rm --net=host -v "$PWD:/config" -v "$PWD/reports:/reports" crossbario/autobahn-testsuite wstest -m fuzzingclient -s /config/fuzzingclient.json
+    - name: Summarise the report
+      id: summary
+      run: python tools/autobahn/check_report.py tools/autobahn/reports/index.json autobahn-report.md
+      continue-on-error: true
+    - name: Publish the summary to the __beta__ release
+      if: always()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release view __beta__ >/dev/null 2>&1 || gh release create __beta__ --prerelease --title __beta__ --notes "pre-release builds"
+        gh release upload __beta__ autobahn-report.md --clobber
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: autobahn-report
+        path: tools/autobahn/reports
+    - name: Fail if a case FAILED
+      if: steps.summary.outcome == 'failure'
+      run: exit 1
