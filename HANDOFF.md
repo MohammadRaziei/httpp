@@ -63,9 +63,16 @@ Request paths:
 - One connection: inline 60-66k, `def` 44-53k, `async def` 40-43k, C++ `route_io` 74k. Fixed rate at half of max: p99.9 0.8-1.3 ms.
 - WebSocket: **no benchmark exists.**
 
+## 6b. Bench run 2026-10-31 (tree be18e38c71, governor powersave, NOT performance; 3 rounds, 64 connections)
+- **0 errors in all ~100 configurations** (about 300 rounds). The old loss rate (2 of about 150 rounds) predicts about 4: this is weak evidence that the `http_date` fix was the cause, not proof.
+- hello py 3.14 GIL `def` 213k / 347k / 495k / 412k; `async def` 199k / 316k / 311k / 279k; 3.14t `def` 210k / 367k / 486k / 408k, `async def` 203k / 295k / 475k / 451k; C++ `route_io` 222k / 392k / 533k / 808k. Within about 6 percent of section 6 (run-to-run noise); a cross-run comparison cannot settle the WebSocket inbox question, that needs an interleaved A/B.
+- 3.14t CPU-bound `def`, io=1: pool=2 gives 76.4k against 64.9k for the default (+18 percent, the same as before); at io=4 only +2 percent. First-burst cost still unmeasured. Free-threaded default is io_threads=1, so the default setup would gain.
+- 3.14t `def JSON`: 329k at 2 I/O threads, then 287k and 278k (plateau, unexplained, needs `perf`). `async def JSON` 440k at 4.
+- One connection: inline 71k, `def` 57k, `async def` 47k, C++ `route_io` 84k (higher than section 6, different machine state).
+
 ## 7. Open problems and next steps (in order)
 1. **Autobahn**: done once (see section 4). After the next push check that 6.4.x are OK. Cases 12/13 (permessage-deflate) are excluded by design.
-2. **Crash from the earlier bench**: two bench rounds lost the server (py `def` GIL io=8 and C++ `route` io=4). A data race in `http_date()` was found by TSan and fixed (thread_local); not proven to be the cause. The next `make bench` decides (error rows gone or not). If one persists: core dump / faulthandler, TSan the Python extension. Also grep `src/core` and the bindings for function-level statics and shared mutable state that only fail with several loops.
+2. **Crash from the earlier bench** (one clean run on 2026-10-31, see 6b; keep watching): two bench rounds lost the server (py `def` GIL io=8 and C++ `route` io=4). A data race in `http_date()` was found by TSan and fixed (thread_local); not proven to be the cause. The next `make bench` decides (error rows gone or not). If one persists: core dump / faulthandler, TSan the Python extension. Also grep `src/core` and the bindings for function-level statics and shared mutable state that only fail with several loops.
 3. **Re-run `make bench`** (governor `performance`): it must show no error rows and no HTTP regression from the WebSocket inbox change (the inbox item grew by a `shared_ptr` and a flag, `_drain_inbox` has one extra check; not measured). Open readings: 3.14t `def` pool should start at 2? (+17 percent at 1 I/O thread, slower first burst; `grow_after` 2 ms untested), `def JSON` plateau on 3.14t (needs `perf`: suspects refcount contention, pool queue lock), non-monotone inline on 3.14t.
 4. **WebSocket benchmark** in `benchmarks/` (echo at 64 connections: messages/s and p99, against the C++ core, `websockets`, `uvicorn[standard]`) and **memory with many idle connections** (a reviewer asked). TSan after the async-handshake rework (WebSocket tests, then the whole suite).
 5. WebSocket gaps: `APIRouter.websocket`, dependencies, OpenAPI note, `on_close` earlier than the lingering close (considered, kept), permessage-deflate (not planned).
