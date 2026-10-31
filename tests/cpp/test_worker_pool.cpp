@@ -119,19 +119,19 @@ UTEST(worker_pool, a_long_job_gets_help_after_a_short_delay) {
 }
 
 UTEST(worker_pool, a_burst_of_blocked_jobs_gets_its_threads_in_a_few_steps_even_with_a_long_wait) {
-    // One starting thread, a 20 ms wait before growing (10 threads per step): 32 jobs that all block must all be
-    // running after a few steps (about 80 ms), not after 32 of them (640 ms). The bound sits between the two with
-    // room for a slow CI runner (thread creation on macOS), which a 120 ms bound did not have.
+    // One starting thread, a 10 ms wait before growing (20 threads per step, see worker_pool::scout): 32 jobs that
+    // all block must all be running after two steps (about 20 to 40 ms), not after 32 of them (320 ms). The bound
+    // sits between the two with room for a slow CI runner (timer and thread creation on macOS).
     std::promise<void> release;
     auto gate = release.get_future().share();
     std::atomic<int> running{0};
-    worker_pool pool(1, 64, 20ms);
+    worker_pool pool(1, 64, 10ms);
     open_on_exit opener{release};
     const auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < 32; ++i) pool.enqueue([&] { ++running; gate.wait(); });
     while (running < 32 && std::chrono::steady_clock::now() - t0 < 2s) std::this_thread::sleep_for(1ms);
     ASSERT_EQ(32, running.load());
-    ASSERT_TRUE(std::chrono::steady_clock::now() - t0 < 500ms);
+    ASSERT_TRUE(std::chrono::steady_clock::now() - t0 < 250ms);
     release.set_value();
 }
 
