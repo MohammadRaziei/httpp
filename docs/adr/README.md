@@ -35,6 +35,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0027](0027-websocket-python-and-async-handshake.md) | WebSocket in Python, asynchronous handshake, bounded mailboxes | accepted |
 | [0028](0028-autobahn-called-by-the-orchestrator.md) | The orchestrator calls the Autobahn workflow (ordering with the `__beta__` clean-up) | accepted |
 | [0029](0029-incremental-utf8-validation.md) | Text messages are checked for UTF-8 as the bytes arrive (Autobahn 6.4.x) | accepted |
+| [0030](0030-benchmarks-built-by-cmake.md) | The benchmarks are a CMake project; WebSocket and Drogon join the suite | accepted |
 
 ## Not decided yet
 

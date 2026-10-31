@@ -6,6 +6,14 @@ def _work():
 
 
 async def app(scope, receive, send):
+    if scope["type"] == "websocket":  # an echo
+        await receive()  # websocket.connect
+        await send({"type": "websocket.accept"})
+        while True:
+            event = await receive()
+            if event["type"] != "websocket.receive":
+                return
+            await send({"type": "websocket.send", "text": event.get("text"), "bytes": event.get("bytes")})
     if scope["type"] != "http":
         return
     path = scope["path"]

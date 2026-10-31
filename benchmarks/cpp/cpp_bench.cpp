@@ -1,6 +1,8 @@
 // The C++ side of the benchmark suite: the same answers as the Python apps, through each way of registering a route.
 //   cpp_bench PORT [IO_THREADS]
+// /ws is a WebSocket echo (the same as the Python apps and drogon_bench).
 #include "httpp/server.hpp"
+#include "httpp/websocket.hpp"
 
 #include <cstdlib>
 
@@ -36,5 +38,11 @@ int main(int argc, char** argv) {
         hello(r);
         rs.send(std::move(r));
     });
+    httpp::ws_handler echo;
+    echo.on_message = [](const httpp::websocket& ws, std::string_view m, bool binary) {
+        if (binary) ws.send_binary(m);
+        else ws.send_text(m);
+    };
+    srv.route_ws("/ws", std::move(echo));
     return srv.listen("127.0.0.1", port) ? 0 : 1;
 }

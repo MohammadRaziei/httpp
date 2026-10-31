@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The benchmark suite: uvicorn, httpp (def / async def / await) on several Pythons and I/O thread counts, and
-the C++ API, all measured the same way. One command (`make bench`), one output file to send back.
+the C++ API, Drogon, and WebSocket echo servers, all measured the same way. One command (the CMake target `bench`, see CMakeLists.txt), one output file to send back.
 
 Method: variants run interleaved (round 1 of every variant, then round 2, ...), so a slow minute of the machine
 hits all of them alike. The server and the load generator (`oha`) are pinned to separate CPUs. Server CPU time per
@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import platform
+import resource
 import shutil
 import socket
 import statistics
@@ -111,30 +112,35 @@ def sysinfo(args, server_cpus, load_cpus):
                      if os.path.basename(os.path.dirname(p)).startswith(("AC", "ADP")))
     lines.append(f"on battery      {'YES (results will be low and noisy)' if on_battery else 'no / unknown'}")
     lines.append(f"tree            {tree_id()}")
-    lines.append(f"settings        conc={args.conc} seconds={args.seconds} rounds={args.rounds} warmup=1s")
+    lines.append(f"settings        conc={args.conc} seconds={args.seconds} rounds={args.rounds} warmup=1s ws_size={args.ws_size} idle_conns={args.idle_conns}")
     for label, py in args.pys:
         info = subprocess.run([py, "-c", "import sys,httpp;g=getattr(sys,'_is_gil_enabled',lambda:True)();"
                                "print(sys.version.split()[0],'GIL' if g else 'no-GIL (free-threaded)','httpp',httpp.__version__)"],
                               capture_output=True, text=True).stdout.strip()
         lines.append(f"python {label:<7} {info}")
         libs = subprocess.run([py, "-c", "from importlib.metadata import version as v\n"
-                               "for n in ('uvicorn','uvloop','httptools','fastapi','starlette'):\n"
+                               "for n in ('uvicorn','uvloop','httptools','fastapi','starlette','websockets','wsproto'):\n"
                                "    try: print(n, v(n), end='  ')\n"
                                "    except Exception: print(n, '-', end='  ')"], capture_output=True, text=True).stdout.strip()
         lines.append(f"       {'':<7} {libs}")
     cxx = shutil.which(os.environ.get("CXX", "g++"))
     if cxx:
-        lines.append(f"c++ compiler    {subprocess.run([cxx, '--version'], capture_output=True, text=True).stdout.splitlines()[0]}  (library: CMake Release, bench: -O2)")
+        lines.append(f"c++ compiler    {subprocess.run([cxx, '--version'], capture_output=True, text=True).stdout.splitlines()[0]}  (CMake {os.environ.get('CMAKE_BUILD_TYPE', 'Release')} for the library and the bench programs)")
+    lines.append(f"drogon          {args.drogon + '  (' + args.note + ')' if args.drogon else 'not built (HTTPP_BENCH_DROGON is OFF or uuid-dev is missing)'}")
     lines.append("uvicorn         one process, --no-access-log, uvloop when installed, httptools; the app is a bare ASGI function")
     lines.append("hello           a constant answer; json: a path parameter turned into an int and a JSON object back;")
     lines.append("cpu             sum of i*i for i<2000 in Python (about 60 us); the C++ server does the same sum in C++")
+    lines.append("websocket        echo of a text message, closed loop: every connection sends the next one when the echo arrives (ws_load, no compression);")
+    lines.append("                uvicorn uses its own websockets implementation; the websockets library runs on uvloop when installed")
+    lines.append("idle            RSS of the server before and after N connections were opened and left idle (one run, not a median)")
     lines.append("rate            closed-loop runs measure queueing at saturation; the 'rate' tables hold latency at 50 percent of each maximum")
     return "\n".join(lines)
 
 
 class Variant:
-    def __init__(self, group, name, path, cmd, env=None, conc=None, rate=False):
+    def __init__(self, group, name, path, cmd, env=None, conc=None, rate=False, kind="http"):
         self.group, self.name, self.path, self.cmd, self.env, self.conc, self.rate = group, name, path, cmd, env or {}, conc, rate
+        self.kind = kind  # "http" (oha), "ws" (ws_load echo) or "idle" (memory with idle WebSocket connections)
         self.runs = []  # (req/s, us/req, p50 ms, p99 ms, errors)
 
 
@@ -194,7 +200,66 @@ def build_variants(args):
                 if what in args.only:
                     v.append(Variant(f"{what} (C++)", f"{name}, io_threads={n}", path, [args.cpp, "{port}", str(n)],
                                      rate=(what == "hello" and "route_io" in name and n in (1, args.io_threads[-1]))))
+    if args.drogon and os.path.exists(args.drogon):
+        for n in args.io_threads + [x for x in args.cpp_extra if x not in args.io_threads]:
+            for path, what in (("/sync", "hello"), ("/cpu", "cpu")):
+                if what in args.only:
+                    v.append(Variant(f"{what} (C++)", f"Drogon, io_threads={n}", path, [args.drogon, "{port}", str(n)],
+                                     rate=(what == "hello" and n in (1, args.io_threads[-1]))))
+    v += ws_variants(args)
     return v
+
+
+def ws_threads(args):
+    """The I/O thread counts the Python WebSocket servers are run with: the first and 4 (or the last), to keep the run short."""
+    return sorted({args.io_threads[0], 4 if 4 in args.io_threads else args.io_threads[-1]})
+
+
+def ws_variants(args):
+    v = []
+    if "ws" not in args.only or not (args.ws_load and os.path.exists(args.ws_load)):
+        return v
+    what = f"websocket echo, {args.conc} connections, {args.ws_size} B"
+    if args.cpp and os.path.exists(args.cpp):
+        for n in args.io_threads:
+            v.append(Variant(f"{what} (C++)", f"httpp C++, io_threads={n}", "/ws", [args.cpp, "{port}", str(n)], kind="ws"))
+            if args.drogon and os.path.exists(args.drogon):
+                v.append(Variant(f"{what} (C++)", f"Drogon, io_threads={n}", "/ws", [args.drogon, "{port}", str(n)], kind="ws"))
+    for label, py in args.pys:
+        g = f"{what} (py {label})"
+        v.append(Variant(g, "uvicorn bare ASGI", "/ws", uvicorn_cmd(py) + ["--port", "{port}"], kind="ws"))
+        v.append(Variant(g, "websockets library", "/ws", [py, "ws_websockets.py", "{port}"], kind="ws"))
+        for n in ws_threads(args):
+            v.append(Variant(g, f"httpp async def, io_threads={n}", "/ws", httpp_cmd(py, n), kind="ws"))
+    return v
+
+
+def idle_variants(args):
+    """One server of each kind, io_threads=1: how much memory it holds for N connections that do nothing."""
+    v = []
+    if "idle" not in args.only or not (args.ws_load and os.path.exists(args.ws_load)):
+        return v
+    g = "memory with idle WebSocket connections"
+    if args.cpp and os.path.exists(args.cpp):
+        v.append(Variant(g, "httpp C++", "/ws", [args.cpp, "{port}", "1"], kind="idle"))
+    if args.drogon and os.path.exists(args.drogon):
+        v.append(Variant(g, "Drogon", "/ws", [args.drogon, "{port}", "1"], kind="idle"))
+    for label, py in args.pys:
+        v.append(Variant(g, f"httpp async def (py {label})", "/ws", httpp_cmd(py, 1), kind="idle"))
+        v.append(Variant(g, f"uvicorn bare ASGI (py {label})", "/ws", uvicorn_cmd(py) + ["--port", "{port}"], kind="idle"))
+        v.append(Variant(g, f"websockets library (py {label})", "/ws", [py, "ws_websockets.py", "{port}"], kind="idle"))
+    return v
+
+
+def uvicorn_cmd(py):
+    cmd = [py, "-m", "uvicorn", "suite_asgi:app", "--log-level", "error", "--no-access-log"]
+    if subprocess.run([py, "-c", "import uvloop"], capture_output=True).returncode == 0:
+        cmd += ["--loop", "uvloop"]
+    return cmd
+
+
+def httpp_cmd(py, n):
+    return [py, "-m", "httpp", "run", "suite_app:app", "--port", "{port}", "--log-level", "error", "--io-threads", str(n)]
 
 
 def ticks(pid):
@@ -208,24 +273,49 @@ def oha(args, load_cpus, url, seconds, conc=None, rate=None):
     return json.loads(subprocess.run(cmd, capture_output=True, check=True).stdout)
 
 
-def measure(var, args, server_cpus, load_cpus, rate=None):
-    port = free_port()
-    cmd = [c.replace("{port}", str(port)) for c in var.cmd]
-    if shutil.which("taskset"):
-        cmd = ["taskset", "-c", cpu_ranges(server_cpus)] + cmd
-    env = dict(os.environ, PYTHONPATH=HERE, **var.env)
-    proc = subprocess.Popen(cmd, cwd=HERE, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    try:
+def _raise_nofile():
+    """Run in the child before exec: the servers need one file descriptor per idle WebSocket connection."""
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (hard if hard != resource.RLIM_INFINITY else 1 << 20, hard))
+
+
+class started:
+    """A server process, pinned to the server CPUs, waited for until it accepts connections; stopped on exit."""
+
+    def __init__(self, var, args, server_cpus):
+        self.var, self.args, self.server_cpus = var, args, server_cpus
+
+    def __enter__(self):
+        self.port = free_port()
+        cmd = [c.replace("{port}", str(self.port)) for c in self.var.cmd]
+        if shutil.which("taskset"):
+            cmd = ["taskset", "-c", cpu_ranges(self.server_cpus)] + cmd
+        env = dict(os.environ, PYTHONPATH=HERE, **self.var.env)
+        self.proc = proc = subprocess.Popen(cmd, cwd=HERE, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, preexec_fn=_raise_nofile)
         for _ in range(150):
             if proc.poll() is not None:
                 raise RuntimeError(proc.stderr.read().decode()[-600:])
             try:
-                socket.create_connection(("127.0.0.1", port), 0.1).close()
-                break
+                socket.create_connection(("127.0.0.1", self.port), 0.1).close()
+                return self
             except OSError:
                 time.sleep(0.1)
-        else:
-            raise RuntimeError("did not start")
+        self.__exit__()
+        raise RuntimeError("did not start")
+
+    def __exit__(self, *exc):
+        self.proc.terminate()
+        try:
+            self.proc.wait(5)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+
+
+def measure(var, args, server_cpus, load_cpus, rate=None):
+    if var.kind == "ws":
+        return measure_ws(var, args, server_cpus, load_cpus)
+    with started(var, args, server_cpus) as srv:
+        proc, port = srv.proc, srv.port
         url = f"http://127.0.0.1:{port}{var.path}"
         oha(args, load_cpus, url, 1, var.conc)
         t0 = ticks(proc.pid)
@@ -244,12 +334,91 @@ def measure(var, args, server_cpus, load_cpus, rate=None):
                 print(proc.stderr.read().decode(errors="replace")[-1500:], file=sys.stderr, flush=True)
         return (ok / args.seconds, (t1 - t0) / os.sysconf("SC_CLK_TCK") * 1e6 / max(ok, 1),
                 (pct.get("p50") or 0) * 1000, (pct.get("p99") or 0) * 1000, bad, (pct.get("p99.9") or 0) * 1000)
-    finally:
-        proc.terminate()
+
+
+def ws_load_cmd(args, load_cpus, port, *extra):
+    cmd = ["taskset", "-c", cpu_ranges(load_cpus)] if shutil.which("taskset") else []
+    return cmd + [args.ws_load, str(port), "--size", str(args.ws_size), "--threads", str(max(1, min(4, len(load_cpus))))] + list(extra)
+
+
+def measure_ws(var, args, server_cpus, load_cpus):
+    """One WebSocket echo run: ws_load prints a line when its measuring window opens (the server CPU time is read then) and a JSON
+    summary when it closes."""
+    with started(var, args, server_cpus) as srv:
+        proc = srv.proc
+        load = subprocess.Popen(ws_load_cmd(args, load_cpus, srv.port, "--conns", str(var.conc or args.conc), "--seconds", str(args.seconds),
+                                            "--warmup", "1"), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        first = load.stdout.readline()
+        t0 = ticks(proc.pid)
+        rest = load.stdout.read()
+        t1 = ticks(proc.pid)
+        load.wait()
+        err = load.stderr.read()
+        if not first.strip().startswith("{\"started\""):
+            raise RuntimeError(err.strip().splitlines()[-1] if err.strip() else "ws_load did not start measuring")
+        data = json.loads(rest.strip().splitlines()[-1])
+        bad = data["errors"] + data["failed"]
+        if bad or load.returncode:
+            rc = proc.poll()
+            print(f"  ! {var.name}: {bad} errors ({data['connected']} connected), server {'is alive' if rc is None else f'exited with code {rc}'}; {err.strip()[-300:]}",
+                  file=sys.stderr, flush=True)
+        n = data["msgs_per_s"] * args.seconds
+        return (data["msgs_per_s"], (t1 - t0) / os.sysconf("SC_CLK_TCK") * 1e6 / max(n, 1), data["p50_ms"], data["p99_ms"], bad, data["p999_ms"])
+
+
+def rss_kib(pid):
+    for line in read(f"/proc/{pid}/status").splitlines():
+        if line.startswith("VmRSS:"):
+            return int(line.split()[1])
+    return 0
+
+
+def measure_idle(var, args, server_cpus, load_cpus, conns):
+    """(connected, failed, RSS before in KiB, RSS after in KiB): the connections do nothing, ws_load holds them until its stdin closes."""
+    with started(var, args, server_cpus) as srv:
+        time.sleep(1.0)
+        before = rss_kib(srv.proc.pid)
+        load = subprocess.Popen(ws_load_cmd(args, load_cpus, srv.port, "--idle", "--conns", str(conns)),
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
-            proc.wait(5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+            line = load.stdout.readline()
+            if not line:
+                err = load.stderr.read().strip()
+                raise RuntimeError(err.splitlines()[-1] if err else "ws_load failed")
+            info = json.loads(line)
+            time.sleep(1.0)
+            after = rss_kib(srv.proc.pid)
+        finally:
+            load.stdin.close()
+            try:
+                load.wait(10)
+            except subprocess.TimeoutExpired:
+                load.kill()
+        return info["connected"], info["failed"], before, after
+
+
+def run_idle(args, server_cpus, load_cpus):
+    idle = idle_variants(args)
+    if not idle:
+        return []
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    cap = (1 << 20) if hard == resource.RLIM_INFINITY else hard
+    conns = max(100, min(args.idle_conns, cap - 300))
+    lines = [f"=== MEMORY WITH {conns:,} IDLE WEBSOCKET CONNECTIONS (RSS of the server process, one run; io_threads=1) ===" + (
+             f"  [asked for {args.idle_conns:,}: the open-file limit is {cap:,}]" if conns < args.idle_conns else ""), "",
+             f"  {'server':<42}{'connected':>10}{'failed':>8}{'RSS before MiB':>16}{'RSS after MiB':>15}{'KiB / connection':>18}"]
+    for var in idle:
+        try:
+            connected, bad, before, after = measure_idle(var, args, server_cpus, load_cpus, conns)
+        except Exception as e:  # noqa: BLE001
+            lines.append(f"  {var.name:<42}  FAILED: {str(e).strip().splitlines()[-1:] or ['failed']}")
+            print(f"  FAILED idle {var.name}: {e}", flush=True)
+            continue
+        per = (after - before) / max(connected, 1)
+        lines.append(f"  {var.name:<42}{connected:>10,}{bad:>8}{before / 1024:>16.1f}{after / 1024:>15.1f}{per:>18.2f}")
+        print(f"idle {var.name:<40} {connected:,} connected, RSS {before / 1024:.1f} -> {after / 1024:.1f} MiB ({per:.2f} KiB each)", flush=True)
+    lines.append("")
+    return lines
 
 
 def main():
@@ -257,12 +426,19 @@ def main():
     ap.add_argument("--pys", required=True, help="label=python,label=python (each with httpp and uvicorn installed)")
     ap.add_argument("--cpp", default="", help="path of the cpp_bench binary")
     ap.add_argument("--oha", default="oha")
+    ap.add_argument("--ws-load", default="", help="path of the ws_load binary (the WebSocket load generator)")
+    ap.add_argument("--drogon", default="", help="path of the drogon_bench binary")
+    ap.add_argument("--note", default="", help="free text for the header (what was built)")
+    ap.add_argument("--ws-size", type=int, default=64, help="bytes per WebSocket message")
+    ap.add_argument("--idle-conns", type=int, default=10000, help="idle WebSocket connections for the memory table")
+    ap.add_argument("--out-dir", default="", help="write <out-dir>/<timestamp>.txt (instead of --out)")
     ap.add_argument("--seconds", type=int, default=5)
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--conc", type=int, default=64)
     ap.add_argument("--io-threads", default="1,2,4,8", help="I/O thread counts for httpp")
     ap.add_argument("--cpp-extra", default="", help="extra I/O thread counts only for the C++ server")
-    ap.add_argument("--only", default="hello,json,cpu,latency", help="hello, json, cpu, latency (one connection)")
+    ap.add_argument("--only", default="hello,json,cpu,latency,ws,idle",
+                    help="hello, json, cpu, latency (one connection), ws (WebSocket echo), idle (memory with idle WebSockets)")
     ap.add_argument("--server-cpus", default="", help="e.g. 0-7 (default: derived from the topology)")
     ap.add_argument("--load-cpus", default="", help="e.g. 8-11")
     ap.add_argument("--rate", action="store_true", help="also run the fixed-rate latency phase (needs hello in --only)")
@@ -278,6 +454,9 @@ def main():
 
     head = sysinfo(args, server_cpus, load_cpus)
     print(head, flush=True)
+    if args.out_dir and not args.out:
+        os.makedirs(args.out_dir, exist_ok=True)
+        args.out = os.path.join(args.out_dir, time.strftime("%Y%m%d-%H%M%S") + ".txt")
     variants = build_variants(args)
     failed = {}
     for r in range(args.rounds):
@@ -291,7 +470,7 @@ def main():
                 print(f"  FAILED {var.group} / {var.name}: {failed[id(var)][0]}", flush=True)
                 continue
             var.runs.append(res)
-            print(f"round {r + 1}/{args.rounds}  {var.group:<22} {var.name:<40} {res[0]:>10,.0f} req/s  {res[1]:6.1f} us/req  "
+            print(f"round {r + 1}/{args.rounds}  {var.group:<22} {var.name:<40} {res[0]:>10,.0f} {'msg' if var.kind == 'ws' else 'req'}/s  {res[1]:6.1f} us/{'msg' if var.kind == 'ws' else 'req'}  "
                   f"p50 {res[2]:6.2f} ms  p99 {res[3]:6.2f} ms  errors {res[4]}", flush=True)
 
     # Latency at a fixed request rate: half of what each variant reached in the closed-loop runs. At saturation the
@@ -316,7 +495,8 @@ def main():
             groups.append(var.group)
     for g in groups:
         lines.append(g)
-        lines.append(f"  {'variant':<42}{'req/s':>11}{'sd %':>7}{'[min-max]':>22}{'us/req':>9}{'p50 ms':>9}{'p99 ms':>9}{'errors':>8}")
+        unit = "msg/s" if any(x.kind == "ws" for x in variants if x.group == g) else "req/s"
+        lines.append(f"  {'variant':<42}{unit:>11}{'sd %':>7}{'[min-max]':>22}{('us/msg' if unit == 'msg/s' else 'us/req'):>9}{'p50 ms':>9}{'p99 ms':>9}{'errors':>8}")
         for var in (x for x in variants if x.group == g):
             if id(var) in failed:
                 lines.append(f"  {var.name:<42}  FAILED: {failed[id(var)][0]}")
@@ -332,12 +512,16 @@ def main():
         for var, target, res in rated:
             lines.append(f"  {var.group + ' / ' + var.name:<52}{target:>13,.0f}{res[2]:>9.2f}{res[3]:>9.2f}{res[5]:>10.2f}{res[4]:>8}")
         lines.append("")
+    idle_lines = run_idle(args, server_cpus, load_cpus)
+    if idle_lines:
+        lines += idle_lines
     text = "\n".join(lines)
     print(text)
     if args.out:
         with open(args.out, "w") as f:
             f.write(head + "\n" + text + "\n")
         print(f"written to {args.out}")
+        print(f"Send me this file: {args.out}")
 
 
 if __name__ == "__main__":

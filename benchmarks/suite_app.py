@@ -49,3 +49,13 @@ def item(item_id: int):
 @app.get("/aitem/{item_id}")
 async def aitem(item_id: int):
     return {"id": item_id, "ok": True}
+
+
+@app.websocket("/ws")
+async def ws_echo(websocket):  # an echo: the same as suite_asgi.py, ws_websockets.py and the C++ servers
+    await websocket.accept()
+    async for message in websocket:
+        if isinstance(message, str):
+            await websocket.send_text(message)
+        else:
+            await websocket.send_bytes(message)
