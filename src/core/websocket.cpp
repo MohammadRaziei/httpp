@@ -65,30 +65,43 @@ bool ws_key_is_valid(const std::string& key) {
     return std::strchr("AQgw", key[21]) != nullptr;  // 16 bytes leave the last 4 bits of the 22nd character zero
 }
 
-bool ws_utf8_valid(std::string_view s) {
+bool ws_utf8_scan(std::string_view s, std::size_t& complete) {
     const auto* p = reinterpret_cast<const unsigned char*>(s.data());
     const std::size_t n = s.size();
     std::size_t i = 0;
-    auto cont = [&](std::size_t at, unsigned lo = 0x80, unsigned hi = 0xBF) { return at < n && p[at] >= lo && p[at] <= hi; };
+    complete = 0;
     while (i < n) {
         const unsigned c = p[i];
-        if (c < 0x80) { ++i; continue; }
-        if (c >= 0xC2 && c <= 0xDF) { if (!cont(i + 1)) return false; i += 2; continue; }
-        if (c >= 0xE0 && c <= 0xEF) {
-            const unsigned lo = c == 0xE0 ? 0xA0 : 0x80, hi = c == 0xED ? 0x9F : 0xBF;  // no overlongs, no surrogates
-            if (!cont(i + 1, lo, hi) || !cont(i + 2)) return false;
-            i += 3;
-            continue;
+        if (c < 0x80) { complete = ++i; continue; }
+        std::size_t len;
+        unsigned lo = 0x80, hi = 0xBF;  // the allowed range of the second byte; later ones are always 80..BF
+        if (c >= 0xC2 && c <= 0xDF) {
+            len = 2;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            len = 3;
+            if (c == 0xE0) lo = 0xA0;       // no overlongs
+            if (c == 0xED) hi = 0x9F;       // no surrogates
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            len = 4;
+            if (c == 0xF0) lo = 0x90;       // no overlongs
+            if (c == 0xF4) hi = 0x8F;       // nothing above U+10FFFF
+        } else {
+            return false;
         }
-        if (c >= 0xF0 && c <= 0xF4) {
-            const unsigned lo = c == 0xF0 ? 0x90 : 0x80, hi = c == 0xF4 ? 0x8F : 0xBF;  // nothing above U+10FFFF
-            if (!cont(i + 1, lo, hi) || !cont(i + 2) || !cont(i + 3)) return false;
-            i += 4;
-            continue;
+        for (std::size_t k = 1; k < len; ++k) {
+            if (i + k >= n) return true;    // cut off, but valid so far: the next bytes may complete it
+            const unsigned b = p[i + k];
+            if (b < (k == 1 ? lo : 0x80u) || b > (k == 1 ? hi : 0xBFu)) return false;
         }
-        return false;
+        i += len;
+        complete = i;
     }
     return true;
+}
+
+bool ws_utf8_valid(std::string_view s) {
+    std::size_t complete;
+    return ws_utf8_scan(s, complete) && complete == s.size();
 }
 
 bool ws_close_code_valid(unsigned c) {
@@ -314,6 +327,7 @@ bool ws_session::parse_header(tunnel_io& io) {
             in_message_ = true;
             msg_binary_ = opcode_ == ws_binary;
             msg_.clear();
+            utf8_done_ = 0;
         }
         if (len > limits_.max_message || msg_.size() > limits_.max_message - len) return fail(io, 1009), false;  // before buffering a byte
         msg_.reserve(msg_.size() + static_cast<std::size_t>(std::min<std::uint64_t>(len, 1u << 20)));
@@ -360,7 +374,7 @@ void ws_session::finish_frame(tunnel_io& io) {
     if (opcode_ >= 8) return on_control(io);
     if (!fin_) return;
     in_message_ = false;
-    if (!msg_binary_ && !ws_utf8_valid(msg_)) {
+    if (!msg_binary_ && utf8_done_ != msg_.size()) {  // the bytes were checked as they came; this is a cut-off character
         msg_.clear();
         return fail(io, 1007);
     }
@@ -398,6 +412,14 @@ void ws_session::on_bytes(tunnel_io& io, const char* data, std::size_t n) {
         } else {
             const std::size_t take = static_cast<std::size_t>(std::min<std::uint64_t>(n, remaining_));
             append_unmasked(opcode_ >= 8 ? ctrl_ : msg_, data, take, mask_, offset_);
+            if (opcode_ < 8 && !msg_binary_) {  // fail as soon as the bad byte is known, not at the end of the message
+                std::size_t complete;
+                if (!ws_utf8_scan(std::string_view(msg_).substr(utf8_done_), complete)) {
+                    msg_.clear();
+                    return fail(io, 1007);
+                }
+                utf8_done_ += complete;
+            }
             offset_ += take;
             remaining_ -= take;
             data += take;

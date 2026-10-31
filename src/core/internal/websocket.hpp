@@ -24,6 +24,9 @@ std::string ws_accept_key(const std::string& client_key);
 // A Sec-WebSocket-Key is the base64 of exactly 16 bytes (24 characters, "==" at the end).
 bool ws_key_is_valid(const std::string& client_key);
 bool ws_utf8_valid(std::string_view text);
+// Checks `text` as the start of a longer stream: false only when it can no longer become valid UTF-8; a character cut off at the end is
+// fine for now. `complete` is how many leading bytes hold whole characters.
+bool ws_utf8_scan(std::string_view text, std::size_t& complete);
 // 1000-1003, 1007-1014 and 3000-4999 may be sent in a close frame.
 bool ws_close_code_valid(unsigned code);
 // One unmasked frame with FIN set (what a server sends).
@@ -115,6 +118,7 @@ private:
     std::string ctrl_;         // the control frame being read
     bool in_message_ = false;  // a fragmented message is open
     bool msg_binary_ = false;
+    std::size_t utf8_done_ = 0;     // text message: how many bytes of msg_ are already checked, whole characters only
     std::size_t frame_start_ = 0;   // where this frame's payload starts in msg_
 
     // state

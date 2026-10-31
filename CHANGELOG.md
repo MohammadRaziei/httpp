@@ -15,6 +15,8 @@ such changes are listed under **Changed**).
   `WebSocketDisconnect`). One task per connection on the lane's loop; the I/O thread fills a per-connection mailbox without the GIL. Receiving is bounded (`max_queued`, the socket
   is not read past it) and `await send_*` waits when the send queue is full. Browsers' `Origin` must match the host unless `origins=` says otherwise. The C++ handshake is now
   asynchronous (`ws_acceptor`, `websocket::user()`, `on_close` exactly once per accepted upgrade). See [ADR-0027](docs/adr/0027-websocket-python-and-async-handshake.md).
+- WebSocket text messages are checked for UTF-8 as the bytes arrive: a bad byte closes with 1007 at once (also in the middle of a frame or a fragment), instead of at the end of the message. First Autobahn run: no FAILED case; this was the only real finding ([ADR-0029](docs/adr/0029-incremental-utf8-validation.md)).
+- Autobahn runs as a job of the orchestrator, after its clean-up of the `__beta__` release ([ADR-0028](docs/adr/0028-autobahn-called-by-the-orchestrator.md)).
 - Fixed a data race with several I/O threads (`set_io_threads`, Python `io_threads`): the cached `Date` header text was shared by all of them, so two threads could
   write and read it together. ThreadSanitizer reported it, and in the benchmarks two runs out of about 150 lost the server (a round with zero answers). The cache is now per thread.
 - Answers from other threads are batched into one Asio post per burst, which cuts the cost of the thread hop.

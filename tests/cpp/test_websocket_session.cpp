@@ -347,6 +347,62 @@ UTEST(httpp_ws_session, text_that_is_not_utf8_is_refused_with_1007) {
     ASSERT_EQ(1u, bin.messages.size());
 }
 
+UTEST(httpp_ws_codec, utf8_scan_accepts_a_valid_prefix_and_reports_where_it_stops) {
+    std::size_t done = 99;
+    ASSERT_TRUE(ws_utf8_scan("ab\xC3", done));                      // a cut sequence may still be completed
+    ASSERT_EQ(2u, done);
+    ASSERT_TRUE(ws_utf8_scan("\xE2\x82", done));
+    ASSERT_EQ(0u, done);
+    ASSERT_TRUE(ws_utf8_scan("\xF4\x8F\xBF", done));
+    ASSERT_EQ(0u, done);
+    ASSERT_TRUE(ws_utf8_scan("caf\xC3\xA9", done));
+    ASSERT_EQ(5u, done);
+    ASSERT_FALSE(ws_utf8_scan("\xF4\x90", done));                   // already above U+10FFFF, however it continues
+    ASSERT_FALSE(ws_utf8_scan("\xED\xA0", done));                   // already a surrogate
+    ASSERT_FALSE(ws_utf8_scan("\xC0", done));                       // overlong lead byte
+    ASSERT_FALSE(ws_utf8_scan("\xE0\x80", done));                   // overlong
+    ASSERT_FALSE(ws_utf8_scan("\xC3\x28", done));
+}
+
+// The RFC wants a text message with bad UTF-8 failed as soon as the bad byte is known (Autobahn 6.4.x), not at its end.
+UTEST(httpp_ws_session, bad_utf8_in_a_fragment_fails_before_the_rest_of_the_message_arrives) {
+    rig r;
+    r.feed(client_frame(ws_text, "\xCE\xBA\xE1\xBD\xB9", false));             // valid
+    ASSERT_FALSE(r.closed_with(1007));
+    r.feed(client_frame(ws_continuation, "\xF4\x90\x80\x80", false));         // U+110000: invalid, known at once
+    ASSERT_TRUE(r.closed_with(1007));                                         // the third fragment has not been sent
+    ASSERT_TRUE(r.messages.empty());
+}
+
+UTEST(httpp_ws_session, bad_utf8_fails_in_the_middle_of_a_frame_that_arrives_in_chops) {
+    const std::string wire = client_frame(ws_text, "\xCE\xBA\xE1\xBD\xB9\xF4\x90\x80\x80" "tail");
+    const std::size_t bad_at = wire.size() - 6;  // cut right after F4 90 (80 80 and "tail" never arrive): the second byte already decides
+    rig r;
+    r.feed(wire.substr(0, bad_at));
+    ASSERT_TRUE(r.closed_with(1007));
+}
+
+UTEST(httpp_ws_session, a_character_split_across_fragments_and_chops_is_valid) {
+    rig r;
+    r.feed(client_frame(ws_text, "a\xE2", false));
+    r.feed(client_frame(ws_continuation, "\x82", false));
+    r.feed(client_frame(ws_continuation, "\xAC" "z"));  // the euro sign, then z
+    ASSERT_FALSE(r.closed_with(1007));
+    ASSERT_EQ(1u, r.messages.size());
+    rig one;
+    const std::string wire = client_frame(ws_text, "\xF0\x9F\x98\x80 ok");
+    for (char c : wire) one.feed(std::string(1, c));  // octet-wise chops
+    ASSERT_EQ(1u, one.messages.size());
+}
+
+UTEST(httpp_ws_session, a_text_message_that_ends_inside_a_character_is_refused_with_1007) {
+    rig r;
+    r.feed(client_frame(ws_text, "ok \xE2\x82", false));
+    r.feed(client_frame(ws_continuation, "", true));
+    ASSERT_TRUE(r.closed_with(1007));
+    ASSERT_TRUE(r.messages.empty());
+}
+
 UTEST(httpp_ws_session, bytes_after_a_protocol_error_are_ignored) {
     rig r;
     r.feed(client_frame(ws_text, "x", true, 0x40) + client_frame(ws_text, "late"));
