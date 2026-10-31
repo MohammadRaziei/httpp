@@ -44,7 +44,7 @@ jobs:
 
     - name: Run tests (Linux/macOS)
       if: runner.os != 'Windows'
-      run: ctest --test-dir build --output-on-failure --extra-verbose
+      run: ctest --test-dir build --output-on-failure --extra-verbose --timeout 900
 
   build-coverage:
     runs-on: ubuntu-latest
@@ -85,7 +85,7 @@ jobs:
     - name: Build and run C++ tests
       run: |
         cmake --build build --target test_httpp_cpp -j4
-        ctest --test-dir build -R test_httpp_cpp --output-on-failure
+        ctest --test-dir build -R test_httpp_cpp --output-on-failure --timeout 900
 
     - name: Capture coverage
       run: |

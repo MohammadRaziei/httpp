@@ -14,6 +14,20 @@
 using httpp::detail::worker_pool;
 using namespace std::chrono_literals;
 
+namespace {
+
+// Opens a gate when the test function is left, also when an ASSERT returns early. Declare it AFTER the pool: the pool is then destroyed
+// (joined) after the gate opened. Without it a timing assertion that fails on a slow runner leaves a thread blocked on the gate, the
+// pool's destructor joins it forever, and CI hangs instead of reporting the failure (seen on macOS).
+struct open_on_exit {
+    std::promise<void>& gate;
+    ~open_on_exit() {
+        try { gate.set_value(); } catch (const std::future_error&) {}  // already opened by the test
+    }
+};
+
+} // namespace
+
 UTEST(worker_pool, runs_every_job) {
     std::atomic<int> n{0};
     {
@@ -51,6 +65,7 @@ UTEST(worker_pool, queued_jobs_do_not_wait_behind_a_blocked_thread) {
     std::atomic<int> n{0};
     auto gate = release.get_future().share();
     worker_pool pool(2, 2);
+    open_on_exit opener{release};
     pool.enqueue([&] { first_started.set_value(); gate.wait(); });
     first_started.get_future().wait();
     for (int i = 0; i < 3; ++i) pool.enqueue([&] { if (++n == 3) three.set_value(); });
@@ -92,6 +107,7 @@ UTEST(worker_pool, a_long_job_gets_help_after_a_short_delay) {
     std::atomic<int> n{0};
     auto gate = release.get_future().share();
     worker_pool pool(4, 4);
+    open_on_exit opener{release};
     pool.enqueue([&] { started.set_value(); gate.wait(); });
     started.get_future().wait();
     const auto t0 = std::chrono::steady_clock::now();
@@ -109,6 +125,7 @@ UTEST(worker_pool, a_burst_of_blocked_jobs_gets_its_threads_in_a_few_steps_even_
     auto gate = release.get_future().share();
     std::atomic<int> running{0};
     worker_pool pool(1, 64, 5ms);
+    open_on_exit opener{release};
     const auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < 32; ++i) pool.enqueue([&] { ++running; gate.wait(); });
     while (running < 32 && std::chrono::steady_clock::now() - t0 < 2s) std::this_thread::sleep_for(1ms);
@@ -128,6 +145,8 @@ UTEST(worker_pool, short_jobs_do_not_make_a_pool_with_a_long_wait_grow) {
             ++done;
         });
     }
-    while (done < 2000) std::this_thread::sleep_for(1ms);
+    const auto t0 = std::chrono::steady_clock::now();
+    while (done < 2000 && std::chrono::steady_clock::now() - t0 < 20s) std::this_thread::sleep_for(1ms);  // a bound: a lost job fails, not hangs
+    ASSERT_EQ(2000, done.load());
     ASSERT_TRUE(seen.size() <= 2u);
 }
