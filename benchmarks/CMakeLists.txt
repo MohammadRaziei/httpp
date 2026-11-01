@@ -91,7 +91,12 @@ if(HTTPP_BENCH_DROGON)
         set(BUILD_BROTLI OFF CACHE BOOL "" FORCE)
         set(BUILD_YAML_CONFIG OFF CACHE BOOL "" FORCE)
         set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-        set(USE_STATIC_LIBS_ONLY ON CACHE BOOL "" FORCE)  # links jsoncpp_static, and keeps the system OpenSSL/zlib out of it unless they ship .a files
+        set(USE_STATIC_LIBS_ONLY ON CACHE BOOL "" FORCE)  # links jsoncpp_static (this also makes Drogon look for static system libraries)
+        # The benchmark serves plain HTTP, so Drogon and trantor get no TLS library. Without this they find the system static
+        # libcrypto.a, which on Ubuntu 26.04 needs libzstd and jitterentropy at link time (undefined ZSTD_* and jent_* in drogon_bench).
+        # Drogon falls back to its own hashing code. The system zlib (libz.a) stays: it has no further dependencies.
+        # ponytail: if a TLS benchmark is ever wanted, fetch and build OpenSSL or mbedtls the same way instead.
+        set(CMAKE_DISABLE_FIND_PACKAGE_OpenSSL ON)
         FetchContent_Declare(drogon
             GIT_REPOSITORY https://github.com/drogonframework/drogon.git
             GIT_TAG ${HTTPP_BENCH_DROGON_TAG}
@@ -99,6 +104,7 @@ if(HTTPP_BENCH_DROGON)
             GIT_SUBMODULES trantor
             EXCLUDE_FROM_ALL)
         FetchContent_MakeAvailable(jsoncpp drogon)
+        unset(CMAKE_DISABLE_FIND_PACKAGE_OpenSSL)
         add_executable(drogon_bench EXCLUDE_FROM_ALL cpp/drogon_bench.cpp)
         target_link_libraries(drogon_bench PRIVATE drogon)
         set(BENCH_HAVE_DROGON ON)
