@@ -20,11 +20,27 @@
 #     ponytail: arrays are tested with GCC and MSVC (CI); upgrade path for much bigger files: .incbin / .o via the
 #     linker.
 #
+# COMPRESS (optional keyword of embed_files): the files of that call are gzip-compressed at configure time and the
+# gzip bytes are what gets embedded, so the library is smaller and a server can send them as they are, with
+# Content-Encoding: gzip, and no work per request. Such a call declares two more constants per file:
+#
+#     inline constexpr std::size_t name_raw_size = <size of the original file>;
+#     inline constexpr bool        name_is_gzip  = true or false;
+#
+# and `name`, `name_size` hold the gzip bytes when name_is_gzip is true, the original bytes when it is false. Code that
+# uses a COMPRESS call must check name_is_gzip, because -DHTTPP_EMBED_COMPRESS=OFF (for a debugger, or a CMake whose
+# zlib is odd) turns compression off for every call. A call without COMPRESS is unchanged and declares neither.
+#   * The gzip is made by CMake itself (file(ARCHIVE_CREATE ... FORMAT raw COMPRESSION GZip), no Python, no tool from
+#     the system). It writes the current time into the 4 MTIME bytes of the header, so those are set to zero here:
+#     the same file then gives the same bytes on every build. CMake's zlib packs about 1 percent worse than gzip -9.
+#     ponytail: one deflate stream at level 9, no zopfli or other recompressor; the upgrade path is a pinned tool.
+#
 # Usage:
 #   include(EmbedFile)
 #   embed_files(
 #       OUTPUT    ${CMAKE_CURRENT_BINARY_DIR}/generated/data.hpp
 #       NAMESPACE httpp::embedded
+#       [COMPRESS]
 #       FILES     some_name /path/to/file   other_name /path/to/other)
 
 set(_EMBED_FILE_MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}")
@@ -32,14 +48,32 @@ set(_EMBED_FILE_MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 # Byte arrays everywhere: one code path on every compiler, and no -Woverlength-strings (the Swagger UI bundle is
 # ~1.5 MB; string literals are only guaranteed up to 64 KB, and MSVC refuses long ones).
 option(HTTPP_EMBED_AS_ARRAY "Embed data files as byte arrays instead of string literals" ON)
+# Only the embed_files() calls that pass COMPRESS are affected (see above).
+option(HTTPP_EMBED_COMPRESS "Embed the files of embed_files(... COMPRESS) gzip-compressed" ON)
 
-# one file -> the C++ declarations in <out_var>
-function(_embed_one NAME PATH OUT_VAR)
+# one file -> the C++ declarations in <out_var>. COMPRESS is TRUE for a file of an embed_files(... COMPRESS) call.
+function(_embed_one NAME PATH COMPRESS OUT_VAR)
     if(NOT EXISTS "${PATH}")
         message(FATAL_ERROR "embed_files: ${PATH} does not exist")
     endif()
-    file(SIZE "${PATH}" _size)
-    file(READ "${PATH}" _hex HEX)
+    file(SIZE "${PATH}" _raw_size)
+    set(_gzip FALSE)
+    if(COMPRESS AND HTTPP_EMBED_COMPRESS AND _raw_size GREATER 0)
+        set(_gz "${CMAKE_CURRENT_BINARY_DIR}/embed_tmp/${NAME}.gz")
+        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/embed_tmp")
+        file(ARCHIVE_CREATE OUTPUT "${_gz}" PATHS "${PATH}" FORMAT raw COMPRESSION GZip COMPRESSION_LEVEL 9)
+        file(READ "${_gz}" _hex HEX)
+        file(SIZE "${_gz}" _size)
+        # the header is 1f 8b 08 <flags> <4 bytes MTIME> ...: 8 hex digits at offset 8 are the time, make them zero
+        string(SUBSTRING "${_hex}" 0 8 _hex_head)
+        string(SUBSTRING "${_hex}" 16 -1 _hex_rest)
+        set(_hex "${_hex_head}00000000${_hex_rest}")
+        file(REMOVE "${_gz}")
+        set(_gzip TRUE)
+    else()
+        file(SIZE "${PATH}" _size)
+        file(READ "${PATH}" _hex HEX)
+    endif()
 
     if(HTTPP_EMBED_AS_ARRAY)
         set(_chunk 24)
@@ -79,11 +113,22 @@ function(_embed_one NAME PATH OUT_VAR)
         endif()
         set(_decl "inline constexpr unsigned char ${NAME}[] =\n${_head}${_tail};\ninline constexpr std::size_t ${NAME}_size = sizeof(${NAME}) - 1;")
     endif()
+    if(COMPRESS)
+        string(APPEND _decl "\ninline constexpr std::size_t ${NAME}_raw_size = ${_raw_size};")
+        if(_gzip)
+            string(APPEND _decl "\ninline constexpr bool ${NAME}_is_gzip = true;")
+        else()
+            string(APPEND _decl "\ninline constexpr bool ${NAME}_is_gzip = false;")
+        endif()
+    endif()
     set(${OUT_VAR} "${_decl}" PARENT_SCOPE)
 endfunction()
 
 function(embed_files)
-    cmake_parse_arguments(PARSE_ARGV 0 ARG "" "OUTPUT;NAMESPACE" "FILES")
+    cmake_parse_arguments(PARSE_ARGV 0 ARG "COMPRESS" "OUTPUT;NAMESPACE" "FILES")
+    if(ARG_UNPARSED_ARGUMENTS OR ARG_KEYWORDS_MISSING_VALUES)
+        message(FATAL_ERROR "embed_files: unknown or incomplete arguments: ${ARG_UNPARSED_ARGUMENTS} ${ARG_KEYWORDS_MISSING_VALUES}")
+    endif()
     if(NOT ARG_OUTPUT OR NOT ARG_NAMESPACE OR NOT ARG_FILES)
         message(FATAL_ERROR "embed_files: OUTPUT, NAMESPACE and FILES <name> <path> ... are required")
     endif()
@@ -99,7 +144,7 @@ function(embed_files)
         math(EXPR _j "${_i} + 1")
         list(GET ARG_FILES ${_i} _name)
         list(GET ARG_FILES ${_j} _path)
-        _embed_one("${_name}" "${_path}" _decl)
+        _embed_one("${_name}" "${_path}" "${ARG_COMPRESS}" _decl)
         string(APPEND CONTENT "${_decl}\n\n")
         # a changed data file re-runs CMake, which regenerates the header
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_path}")

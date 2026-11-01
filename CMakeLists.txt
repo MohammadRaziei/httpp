@@ -35,13 +35,15 @@ set(HTTPP_SOURCE_DIR ${PROJECT_SOURCE_DIR})
 file(GLOB HTTPP_CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/*.cpp)
 
 # Swagger UI (vendored in src/third_party/swagger-ui) is compiled into the library: at CONFIGURE time its three
-# files become a generated header (cmake/EmbedFile.cmake), so /docs needs no data files at run time.
+# files become a generated header (cmake/EmbedFile.cmake), so /docs needs no data files at run time. They are stored gzip-compressed
+# (COMPRESS, ADR-0031; -DHTTPP_EMBED_COMPRESS=OFF stores them as they are).
 include(EmbedFile)
 set(HTTPP_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 set(HTTPP_SWAGGER_UI_DIR ${PROJECT_SOURCE_DIR}/src/third_party/swagger-ui)
 embed_files(
     OUTPUT    ${HTTPP_GENERATED_DIR}/httpp_swagger_ui_data.hpp
     NAMESPACE httpp::embedded
+    COMPRESS
     FILES
         swagger_ui_bundle_js    ${HTTPP_SWAGGER_UI_DIR}/swagger-ui-bundle.js
         swagger_ui_css          ${HTTPP_SWAGGER_UI_DIR}/swagger-ui.css

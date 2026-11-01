@@ -7,6 +7,7 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+- **Build**: `embed_files(... COMPRESS)` embeds gzip-compressed bytes (same bytes on every build), with `<name>_raw_size` and `<name>_is_gzip`; `-DHTTPP_EMBED_COMPRESS=OFF` turns it off. Swagger UI uses it: `libhttpp_core.so` is about 1.3 MB smaller, and `/docs` files are sent as stored (`Content-Encoding: gzip`, `Vary: Accept-Encoding`) to clients that accept gzip and inflated for the others. **Changed:** `httpp::swagger_ui_asset::data` holds the stored bytes (gzip unless built with `HTTPP_EMBED_COMPRESS=OFF`); new fields `raw_size` and `gzip`. See [ADR-0031](docs/adr/0031-compressed-embedded-files.md).
 - **WebSocket (RFC 6455) in the C++ core**: `server::route_ws(path, ws_handler)` with a `websocket` handle (`send_text`, `send_binary`, `ping`, `close`,
   `pause_reading`, `buffered_amount`). Callbacks run on the I/O thread; sends are thread-safe and the send queue is bounded (`max_buffered`, `status::full`,
   `on_drain`). Text, binary, fragmentation, ping/pong, close handshake, UTF-8 and size limits, optional keep-alive pings; no extensions (no `permessage-deflate`).

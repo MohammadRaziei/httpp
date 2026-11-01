@@ -1,7 +1,7 @@
 # httpp hand-off (consolidated)
 
 This one file replaces handoff.md and handoff_5 to handoff_14. Read it first; the ADRs hold the reasoning. Older files can be deleted or kept for history.
-Owner: Mohammad (GitHub `mohammadraziei`), the author of httpp. Date of this file: 2026-10-30.
+Owner: Mohammad (GitHub `mohammadraziei`), the author of httpp. Date of this file: 2026-11-01.
 
 ## 1. What httpp is
 A C++ HTTP library (async server on Asio + llhttp, clients, downloads, progress bars, URL, WebSocket) with a Cython/Python layer. Direction (ADR-0001):
@@ -44,7 +44,7 @@ Request paths:
 ## 4. State (2026-10-30)
 - C++: 374 tests pass (43 session + 35 server WebSocket). TSan: clean on the WebSocket tests **before** the async-handshake rework; not re-run after it; the rest of the suite was never run under TSan. ASan only on the engine earlier.
 - Python: 652 passed, 4 skipped (3.14 GIL), 651 passed, 5 skipped (3.14t); 27 are WebSocket tests (`tests/python/test_websocket.py`). 3.13 not re-run after WebSocket.
-- ADRs 0001 to 0030 are in `docs/adr/` (index in its README). Recent: 0019 vendored deflate/inflate (gzip/deflate in the clients), 0020 HTTPException/response classes, 0021 pool/two-core numbers, 0022 dual API rule, 0023 inline async, 0024 lanes, 0025 measured defaults + the crash, 0026/0027 WebSocket.
+- ADRs 0001 to 0031 are in `docs/adr/` (index in its README). Recent: 0019 vendored deflate/inflate (gzip/deflate in the clients), 0020 HTTPException/response classes, 0021 pool/two-core numbers, 0022 dual API rule, 0023 inline async, 0024 lanes, 0025 measured defaults + the crash, 0026/0027 WebSocket.
 - Feature level: FastAPI-like layer (Query/Path/Header/Cookie/Body/Depends, forms/uploads, OpenAPI + Swagger UI compiled in, validators in Cython, response classes, HTTPException, BackgroundTasks, APIRouter), `run(workers=N)` (Linux), logging bridge.
 - Autobahn: `tools/autobahn/` (echo server, config, report summariser) and `.github/workflows/autobahn.yml` (runs on push to master and by hand, uploads `autobahn-report.md` to the `__beta__` release and the full report as an artifact). **First run done (2026-10-31): no FAILED, 585 OK, 11 NON-STRICT, 6 INFORMATIONAL.** The workflow is now a job of the orchestrator (ADR-0028). The only real finding, UTF-8 checked at message end (6.4.x), is fixed in ADR-0029 (next run must show it OK). The other NON-STRICT ones (3.2, 3.3, 4.1.3, 4.1.4, 4.2.3, 4.2.4, 5.15) are allowed by the RFC. The docker daemon does not exist in the sandbox and `autobahntestsuite` from PyPI is Python 2 code (str vs bytes payloads make a Python 3 run untrustworthy), so the owner runs it through CI and sends the summary. The orchestrator workflow deletes `__beta__` assets at each master push.
 
@@ -89,3 +89,26 @@ Windows and macOS runtime (the tunnel uses the same Asio calls; nothing run ther
 
 ## 9. Honest limitations to keep stating
 Python handler code needs the GIL unless the interpreter is free-threaded or you use `--workers` (Linux only, no respawn, SIGKILL on the supervisor leaves workers). Free-threaded handlers must be thread-safe. Sandbox numbers (2 cores shared with the load generator) cannot show multi-core scaling.
+
+## 10. Session 2026-10-31/11-01: file browser design review and compressed embeds
+Nothing is committed or pushed (the owner commits). The working tree has these uncommitted changes on top of `d88781f`:
+- **`embed_files(... COMPRESS)` and `-DHTTPP_EMBED_COMPRESS` (default ON), ADR-0031.** gzip made by CMake itself, MTIME zeroed (CMake writes the time, so builds differed). Declares `<name>_raw_size` and `<name>_is_gzip`. Tests: ctest `embed_compress_ON` and `embed_compress_OFF` (`tests/cmake/embed_compress/`).
+- **Swagger UI now stored as gzip (owner asked for every embedded js and css).** Public type changed: `swagger_ui_asset::data` is the stored bytes, new `raw_size` and `gzip`. `mount_swagger_ui` sends the stored bytes with `Content-Encoding: gzip` and `Vary: Accept-Encoding` to clients that accept gzip, inflates for the others (no cache). `libhttpp_core.so` 4806064 to 3487152 bytes. Python `_swagger_ui_asset` returns a 3-tuple.
+- ADR numbers are racing with upstream: mine was renumbered twice (0029, then 0030, both taken upstream). Check `docs/adr/` before writing the next one. **The file browser ADR is 0032.**
+- Verified: C++ suite 384 passed (ON); `httpp_swagger*` 12 passed with ON and with OFF (full suite not run with OFF); `test_openapi.py` and `test_cpp_python_parity.py` 23 passed, 1 skipped (3.14, GIL). **The whole Python suite was not run** (stopped by the owner). Not run: Windows, macOS, 3.14t, 3.13, TSan, other CMake versions than 3.28.3.
+- Rebased on origin/master three times with `git pull --rebase --autostash`; each time only the ADR index and CHANGELOG conflicted.
+
+### File browser (read-only), design review NOT finished, no code written
+The owner wants a read-only file browser (list, navigate, view, download; no write operations), with options (search and theme named), a CLI and a code API.
+Inspiration: jsfb (Apache-2.0, `min.js` about 30 KB plus `min.css` about 23 KB, icons from Font Awesome or Bootstrap Icons, no network code, offers rename and delete in its menu) and a CodePen demo of it (list, grid and preview views, sort menu, info bar, a `..` row, mock JSON data).
+Facts from the code: no ETag or Last-Modified exists (HANDOFF said it did); the router has no wildcard, so a deep path needs the `serve_directory` mount mechanism; nothing reads directories yet (no `opendir` or `readdir`), and `std::filesystem` is banned in `src/core`; `inside_dir` uses `realpath` on POSIX and treats a root of `/` as all-allowed.
+Proposed, NOT yet agreed (the owner said "good" to the shape, and "continue" is still the way to accept all of it):
+- Own small UI (HTML, JS, CSS, inline SVG icons, no dependency) embedded with `embed_files(... COMPRESS)`; the page is a template filled at mount time (theme, title, accent), as `mount_swagger_ui` does.
+- `server::mount_file_browser(base, root, file_browser_options)`, Python `app.mount_file_browser(...)`, one design for both. Routes under `base`: page, `ui/<asset>`, `api/list?path=` (JSON: `path`, `entries[{name,type,size,mtime}]`, `truncated`, `limit`), `raw/<path>` (reuses the static file code: Range, HEAD, 206/416).
+- Options: `title`, `theme` (auto, light, dark), `accent` (`#rrggbb` only), `search`, `show_hidden` (default false: hidden from the list and 404 on direct access), `max_entries` (5000, `truncated`), `view`, `sort`.
+- The served root is the ceiling: the UI shows no `..` row in the root, a child folder can go up to the root only, the server never returns a parent, and any `..` segment (also `%2e%2e`), backslash, absolute path or symlink out of the root is refused (400 or 404, same body for "missing, hidden, outside").
+- Security to add: active types (html, svg, xml, js, unknown) always `Content-Disposition: attachment` plus `X-Content-Type-Options: nosniff`; `filename*=UTF-8''` encoding; root `/` refused; Windows `:`, drive letters and reserved names refused (untestable here); no authentication in v1, the `before` hook is the way (document it).
+- Listing runs on a pool thread (not the I/O thread); the scan stops at `max_entries`.
+- CLI: new `httpp browse [DIRECTORY]` (`--host` default 127.0.0.1, `--port`, `--theme`, `--accent`, `--no-search`, `--hidden`, `--max-entries`, `--title`, `--view`, `--sort`); `httpp server` is unchanged.
+- Open questions for the owner: `search` in v1 as a filter of the current folder (proposed) or also a recursive search (DoS risk, needs depth, count and time limits); ETag and 304 not in v1 (proposed); free function or `server` member (member proposed).
+- Order after approval: tests first (traversal matrix, 405 for write methods, list limit, headers, parity test), then code, then ADR-0032.

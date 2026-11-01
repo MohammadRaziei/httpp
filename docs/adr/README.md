@@ -36,6 +36,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0028](0028-autobahn-called-by-the-orchestrator.md) | The orchestrator calls the Autobahn workflow (ordering with the `__beta__` clean-up) | accepted |
 | [0029](0029-incremental-utf8-validation.md) | Text messages are checked for UTF-8 as the bytes arrive (Autobahn 6.4.x) | accepted |
 | [0030](0030-benchmarks-built-by-cmake.md) | The benchmarks are a CMake project; WebSocket and Drogon join the suite | accepted |
+| [0031](0031-compressed-embedded-files.md) | Embedded files can be gzip-compressed at configure time (`embed_files(... COMPRESS)`, `HTTPP_EMBED_COMPRESS`) | accepted |
 
 ## Not decided yet
 

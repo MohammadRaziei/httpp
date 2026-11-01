@@ -2201,19 +2201,22 @@ cdef extern from "httpp/swagger_ui.hpp" namespace "httpp":
     cdef cppclass swagger_ui_asset_t "httpp::swagger_ui_asset":
         string_view content_type
         string_view data
+        bint gzip
     const swagger_ui_asset_t* find_swagger_ui_asset(string_view name) noexcept
     void mount_swagger_ui(cpp_server& s, string docs_path, string openapi_url, string title) except +
 
 
 def _swagger_ui_asset(str name):
-    """(bytes, content type) of one Swagger UI file compiled into libhttpp (see include/httpp/swagger_ui.hpp), or None.
-    The bytes are copied out of the library's read-only data each call: cache the result."""
+    """(stored bytes, content type, is_gzip) of one Swagger UI file compiled into libhttpp (see include/httpp/swagger_ui.hpp),
+    or None. The stored bytes are a gzip stream when is_gzip is true, not the file. They are copied out of the library's
+    read-only data each call: cache the result."""
     cdef bytes key = name.encode("utf-8")
     cdef const swagger_ui_asset_t* a = find_swagger_ui_asset(string_view(<const char*>key, len(key)))
     if a == NULL:
         return None
     return (a.data.data()[:a.data.size()],
-            a.content_type.data()[:a.content_type.size()].decode("ascii"))
+            a.content_type.data()[:a.content_type.size()].decode("ascii"),
+            bool(a.gzip))
 
 
 def set_log_level(level):

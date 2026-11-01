@@ -4,6 +4,7 @@
 #include "httpp/server.hpp"
 #include "httpp/swagger_ui.hpp"
 #include "local_server.hpp"
+#include "swagger_original.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -32,7 +33,7 @@ UTEST(httpp_swagger_ui_route, serves_the_page_and_the_two_files_byte_for_byte) {
         ASSERT_EQ(200, res.status);
         const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset(name);
         ASSERT_TRUE(a != nullptr);
-        EXPECT_TRUE(res.body == a->data);  // every byte
+        EXPECT_TRUE(res.body == testutil::swagger_original(*a));  // every byte, as the client sees it
         EXPECT_TRUE(res.header("Content-Type") == a->content_type);
         EXPECT_TRUE(contains(res.header("Cache-Control"), "max-age"));
     }
@@ -59,4 +60,64 @@ UTEST(httpp_swagger_ui_route, bad_docs_path_is_rejected) {
     EXPECT_TRUE(rejects(""));
     EXPECT_TRUE(rejects("docs"));
     EXPECT_TRUE(rejects("/"));
+}
+
+// ---- how the stored gzip bytes are answered -----------------------------------------------------------------------
+
+static httpp::response get_asset(const local_server& srv, const std::string& accept_encoding, const std::string& name = "swagger-ui-bundle.js") {
+    httpp::client c(srv.url());
+    return c.get("/docs/" + name, {{"Accept-Encoding", accept_encoding}});
+}
+
+UTEST(httpp_swagger_ui_route, a_client_that_takes_gzip_gets_the_stored_bytes_as_they_are) {
+    local_server srv([](httpp::server& s) { httpp::mount_swagger_ui(s); });
+    const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset("swagger-ui-bundle.js");
+    auto res = get_asset(srv, "gzip, deflate");
+    ASSERT_EQ(200, res.status);
+    EXPECT_TRUE(res.body == testutil::swagger_original(*a));
+    if (a->gzip) {
+        EXPECT_TRUE(contains(res.header("Vary"), "Accept-Encoding"));  // a cache must keep the two versions apart
+        EXPECT_TRUE(res.header("Content-Encoding") == "gzip");
+        EXPECT_TRUE(res.header("Content-Length") == std::to_string(a->data.size()));  // what went over the wire: the small one
+    }
+}
+
+UTEST(httpp_swagger_ui_route, a_client_that_does_not_take_gzip_gets_the_original) {
+    local_server srv([](httpp::server& s) { httpp::mount_swagger_ui(s); });
+    const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset("swagger-ui-bundle.js");
+    for (const char* accept : {"identity", "gzip;q=0, identity", "br"}) {
+        auto res = get_asset(srv, accept);
+        ASSERT_EQ(200, res.status);
+        EXPECT_TRUE(res.header("Content-Encoding") == "");
+        if (a->gzip) EXPECT_TRUE(contains(res.header("Vary"), "Accept-Encoding"));  // with one version only, no Vary is needed
+        EXPECT_TRUE(res.header("Content-Length") == std::to_string(a->raw_size));
+        EXPECT_TRUE(res.body == testutil::swagger_original(*a));
+    }
+}
+
+UTEST(httpp_swagger_ui_route, the_small_svg_and_css_follow_the_same_rule) {
+    local_server srv([](httpp::server& s) { httpp::mount_swagger_ui(s); });
+    for (const char* name : {"swagger-ui.css", "swagger-api-icon.svg"}) {
+        const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset(name);
+        auto plain = get_asset(srv, "identity", name);
+        ASSERT_EQ(200, plain.status);
+        EXPECT_TRUE(plain.header("Content-Encoding") == "");
+        EXPECT_TRUE(plain.body == testutil::swagger_original(*a));
+        auto packed = get_asset(srv, "gzip", name);
+        ASSERT_EQ(200, packed.status);
+        EXPECT_TRUE(packed.body == testutil::swagger_original(*a));
+        if (a->gzip) EXPECT_TRUE(packed.header("Content-Encoding") == "gzip");
+    }
+}
+
+UTEST(httpp_swagger_ui_route, set_compression_does_not_compress_the_stored_bytes_again) {
+    local_server srv([](httpp::server& s) {
+        s.set_compression(1024);
+        httpp::mount_swagger_ui(s);
+    });
+    const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset("swagger-ui-bundle.js");
+    auto res = get_asset(srv, "gzip");
+    ASSERT_EQ(200, res.status);
+    EXPECT_TRUE(res.body == testutil::swagger_original(*a));  // a second gzip layer would leave the first one as the body
+    if (a->gzip) EXPECT_TRUE(res.header("Content-Length") == std::to_string(a->data.size()));
 }
