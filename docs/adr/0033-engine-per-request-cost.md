@@ -42,6 +42,13 @@ header vectors between layers.
    `unanswered_io_requests_get_a_504_on_every_io_thread_and_answered_ones_are_not_touched`. Instruction counts per request do not change (one thread); the gain
    is not measured yet.
 8. `cpp_bench` takes the keep-alive limit as a third argument, for A/B runs.
+9. **No `weak_ptr<config>` when nothing needs the config.** `make_sender` took a `weak_ptr<config>` and locked it for every answer: the copy, the lock and the two releases are
+   atomic operations on one control block that all I/O threads share. The config is read-only once listening, and it is used only by the `error` and `after` hooks and by
+   compression. When none of them is set (the plain case), the sender now holds only the request and the engine's answer function, and builds the wire response itself
+   (`to_wire` became static). A late answer after the server is gone stays safe because the engine's answer function holds only weak and shared engine state. When a hook is set the
+   old sender is used unchanged. Why not a per-engine token: it would keep a shared count per engine and still need the lock; dropping the need is simpler and removes the cost.
+   Verified: the C++ suite (386 tests) passes. **Not measured:** the gain (the effect is cache-line contention, which callgrind does not count, and the sandbox has no `perf`); the
+   per-request `shared_ptr` copies of `responder::impl`, the `once` flag and the engine's `poster` remain and are per engine or per request. TSan was not re-run for this change.
 
 ## Rejected alternatives
 

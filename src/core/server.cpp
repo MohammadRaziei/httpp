@@ -438,7 +438,7 @@ struct server::impl {
     }
 
     // ---- turning a handler's `response` into bytes for the engine ----
-    detail::wire_response to_wire(response res, long long offset, long long length) const {
+    static detail::wire_response to_wire(response res, long long offset, long long length) {
         detail::wire_response w;
         w.status = res.status > 0 ? res.status : 200;
         std::string content_type = "text/plain";
@@ -494,6 +494,23 @@ struct server::impl {
 
     // The way out for every response: error handler, after hook, then the engine.
     send_fn make_sender(const std::shared_ptr<request>& req, detail::async_server::answer_fn answer) {
+        if (!cfg->error && !cfg->after && !cfg->compression.enabled()) {
+            // ponytail: the config is read-only once listening, so with no hook and no compression an answer needs nothing from it.
+            // This sender holds no weak_ptr<config>: no atomic count on the one control block that every I/O thread would share, per request.
+            // A late answer after the server is gone is as safe as before (the engine's answer_fn copes, ADR-0033 item 2).
+            return [req, answer = std::move(answer)](response res, long long offset, long long length, std::shared_ptr<void> keep) {
+                detail::wire_response w;
+                try {
+                    if (res.status <= 0) res.status = 200;
+                    w = to_wire(std::move(res), offset, length);
+                } catch (...) {
+                    HTTPP_LOG(warning) << "response building failed (" << describe(std::current_exception()) << ") for " << req->method << ' ' << req->path << ": answering 500";
+                    w = failure(500, "Internal Server Error");
+                }
+                w.keep = std::move(keep);
+                answer(std::move(w));
+            };
+        }
         std::weak_ptr<config> weak = cfg;
         return [this, weak, req, answer = std::move(answer)](response res, long long offset, long long length, std::shared_ptr<void> keep) {
             auto c = weak.lock();

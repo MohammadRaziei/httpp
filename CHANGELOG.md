@@ -7,6 +7,10 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Changed
+
+- Server: an answer no longer touches a reference count shared by all I/O threads when no `after`, error handler or compression is set (ADR-0033, item 9). No API change.
+
 ## [0.8.0] - 2026-11-01
 
 WebSocket in the C++ core and in Python, checked with the Autobahn conformance suite, and a benchmark suite built by CMake that
