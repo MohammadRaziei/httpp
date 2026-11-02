@@ -1,7 +1,7 @@
 # httpp hand-off (consolidated)
 
 This one file replaces handoff.md and handoff_5 to handoff_14. Read it first; the ADRs hold the reasoning. Older files can be deleted or kept for history.
-Owner: Mohammad (GitHub `mohammadraziei`), the author of httpp. Date of this file: 2026-11-01.
+Owner: Mohammad (GitHub `mohammadraziei`), the author of httpp. Date of this file: 2026-11-02 (sections 1 to 10 date from before; read section 11 first for the latest state).
 
 ## 1. What httpp is
 A C++ HTTP library (async server on Asio + llhttp, clients, downloads, progress bars, URL, WebSocket) with a Cython/Python layer. Direction (ADR-0001):
@@ -112,3 +112,37 @@ Proposed, NOT yet agreed (the owner said "good" to the shape, and "continue" is 
 - CLI: new `httpp browse [DIRECTORY]` (`--host` default 127.0.0.1, `--port`, `--theme`, `--accent`, `--no-search`, `--hidden`, `--max-entries`, `--title`, `--view`, `--sort`); `httpp server` is unchanged.
 - Open questions for the owner: `search` in v1 as a filter of the current folder (proposed) or also a recursive search (DoS risk, needs depth, count and time limits); ETag and 304 not in v1 (proposed); free function or `server` member (member proposed).
 - Order after approval: tests first (traversal matrix, 405 for write methods, list limit, headers, parity test), then code, then ADR-0032.
+
+## 11. Session 2026-11-01/02: v0.8.0 prepared, engine cost work (ADR-0033)
+Nothing is committed or pushed (the owner commits). Version is 0.8.0 (`python version.py` shows it; set in `include/httpp.h`, `CHANGELOG.md` has `[0.8.0] - 2026-11-01` and `[Unreleased]` empty). Tagging with `python version.py tag create` is the owner's step (it commits).
+
+### What was done
+- **Drogon link fix** (`benchmarks/CMakeLists.txt`): the system static libcrypto.a pulled in undefined ZSTD and jitterentropy symbols. Drogon's OpenSSL discovery is switched off for the benchmark build (`CMAKE_DISABLE_FIND_PACKAGE_OpenSSL`, unset afterwards). Pins: Drogon v1.9.14 (latest stable), jsoncpp 1.9.6 (1.9.8 exists; the GCC 15 `-Wuninitialized` warning in jsoncpp and the deprecation warning inside Drogon are harmless third party warnings).
+- **Why Drogon was faster**: not libuv (Drogon uses its own trantor on epoll). It was CPU per request in our layers. Measured with callgrind (difference of 2000 and 22000 oha requests, divided by 20000): route_io 25.5k to 18.3k instructions per request (Drogon about 14.6k).
+- **ADR-0033 items**: Asio `ASIO_CONCURRENCY_HINT_UNSAFE_IO`; same-thread answer fast path (`thread_local t_loop_engine`); lazy deadline timers; response head built in one reserved string; `keep_alive_max` default 1000 and 0 = no limit (A/B knob in `cpp_bench`: third argument); small copies and tolower removed; **per-I/O-thread 504 wait lists** (`track`/`sweep` in `server.cpp`, `tl_wait_list`/`tl_wait_owner`), which fixed the shared mutex that made route_io scale worse than route.
+- Tests added: `keep_alive_max_zero_means_no_limit` (C++), `{"keep_alive_max": 0}` case (Python), 504 on every I/O thread (C++, non-Windows).
+
+### Verified
+- C++ suite 386 tests pass and are TSan clean (whole suite). Python 653 passed, 4 skipped on 3.14 GIL. Autobahn (owner, CI): 589 OK, no FAILED.
+- Owner's full bench earlier: 0 errors. Latest hello-only run (2026-11-02, tree 1628f86594, governor powersave, 3 rounds, 64 connections, 0 errors): C++ route_io 256k / 460k / 630k req/s for 1 / 2 / 4 I/O threads against Drogon 281k / 496k / 760k (7 to 17 percent behind; before the work 208k / 392k / 516k). py 3.14 `def` 241k / 402k / 521k; uvicorn 78k; FastAPI 22k. py 3.14 GIL `async def` goes down from 2 to 4 threads (345k to 309k, GIL contention); 3.14t `async def` 528k at 4.
+
+### Not verified
+Windows and macOS runtime, CI on the three OS (owner), Python 3.13 and 3.14t full suites after these changes, ThreadSanitizer on the Python layer, the file browser (not started).
+
+### Guesses (not measured; say so when you use them)
+- The remaining 7 to 17 percent gap to Drogon is probably shared atomic counters: `weak_ptr<config>::lock()` in `make_sender` (one control block touched by every I/O thread on every answer), plus shared_ptr copies of `responder::impl`, the `once` flag and the poster. shared_ptr counting was about 6 percent of cycles in the owner's earlier perf profile. Callgrind counts instructions, not cache line contention, so only `perf` on the owner's machine can confirm it.
+- Plan if confirmed: a per-engine token that holds the `shared_ptr<config>`, with the same "server is gone" semantics; fewer shared_ptr copies per request; a timing wheel instead of lazy timers; build `request` straight from the llhttp state.
+- The odd INLINE result (`async def INLINE` io=1 slower than worker-pool `async def`) is unexplained.
+
+### Working routine that worked
+1. Measure per-request instructions with callgrind (`cpp_bench` + oha), change one thing, re-measure (sandbox has 2 cores and no perf).
+2. Check each change under TSan (separate build dir) and run the C++ and Python suites.
+3. Send `httpp.zip`; the owner runs `bench` (hello only: `cmake -S benchmarks -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=Release -DBENCH_ONLY=hello -DBENCH_SECONDS=5 -DBENCH_ROUNDS=3 -DBENCH_IO_THREADS=1,2,4`, then `cmake --build build-bench --target bench`) or `perf record -e cpu_core/cycles/` and sends the result file. Beware a stale server sharing the port through SO_REUSEPORT (gave a bogus 892k once).
+4. Put the honest numbers and the "not verified" part in ADR-0033 and CHANGELOG.
+The owner delegated every performance decision to me ("any change in the project's interest"), only constraint: the C++ and Python APIs stay dual.
+
+### Next steps
+1. Owner: CI green on three OS, commit, `python version.py tag create`, push.
+2. Optional 0.8.1: `perf` run on the owner's machine, then the `make_sender` / shared_ptr work above, re-measure with the same hello-only recipe.
+3. Run the Python suite on 3.13 and 3.14t; bump `HTTPP_BENCH_JSONCPP_TAG` to 1.9.8 (test the benchmark build first).
+4. File browser: design review still open (section 10); ADR number 0032 is reserved for it.

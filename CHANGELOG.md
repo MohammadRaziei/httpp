@@ -186,7 +186,7 @@ First WebSocket and Drogon numbers, from the full `bench` target on a 16 thread 
 so compare rows of this run only):
 - WebSocket echo, 64 byte messages: Python 3.14 httpp 287k msg/s (1 I/O thread) against 122k for uvicorn and 111k for the `websockets` library; 3.14t with
   4 I/O threads 715k msg/s. C++: httpp 339k, 648k, 1.05M and 973k msg/s with 1, 2, 4 and 8 I/O threads against 373k, 755k, 1.06M and 974k for Drogon.
-- `hello` on Python 3.14: `def` 208k req/s with 1 I/O thread and 485k with 4, against 81k for uvicorn and 22k for FastAPI with uvicorn.
+- `hello` on Python 3.14: `def` 241k req/s with 1 I/O thread and 521k with 4, against 78k for uvicorn and 22k for FastAPI with uvicorn (run after the engine changes).
 - 0 errors in every row (3 rounds each), which is the first full run without a lost server since the `Date` cache fix.
 
 ### Known limitations
@@ -195,8 +195,8 @@ so compare rows of this run only):
   close code can arrive after the close frames.
 - Memory per idle WebSocket connection is higher than in Drogon and in the `websockets` library: about 20 KiB (C++) and 24 KiB (Python) against 8.5 KiB and
   12 KiB (10,000 connections, one run).
-- Plain HTTP in C++ is slower than Drogon at the same number of I/O threads (`hello`, `route_io`: 208k, 392k, 516k and 799k req/s with 1, 2, 4 and 8 threads against
-  262k, 516k, 756k and 905k). WebSocket echo is about 9 to 14 percent behind with 1 or 2 threads and level with 4 or more.
+- Plain HTTP in C++ is still slower than Drogon at the same number of I/O threads, by 7 to 17 percent after the changes above (`hello`, `route_io`: 256k, 460k and 630k
+  req/s with 1, 2 and 4 threads against 281k, 496k and 760k; a later run than the one in "Measured", same machine). WebSocket echo is about 9 to 14 percent behind with 1 or 2 threads and level with 4 or more.
 - A free-threaded Python still defaults to one I/O thread (`io_threads`), which is about 2.4 times slower than 4 on the `hello` benchmark; set it by hand.
 - The WebSocket code was run on Linux; Windows and macOS were covered by CI only. ThreadSanitizer is clean on the whole C++ suite (384 test cases); the Python layer was not run under it.
 
