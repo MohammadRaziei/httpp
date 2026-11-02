@@ -151,6 +151,9 @@ struct mount_entry {
 
 // True on the threads that run an engine (the I/O threads) while the server listens.
 thread_local bool tl_on_io_thread = false;
+// On an I/O thread: the list of waiting async requests that belongs to that thread's engine, and the server it belongs to (see server::impl::waiting).
+thread_local void* tl_wait_list = nullptr;
+thread_local const void* tl_wait_owner = nullptr;
 
 // The way out of a request: (response, file offset, file length or -1 = all, what to release on the I/O thread afterwards).
 // The last argument is optional for callers.
@@ -332,7 +335,11 @@ struct server::impl {
     // the same timeout, so they expire in the order they came in and ONE timer can watch them all. (A
     // timer per request, which this used to be, left hundreds of thousands of live timers under load,
     // and that alone cost more than the whole rest of the request.)
-    struct waiting {
+    // ponytail: one list (one mutex, one timer) per I/O thread, so I/O threads never contend on it: a request is entered in the list of the thread
+    // that dispatches it, and the engine of that thread sweeps it. Threads that are not I/O threads (pool workers) use the shared list `wait`.
+    // Upgrade path: none needed.
+    struct waiting : std::enable_shared_from_this<waiting> {
+        detail::async_server* eng = nullptr; // the engine whose loop runs the sweep timer of this list
         struct entry {
             std::weak_ptr<responder::impl> state;
             std::shared_ptr<const request> req; // for the log line only; dropped when answered
@@ -344,7 +351,8 @@ struct server::impl {
         std::uint64_t next = 0;
         bool armed = false; // a sweep is scheduled
     };
-    std::shared_ptr<waiting> wait = std::make_shared<waiting>();
+    std::shared_ptr<waiting> wait = std::make_shared<waiting>();            // for threads that are not I/O threads
+    std::vector<std::shared_ptr<waiting>> waits;                            // one per engine, made when the server starts to listen
 
     // One engine per I/O thread. engines[0] is the one that runs on the thread that calls listen, owns the timers
     // (`engine`), and is the only one before set_io_threads() is called. Every setting that reaches an engine is
@@ -732,7 +740,7 @@ struct server::impl {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_s);
         std::uint64_t id;
         bool arm = false;
-        auto w = wait;
+        std::shared_ptr<waiting> w = (tl_wait_owner == this && tl_wait_list) ? static_cast<waiting*>(tl_wait_list)->shared_from_this() : wait;
         {
             std::lock_guard<std::mutex> lock(w->mu);
             id = w->next++;
@@ -747,34 +755,34 @@ struct server::impl {
             std::lock_guard<std::mutex> lock(l->mu);
             l->by_arrival.erase(at);
         };
-        if (arm) arm_sweep(deadline);
+        if (arm) arm_sweep(*w, deadline);
     }
 
-    void arm_sweep(std::chrono::steady_clock::time_point at) {
+    void arm_sweep(waiting& w, std::chrono::steady_clock::time_point at) {
         auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(at - std::chrono::steady_clock::now());
         if (delay < std::chrono::milliseconds(10)) delay = std::chrono::milliseconds(10);
-        engine->after(delay, [this] { sweep(); });
+        w.eng->after(delay, [this, list = &w] { sweep(*list); });
     }
 
     // On the loop thread. Takes the expired requests out of the queue and answers them 504 (on a worker:
     // the hooks and the write may block), then schedules the next sweep for the oldest one still waiting.
-    void sweep() {
+    void sweep(waiting& list) {
         std::vector<std::pair<std::shared_ptr<responder::impl>, waiting::entry>> late;
         bool more = false;
         std::chrono::steady_clock::time_point next;
         {
-            std::lock_guard<std::mutex> lock(wait->mu);
+            std::lock_guard<std::mutex> lock(list.mu);
             const auto now = std::chrono::steady_clock::now();
-            auto it = wait->by_arrival.begin();
-            for (; it != wait->by_arrival.end() && it->second.deadline <= now; ++it) {
+            auto it = list.by_arrival.begin();
+            for (; it != list.by_arrival.end() && it->second.deadline <= now; ++it) {
                 if (auto st = it->second.state.lock()) late.emplace_back(std::move(st), std::move(it->second));
             }
-            wait->by_arrival.erase(wait->by_arrival.begin(), it);
-            more = !wait->by_arrival.empty();
-            if (more) next = wait->by_arrival.begin()->second.deadline;
-            wait->armed = more;
+            list.by_arrival.erase(list.by_arrival.begin(), it);
+            more = !list.by_arrival.empty();
+            if (more) next = list.by_arrival.begin()->second.deadline;
+            list.armed = more;
         }
-        if (more) arm_sweep(next);
+        if (more) arm_sweep(list, next);
         for (auto& item : late) {
             auto answer_504 = [st = std::move(item.first), req = std::move(item.second.req), timeout = item.second.timeout_s] {
                 if (!st->answered.load()) { HTTPP_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " did not answer within " << timeout << " s: answering 504"; }
@@ -1107,24 +1115,40 @@ bool server::listen_after_bind() {
     const std::size_t max = impl_->pool_max ? impl_->pool_max : base * 4;
     detail::worker_pool pool(base, max, impl_->pool_grow_after);
     impl_->pool = &pool;
+    // One waiting list per engine (see server::impl::waiting). A previous run's timers died with their loops, so every list starts empty.
+    impl_->waits.clear();
+    for (auto& e : impl_->engines) {
+        auto l = std::make_shared<server::impl::waiting>();
+        l->eng = e.get();
+        impl_->waits.push_back(std::move(l));
+    }
     {
-        std::lock_guard<std::mutex> lock(impl_->wait->mu); // a previous run's timer died with its loop
+        std::lock_guard<std::mutex> lock(impl_->wait->mu);
         impl_->wait->by_arrival.clear();
         impl_->wait->armed = false;
+        impl_->wait->eng = impl_->engines[0].get();
     }
     // The other I/O threads; this thread runs engines[0] (and owns the timers).
     std::vector<std::thread> more;
     std::atomic<bool> others_ok{true};
     for (std::size_t i = 1; i < impl_->engines.size(); ++i) {
         detail::async_server* e = impl_->engines[i].get();
-        more.emplace_back([e, &others_ok] {
+        more.emplace_back([e, &others_ok, owner = impl_.get(), list = impl_->waits[i].get()] {
             tl_on_io_thread = true;
+            tl_wait_owner = owner;
+            tl_wait_list = list;
             if (!e->run()) others_ok = false;
+            tl_wait_list = nullptr;
+            tl_wait_owner = nullptr;
             tl_on_io_thread = false;
         });
     }
     tl_on_io_thread = true; // the engine's loop runs on this very thread
+    tl_wait_owner = impl_.get();
+    tl_wait_list = impl_->waits[0].get();
     const bool ok = impl_->engines[0]->run(); // returns after stop()
+    tl_wait_list = nullptr;
+    tl_wait_owner = nullptr;
     tl_on_io_thread = false;
     for (auto& e : impl_->engines) e->stop(); // if this one ended on its own, the others must end too
     for (auto& t : more) t.join();

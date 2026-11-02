@@ -34,7 +34,14 @@ header vectors between layers.
    is no limit, nginx's is 1000. Test: `keep_alive_max_zero_means_no_limit`, and a `0` case in the Python keep-alive test.
 6. Small copies removed: `to_wire` moves the headers instead of copying them, `make_request` moves the target, `match` decodes only path parts that contain `%`, and
    `ieq` no longer calls `tolower`. Measured: 18.7k to 18.3k (2 percent).
-7. `cpp_bench` takes the keep-alive limit as a third argument, for A/B runs.
+7. **The 504 backstop list is per I/O thread** (`server::impl::waiting`). Every async request (`route_io`, `route_async`, Python `async def`, a WebSocket handshake) was
+   entered in ONE list under ONE mutex shared by all I/O threads, and removed under the same mutex when it was answered: two lock round trips per request on a
+   shared cache line. A `perf record` of `cpp_bench` with 4 I/O threads on the owner's machine (2026-11-02) showed `pthread_mutex_lock/unlock` at 1.9 percent of
+   all cycles and `track` at 1.2; the benchmark showed `route_io` with 2 threads (394k req/s) slower than `route`, which does not use the list (433k). Now each
+   engine has its own list and sweep timer, entered from its own I/O thread; threads that are not I/O threads (pool workers) still use one shared list. Test:
+   `unanswered_io_requests_get_a_504_on_every_io_thread_and_answered_ones_are_not_touched`. Instruction counts per request do not change (one thread); the gain
+   is not measured yet.
+8. `cpp_bench` takes the keep-alive limit as a third argument, for A/B runs.
 
 ## Rejected alternatives
 
@@ -50,6 +57,8 @@ header vectors between layers.
   Python layer under TSan. Any future code that touches a socket or timer from another thread breaks the hint's rule; TSan will usually show it.
 - The old default of 100 requests per connection made every httpp row of the benchmark reconnect every 100 requests while Drogon did not. In an
   interleaved sandbox A/B of `route_io` the unlimited setting gave about 7 percent more req/s (three rounds, noisy). Both servers now keep connections alive.
+- The same `perf` profile shows shared_ptr reference counting at about 6 percent of all cycles (`_M_release` 3.1, copy 1.8, weak release 0.6, `weak_ptr::lock` 0.5); the
+  `weak_ptr<config>` that `make_sender` locks for every answer is one counter shared by all I/O threads. Not changed yet.
 - Remaining per-request cost (about 18.3k against 14.6k for Drogon under the same counting): the response moves between layers (`response`, `wire_response`,
   header pair vectors), the `request` built from `http_request`, `make_shared` of the `once` flag and of the answer closure, and the parser callbacks that append to strings.
 

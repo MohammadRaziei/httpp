@@ -35,6 +35,31 @@ void answer(httpp::responder& r, int status, const std::string& body) {
 
 } // namespace
 
+// Every I/O thread watches the requests that wait on it (no list shared between threads): requests that land on any of them are timed out,
+// and answered ones are left alone.
+UTEST(httpp_server_io_threads, unanswered_io_requests_get_a_504_on_every_io_thread_and_answered_ones_are_not_touched) {
+    std::mutex mu;
+    std::vector<httpp::responder> kept;
+    local_server srv([&](httpp::server& s) {
+        s.set_io_threads(3);
+        s.set_async_timeout(1);
+        s.route_io("GET", "/hold", [&](std::shared_ptr<const httpp::request>, httpp::responder r) {
+            std::lock_guard<std::mutex> lock(mu);
+            kept.push_back(r);
+        });
+        s.route_io("GET", "/quick", [](std::shared_ptr<const httpp::request>, httpp::responder r) { answer(r, 200, "q"); });
+    });
+    constexpr int n = 12;  // enough connections that every I/O thread gets some
+    std::vector<std::thread> clients;
+    std::vector<int> status(n, 0);
+    for (int i = 0; i < n; ++i)
+        clients.emplace_back([&, i] { status[i] = httpp::client::request(srv.url("/hold")).timeout(10).run().status; });
+    for (int i = 0; i < 30; ++i) ASSERT_EQ(200, httpp::client::request(srv.url("/quick")).timeout(10).run().status);
+    for (auto& c : clients) c.join();
+    for (int i = 0; i < n; ++i) ASSERT_EQ(504, status[i]);
+    ASSERT_EQ(200, httpp::client::request(srv.url("/quick")).timeout(10).run().status);
+}
+
 UTEST(httpp_server_io_threads, connections_spread_over_the_io_threads_and_each_stays_on_its_thread) {
     local_server srv([](httpp::server& s) {
         s.set_io_threads(4);

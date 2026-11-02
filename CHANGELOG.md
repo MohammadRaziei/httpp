@@ -45,6 +45,7 @@ now sets httpp next to Drogon. One public C++ type changed: `swagger_ui_asset` (
   used on the loop thread only); an answer made on the loop thread (`route_io`, an inline handler) is sent at once instead of going through the poster; connection timers
   are armed lazily (one deadline per connection, no timer work per keep-alive request); the response head is built without temporaries. About 27 percent fewer
   instructions per `route_io` request (counted with callgrind: 25.5k to 18.3k; wall-clock gain not measured on a many-core machine). ThreadSanitizer is clean on the whole C++ suite.
+- The 504 backstop for async requests keeps one list per I/O thread instead of one shared list under one mutex, so I/O threads no longer contend on it (`route_io` and Python `async def` with several I/O threads).
 - **`keep_alive_max` (C++ `set_keep_alive_max`, `Server(keep_alive_max=...)`) now defaults to 1000 and `0` means no limit.** It defaulted to 100, and `0` meant 1.
 - **Defaults from the first 16-thread measurement ([ADR-0025](docs/adr/0025-measured-defaults-on-16-threads.md))**: `Server(io_threads=None)` now
   means `min(4, CPUs // 4)` with a GIL (1 on a free-threaded Python and on Windows); the inline `async def` path of ADR-0023 is on by default only
