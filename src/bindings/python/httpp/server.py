@@ -994,7 +994,7 @@ class Server(_Server):
 
     threads / max_threads: worker threads for sync handlers (default: about one per core, at
     least 8; under load up to max_threads, default 4 x threads).  read_timeout / write_timeout /
-    keep_alive_timeout: seconds (defaults 5).  keep_alive_max: requests per connection (100).
+    keep_alive_timeout: seconds (defaults 5).  keep_alive_max: requests per connection (1000, 0 = no limit).
     max_body: largest request body in bytes, refused above it with a 413 (a client still
     sending a huge body may see the connection closed instead); 0 = no limit.  header_timeout: seconds the
     whole request head may take to arrive, however slowly it is dripped (default 10, 0 = no limit).

@@ -34,6 +34,7 @@ using asio::ip::tcp;
 constexpr std::size_t max_uri = 8192;          // request target
 constexpr std::size_t max_header_line = 8192;  // one header name or value
 constexpr std::size_t max_header_total = 65536; // the whole head
+constexpr std::size_t no_limit = static_cast<std::size_t>(-1) / 2;  // keep_alive_max 0: more requests than any connection will see
 constexpr int linger_seconds = 2;               // how long to drain a request we refused
 
 const char* reason(int status) {
@@ -77,11 +78,32 @@ const char* reason(int status) {
     }
 }
 
+inline unsigned char ascii_lower(unsigned char c) { return (c >= 'A' && c <= 'Z') ? static_cast<unsigned char>(c + 32) : c; }
+
 bool ieq(const std::string& a, const char* b) {
     const std::size_t n = std::char_traits<char>::length(b);
-    return a.size() == n && std::equal(a.begin(), a.end(), b, [](unsigned char x, unsigned char y) {
-        return std::tolower(x) == std::tolower(y);
-    });
+    if (a.size() != n) return false;
+    for (std::size_t i = 0; i < n; ++i)
+        if (ascii_lower(static_cast<unsigned char>(a[i])) != ascii_lower(static_cast<unsigned char>(b[i]))) return false;
+    return true;
+}
+
+void append_uint(std::string& out, unsigned long long v) {
+    char buf[24];
+    char* p = buf + sizeof buf;
+    do { *--p = static_cast<char>('0' + v % 10); v /= 10; } while (v);
+    out.append(p, static_cast<std::size_t>(buf + sizeof buf - p));
+}
+
+// The headers the engine writes itself, found by length first (a user header of another length costs one compare).
+bool engine_owned(const std::string& name) {
+    switch (name.size()) {
+        case 4: return ieq(name, "Date");
+        case 10: return ieq(name, "Connection");
+        case 14: return ieq(name, "Content-Length");
+        case 17: return ieq(name, "Transfer-Encoding");
+        default: return false;
+    }
 }
 
 // "Sat, 10 Oct 2026 12:00:00 GMT"; locale independent; cached per second. The cache is per thread: with several I/O
@@ -107,6 +129,11 @@ const std::string& http_date() {
     }
     return text;
 }
+
+// The engine whose loop this thread is running (null on every other thread). An answer produced on that very
+// thread (route_io, an inline handler) is sent at once instead of going through the poster. Only compared,
+// never dereferenced, so it cannot touch an engine that was destroyed in the meantime.
+thread_local const void* t_loop_engine = nullptr;
 
 // Answers may come from any thread; this lets them post to the loop without touching a loop that
 // was destroyed in the meantime (io becomes null in ~impl).
@@ -144,7 +171,9 @@ struct async_server::impl {
     request_fn on_request;
     blocking_fn run_blocking;
 
-    asio::io_context io;
+    // ponytail: no locking in the reactor (ADR-0033). Every socket and timer is used on the loop thread only; other threads
+    // go through `poster`. The scheduler keeps its lock, so posting from any thread stays safe. Upgrade path: none needed.
+    asio::io_context io{ASIO_CONCURRENCY_HINT_UNSAFE_IO};
     tcp::acceptor acceptor{io};
     asio::steady_timer backoff{io};
     std::shared_ptr<poster> poster_ = std::make_shared<poster>();
@@ -161,7 +190,7 @@ struct async_server::impl {
 
     impl(options o, request_fn r, blocking_fn b)
         : read_to(o.read_timeout_sec), write_to(o.write_timeout_sec), ka_to(o.keep_alive_timeout_sec),
-          ka_max(o.keep_alive_max == 0 ? 1 : o.keep_alive_max), max_body(o.max_body),
+          ka_max(o.keep_alive_max == 0 ? no_limit : o.keep_alive_max), max_body(o.max_body),
           on_request(std::move(r)), run_blocking(std::move(b)) {
         poster_->io = &io;
     }
@@ -204,7 +233,9 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     std::size_t remaining;    // requests this connection may still serve, counting the current one
 
     std::atomic<bool> closed{false};
-    std::uint64_t armed = 0;
+    std::uint64_t armed = 0;          // generation of the scheduled timer wait; older waits are ignored
+    std::chrono::steady_clock::time_point deadline{}, wake{};  // when the connection times out, and when the timer wakes
+    bool has_deadline = false, timer_on = false;
     bool answering = false;   // a request was handed out and its answer has not been written yet
 
     struct stream_state {
@@ -448,22 +479,35 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     }
 
     // ---- timers ----
+    // ponytail: one deadline per connection and a timer that is armed lazily. arm/disarm only write the deadline (a clock read), so
+    // the answer path of a keep-alive request touches no timer queue. The timer is (re)scheduled only when there is none or the
+    // new deadline is earlier than the one it waits for; when it wakes early it just waits again for the current deadline.
+    // Upgrade path: a timing wheel shared by all connections of the engine.
+    using clock = std::chrono::steady_clock;
+    void set_deadline(clock::time_point t) {
+        deadline = t;
+        has_deadline = true;
+        if (!timer_on || t < wake) schedule(t);
+    }
+    void schedule(clock::time_point t) {
+        const std::uint64_t gen = ++armed;
+        timer_on = true;
+        wake = t;
+        timer.expires_at(t);
+        timer.async_wait([self = shared_from_this(), gen](std::error_code ec) {
+            if (ec || gen != self->armed || self->closed) return;
+            self->timer_on = false;
+            if (!self->has_deadline) return;
+            if (clock::now() >= self->deadline) return self->close();
+            self->schedule(self->deadline);
+        });
+    }
     void arm(int seconds) {
-        const std::uint64_t gen = ++armed;
-        if (seconds <= 0) { timer.cancel(); return; }
-        timer.expires_after(std::chrono::seconds(seconds));
-        timer.async_wait([self = shared_from_this(), gen](std::error_code ec) {
-            if (!ec && gen == self->armed) self->close();
-        });
+        if (seconds <= 0) return disarm();
+        set_deadline(clock::now() + std::chrono::seconds(seconds));
     }
-    void arm_ms(long long ms) {
-        const std::uint64_t gen = ++armed;
-        timer.expires_after(std::chrono::milliseconds(ms));
-        timer.async_wait([self = shared_from_this(), gen](std::error_code ec) {
-            if (!ec && gen == self->armed) self->close();
-        });
-    }
-    void disarm() { ++armed; timer.cancel(); }
+    void arm_ms(long long ms) { set_deadline(clock::now() + std::chrono::milliseconds(ms)); }
+    void disarm() { has_deadline = false; }
 
     void close() {
         if (closed.exchange(true)) return;
@@ -563,8 +607,15 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         auto once = std::make_shared<std::atomic<bool>>(false);
         auto post = srv.poster_;
         std::weak_ptr<conn> weak = shared_from_this();
-        answer_fn answer = [weak, once, post](wire_response r) {
+        const void* engine = &srv;
+        answer_fn answer = [weak, once, post, engine](wire_response r) {
             if (once->exchange(true)) return;
+            // ponytail: on the loop thread nothing needs a hop: the write below is asynchronous and the read handler
+            // touches nothing of the connection after on_request returns. Upgrade path: none needed.
+            if (t_loop_engine == engine) {
+                if (auto c = weak.lock()) c->send(std::move(r));
+                return;
+            }
             post->post([weak, r = std::move(r)]() mutable {
                 if (auto c = weak.lock()) c->send(std::move(r));
             });
@@ -618,18 +669,31 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
             else keep = false; // HTTP/1.0 cannot do chunked: the end of the body is the end of the connection
         }
 
-        std::string out = "HTTP/1.1 " + std::to_string(r.status) + " " + reason(r.status) + "\r\n";
+        // ponytail: the head is built with appends into one reserved string (no temporaries per header); the four headers
+        // the engine owns are found by length first, so a normal header costs one size compare. Upgrade path: none needed.
+        std::size_t hint = 128 + r.body.size();
+        for (const auto& h : r.headers) hint += h.first.size() + h.second.size() + 4;
+        std::string out;
+        out.reserve(hint);
+        out += "HTTP/1.1 ";
+        append_uint(out, static_cast<unsigned long long>(r.status));
+        out += ' ';
+        out += reason(r.status);
+        out += "\r\n";
         for (const auto& h : r.headers) {
-            if (ieq(h.first, "Content-Length") || ieq(h.first, "Transfer-Encoding") || ieq(h.first, "Connection") ||
-                ieq(h.first, "Date"))
-                continue; // the engine owns these
-            out += h.first + ": " + h.second + "\r\n";
+            if (engine_owned(h.first)) continue;
+            out += h.first;
+            out += ": ";
+            out += h.second;
+            out += "\r\n";
         }
-        out += "Date: " + http_date() + "\r\n";
+        out += "Date: ";
+        out += http_date();
+        out += "\r\n";
         if (!(r.status < 200 || r.status == 204)) {
             if (chunked) out += "Transfer-Encoding: chunked\r\n";
-            else if (!streaming) out += "Content-Length: " + std::to_string(r.body.size()) + "\r\n";
-            else if (r.length >= 0) out += "Content-Length: " + std::to_string(r.length) + "\r\n";
+            else if (!streaming) { out += "Content-Length: "; append_uint(out, r.body.size()); out += "\r\n"; }
+            else if (r.length >= 0) { out += "Content-Length: "; append_uint(out, static_cast<unsigned long long>(r.length)); out += "\r\n"; }
         }
         if (!keep) out += "Connection: close\r\n";
         else if (req_minor == 0) out += "Connection: keep-alive\r\n";
@@ -804,7 +868,7 @@ async_server::~async_server() = default;
 void async_server::set_read_timeout(int seconds) { impl_->read_to = seconds; }
 void async_server::set_write_timeout(int seconds) { impl_->write_to = seconds; }
 void async_server::set_keep_alive_timeout(int seconds) { impl_->ka_to = seconds; }
-void async_server::set_keep_alive_max(std::size_t requests) { impl_->ka_max = requests == 0 ? 1 : requests; }
+void async_server::set_keep_alive_max(std::size_t requests) { impl_->ka_max = requests == 0 ? no_limit : requests; }
 void async_server::set_max_body(std::size_t bytes) { impl_->max_body = bytes; }
 void async_server::set_header_timeout(int seconds) { impl_->head_to = seconds; }
 void async_server::set_body_timeout(int seconds) { impl_->body_to = seconds; }
@@ -898,6 +962,7 @@ bool async_server::run() {
     m.accept_next();
     if (stop_now) asio::post(m.io, [&m] { m.begin_close(); });
 
+    t_loop_engine = &m;
     m.io.run(); // returns once the listener, timers and connections are all closed
 
     {
@@ -908,6 +973,7 @@ bool async_server::run() {
     // Run what was queued meanwhile (late answers); their connections are closed, so they do nothing.
     m.io.restart();
     m.io.poll();
+    t_loop_engine = nullptr;
     return !m.failed;
 }
 

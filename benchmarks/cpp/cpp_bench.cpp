@@ -1,5 +1,5 @@
 // The C++ side of the benchmark suite: the same answers as the Python apps, through each way of registering a route.
-//   cpp_bench PORT [IO_THREADS]
+//   cpp_bench PORT [IO_THREADS [KEEP_ALIVE_MAX]]
 // /ws is a WebSocket echo (the same as the Python apps and drogon_bench).
 #include "httpp/server.hpp"
 #include "httpp/websocket.hpp"
@@ -28,6 +28,7 @@ int main(int argc, char** argv) {
     const std::size_t io_threads = argc > 2 ? static_cast<std::size_t>(std::atoi(argv[2])) : 1;
     httpp::server srv;
     srv.set_io_threads(io_threads);
+    if (argc > 3) srv.set_keep_alive_max(static_cast<std::size_t>(std::atoll(argv[3])));  // for A/B runs of the default
     srv.route("GET", "/sync", [](const httpp::request&, httpp::response& r) { hello(r); });
     srv.route("GET", "/cpu", [](const httpp::request&, httpp::response& r) {
         volatile long long s = work();

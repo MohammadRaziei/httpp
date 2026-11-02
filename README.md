@@ -298,7 +298,7 @@ app = Server(threads=8, read_timeout=10, max_body=5_000_000, handler_timeout=30)
 |---|---|
 | `threads`, `max_threads` | worker threads for plain `def` handlers: `threads` are kept, up to `max_threads` are used under load. Default: about one per core, at least 8, growing to 4x that |
 | `read_timeout`, `write_timeout`, `keep_alive_timeout` | seconds to read a request, write a response, keep an idle connection (default 5 each) |
-| `keep_alive_max` | requests served per connection (default 100) |
+| `keep_alive_max` | requests served per connection (default 1000, `0` = no limit) |
 | `max_body` | largest request body in bytes, refused above it with a **413** (a client still sending a huge body may see the connection closed instead); `0` = no limit |
 | `header_timeout` | seconds the whole request head (request line and headers) may take, however slowly it is dripped (default 10, `0` = no limit): the slowloris guard. |
 | `body_timeout` | the same guard for the request body, counted from the end of the head (default 120, `0` = no limit) |

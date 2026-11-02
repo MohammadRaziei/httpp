@@ -215,6 +215,18 @@ UTEST(async_server, keep_alive_max_limits_requests_per_connection) {
     ASSERT_TRUE(c.wait_eof());
 }
 
+UTEST(async_server, keep_alive_max_zero_means_no_limit) {
+    async_server::options o;
+    o.keep_alive_max = 0;
+    fixture f([](const http_request&) { return text(200, "x"); }, o);
+    raw_client c(f.port);
+    for (int i = 1; i <= 5; ++i) {
+        c.send("GET /n HTTP/1.1\r\nHost: t\r\n\r\n");
+        ASSERT_TRUE(c.read_until([i](const std::string& b) { return count(b, "HTTP/1.1 200") == static_cast<std::size_t>(i); }));
+    }
+    ASSERT_TRUE(c.buf.find("Connection: close") == std::string::npos);
+}
+
 UTEST(async_server, idle_connection_is_closed_after_the_keep_alive_timeout) {
     async_server::options o;
     o.keep_alive_timeout_sec = 1;

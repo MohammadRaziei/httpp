@@ -708,7 +708,7 @@ def served_before_close(port, limit=6):
     return answered
 
 
-@pytest.mark.parametrize("kwargs, expected", [({"keep_alive_max": 2}, 2), ({}, 6)])
+@pytest.mark.parametrize("kwargs, expected", [({"keep_alive_max": 2}, 2), ({}, 6), ({"keep_alive_max": 0}, 6)])
 def test_keep_alive_max_limits_requests_per_connection(kwargs, expected):
     app = Server(**kwargs)
 

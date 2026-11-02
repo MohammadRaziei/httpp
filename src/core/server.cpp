@@ -39,11 +39,14 @@ namespace {
 
 // ---------------------------------------------------------------- small helpers
 
+inline unsigned char ascii_lower(unsigned char c) { return (c >= 'A' && c <= 'Z') ? static_cast<unsigned char>(c + 32) : c; }
+
 bool ieq(const std::string& a, const char* b) {
     const std::size_t n = std::strlen(b);
-    return a.size() == n && std::equal(a.begin(), a.end(), b, [](unsigned char x, unsigned char y) {
-        return std::tolower(x) == std::tolower(y);
-    });
+    if (a.size() != n) return false;
+    for (std::size_t i = 0; i < n; ++i)
+        if (ascii_lower(static_cast<unsigned char>(a[i])) != ascii_lower(static_cast<unsigned char>(b[i]))) return false;
+    return true;
 }
 
 using detail::parse_query;
@@ -406,14 +409,14 @@ struct server::impl {
         req.method = std::move(hr.method);
         req.body = std::move(hr.body);
         req.headers = std::move(hr.headers);
-        std::string target = hr.target;
+        std::string target = std::move(hr.target);  // put back below when the target is refused (the caller logs it)
         const std::size_t hash = target.find('#');
         if (hash != std::string::npos) target.resize(hash);
         if (target.compare(0, 7, "http://") == 0 || target.compare(0, 8, "https://") == 0) { // absolute form
             const std::size_t slash = target.find('/', target.find("//") + 2);
             target = slash == std::string::npos ? "/" : target.substr(slash);
         }
-        if (target.empty() || (target[0] != '/' && target != "*")) return false;
+        if (target.empty() || (target[0] != '/' && target != "*")) { hr.target = std::move(target); return false; }
         const std::size_t q = target.find('?');
         raw_path = target.substr(0, q);
         req.path = percent_decode(raw_path, false);
@@ -433,11 +436,11 @@ struct server::impl {
         std::string content_type = "text/plain";
         for (auto& [name, value] : res.headers) {
             if (!header_ok(name, value)) return failure(500, "Internal Server Error"); // never send a split header
-            if (ieq(name, "Content-Type")) content_type = value;
-            else w.headers.emplace_back(name, value);
+            if (ieq(name, "Content-Type")) content_type = std::move(value);
+            else w.headers.emplace_back(std::move(name), std::move(value));
         }
         if (!header_ok("Content-Type", content_type)) return failure(500, "Internal Server Error");
-        w.headers.emplace_back("Content-Type", content_type);
+        w.headers.emplace_back("Content-Type", std::move(content_type));
 
         if (!res.file.empty()) {
             const long long size = file_size(res.file);
@@ -561,7 +564,8 @@ struct server::impl {
                              std::vector<std::pair<std::string, std::string>>& params) const {
         if (raw_path.empty() || raw_path[0] != '/') return nullptr;
         std::vector<std::string> parts = split_path(raw_path);
-        for (auto& part : parts) part = percent_decode(part, false);
+        for (auto& part : parts)
+            if (part.find('%') != std::string::npos) part = percent_decode(part, false);
 
         thread_local std::string key; // reused, so a lookup does not allocate once it is warm
         constexpr std::size_t none = static_cast<std::size_t>(-1);

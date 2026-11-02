@@ -82,7 +82,7 @@ public:
         int read_timeout_sec = 5;        // between reads while a request arrives
         int write_timeout_sec = 5;       // per write of a response
         int keep_alive_timeout_sec = 5;  // idle connection waiting for its next request
-        std::size_t keep_alive_max = 100; // requests one connection may serve
+        std::size_t keep_alive_max = 1000; // requests one connection may serve (0 = no limit)
         std::size_t max_body = 100u * 1024 * 1024; // 0 = no limit
     };
 

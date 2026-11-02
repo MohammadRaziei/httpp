@@ -7,6 +7,13 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-01
+
+WebSocket in the C++ core and in Python, checked with the Autobahn conformance suite, and a benchmark suite built by CMake that
+now sets httpp next to Drogon. One public C++ type changed: `swagger_ui_asset` (see the first entry).
+
+- **Autobahn result** (second run, after [ADR-0029](docs/adr/0029-incremental-utf8-validation.md)): no FAILED case, 589 OK, 7 NON-STRICT and 6 INFORMATIONAL.
+  The `permessage-deflate` cases (12 and 13) are left out on purpose. The NON-STRICT cases (3.2, 3.3, 4.1.3, 4.1.4, 4.2.3, 4.2.4, 5.15) are behaviour the RFC leaves open.
 - **Build**: `embed_files(... COMPRESS)` embeds gzip-compressed bytes (same bytes on every build), with `<name>_raw_size` and `<name>_is_gzip`; `-DHTTPP_EMBED_COMPRESS=OFF` turns it off. Swagger UI uses it: `libhttpp_core.so` is about 1.3 MB smaller, and `/docs` files are sent as stored (`Content-Encoding: gzip`, `Vary: Accept-Encoding`) to clients that accept gzip and inflated for the others. **Changed:** `httpp::swagger_ui_asset::data` holds the stored bytes (gzip unless built with `HTTPP_EMBED_COMPRESS=OFF`); new fields `raw_size` and `gzip`. See [ADR-0031](docs/adr/0031-compressed-embedded-files.md).
 - **WebSocket (RFC 6455) in the C++ core**: `server::route_ws(path, ws_handler)` with a `websocket` handle (`send_text`, `send_binary`, `ping`, `close`,
   `pause_reading`, `buffered_amount`). Callbacks run on the I/O thread; sends are thread-safe and the send queue is bounded (`max_buffered`, `status::full`,
@@ -27,7 +34,18 @@ such changes are listed under **Changed**).
   (2 cores, one box, interleaved). Handlers that await are unchanged. See [ADR-0023](docs/adr/0023-inline-async-handlers.md).
 - `async def` and `route_async` / `route_io` requests allocate about 8 fewer objects (30 to 22 per request): `responder` keeps its state in plain members, and that state is released on the I/O thread with the answer. About 4 percent more req/s and 8 percent less CPU for an awaiting `async def`.
 
+### Fixed
+- **A failing timing assertion could hang CI for ever.** The `worker_pool` gate tests returned early when an assertion failed, the gate stayed closed and the
+  pool's destructor joined blocked threads without end (a 14 minute macOS step). The tests now open the gate from an RAII guard, wait in bounded loops, and the
+  CMake workflow runs `ctest --timeout 900`. The growth test no longer depends on a tight wall-clock bound (`help_after` 10 ms, limit 250 ms).
+- WebSocket tests poll with a timeout instead of sleeping for a fixed time.
+
 ### Changed
+- **Less work per request in the engine ([ADR-0033](docs/adr/0033-engine-per-request-cost.md))**: the Asio reactor runs without locking (sockets and timers were already
+  used on the loop thread only); an answer made on the loop thread (`route_io`, an inline handler) is sent at once instead of going through the poster; connection timers
+  are armed lazily (one deadline per connection, no timer work per keep-alive request); the response head is built without temporaries. About 27 percent fewer
+  instructions per `route_io` request (counted with callgrind: 25.5k to 18.3k; wall-clock gain not measured on a many-core machine). ThreadSanitizer is clean on the whole C++ suite.
+- **`keep_alive_max` (C++ `set_keep_alive_max`, `Server(keep_alive_max=...)`) now defaults to 1000 and `0` means no limit.** It defaulted to 100, and `0` meant 1.
 - **Defaults from the first 16-thread measurement ([ADR-0025](docs/adr/0025-measured-defaults-on-16-threads.md))**: `Server(io_threads=None)` now
   means `min(4, CPUs // 4)` with a GIL (1 on a free-threaded Python and on Windows); the inline `async def` path of ADR-0023 is on by default only
   with 2 CPUs or fewer (`Server(inline_async=True/False)` forces it): on a machine with cores to spare it was 20 percent slower at saturation.
@@ -161,6 +179,25 @@ such changes are listed under **Changed**).
   (`httpp: ignoring app.listen('127.0.0.1', 8001): ...`), so `--host`, `--port` and `--workers` apply. Before, the
   file's `listen` blocked the import, the CLI options were silently ignored, and `--workers` failed with a bind
   error. Running the file with `python file.py` is unchanged. Only a string target (`"module:app"`) is affected.
+
+### Measured
+First WebSocket and Drogon numbers, from the full `bench` target on a 16 thread machine (medians of 3 rounds of 5 s, 64 connections, `powersave` governor, one box,
+so compare rows of this run only):
+- WebSocket echo, 64 byte messages: Python 3.14 httpp 287k msg/s (1 I/O thread) against 122k for uvicorn and 111k for the `websockets` library; 3.14t with
+  4 I/O threads 715k msg/s. C++: httpp 339k, 648k, 1.05M and 973k msg/s with 1, 2, 4 and 8 I/O threads against 373k, 755k, 1.06M and 974k for Drogon.
+- `hello` on Python 3.14: `def` 208k req/s with 1 I/O thread and 485k with 4, against 81k for uvicorn and 22k for FastAPI with uvicorn.
+- 0 errors in every row (3 rounds each), which is the first full run without a lost server since the `Date` cache fix.
+
+### Known limitations
+- WebSocket: no `permessage-deflate`, and no TLS of its own (`wss` needs a TLS proxy in front; not tried). On WebSocket routes there are no dependencies,
+  no injected `response`, no background tasks, no OpenAPI entry and no `APIRouter.websocket` yet. The engine closes with a lingering close (up to 2 s), so the final
+  close code can arrive after the close frames.
+- Memory per idle WebSocket connection is higher than in Drogon and in the `websockets` library: about 20 KiB (C++) and 24 KiB (Python) against 8.5 KiB and
+  12 KiB (10,000 connections, one run).
+- Plain HTTP in C++ is slower than Drogon at the same number of I/O threads (`hello`, `route_io`: 208k, 392k, 516k and 799k req/s with 1, 2, 4 and 8 threads against
+  262k, 516k, 756k and 905k). WebSocket echo is about 9 to 14 percent behind with 1 or 2 threads and level with 4 or more.
+- A free-threaded Python still defaults to one I/O thread (`io_threads`), which is about 2.4 times slower than 4 on the `hello` benchmark; set it by hand.
+- The WebSocket code was run on Linux; Windows and macOS were covered by CI only. ThreadSanitizer is clean on the whole C++ suite (384 test cases); the Python layer was not run under it.
 
 ## [0.7.0] - 2026-10-17
 
@@ -343,6 +380,8 @@ First release.
 - Single umbrella header `include/httpp.h` that carries the version, and `version.py` for tagging and releases.
 - CMake and wheels workflows in CI.
 
+[Unreleased]: https://github.com/MohammadRaziei/httpp/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/MohammadRaziei/httpp/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MohammadRaziei/httpp/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/MohammadRaziei/httpp/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/MohammadRaziei/httpp/compare/v0.5.1...v0.6.0

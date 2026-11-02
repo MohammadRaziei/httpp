@@ -221,7 +221,7 @@ public:
     HTTPP_API server& set_read_timeout(int seconds);        // reading a request (default 5)
     HTTPP_API server& set_write_timeout(int seconds);       // writing a response (default 5)
     HTTPP_API server& set_keep_alive_timeout(int seconds);  // idle keep-alive connection (default 5)
-    HTTPP_API server& set_keep_alive_max(std::size_t requests); // requests per connection (default 100)
+    HTTPP_API server& set_keep_alive_max(std::size_t requests); // requests per connection (default 1000, 0 = no limit)
     HTTPP_API server& set_max_body(std::size_t bytes);      // largest request body accepted; 0 = no limit
     HTTPP_API server& set_header_timeout(int seconds);      // whole request head must arrive within this (slowloris); default 10, 0 = no limit
     HTTPP_API server& set_body_timeout(int seconds);        // whole request body must arrive within this after its head (slow drip); default 120, 0 = no limit
