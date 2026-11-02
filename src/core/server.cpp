@@ -41,12 +41,15 @@ namespace {
 
 inline unsigned char ascii_lower(unsigned char c) { return (c >= 'A' && c <= 'Z') ? static_cast<unsigned char>(c + 32) : c; }
 
-bool ieq(const std::string& a, const char* b) {
-    const std::size_t n = std::strlen(b);
-    if (a.size() != n) return false;
+// Same bytes, ASCII case folded. The length test is inline, so for a literal it is a constant compare (no strlen call).
+bool ieq_bytes(const char* a, const char* b, std::size_t n) {
     for (std::size_t i = 0; i < n; ++i)
         if (ascii_lower(static_cast<unsigned char>(a[i])) != ascii_lower(static_cast<unsigned char>(b[i]))) return false;
     return true;
+}
+inline bool ieq(const std::string& a, const char* b) {
+    const std::size_t n = std::char_traits<char>::length(b);
+    return a.size() == n && ieq_bytes(a.data(), b, n);
 }
 
 using detail::parse_query;
@@ -64,7 +67,7 @@ std::vector<std::string> split_path(const std::string& path) {
     return parts;
 }
 
-bool header_ok(const std::string& name, const std::string& value) {
+bool header_ok(std::string_view name, std::string_view value) { // views: a literal name costs no std::string
     if (name.empty()) return false;
     for (unsigned char c : name) if (c <= ' ' || c == ':' || c == 0x7f) return false;
     for (unsigned char c : value) if (c == '\r' || c == '\n' || c == 0) return false;
@@ -157,10 +160,11 @@ thread_local const void* tl_wait_owner = nullptr;
 
 // The way out of a request: (response, file offset, file length or -1 = all, what to release on the I/O thread afterwards).
 // The last argument is optional for callers.
-struct send_fn : std::function<void(response, long long, long long, std::shared_ptr<void>)> {
-    using base = std::function<void(response, long long, long long, std::shared_ptr<void>)>;
+// ponytail: the response travels by rvalue reference through every layer, so it is moved once (into the final owner), not once per layer.
+struct send_fn : std::function<void(response&&, long long, long long, std::shared_ptr<void>)> {
+    using base = std::function<void(response&&, long long, long long, std::shared_ptr<void>)>;
     using base::base;
-    void operator()(response res, long long offset, long long length, std::shared_ptr<void> keep = {}) const {
+    void operator()(response&& res, long long offset, long long length, std::shared_ptr<void> keep = {}) const {
         base::operator()(std::move(res), offset, length, std::move(keep));
     }
 };
@@ -174,11 +178,13 @@ struct responder::impl {
     detail::async_server::answer_fn answer;         // to close the connection when every copy was dropped unanswered
     std::shared_ptr<void> wait;                     // the list this request waits in (see server::impl::waiting)
     std::uint64_t wait_id = 0;
-    void (*unwait)(void* list, std::uint64_t id) = nullptr; // forget this request (it no longer waits for an answer)
+    // Forget this request (it no longer waits for an answer). Published last, with release, after `wait` and `wait_id` are set: track() runs after the
+    // handler returned, so another thread may already be answering and reads these in settle_once(); seeing a non-null value means it sees the other two.
+    std::atomic<void (*)(void* list, std::uint64_t id)> unwait{nullptr};
     std::atomic<bool> answered{false};
     std::atomic<bool> settled{false};
     void settle_once() {
-        if (unwait && !settled.exchange(true)) unwait(wait.get(), wait_id);
+        if (auto forget = unwait.load(std::memory_order_acquire); forget && !settled.exchange(true)) forget(wait.get(), wait_id);
     }
     ~impl() {
         if (!answered.load() && answer) { // every copy dropped without an answer: close, say nothing
@@ -438,17 +444,31 @@ struct server::impl {
     }
 
     // ---- turning a handler's `response` into bytes for the engine ----
-    static detail::wire_response to_wire(response res, long long offset, long long length) {
+    static detail::wire_response to_wire(response&& res, long long offset, long long length) {
         detail::wire_response w;
         w.status = res.status > 0 ? res.status : 200;
-        std::string content_type = "text/plain";
-        for (auto& [name, value] : res.headers) {
-            if (!header_ok(name, value)) return failure(500, "Internal Server Error"); // never send a split header
-            if (ieq(name, "Content-Type")) content_type = std::move(value);
-            else w.headers.emplace_back(std::move(name), std::move(value));
+        // ponytail: the handler's header vector is taken over as it is (no per-header moves, no new vector). Exactly one Content-Type is
+        // sent, as the last header, with the value of the last one the handler set ("text/plain" when none): the usual case (one,
+        // already last, or none) costs one scan. Upgrade path: none needed.
+        w.headers = std::move(res.headers);
+        std::size_t ct_count = 0, ct_last = 0;
+        for (std::size_t i = 0; i < w.headers.size(); ++i) {
+            if (!header_ok(w.headers[i].first, w.headers[i].second)) return failure(500, "Internal Server Error"); // never send a split header
+            if (ieq(w.headers[i].first, "Content-Type")) { ++ct_count; ct_last = i; }
         }
-        if (!header_ok("Content-Type", content_type)) return failure(500, "Internal Server Error");
-        w.headers.emplace_back("Content-Type", std::move(content_type));
+        if (ct_count == 0) {
+            w.headers.emplace_back("Content-Type", "text/plain");
+        } else if (ct_count == 1) {
+            if (ct_last + 1 != w.headers.size()) {
+                auto moved = std::move(w.headers[ct_last]);
+                w.headers.erase(w.headers.begin() + static_cast<std::ptrdiff_t>(ct_last));
+                w.headers.push_back(std::move(moved));
+            }
+        } else {
+            std::string value = std::move(w.headers[ct_last].second);
+            w.headers.erase(std::remove_if(w.headers.begin(), w.headers.end(), [](const auto& h) { return ieq(h.first, "Content-Type"); }), w.headers.end());
+            w.headers.emplace_back("Content-Type", std::move(value));
+        }
 
         if (!res.file.empty()) {
             const long long size = file_size(res.file);
@@ -498,7 +518,7 @@ struct server::impl {
             // ponytail: the config is read-only once listening, so with no hook and no compression an answer needs nothing from it.
             // This sender holds no weak_ptr<config>: no atomic count on the one control block that every I/O thread would share, per request.
             // A late answer after the server is gone is as safe as before (the engine's answer_fn copes, ADR-0033 item 2).
-            return [req, answer = std::move(answer)](response res, long long offset, long long length, std::shared_ptr<void> keep) {
+            return [req, answer = std::move(answer)](response&& res, long long offset, long long length, std::shared_ptr<void> keep) {
                 detail::wire_response w;
                 try {
                     if (res.status <= 0) res.status = 200;
@@ -512,7 +532,7 @@ struct server::impl {
             };
         }
         std::weak_ptr<config> weak = cfg;
-        return [this, weak, req, answer = std::move(answer)](response res, long long offset, long long length, std::shared_ptr<void> keep) {
+        return [this, weak, req, answer = std::move(answer)](response&& res, long long offset, long long length, std::shared_ptr<void> keep) {
             auto c = weak.lock();
             if (!c) return; // the server is gone
             if ((c->error || c->after || c->compression.worth_a_thread(res)) && tl_on_io_thread) {
@@ -767,11 +787,11 @@ struct server::impl {
         // erasing an id that a sweep already took out is harmless
         state->wait = w;
         state->wait_id = id;
-        state->unwait = [](void* list, std::uint64_t at) {
+        state->unwait.store([](void* list, std::uint64_t at) {
             auto* l = static_cast<waiting*>(list);
             std::lock_guard<std::mutex> lock(l->mu);
             l->by_arrival.erase(at);
-        };
+        }, std::memory_order_release);
         if (arm) arm_sweep(*w, deadline);
     }
 
@@ -918,9 +938,7 @@ struct server::impl {
         responder rsp;
         rsp.impl_ = state;
 
-        // If nobody answers in time, answer 504 ourselves (see `waiting`).
         const int timeout = async_timeout.load();
-        if (timeout > 0) track(state, req, timeout);
 
         try {
             if (r->ih) r->ih(req, rsp);
@@ -943,6 +961,15 @@ struct server::impl {
                 HTTPP_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " threw: " << describe(ep);
             }
             rsp.send(std::move(err)); // no-op if the handler had already answered
+        }
+
+        // If nobody answers in time, answer 504 ourselves (see `waiting`). ponytail: only a request that is still unanswered when its
+        // handler returns is entered in the list: an answer made on the spot (the usual route_io case) costs no lock, no list node and
+        // no count. The deadline starts when the handler returns instead of at arrival, which differs by the handler's own run time
+        // (it must not block). An answer that races with the entry is settled right after, so no stale entry stays behind.
+        if (timeout > 0 && !state->answered.load()) {
+            track(state, req, timeout);
+            if (state->answered.load()) state->settle_once();
         }
     }
 

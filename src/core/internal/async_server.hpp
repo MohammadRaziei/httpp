@@ -88,7 +88,7 @@ public:
 
     // `answer` may be called from any thread, once; later calls and calls after the connection or
     // the server is gone do nothing.
-    using answer_fn = std::function<void(wire_response)>;
+    using answer_fn = std::function<void(wire_response&&)>;
     // Called on the loop thread for every complete request: must not block. If it returns false
     // (e.g. the pool is shutting down) the connection is dropped.
     using request_fn = std::function<bool(http_request, answer_fn)>;

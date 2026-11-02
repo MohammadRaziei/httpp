@@ -50,6 +50,20 @@ header vectors between layers.
    Verified: the C++ suite (386 tests) passes. **Not measured:** the gain (the effect is cache-line contention, which callgrind does not count, and the sandbox has no `perf`); the
    per-request `shared_ptr` copies of `responder::impl`, the `once` flag and the engine's `poster` remain and are per engine or per request. TSan was not re-run for this change.
 
+10. **Instruction counts, round two (2026-11-02, `cpp_bench` `/io`, same callgrind recipe, 8 keep-alive connections, `keep_alive_max` 0).** A `perf record` (cycles, user space) of
+    `route_io` with 4 I/O threads showed: shared_ptr and weak_ptr counting about 10.7 percent, malloc and free about 7, `strlen` 3.7 plus `ieq` 1.2, mutex lock and unlock 3.6 (`track`
+    1.1), `llhttp` 6.5. Per request, before and after each step (the steps are cumulative): 15425 at the start (item 9 already in), 14497 head written with copies of constant
+    size into one buffer of a known upper bound (no `strlen`, no append per piece), 14168 `ieq` with an inline length test and `header_ok` on views, 13590 `response` passed by
+    rvalue reference through `send_fn` and `to_wire`, 13345 and 13213 the same for `answer_fn` and `conn::send` (`wire_response&&`), 12381 one shared `answer_state` for the answer
+    function (one allocation, one count; it fits the `std::function` storage) and no deadline entry for a request that is already answered when its handler returns, 11869 `to_wire`
+    takes the handler's header vector as it is. Total 15425 to about 11.8k (23 percent). `/sync` (worker pool) is 14.1k now; it was not counted before, so there is no before.
+11. **The 504 deadline starts when the handler returns** (it started at arrival). A handler that answers on the spot (the usual `route_io` case) is never entered in the list: no lock, no
+    node, no count. The difference is the handler's own run time, which a `route_io` handler keeps near zero. Because `track` now runs while another thread may already hold the
+    responder, `responder::impl::unwait` is an atomic function pointer stored last with release and read with acquire (`wait` and `wait_id` are written before it). ThreadSanitizer
+    found exactly this race in the first version of the change (a plain pointer, read by an answering thread); with the atomic the whole C++ suite is clean.
+12. `to_wire` sends exactly one `Content-Type`, last, with the value of the last one the handler set, `text/plain` when none (unchanged); the vector the handler filled is
+    reused. Three wire tests pin the behaviour (one in the middle, several, none).
+
 ## Rejected alternatives
 
 - `ASIO_CONCURRENCY_HINT_UNSAFE` (scheduler lock off too): other threads post answers, so it would be a data race.
@@ -58,7 +72,7 @@ header vectors between layers.
 
 ## Consequences
 
-- Verified: the whole C++ suite (385 test cases) passes under ThreadSanitizer with no warning; the Python suite on 3.14 (GIL) gives 653 passed, 4 skipped.
+- Verified (items 1 to 8): the whole C++ suite (385 test cases) passes under ThreadSanitizer with no warning; the Python suite on 3.14 (GIL) gives 653 passed, 4 skipped.
 - **Not verified:** wall-clock gain on the owner's machine (instruction counts are not time; on the 2 core sandbox, one core each, `route_io` already
   matched Drogon within noise, so the 25 percent gap seen on 16 threads could not be reproduced there), Windows, macOS, free-threaded Python, the
   Python layer under TSan. Any future code that touches a socket or timer from another thread breaks the hint's rule; TSan will usually show it.
@@ -68,6 +82,11 @@ header vectors between layers.
   `weak_ptr<config>` that `make_sender` locks for every answer is one counter shared by all I/O threads. Not changed yet.
 - Remaining per-request cost (about 18.3k against 14.6k for Drogon under the same counting): the response moves between layers (`response`, `wire_response`,
   header pair vectors), the `request` built from `http_request`, `make_shared` of the `once` flag and of the answer closure, and the parser callbacks that append to strings.
+
+- Verified (items 9 to 12): 389 C++ tests pass, also under ThreadSanitizer (whole suite, after the race of item 11 was fixed). **Not verified:** wall-clock gain (instruction counts only; the sandbox has
+  no `perf`), the scaling gap with 4 I/O threads (route_io 659k against Drogon 812k on the owner's machine, us per request 3.8 / 4.0 / 5.7 for 1 / 2 / 4 threads against Drogon 3.7 / 3.5 / 4.8:
+  the cost per request grows with threads, the cause is not found; a `perf` of that run shows no single hot spot in user space), the Python suite and Python 3.13 and 3.14t (core internals only,
+  no public API changed, but not run), Windows, macOS.
 
 ## Related
 

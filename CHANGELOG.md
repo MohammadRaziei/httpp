@@ -9,7 +9,9 @@ such changes are listed under **Changed**).
 
 ### Changed
 
-- Server: an answer no longer touches a reference count shared by all I/O threads when no `after`, error handler or compression is set (ADR-0033, item 9). No API change.
+- Server: about 23 percent fewer instructions per `route_io` request (ADR-0033, items 9 to 12): no shared reference count per answer when no hook or compression is set, the response head
+  is written without `strlen`, responses are moved once instead of once per layer, a request answered on the spot is not entered in the 504 list. One visible detail: the 504 deadline of
+  an unanswered asynchronous request starts when its handler returns, not at arrival. No API change.
 
 ## [0.8.0] - 2026-11-01
 

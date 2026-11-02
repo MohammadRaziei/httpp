@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <deque>
 #include <ctime>
 #include <mutex>
@@ -80,19 +81,37 @@ const char* reason(int status) {
 
 inline unsigned char ascii_lower(unsigned char c) { return (c >= 'A' && c <= 'Z') ? static_cast<unsigned char>(c + 32) : c; }
 
-bool ieq(const std::string& a, const char* b) {
-    const std::size_t n = std::char_traits<char>::length(b);
-    if (a.size() != n) return false;
+// Same bytes, ASCII case folded. The length test is inline, so for a literal it is a constant compare (no strlen call).
+bool ieq_bytes(const char* a, const char* b, std::size_t n) {
     for (std::size_t i = 0; i < n; ++i)
         if (ascii_lower(static_cast<unsigned char>(a[i])) != ascii_lower(static_cast<unsigned char>(b[i]))) return false;
     return true;
 }
+inline bool ieq(const std::string& a, const char* b) {
+    const std::size_t n = std::char_traits<char>::length(b);
+    return a.size() == n && ieq_bytes(a.data(), b, n);
+}
 
-void append_uint(std::string& out, unsigned long long v) {
+// The response head is written with plain copies into a buffer whose size is a known upper bound (see conn::send):
+// a literal is a copy of a constant length, with no strlen and no capacity check per piece.
+template <std::size_t N>
+inline char* put(char* p, const char (&lit)[N]) {
+    std::memcpy(p, lit, N - 1);
+    return p + (N - 1);
+}
+inline char* put(char* p, const std::string& s) {
+    std::memcpy(p, s.data(), s.size());
+    return p + s.size();
+}
+inline char* put(char* p, const char* s, std::size_t n) {
+    std::memcpy(p, s, n);
+    return p + n;
+}
+inline char* put_uint(char* p, unsigned long long v) {
     char buf[24];
-    char* p = buf + sizeof buf;
-    do { *--p = static_cast<char>('0' + v % 10); v /= 10; } while (v);
-    out.append(p, static_cast<std::size_t>(buf + sizeof buf - p));
+    char* q = buf + sizeof buf;
+    do { *--q = static_cast<char>('0' + v % 10); v /= 10; } while (v);
+    return put(p, q, static_cast<std::size_t>(buf + sizeof buf - q));
 }
 
 // The headers the engine writes itself, found by length first (a user header of another length costs one compare).
@@ -604,19 +623,27 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         disarm();
         answering = true;
         if (detail::log_enabled(log_level::info)) log_what = req.method + ' ' + req.target;  // req is moved below
-        auto once = std::make_shared<std::atomic<bool>>(false);
-        auto post = srv.poster_;
-        std::weak_ptr<conn> weak = shared_from_this();
-        const void* engine = &srv;
-        answer_fn answer = [weak, once, post, engine](wire_response r) {
-            if (once->exchange(true)) return;
+        // ponytail: everything an answer needs lives in ONE shared object, so the answer function holds a single pointer (it fits
+        // std::function's own storage: no second allocation) and copying it is one count, not three. Upgrade path: none needed.
+        struct answer_state {
+            std::weak_ptr<conn> weak;
+            std::shared_ptr<poster> post;
+            const void* engine;
+            std::atomic<bool> once{false};
+        };
+        auto st = std::make_shared<answer_state>();
+        st->weak = shared_from_this();
+        st->post = srv.poster_;
+        st->engine = &srv;
+        answer_fn answer = [st = std::move(st)](wire_response&& r) {
+            if (st->once.exchange(true)) return;
             // ponytail: on the loop thread nothing needs a hop: the write below is asynchronous and the read handler
             // touches nothing of the connection after on_request returns. Upgrade path: none needed.
-            if (t_loop_engine == engine) {
-                if (auto c = weak.lock()) c->send(std::move(r));
+            if (t_loop_engine == st->engine) {
+                if (auto c = st->weak.lock()) c->send(std::move(r));
                 return;
             }
-            post->post([weak, r = std::move(r)]() mutable {
+            st->post->post([weak = st->weak, r = std::move(r)]() mutable {
                 if (auto c = weak.lock()) c->send(std::move(r));
             });
         };
@@ -650,7 +677,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
                           });
     }
 
-    void send(wire_response r) {
+    void send(wire_response&& r) {
         if (closed || !answering) return;
         answering = false;
         if (r.status == 0) return close(); // convention: no answer at all (a handler that gave up)
@@ -671,33 +698,41 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
 
         // ponytail: the head is built with appends into one reserved string (no temporaries per header); the four headers
         // the engine owns are found by length first, so a normal header costs one size compare. Upgrade path: none needed.
-        std::size_t hint = 128 + r.body.size();
-        for (const auto& h : r.headers) hint += h.first.size() + h.second.size() + 4;
+        // Upper bound of what the engine writes itself: status line 22 + reason, Date 37, Transfer-Encoding 28, Content-Length 38,
+        // Connection 24, closing CRLF 2 (151 in all, 256 is a margin), plus every user header with its ": " and CRLF.
+        const char* const reason_text = reason(r.status);
+        const std::size_t reason_len = std::char_traits<char>::length(reason_text);
+        std::size_t head_max = 256 + reason_len;
+        for (const auto& h : r.headers) head_max += h.first.size() + h.second.size() + 4;
+        const bool with_body = !streaming && !bodyless;
         std::string out;
-        out.reserve(hint);
-        out += "HTTP/1.1 ";
-        append_uint(out, static_cast<unsigned long long>(r.status));
-        out += ' ';
-        out += reason(r.status);
-        out += "\r\n";
+        out.reserve(head_max + (with_body ? r.body.size() : 0)); // the body is appended below without a second allocation
+        out.resize(head_max);
+        char* p = &out[0];
+        p = put(p, "HTTP/1.1 ");
+        p = put_uint(p, static_cast<unsigned long long>(r.status));
+        p = put(p, " ");
+        p = put(p, reason_text, reason_len);
+        p = put(p, "\r\n");
         for (const auto& h : r.headers) {
             if (engine_owned(h.first)) continue;
-            out += h.first;
-            out += ": ";
-            out += h.second;
-            out += "\r\n";
+            p = put(p, h.first);
+            p = put(p, ": ");
+            p = put(p, h.second);
+            p = put(p, "\r\n");
         }
-        out += "Date: ";
-        out += http_date();
-        out += "\r\n";
+        p = put(p, "Date: ");
+        p = put(p, http_date());
+        p = put(p, "\r\n");
         if (!(r.status < 200 || r.status == 204)) {
-            if (chunked) out += "Transfer-Encoding: chunked\r\n";
-            else if (!streaming) { out += "Content-Length: "; append_uint(out, r.body.size()); out += "\r\n"; }
-            else if (r.length >= 0) { out += "Content-Length: "; append_uint(out, static_cast<unsigned long long>(r.length)); out += "\r\n"; }
+            if (chunked) p = put(p, "Transfer-Encoding: chunked\r\n");
+            else if (!streaming) { p = put(p, "Content-Length: "); p = put_uint(p, r.body.size()); p = put(p, "\r\n"); }
+            else if (r.length >= 0) { p = put(p, "Content-Length: "); p = put_uint(p, static_cast<unsigned long long>(r.length)); p = put(p, "\r\n"); }
         }
-        if (!keep) out += "Connection: close\r\n";
-        else if (req_minor == 0) out += "Connection: keep-alive\r\n";
-        out += "\r\n";
+        if (!keep) p = put(p, "Connection: close\r\n");
+        else if (req_minor == 0) p = put(p, "Connection: keep-alive\r\n");
+        p = put(p, "\r\n");
+        out.resize(static_cast<std::size_t>(p - out.data())); // shrinks only: the capacity stays
 
         if (!streaming || bodyless) {
             if (!bodyless && !streaming) out += r.body;

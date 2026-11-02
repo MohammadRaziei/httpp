@@ -461,3 +461,69 @@ UTEST(httpp_server, serve_directory_streams_a_file_larger_than_the_socket_buffer
     }
     fs::remove_all(dir);
 }
+
+#ifndef _WIN32
+namespace {
+// The raw head of the answer to a GET on a fresh connection (closed by the server after the answer).
+std::string raw_head(int port, const char* path) {
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<uint16_t>(port));
+    ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof addr) != 0) { ::close(fd); return {}; }
+    const std::string req = std::string("GET ") + path + " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n";
+    (void)!::write(fd, req.data(), req.size());
+    std::string out;
+    char buf[4096];
+    for (ssize_t n; (n = ::read(fd, buf, sizeof buf)) > 0;) out.append(buf, static_cast<std::size_t>(n));
+    ::close(fd);
+    return out.substr(0, out.find("\r\n\r\n"));
+}
+std::size_t count_of(const std::string& hay, const std::string& needle) {
+    std::size_t n = 0;
+    for (std::size_t at = hay.find(needle); at != std::string::npos; at = hay.find(needle, at + 1)) ++n;
+    return n;
+}
+} // namespace
+
+UTEST(httpp_server, one_content_type_in_the_middle_is_sent_once_and_last) {
+    httpp::server s;
+    s.get("/x", [](const httpp::request&, httpp::response& res) {
+        res.headers.emplace_back("X-A", "1");
+        res.headers.emplace_back("Content-Type", "text/html");
+        res.headers.emplace_back("X-B", "2");
+        res.body = "b";
+    });
+    running_server rs(std::move(s));
+    const std::string head = raw_head(rs.port, "/x");
+    ASSERT_EQ(1u, count_of(head, "Content-Type:"));
+    ASSERT_TRUE(head.find("Content-Type: text/html") != std::string::npos);
+    ASSERT_TRUE(head.find("X-A: 1") < head.find("X-B: 2"));
+    ASSERT_TRUE(head.find("X-B: 2") < head.find("Content-Type:"));
+}
+
+UTEST(httpp_server, the_last_of_several_content_types_wins_and_the_others_are_dropped) {
+    httpp::server s;
+    s.get("/x", [](const httpp::request&, httpp::response& res) {
+        res.headers.emplace_back("Content-Type", "text/html");
+        res.headers.emplace_back("X-A", "1");
+        res.headers.emplace_back("content-type", "application/json");
+        res.body = "b";
+    });
+    running_server rs(std::move(s));
+    const std::string head = raw_head(rs.port, "/x");
+    ASSERT_EQ(1u, count_of(head, "Content-Type:"));
+    ASSERT_TRUE(head.find("application/json") != std::string::npos);
+    ASSERT_TRUE(head.find("text/html") == std::string::npos);
+    ASSERT_TRUE(head.find("X-A: 1") != std::string::npos);
+}
+
+UTEST(httpp_server, no_content_type_means_text_plain) {
+    httpp::server s;
+    s.get("/x", [](const httpp::request&, httpp::response& res) { res.body = "b"; });
+    running_server rs(std::move(s));
+    const std::string head = raw_head(rs.port, "/x");
+    ASSERT_EQ(1u, count_of(head, "Content-Type: text/plain"));
+}
+#endif
