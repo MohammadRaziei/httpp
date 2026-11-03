@@ -25,6 +25,10 @@ Settings are cache variables, set at configure time: `-DBENCH_SECONDS=10 -DBENCH
 `bench_setup.py` makes the virtualenvs and checks the machine. `bench.py`, `io_bench.py`, `cpu_bench.py` are the older single-purpose scripts.
 Numbers are only comparable inside one result file.
 
+`diag_io.sh [IO_THREADS [SERVER_CPUS [LOAD_CPUS]]]` is for one question: why the C++ server does not scale like Drogon with several I/O threads. It runs `cpp_bench` `/io` under
+`perf` with kernel samples and counts the CPU ticks of each server thread (are the connections spread evenly?), writes small files into `build-bench/diag/` and prints their paths.
+Linux only; needs `perf`, `taskset`, `oha` and `cmake --build build-bench --target cpp_bench`.
+
 What a result file holds:
 - **hello** (constant answer), **json** (a path parameter and a JSON object), **cpu** (about 60 us of Python or C++ work) and one-connection latency, for uvicorn
   (bare ASGI), FastAPI + uvicorn, httpp `def` / `async def` / `await` / inline, the httpp C++ API and Drogon, at 1, 2, 4 and 8 I/O threads;
