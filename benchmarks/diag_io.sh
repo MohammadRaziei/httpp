@@ -12,7 +12,7 @@
 #
 # Needs Linux, perf, taskset, oha and a built cpp_bench (`cmake --build build-bench --target cpp_bench`).
 # Writes into build-bench/diag/<binary name>/ and prints the paths of the small result files at the end. Reading kernel samples
-# needs perf_event_paranoid <= 1 and kptr_restrict 0 (to name kernel functions); if not, the script asks sudo to change them
+# needs perf_event_paranoid -1 and kptr_restrict 0 (to name kernel functions); if not, the script asks sudo to change them
 # (until the next reboot).
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${BENCH_CPP_BIN:-$ROOT/build-bench/cpp_bench}"
@@ -33,8 +33,8 @@ rm -f "$OUT"/*.txt "$OUT"/perf_k.data
 pkill -x "$NAME" 2> /dev/null
 sleep 1
 
-if [ "$(cat /proc/sys/kernel/perf_event_paranoid)" -gt 1 ]; then
-    sudo sysctl kernel.perf_event_paranoid=1 > /dev/null || { echo "could not lower perf_event_paranoid" >&2; exit 1; }
+if [ "$(cat /proc/sys/kernel/perf_event_paranoid)" -gt -1 ]; then # -1: the syscall counter of part 3 is a tracepoint
+    sudo sysctl kernel.perf_event_paranoid=-1 > /dev/null || { echo "could not lower perf_event_paranoid" >&2; exit 1; }
 fi
 if [ "$(cat /proc/sys/kernel/kptr_restrict)" -ne 0 ]; then
     sudo sysctl kernel.kptr_restrict=0 > /dev/null || { echo "could not set kptr_restrict" >&2; exit 1; }
@@ -80,7 +80,7 @@ taskset -c "$LOAD_CPUS" oha -z 6s -c 64 --no-tui "$URL" > "$OUT/oha_counters_ful
 LOAD=$!
 sleep 2
 perf stat -x, -p "$SRV" -o "$OUT/perf_stat_raw.txt" \
-    -e task-clock,context-switches,cpu-migrations,raw_syscalls:sys_enter,cycles,instructions,cache-misses -- sleep 3 2> /dev/null
+    -e task-clock,context-switches,cpu-migrations,raw_syscalls:sys_enter,cycles,instructions,cache-misses -- sleep 3 2> "$OUT/perf_stat_errors.txt"
 wait "$LOAD" 2> /dev/null
 pkill -x "$NAME" 2> /dev/null
 RPS="$(awk '/Requests\/sec/ {print $2}' "$OUT/oha_counters_full.txt")"
@@ -94,4 +94,4 @@ rm -f "$OUT/oha_counters_full.txt"
 
 echo
 echo "Done. Send these files:"
-for f in perf_dso.txt perf_symbols.txt thread_spread.txt per_request.txt oha_perf.txt oha_threads.txt; do echo "$OUT/$f"; done
+for f in perf_dso.txt perf_symbols.txt thread_spread.txt per_request.txt perf_stat_errors.txt oha_perf.txt oha_threads.txt; do echo "$OUT/$f"; done

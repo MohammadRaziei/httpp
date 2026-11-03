@@ -1159,6 +1159,12 @@ bool server::listen_after_bind() {
     const std::size_t max = impl_->pool_max ? impl_->pool_max : base * 4;
     detail::worker_pool pool(base, max, impl_->pool_grow_after);
     impl_->pool = &pool;
+    // Every I/O thread gets the same number of connections (the kernel's SO_REUSEPORT hash does not give that).
+    {
+        std::vector<detail::async_server*> all;
+        for (auto& e : impl_->engines) all.push_back(e.get());
+        for (auto& e : impl_->engines) e->balance_with(all);
+    }
     // One waiting list per engine (see server::impl::waiting). A previous run's timers died with their loops, so every list starts empty.
     impl_->waits.clear();
     for (auto& e : impl_->engines) {

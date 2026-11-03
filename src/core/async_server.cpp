@@ -206,6 +206,10 @@ struct async_server::impl {
 
     struct conn;
     std::unordered_set<std::shared_ptr<conn>> conns; // loop thread only
+    // Balancing between engines on one port (see balance_with): `load` counts open connections plus the ones already promised to this
+    // engine (a burst of accepts must not all pick the engine that looks empty); `peers` is set before the loops run and never changes.
+    std::atomic<std::size_t> load{0};
+    std::vector<impl*> peers;
 
     impl(options o, request_fn r, blocking_fn b)
         : read_to(o.read_timeout_sec), write_to(o.write_timeout_sec), ka_to(o.keep_alive_timeout_sec),
@@ -224,6 +228,8 @@ struct async_server::impl {
 
     void begin_close();
     void accept_next();
+    void adopt(tcp::socket s);        // loop thread: the connection becomes this engine's (or is refused over the limit)
+    impl* pick_engine();              // any thread: the engine with the fewest connections, this one on a tie; counts the promise
 };
 
 // One client connection. Lives on the loop thread; answers and body pieces hop back onto it.
@@ -540,7 +546,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         sent_guard.reset();
         if (idle_timer) idle_timer->cancel();
         if (deadline_timer) deadline_timer->cancel();
-        srv.conns.erase(self);
+        if (srv.conns.erase(self)) srv.load.fetch_sub(1, std::memory_order_relaxed);
         if (tun) {
             auto t = std::move(tun);
             tq.clear();
@@ -856,24 +862,76 @@ void async_server::impl::begin_close() {
     for (auto& c : all) c->close();
 }
 
+// A socket that was released from one engine's reactor on its way to another engine. If the other engine never takes it (it is shutting
+// down) the descriptor is closed here instead of leaking.
+struct parked_socket {
+    tcp::socket::native_handle_type handle;
+    asio::ip::tcp protocol;
+    bool taken = false;
+    parked_socket(tcp::socket::native_handle_type h, asio::ip::tcp p) : handle(h), protocol(p) {}
+    ~parked_socket() {
+        if (taken) return;
+        asio::io_context scratch; // a throw-away context only to let asio close the descriptor the portable way
+        std::error_code ignore;
+        tcp::socket s(scratch);
+        s.assign(protocol, handle, ignore);
+    }
+};
+
+async_server::impl* async_server::impl::pick_engine() {
+    impl* best = this;
+    if (!peers.empty()) {
+        std::size_t best_load = load.load(std::memory_order_relaxed);
+        for (impl* p : peers) {
+            const std::size_t l = p->load.load(std::memory_order_relaxed);
+            if (l < best_load) { best = p; best_load = l; }
+        }
+    }
+    best->load.fetch_add(1, std::memory_order_relaxed);
+    return best;
+}
+
+void async_server::impl::adopt(tcp::socket s) {
+    std::error_code ignore;
+    const std::size_t cap = max_conn.load();
+    if (closing || (cap && conns.size() >= cap)) {
+        if (!closing) { // over the limit: a short 503, then hang up
+            static const char busy[] = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+            s.send(asio::buffer(busy, sizeof busy - 1), 0, ignore); // best effort into an empty send buffer
+            HTTPP_LOG(debug) << "connection refused: " << cap << " connections already open";
+        }
+        s.close(ignore);
+        load.fetch_sub(1, std::memory_order_relaxed);
+        return;
+    }
+    s.set_option(tcp::no_delay(true), ignore);
+    auto c = std::make_shared<conn>(*this, std::move(s));
+    conns.insert(c);
+    c->start();
+}
+
 void async_server::impl::accept_next() {
     acceptor.async_accept([this](std::error_code ec, tcp::socket s) {
         if (closing) return; // `s` closes itself
         if (!ec) {
-            std::error_code ignore;
-            const std::size_t cap = max_conn.load();
-            if (cap && conns.size() >= cap) { // over the limit: a short 503, then hang up
-                static const char busy[] = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
-                s.send(asio::buffer(busy, sizeof busy - 1), 0, ignore); // best effort into an empty send buffer
-                HTTPP_LOG(debug) << "connection refused: " << cap << " connections already open";
-                s.close(ignore);
-                accept_next();
-                return;
+            impl* target = pick_engine();
+            if (target == this) {
+                adopt(std::move(s));
+            } else {
+                // ponytail: one cross-thread hop per new connection (never per request): the descriptor leaves this reactor and is
+                // registered in the target's. Upgrade path: none needed.
+                std::error_code ignore;
+                const auto protocol = s.local_endpoint(ignore).protocol();
+                auto box = std::make_shared<parked_socket>(s.release(ignore), protocol);
+                target->poster_->post([target, box] {
+                    box->taken = true;
+                    std::error_code e;
+                    tcp::socket moved(target->io);
+                    moved.assign(box->protocol, box->handle, e);
+                    if (e) { target->load.fetch_sub(1, std::memory_order_relaxed); return; }
+                    target->adopt(std::move(moved));
+                });
             }
-            s.set_option(tcp::no_delay(true), ignore);
-            auto c = std::make_shared<conn>(*this, std::move(s));
-            conns.insert(c);
-            c->start();
             accept_next();
             return;
         }
@@ -909,6 +967,13 @@ void async_server::set_header_timeout(int seconds) { impl_->head_to = seconds; }
 void async_server::set_body_timeout(int seconds) { impl_->body_to = seconds; }
 void async_server::set_max_connections(std::size_t n) { impl_->max_conn = n; }
 void async_server::set_reuse_port(bool on) { impl_->reuse_port = on; }
+void async_server::balance_with(const std::vector<async_server*>& engines) {
+    impl_->peers.clear();
+    if (engines.size() < 2) return;
+    for (async_server* e : engines)
+        if (e != this) impl_->peers.push_back(e->impl_.get());
+}
+std::size_t async_server::connections() const { return impl_->load.load(std::memory_order_relaxed); }
 
 void async_server::after(std::chrono::milliseconds delay, std::function<void()> fn) {
     auto& m = *impl_;

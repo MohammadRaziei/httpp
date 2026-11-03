@@ -528,3 +528,78 @@ UTEST(async_server, many_clients_at_once) {
     for (auto& t : ts) t.join();
     ASSERT_EQ(40, good.load());
 }
+
+// ---- several engines on one port share the connections evenly (balance_with) ----
+
+namespace {
+struct engine_group {
+    worker_pool pool{2, 4};
+    std::vector<std::unique_ptr<async_server>> engines;
+    std::vector<std::thread> threads;
+    int port = 0;
+
+    engine_group(std::size_t n, bool balance) {
+        for (std::size_t i = 0; i < n; ++i) {
+            engines.push_back(std::make_unique<async_server>(
+                async_server::options{},
+                [this](http_request r, async_server::answer_fn answer) {
+                    return pool.enqueue([r = std::move(r), answer = std::move(answer)] { answer(text(200, r.target)); });
+                },
+                [this](std::function<void()> job) { return pool.enqueue(std::move(job)); }));
+            engines.back()->set_reuse_port(true);
+        }
+        port = engines[0]->bind("127.0.0.1", 0);
+        for (std::size_t i = 1; i < n; ++i) engines[i]->bind("127.0.0.1", port);
+        if (balance) {
+            std::vector<async_server*> all;
+            for (auto& e : engines) all.push_back(e.get());
+            for (auto& e : engines) e->balance_with(all);
+        }
+        for (auto& e : engines) threads.emplace_back([&e] { e->run(); });
+    }
+    ~engine_group() {
+        for (auto& e : engines) e->stop();
+        for (auto& t : threads) t.join();
+        pool.shutdown();
+    }
+    std::size_t total() const {
+        std::size_t t = 0;
+        for (auto& e : engines) t += e->connections();
+        return t;
+    }
+};
+} // namespace
+
+#ifdef __linux__
+UTEST(async_server, engines_on_one_port_get_the_same_number_of_connections) {
+    engine_group g(4, true);
+    ASSERT_TRUE(g.port > 0);
+    std::vector<std::unique_ptr<raw_client>> clients;
+    for (int i = 0; i < 64; ++i) {
+        clients.push_back(std::make_unique<raw_client>(g.port));
+        // the accept of this connection is done before the next one is opened, so the decisions do not overlap
+        for (int wait = 0; wait < 500 && g.total() < static_cast<std::size_t>(i + 1); ++wait) std::this_thread::sleep_for(2ms);
+        ASSERT_EQ(static_cast<std::size_t>(i + 1), g.total());
+    }
+    std::size_t lo = 1000, hi = 0;
+    for (auto& e : g.engines) { lo = std::min(lo, e->connections()); hi = std::max(hi, e->connections()); }
+    ASSERT_EQ(16u, lo);
+    ASSERT_EQ(16u, hi);
+}
+
+UTEST(async_server, a_connection_handed_to_another_engine_serves_requests_and_frees_its_slot) {
+    engine_group g(4, true);
+    {
+        std::vector<std::unique_ptr<raw_client>> clients;
+        for (int i = 0; i < 16; ++i) clients.push_back(std::make_unique<raw_client>(g.port));
+        for (int i = 0; i < 16; ++i) {
+            const std::string t = "/c" + std::to_string(i);
+            clients[static_cast<std::size_t>(i)]->send("GET " + t + " HTTP/1.1\r\nHost: t\r\n\r\n");
+            ASSERT_TRUE(clients[static_cast<std::size_t>(i)]->has("\r\n\r\n" + t));
+        }
+        ASSERT_EQ(16u, g.total());
+    }
+    for (int wait = 0; wait < 500 && g.total() > 0; ++wait) std::this_thread::sleep_for(10ms);
+    ASSERT_EQ(0u, g.total());
+}
+#endif

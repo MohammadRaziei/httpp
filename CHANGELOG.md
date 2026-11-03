@@ -9,6 +9,7 @@ such changes are listed under **Changed**).
 
 ### Changed
 
+- Server: with several I/O threads (`set_io_threads`), new connections go to the I/O thread with the fewest connections instead of wherever the kernel's `SO_REUSEPORT` hash put them (ADR-0034). No API change.
 - Server: about 23 percent fewer instructions per `route_io` request (ADR-0033, items 9 to 12): no shared reference count per answer when no hook or compression is set, the response head
   is written without `strlen`, responses are moved once instead of once per layer, a request answered on the spot is not entered in the 504 list. One visible detail: the 504 deadline of
   an unanswered asynchronous request starts when its handler returns, not at arrival. No API change.

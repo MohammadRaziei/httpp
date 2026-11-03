@@ -127,6 +127,14 @@ public:
     // them (Linux SO_REUSEPORT). bind() fails where that is not available.
     void set_reuse_port(bool on);
 
+    // Engines that share one port (set_reuse_port) hand each accepted connection to the engine with the fewest connections, so every
+    // I/O thread gets the same share (the kernel spreads connections by a hash, which is uneven for a few dozen connections). Call
+    // before run() with every engine, this one included, after all of them are bound; the engines must outlive the loops. An empty
+    // list (the default) keeps each connection on the engine that accepted it.
+    void balance_with(const std::vector<async_server*>& engines);
+    // Thread-safe. Connections open now, plus those another engine has decided to hand to this one.
+    std::size_t connections() const;
+
 private:
     struct impl;
     std::unique_ptr<impl> impl_;
