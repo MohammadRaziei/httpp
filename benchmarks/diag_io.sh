@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Where does the time go in the C++ server with several I/O threads? Two measurements of cpp_bench's /io route
+# Where does the time go in the C++ server with several I/O threads? Three measurements of cpp_bench's /io route
 # (route_io, constant answer), server and load generator pinned to separate CPUs like the suite:
 #   1. perf with kernel samples: which share of the cycles is kernel, which functions are hot
 #   2. CPU ticks of every server thread over 3 seconds: are the connections spread evenly over the I/O threads?
+#   3. counters per request: syscalls, context switches, CPU migrations, cycles, instructions (IPC), cache misses
 #
 #   benchmarks/diag_io.sh [IO_THREADS [SERVER_CPUS [LOAD_CPUS]]]       defaults: 4  0-7  8-15
 #
@@ -70,6 +71,27 @@ pkill -x "$NAME" 2> /dev/null
 grep -E "Requests/sec|Success rate" "$OUT/oha_threads_full.txt" > "$OUT/oha_threads.txt"
 rm -f "$OUT/oha_threads_full.txt"
 
+echo "== 3. counters per request (3 s) =="
+taskset -c "$SERVER_CPUS" "$BIN" "$PORT" "$THREADS" > /dev/null 2>&1 &
+sleep 1
+SRV="$(pgrep -x "$NAME" | head -1)"
+[ -n "$SRV" ] || { echo "the server did not start" >&2; exit 1; }
+taskset -c "$LOAD_CPUS" oha -z 6s -c 64 --no-tui "$URL" > "$OUT/oha_counters_full.txt" 2>&1 &
+LOAD=$!
+sleep 2
+perf stat -x, -p "$SRV" -o "$OUT/perf_stat_raw.txt" \
+    -e task-clock,context-switches,cpu-migrations,raw_syscalls:sys_enter,cycles,instructions,cache-misses -- sleep 3 2> /dev/null
+wait "$LOAD" 2> /dev/null
+pkill -x "$NAME" 2> /dev/null
+RPS="$(awk '/Requests\/sec/ {print $2}' "$OUT/oha_counters_full.txt")"
+{
+    echo "requests_per_second $RPS (the counters cover 3 s, so requests = rate * 3)"
+    awk -F, -v rps="$RPS" 'BEGIN { n = rps * 3 }
+        $1 ~ /^[0-9.]+$/ { name = $3; sub(/^cpu_(core|atom)\//, "", name); sub(/\/$/, "", name); printf "%-26s total %16.0f   per request %12.2f\n", name, $1, $1 / n }' "$OUT/perf_stat_raw.txt"
+} > "$OUT/per_request.txt"
+cat "$OUT/per_request.txt"
+rm -f "$OUT/oha_counters_full.txt"
+
 echo
 echo "Done. Send these files:"
-for f in perf_dso.txt perf_symbols.txt thread_spread.txt oha_perf.txt oha_threads.txt; do echo "$OUT/$f"; done
+for f in perf_dso.txt perf_symbols.txt thread_spread.txt per_request.txt oha_perf.txt oha_threads.txt; do echo "$OUT/$f"; done
