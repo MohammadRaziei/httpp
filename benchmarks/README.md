@@ -27,7 +27,7 @@ Numbers are only comparable inside one result file.
 
 `diag_io.sh [IO_THREADS [SERVER_CPUS [LOAD_CPUS]]]` is for one question: why the C++ server does not scale like Drogon with several I/O threads. It runs `cpp_bench` `/io` under
 `perf` with kernel samples and counts the CPU ticks of each server thread (are the connections spread evenly?), writes small files into `build-bench/diag/` and prints their paths.
-Linux only; needs `perf`, `taskset`, `oha` and `cmake --build build-bench --target cpp_bench`.
+Linux only; needs `perf`, `taskset`, `oha` and `cmake --build build-bench --target cpp_bench`. For Drogon: `BENCH_CPP_BIN=build-bench/drogon_bench BENCH_DIAG_PATH=/sync benchmarks/diag_io.sh`.
 
 What a result file holds:
 - **hello** (constant answer), **json** (a path parameter and a JSON object), **cpu** (about 60 us of Python or C++ work) and one-connection latency, for uvicorn

@@ -6,29 +6,37 @@
 #
 #   benchmarks/diag_io.sh [IO_THREADS [SERVER_CPUS [LOAD_CPUS]]]       defaults: 4  0-7  8-15
 #
+# The same two measurements for Drogon, to compare the kernel share and the thread spread:
+#   BENCH_CPP_BIN=build-bench/drogon_bench BENCH_DIAG_PATH=/sync benchmarks/diag_io.sh
+#
 # Needs Linux, perf, taskset, oha and a built cpp_bench (`cmake --build build-bench --target cpp_bench`).
-# Writes into build-bench/diag/ and prints the paths of the small result files at the end. Reading kernel samples needs
-# perf_event_paranoid <= 1; if it is higher the script asks sudo to lower it (until the next reboot).
+# Writes into build-bench/diag/<binary name>/ and prints the paths of the small result files at the end. Reading kernel samples
+# needs perf_event_paranoid <= 1 and kptr_restrict 0 (to name kernel functions); if not, the script asks sudo to change them
+# (until the next reboot).
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${BENCH_CPP_BIN:-$ROOT/build-bench/cpp_bench}"
-OUT="$ROOT/build-bench/diag"
+NAME="$(basename "$BIN")"
+OUT="$ROOT/build-bench/diag/$NAME"
 THREADS="${1:-4}"
 SERVER_CPUS="${2:-0-7}"
 LOAD_CPUS="${3:-8-15}"
 PORT="${BENCH_DIAG_PORT:-18080}"
-URL="http://127.0.0.1:$PORT/io"
+URL="http://127.0.0.1:$PORT${BENCH_DIAG_PATH:-/io}"
 
-[ -x "$BIN" ] || { echo "missing $BIN: cmake --build build-bench --target cpp_bench" >&2; exit 1; }
+[ -x "$BIN" ] || { echo "missing $BIN: cmake --build build-bench --target $NAME" >&2; exit 1; }
 for tool in perf taskset oha; do
     command -v "$tool" > /dev/null || { echo "$tool not found" >&2; exit 1; }
 done
 mkdir -p "$OUT"
 rm -f "$OUT"/*.txt "$OUT"/perf_k.data
-pkill -x cpp_bench 2> /dev/null
+pkill -x "$NAME" 2> /dev/null
 sleep 1
 
 if [ "$(cat /proc/sys/kernel/perf_event_paranoid)" -gt 1 ]; then
     sudo sysctl kernel.perf_event_paranoid=1 > /dev/null || { echo "could not lower perf_event_paranoid" >&2; exit 1; }
+fi
+if [ "$(cat /proc/sys/kernel/kptr_restrict)" -ne 0 ]; then
+    sudo sysctl kernel.kptr_restrict=0 > /dev/null || { echo "could not set kptr_restrict" >&2; exit 1; }
 fi
 
 echo "== 1. perf (cycles, user and kernel), $THREADS I/O threads =="
@@ -41,11 +49,11 @@ perf report -i "$OUT/perf_k.data" --no-children --stdio -g none --sort dso 2> /d
 perf report -i "$OUT/perf_k.data" --no-children --stdio -g none --sort dso,symbol 2> /dev/null | head -80 > "$OUT/perf_symbols.txt"
 
 echo "== 2. CPU ticks per server thread (3 s) =="
-pkill -x cpp_bench 2> /dev/null
+pkill -x "$NAME" 2> /dev/null
 sleep 1
 taskset -c "$SERVER_CPUS" "$BIN" "$PORT" "$THREADS" > /dev/null 2>&1 &
 sleep 1
-SRV="$(pgrep -x cpp_bench | head -1)"
+SRV="$(pgrep -x "$NAME" | head -1)"
 [ -n "$SRV" ] || { echo "the server did not start" >&2; exit 1; }
 taskset -c "$LOAD_CPUS" oha -z 6s -c 64 --no-tui "$URL" > "$OUT/oha_threads_full.txt" 2>&1 &
 LOAD=$!
@@ -54,11 +62,11 @@ snap() { for t in /proc/"$SRV"/task/*; do echo "$(basename "$t") $(awk '{print $
 snap | sort > "$OUT/ticks_a.tmp"
 sleep 3
 snap | sort > "$OUT/ticks_b.tmp"
-join "$OUT/ticks_a.tmp" "$OUT/ticks_b.tmp" | awk '{print "tid " $1 "  cpu_ticks_in_3s " ($5-$2) "  name " $3}' | sort -k4 -nr > "$OUT/thread_spread.txt"
+join "$OUT/ticks_a.tmp" "$OUT/ticks_b.tmp" | awk '{print "tid " $1 "  cpu_ticks_in_3s " ($4-$2) "  name " $3}' | sort -k4 -nr > "$OUT/thread_spread.txt"
 rm -f "$OUT/ticks_a.tmp" "$OUT/ticks_b.tmp"
 cat "$OUT/thread_spread.txt"
 wait "$LOAD" 2> /dev/null
-pkill -x cpp_bench 2> /dev/null
+pkill -x "$NAME" 2> /dev/null
 grep -E "Requests/sec|Success rate" "$OUT/oha_threads_full.txt" > "$OUT/oha_threads.txt"
 rm -f "$OUT/oha_threads_full.txt"
 
