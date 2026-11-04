@@ -126,6 +126,7 @@ struct config { // read-only once listening; shared with answers that may outliv
     server::error_hook error;
     server::exception_hook exception;
     detail::response_compression compression; // off unless set_compression() was called
+    std::atomic<detail::worker_pool*> pool{nullptr}; // the running pool, or null when not listening
 };
 
 struct route_entry {
@@ -367,7 +368,7 @@ struct server::impl {
     detail::async_server* engine = nullptr; // engines[0]
     std::vector<std::function<void(detail::async_server&)>> applied;
     std::size_t max_conn_total = 0; // 0 = no limit; shared out over the engines
-    std::atomic<detail::worker_pool*> pool{nullptr}; // alive only while listening
+    std::atomic<detail::worker_pool*>& pool = cfg->pool; // alive only while listening; lives in the config so a late answer needs no `this`
     std::size_t io_route_count = 0;                  // routes added with route_io (set before listening)
 
     std::unique_ptr<detail::async_server> make_engine() {
@@ -532,54 +533,62 @@ struct server::impl {
             };
         }
         std::weak_ptr<config> weak = cfg;
-        return [this, weak, req, answer = std::move(answer)](response&& res, long long offset, long long length, std::shared_ptr<void> keep) {
+        // ponytail: nothing here touches `this`: the server (and its pool) may be gone by the time a late answer arrives,
+        // so everything the hook path needs lives in the shared config (ADR-0035).
+        return [weak, req, answer = std::move(answer)](response&& res, long long offset, long long length, std::shared_ptr<void> keep) {
             auto c = weak.lock();
             if (!c) return; // the server is gone
-            if ((c->error || c->after || c->compression.worth_a_thread(res)) && tl_on_io_thread) {
-                // A route_io handler answered on the spot. The hooks may block (Python code waits for
-                // the GIL) and compressing a big body takes a while; the I/O thread must never wait: a worker finishes the job.
-                auto* p = pool.load();
-                auto job = [this, weak, req, answer, res = std::move(res), offset, length, keep = std::move(keep)]() mutable {
-                    make_sender(req, answer)(std::move(res), offset, length, std::move(keep));
-                };
-                if (p && p->enqueue(job)) return;
-                // no pool (shutting down): carry on here rather than lose the answer
-            }
-            detail::wire_response w;
-            try {
-                if (res.status <= 0) res.status = 200;
-                if (c->error && res.status >= 400 && res.body.empty() && res.file.empty() && !res.stream) {
-                    // Only errors the server made itself (no body yet) are ours to dress up.
-                    response dressed;
-                    dressed.status = res.status;
-                    try {
-                        c->error(*req, dressed);
-                        res.status = dressed.status;
-                        res.headers = std::move(dressed.headers);
-                        res.body = std::move(dressed.body);
-                        res.file = std::move(dressed.file);
-                        res.stream = std::move(dressed.stream);
-                    } catch (...) { // a broken error handler keeps the plain error
-                        HTTPP_LOG(warning) << "error handler threw (" << describe(std::current_exception()) << "); keeping the plain " << res.status << " for " << req->method << ' ' << req->path;
-                    }
-                }
-                if (c->after) {
-                    response out; // status and headers only: the body may be huge or streamed
-                    out.status = res.status;
-                    out.headers = res.headers;
-                    c->after(*req, out);
-                    res.status = out.status;
-                    res.headers = std::move(out.headers);
-                }
-                c->compression.apply(*req, res); // after the hooks, so they see the plain headers; a no-op when off
-                w = to_wire(std::move(res), offset, length);
-            } catch (...) {
-                HTTPP_LOG(warning) << "after hook or response building failed (" << describe(std::current_exception()) << ") for " << req->method << ' ' << req->path << ": answering 500";
-                w = failure(500, "Internal Server Error");
-            }
-            w.keep = std::move(keep);
-            answer(std::move(w));
+            answer_with_hooks(c, req, answer, std::move(res), offset, length, std::move(keep), tl_on_io_thread);
         };
+    }
+
+    static void answer_with_hooks(const std::shared_ptr<config>& c, const std::shared_ptr<request>& req, const detail::async_server::answer_fn& answer,
+                                  response&& res, long long offset, long long length, std::shared_ptr<void> keep, bool on_io_thread) {
+        if ((c->error || c->after || c->compression.worth_a_thread(res)) && on_io_thread) {
+            // A route_io handler answered on the spot. The hooks may block (Python code waits for
+            // the GIL) and compressing a big body takes a while; the I/O thread must never wait: a worker finishes the job.
+            auto* p = c->pool.load();
+            auto job = [c, req, answer, res = std::move(res), offset, length, keep = std::move(keep)]() mutable {
+                answer_with_hooks(c, req, answer, std::move(res), offset, length, std::move(keep), false);
+            };
+            if (p && p->enqueue(job)) return; // enqueue copied the job, so `job` still owns the response below
+            job(); // no pool (shutting down): carry on here rather than lose the answer
+            return;
+        }
+        detail::wire_response w;
+        try {
+            if (res.status <= 0) res.status = 200;
+            if (c->error && res.status >= 400 && res.body.empty() && res.file.empty() && !res.stream) {
+                // Only errors the server made itself (no body yet) are ours to dress up.
+                response dressed;
+                dressed.status = res.status;
+                try {
+                    c->error(*req, dressed);
+                    res.status = dressed.status;
+                    res.headers = std::move(dressed.headers);
+                    res.body = std::move(dressed.body);
+                    res.file = std::move(dressed.file);
+                    res.stream = std::move(dressed.stream);
+                } catch (...) { // a broken error handler keeps the plain error
+                    HTTPP_LOG(warning) << "error handler threw (" << describe(std::current_exception()) << "); keeping the plain " << res.status << " for " << req->method << ' ' << req->path;
+                }
+            }
+            if (c->after) {
+                response out; // status and headers only: the body may be huge or streamed
+                out.status = res.status;
+                out.headers = res.headers;
+                c->after(*req, out);
+                res.status = out.status;
+                res.headers = std::move(out.headers);
+            }
+            c->compression.apply(*req, res); // after the hooks, so they see the plain headers; a no-op when off
+            w = to_wire(std::move(res), offset, length);
+        } catch (...) {
+            HTTPP_LOG(warning) << "after hook or response building failed (" << describe(std::current_exception()) << ") for " << req->method << ' ' << req->path << ": answering 500";
+            w = failure(500, "Internal Server Error");
+        }
+        w.keep = std::move(keep);
+        answer(std::move(w));
     }
 
     void on_exception(const std::shared_ptr<request>& req, const send_fn& send, std::exception_ptr ep) {

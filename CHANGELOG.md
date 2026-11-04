@@ -7,6 +7,11 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Fixed
+
+- Server: a late answer through the `after` hook, error handler or compression no longer reads the server object after the server is destroyed, and a refused job runs on the current thread
+  instead of using a moved-from response (ADR-0035). No API change.
+
 ### Changed
 
 - Server: with several I/O threads (`set_io_threads`), new connections go to the I/O thread with the fewest connections instead of wherever the kernel's `SO_REUSEPORT` hash put them (ADR-0034). No API change.

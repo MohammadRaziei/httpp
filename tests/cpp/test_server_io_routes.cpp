@@ -148,6 +148,39 @@ UTEST(httpp_server_io, the_after_and_error_hooks_see_io_routes_and_the_404_of_an
     ASSERT_EQ(2, after_calls.load());
 }
 
+UTEST(httpp_server_io, a_late_answer_through_the_after_hook_survives_the_server_being_destroyed) {
+    // The hook path used to read the server (`this`) after locking only the config: a server destroyed at that moment
+    // left a dangling pointer. A smoke test: it did not fail on the old code under AddressSanitizer (the window is narrow, ADR-0035); it checks that nothing hangs or crashes.
+    for (int round = 0; round < 12; round++) {
+        auto srv = std::make_unique<httpp::server>();
+        std::mutex mu;
+        std::vector<std::thread> answerers;
+        std::atomic<int> arrived{0};
+        srv->route_io("GET", "/io", [&](std::shared_ptr<const httpp::request>, httpp::responder r) {
+            std::lock_guard<std::mutex> lk(mu);
+            arrived++;
+            answerers.emplace_back([r, round]() mutable {
+                std::this_thread::sleep_for(std::chrono::microseconds(200 * (round % 6)));
+                answer(r, 200, "late");
+            });
+        });
+        srv->after([](const httpp::request&, httpp::response& res) { res.headers.emplace_back("X-After", "1"); });
+        const int port = srv->bind_to_any_port("127.0.0.1");
+        std::thread th([&] { srv->listen_after_bind(); });
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::vector<std::thread> clients;
+        for (int i = 0; i < 4; i++) clients.emplace_back([port] { httpp::client::fetch("http://127.0.0.1:" + std::to_string(port) + "/io"); });
+        for (int i = 0; i < 300 && arrived.load() < 4; i++) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        srv->stop();
+        th.join();
+        srv.reset(); // answers are still on their way
+        for (auto& c : clients) c.join();
+        std::lock_guard<std::mutex> lk(mu);
+        for (auto& a : answerers) a.join();
+    }
+    ASSERT_TRUE(true);
+}
+
 UTEST(httpp_server_io, a_mounted_directory_still_wins_over_an_io_route_and_a_missing_file_falls_through) {
     const auto dir = std::filesystem::temp_directory_path() / "httpp_io_static";
     std::filesystem::create_directories(dir);
