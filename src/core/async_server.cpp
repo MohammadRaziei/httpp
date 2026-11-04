@@ -240,7 +240,10 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     llhttp_t parser;
     llhttp_settings_t settings;
 
-    std::string rbuf = std::string(16384, '\0');
+    // ponytail: not zero-filled. A zeroed 16 KiB per connection cost a memset (and its cache misses) on every new connection and made every idle
+    // connection touch all four pages; recv() writes only the bytes it gets. Upgrade path: a smaller first buffer that grows (ADR-0036).
+    static constexpr std::size_t rbuf_size = 16384;
+    std::unique_ptr<char[]> rbuf{new char[rbuf_size]};
     std::string leftover;     // bytes of a pipelined next request, parsed after this one is answered
     std::string wbuf;         // what is being written
     http_request req;         // being assembled
@@ -406,14 +409,14 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     void t_read() {
         if (closed || !tun || treading || (tpaused && !tflush)) return;
         treading = true;
-        sock.async_read_some(asio::buffer(rbuf), [self = shared_from_this()](std::error_code ec, std::size_t n) {
+        sock.async_read_some(asio::buffer(rbuf.get(), rbuf_size), [self = shared_from_this()](std::error_code ec, std::size_t n) {
             self->treading = false;
             if (self->closed) return;
             if (ec) return self->close();
             if (self->tflush) return self->t_read();  // closing: whatever the peer still sends is thrown away
             self->t_idle_restart();
             auto t = self->tun;                        // the connection may close inside the callback
-            t->on_bytes(self->tio, self->rbuf.data(), n);
+            t->on_bytes(self->tio, self->rbuf.get(), n);
             self->t_read();
         });
     }
@@ -597,12 +600,12 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         } else {
             arm(per_read);
         }
-        sock.async_read_some(asio::buffer(rbuf), [self = shared_from_this()](std::error_code ec, std::size_t n) {
+        sock.async_read_some(asio::buffer(rbuf.get(), rbuf_size), [self = shared_from_this()](std::error_code ec, std::size_t n) {
             if (self->closed) return;
             if (ec) return self->close(); // peer closed, or timeout/shutdown cancelled the read
             if (!self->got_bytes) self->head_start = std::chrono::steady_clock::now();
             self->got_bytes = true;
-            self->feed(self->rbuf.data(), n);
+            self->feed(self->rbuf.get(), n);
         });
     }
 
@@ -842,7 +845,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         drain();
     }
     void drain() {
-        sock.async_read_some(asio::buffer(rbuf), [self = shared_from_this()](std::error_code ec, std::size_t) {
+        sock.async_read_some(asio::buffer(rbuf.get(), rbuf_size), [self = shared_from_this()](std::error_code ec, std::size_t) {
             if (self->closed) return;
             if (ec) return self->close();
             self->drain();
