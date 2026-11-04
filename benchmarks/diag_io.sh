@@ -71,23 +71,25 @@ pkill -x "$NAME" 2> /dev/null
 grep -E "Requests/sec|Success rate" "$OUT/oha_threads_full.txt" > "$OUT/oha_threads.txt"
 rm -f "$OUT/oha_threads_full.txt"
 
-echo "== 3. counters per request (3 s) =="
+echo "== 3. counters per request (two windows of 2 s) =="
 taskset -c "$SERVER_CPUS" "$BIN" "$PORT" "$THREADS" > /dev/null 2>&1 &
 sleep 1
 SRV="$(pgrep -x "$NAME" | head -1)"
 [ -n "$SRV" ] || { echo "the server did not start" >&2; exit 1; }
-taskset -c "$LOAD_CPUS" oha -z 6s -c 64 --no-tui "$URL" > "$OUT/oha_counters_full.txt" 2>&1 &
+taskset -c "$LOAD_CPUS" oha -z 8s -c 64 --no-tui "$URL" > "$OUT/oha_counters_full.txt" 2>&1 &
 LOAD=$!
 sleep 2
-perf stat -x, -p "$SRV" -o "$OUT/perf_stat_raw.txt" \
-    -e task-clock,context-switches,cpu-migrations,raw_syscalls:sys_enter,cycles,instructions,cache-misses -- sleep 3 2> "$OUT/perf_stat_errors.txt"
+# Window 1: counters that always work. Window 2: the syscall tracepoint, which needs access to tracefs and may be refused (then only that line is missing).
+perf stat -x, -p "$SRV" -o "$OUT/perf_stat_raw1.txt" \
+    -e task-clock,context-switches,cpu-migrations,cycles,instructions,cache-misses -- sleep 2 2> "$OUT/perf_stat_errors.txt"
+perf stat -x, -p "$SRV" -o "$OUT/perf_stat_raw2.txt" -e raw_syscalls:sys_enter -- sleep 2 2>> "$OUT/perf_stat_errors.txt"
 wait "$LOAD" 2> /dev/null
 pkill -x "$NAME" 2> /dev/null
 RPS="$(awk '/Requests\/sec/ {print $2}' "$OUT/oha_counters_full.txt")"
 {
-    echo "requests_per_second $RPS (the counters cover 3 s, so requests = rate * 3)"
-    awk -F, -v rps="$RPS" 'BEGIN { n = rps * 3 }
-        $1 ~ /^[0-9.]+$/ { name = $3; sub(/^cpu_(core|atom)\//, "", name); sub(/\/$/, "", name); printf "%-26s total %16.0f   per request %12.2f\n", name, $1, $1 / n }' "$OUT/perf_stat_raw.txt"
+    echo "requests_per_second $RPS (each counter window is 2 s, so requests = rate * 2; task-clock is in milliseconds)"
+    cat "$OUT/perf_stat_raw1.txt" "$OUT/perf_stat_raw2.txt" 2> /dev/null | awk -F, -v rps="$RPS" 'BEGIN { n = rps * 2 }
+        $1 ~ /^[0-9.]+$/ { name = $3; sub(/^cpu_(core|atom)\//, "", name); sub(/\/$/, "", name); printf "%-26s total %16.0f   per request %12.2f\n", name, $1, $1 / n }'
 } > "$OUT/per_request.txt"
 cat "$OUT/per_request.txt"
 rm -f "$OUT/oha_counters_full.txt"
