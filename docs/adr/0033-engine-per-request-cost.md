@@ -91,3 +91,12 @@ header vectors between layers.
 ## Related
 
 ADR-0023 (inline async handlers), ADR-0024 (lanes), ADR-0030 (benchmarks built by CMake).
+
+## Addendum (2026-11-05): literal comparisons with `string_view`
+
+An owner `perf` run (4 I/O threads) put `malloc` plus `free` at about 2.9 percent of cycles, string code in libstdc++ at about 2.7, `_Sp_counted_base::_M_release` at 1.96 (self) and Asio's scheduler mutex at about 0.9.
+Callgrind (1 I/O thread, `route_io`, per request): 13 `malloc` and 13 `free`, about 14 `_M_release`, 3.2 `pthread_mutex_lock` (all in `asio::scheduler::run`), 10 `strlen`, 4 `steady_clock::now`.
+The allocations are spread over many call sites (3 from header pair copies, 2 in `run`, 2 in `request_complete`, the rest single); no one site dominates, and the header vectors are already moved.
+Done: comparisons of the method and target with string literals (`make_request`, `serve_static` test, HEAD to GET mapping, engine `req_head`) go through `std::string_view`, so no `strlen` call: 10 to 7 `strlen` per request,
+13440 to 13327 instructions per request (0.8 percent, callgrind, sandbox). Not measured on the owner's machine; expected to be within noise there. C++ suite: 407 passed.
+Not done: fewer `shared_ptr` copies (about 14 releases per request spread over `send`, `run`, `request_complete`, `~wire_response`); the ceiling is about 2 percent of cycles and it touches request lifetime, so it needs ASan, TSan and the outlive tests.

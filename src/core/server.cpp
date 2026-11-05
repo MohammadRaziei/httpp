@@ -428,11 +428,11 @@ struct server::impl {
         std::string target = std::move(hr.target);  // put back below when the target is refused (the caller logs it)
         const std::size_t hash = target.find('#');
         if (hash != std::string::npos) target.resize(hash);
-        if (target.compare(0, 7, "http://") == 0 || target.compare(0, 8, "https://") == 0) { // absolute form
+        if (std::string_view(target).substr(0, 7) == "http://" || std::string_view(target).substr(0, 8) == "https://") { // absolute form
             const std::size_t slash = target.find('/', target.find("//") + 2);
             target = slash == std::string::npos ? "/" : target.substr(slash);
         }
-        if (target.empty() || (target[0] != '/' && target != "*")) { hr.target = std::move(target); return false; }
+        if (target.empty() || (target[0] != '/' && std::string_view(target) != "*")) { hr.target = std::move(target); return false; }
         const std::size_t q = target.find('?');
         raw_path = target.substr(0, q);
         req.path = percent_decode(raw_path, false);
@@ -704,7 +704,7 @@ struct server::impl {
     }
     // A GET/HEAD for this path might be answered from a mounted directory (which means reading the disk).
     bool may_be_static(const request& req) const {
-        if (req.method != "GET" && req.method != "HEAD") return false;
+        if (std::string_view(req.method) != "GET" && std::string_view(req.method) != "HEAD") return false;
         for (const auto& m : mounts) if (under_prefix(req.path, m.prefix)) return true;
         return false;
     }
@@ -891,7 +891,7 @@ struct server::impl {
             return true;
         }
         if (!may_be_static(*pr.req)) { // else the worker looks at the disk first, then matches
-            const std::string method = pr.req->method == "HEAD" ? "GET" : pr.req->method; // HEAD runs the GET route
+            const std::string method = std::string_view(pr.req->method) == "HEAD" ? "GET" : pr.req->method; // HEAD runs the GET route
             pr.route = match(method, pr.raw_path, pr.req->path_params);
             pr.matched = true;
             if (pr.route && pr.route->on_io_thread()) { // right here: such a handler must not block
@@ -934,11 +934,11 @@ struct server::impl {
         }
         if (handled) return send(std::move(early), 0, -1);
 
-        if ((req->method == "GET" || req->method == "HEAD") && serve_static(*req, send)) return;
+        if ((std::string_view(req->method) == "GET" || std::string_view(req->method) == "HEAD") && serve_static(*req, send)) return;
 
         const route_entry* r = pr.route;
         if (!pr.matched) {
-            const std::string method = req->method == "HEAD" ? "GET" : req->method; // HEAD runs the GET route; the engine drops the body
+            const std::string method = std::string_view(req->method) == "HEAD" ? "GET" : req->method; // HEAD runs the GET route; the engine drops the body
             r = match(method, pr.raw_path, req->path_params);
         }
         if (!r) {

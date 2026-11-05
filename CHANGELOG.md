@@ -22,6 +22,7 @@ such changes are listed under **Changed**).
 
 ### Changed
 
+- Server: the method and target are compared with string literals through `std::string_view` (no `strlen`; about 0.8 percent fewer instructions per request, ADR-0033 addendum). No API change.
 - Server: the 16 KiB read buffer of a connection is no longer zero-filled when the connection is made (ADR-0036). No API change.
 - Server: with several I/O threads (`set_io_threads`), new connections go to the I/O thread with the fewest connections instead of wherever the kernel's `SO_REUSEPORT` hash put them (ADR-0034). No API change.
 - Server: about 23 percent fewer instructions per `route_io` request (ADR-0033, items 9 to 12): no shared reference count per answer when no hook or compression is set, the response head

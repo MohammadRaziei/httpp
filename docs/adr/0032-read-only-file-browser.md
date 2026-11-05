@@ -50,4 +50,5 @@ Last-Modified; the server has no authentication of its own.
   validation live in C++; a bad option or root raises `ValueError`, `max_entries < 1` is checked in the wrapper because a negative value would wrap to a huge `size_t`). `httpp browse [DIRECTORY]` in `__main__.py`
   (`--host` default 127.0.0.1, `--port`, `--title`, `--theme`, `--accent`, `--no-search`, `--hidden`, `--max-entries`, `--view`, `--sort`). The parity test knows the new header.
   Verified: `tests/python/test_file_browser.py` (12 tests: listing, options, bad options, write methods, the command started as a process, bad folder and bad accent) and the whole Python suite on 3.14 with
-  the GIL (665 passed, 4 skipped). Not run: 3.14t, 3.13, Windows, macOS, TSan or ASan on this path (the Python layer adds no new shared state).
+  the GIL (665 passed, 4 skipped). Later runs (2026-11-05): the whole C++ suite (407) is clean under AddressSanitizer (memory errors; leak detection reports only async client objects alive at exit, none from the file browser) and under ThreadSanitizer;
+  the Python suite passes on 3.14t (664 passed, 5 skipped) and 3.13 (665 passed, 4 skipped). Still not run: Windows, macOS, sanitizers on the Python extension.

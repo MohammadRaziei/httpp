@@ -312,7 +312,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
             c->req.method = llhttp_method_name(static_cast<llhttp_method_t>(p->method));
             c->req.version_minor = p->http_minor;
             c->req_minor = p->http_minor;
-            c->req_head = c->req.method == "HEAD";
+            c->req_head = std::string_view(c->req.method) == "HEAD";
             c->req_keep = llhttp_should_keep_alive(p) != 0;
             const std::size_t limit = c->srv.max_body.load();
             if (limit && p->content_length > limit && !(p->flags & F_CHUNKED)) { c->reject = 413; return HPE_USER; }
