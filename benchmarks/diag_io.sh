@@ -10,6 +10,7 @@
 # The same two measurements for Drogon, to compare the kernel share and the thread spread:
 #   BENCH_CPP_BIN=build-bench/drogon_bench BENCH_DIAG_PATH=/sync benchmarks/diag_io.sh
 #
+# keep_alive_max is 0 (no limit, like Drogon) unless BENCH_KEEP_ALIVE_MAX says otherwise.
 # Needs Linux, perf, taskset, oha and a built cpp_bench (`cmake --build build-bench --target cpp_bench`).
 # Writes into build-bench/diag/<binary name>/ and prints the paths of the small result files at the end. Reading kernel samples
 # needs perf_event_paranoid -1 and kptr_restrict 0 (to name kernel functions); if not, the script asks sudo to change them
@@ -42,7 +43,7 @@ fi
 
 echo "== 1. perf (cycles, user and kernel), $THREADS I/O threads =="
 taskset -c "$SERVER_CPUS" perf record -e cycles -g -o "$OUT/perf_k.data" -- \
-    timeout -s INT 14 "$BIN" "$PORT" "$THREADS" > /dev/null 2> "$OUT/perf_record.txt" &
+    timeout -s INT 14 "$BIN" "$PORT" "$THREADS" "${BENCH_KEEP_ALIVE_MAX:-0}" > /dev/null 2> "$OUT/perf_record.txt" &
 sleep 2
 taskset -c "$LOAD_CPUS" oha -z 8s -c 64 --no-tui "$URL" | grep -E "Requests/sec|Success rate" | tee "$OUT/oha_perf.txt"
 wait
@@ -52,7 +53,7 @@ perf report -i "$OUT/perf_k.data" --no-children --stdio -g none --sort dso,symbo
 echo "== 2. CPU ticks per server thread (3 s) =="
 pkill -x "$NAME" 2> /dev/null
 sleep 1
-taskset -c "$SERVER_CPUS" "$BIN" "$PORT" "$THREADS" > /dev/null 2>&1 &
+taskset -c "$SERVER_CPUS" "$BIN" "$PORT" "$THREADS" "${BENCH_KEEP_ALIVE_MAX:-0}" > /dev/null 2>&1 &
 sleep 1
 SRV="$(pgrep -x "$NAME" | head -1)"
 [ -n "$SRV" ] || { echo "the server did not start" >&2; exit 1; }
@@ -72,7 +73,7 @@ grep -E "Requests/sec|Success rate" "$OUT/oha_threads_full.txt" > "$OUT/oha_thre
 rm -f "$OUT/oha_threads_full.txt"
 
 echo "== 3. counters per request (two windows of 2 s) =="
-taskset -c "$SERVER_CPUS" "$BIN" "$PORT" "$THREADS" > /dev/null 2>&1 &
+taskset -c "$SERVER_CPUS" "$BIN" "$PORT" "$THREADS" "${BENCH_KEEP_ALIVE_MAX:-0}" > /dev/null 2>&1 &
 sleep 1
 SRV="$(pgrep -x "$NAME" | head -1)"
 [ -n "$SRV" ] || { echo "the server did not start" >&2; exit 1; }
