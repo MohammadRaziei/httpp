@@ -339,6 +339,8 @@ async def ws(websocket):
 
 - [x] Race in the `raw_server` test helper (`tests/cpp/test_async_http.cpp`, around lines 54 and 71): the main thread closes the socket in the destructor while the server thread reads it; close it with `asio::post` on `io` or guard it with a mutex (already fixed: the destructor no longer touches the socket, the thread owns it)
 - [x] `-Woverlength-strings` warning for `httpp_swagger_ui_data.hpp` (multi-megabyte literals); suggestion: make `HTTPP_EMBED_AS_ARRAY` the default (already fixed: byte arrays are the default, `HTTPP_EMBED_AS_ARRAY=ON`)
+- [x] Read-only file browser: C++ `mount_file_browser` ([ADR-0032](docs/adr/0032-read-only-file-browser.md))
+- [ ] File browser: Python `Server.mount_file_browser`, `httpp browse` command, parity test, Windows run
 - [ ] Swagger UI body is copied on every request (`ponytail:` in `swagger_ui.cpp`); use a static `string_view` body
 - [ ] Evaluate a lighter docs UI (RapiDoc is about a third of Swagger UI, see [ADR-0008](docs/adr/0008-swagger-ui-compiled-in.md)); no decision yet
 - [ ] 422 for `int`/`float` path parameters still uses the old `{"error": ...}` body (one existing test depends on it); move everything to `{"detail": [...]}`

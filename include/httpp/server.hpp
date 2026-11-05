@@ -186,6 +186,15 @@ public:
     // Registers every route of `r` under `prefix` + r.prefix() (see router.hpp). The router is not kept.
     HTTPP_API void include(const router& r, const std::string& prefix = "");
     HTTPP_API void serve_directory(const std::string& mount_path, const std::string& local_dir);
+    // How a mounted directory answers. The defaults are what serve_directory(mount_path, local_dir) does.
+    struct directory_options {
+        bool index = true;           // a path that ends in '/' (or the mount itself) is answered with index.html from that folder
+        bool hidden = true;          // false: a path with a segment that starts with '.' is a 404, whatever is on disk
+        bool download_active = false; // true: send "X-Content-Type-Options: nosniff", and a file that is not plainly harmless to show
+                                      // (everything but plain text, JSON, common images, PDF, audio and video) or that is asked for with
+                                      // "?download=1" gets "Content-Disposition: attachment" with a filename and filename*=UTF-8''...
+    };
+    HTTPP_API void serve_directory(const std::string& mount_path, const std::string& local_dir, const directory_options& options);
 
     HTTPP_API int bind_to_any_port(const std::string& host);
     // Block until stop(). Return false if the socket could not be bound/listened on

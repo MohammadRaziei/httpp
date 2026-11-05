@@ -50,6 +50,15 @@ embed_files(
         swagger_ui_icon_svg     ${HTTPP_SWAGGER_UI_DIR}/swagger-api-icon.svg
 )
 
+# The file browser page (src/assets/file_browser.html) is embedded the same way (ADR-0032).
+embed_files(
+    OUTPUT    ${HTTPP_GENERATED_DIR}/httpp_file_browser_data.hpp
+    NAMESPACE httpp::embedded
+    COMPRESS
+    FILES
+        file_browser_html       ${PROJECT_SOURCE_DIR}/src/assets/file_browser.html
+)
+
 # liburlparser (git submodule, built from source - no system package) does
 # the real URL parsing (scheme/host/port/path, IPv4/IPv6, PSL-aware). It is
 # linked PRIVATE into httpp_core, same as cpp-httplib: consumers of

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+:root { --bg:#fff; --fg:#1f2328; --muted:#6a737d; --border:#d8dee4; --row:#f3f5f7; --accent:#2f6fed; color-scheme:light; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#14171a; --fg:#e6e9ec; --muted:#98a2ad; --border:#2c333a; --row:#1e2328; color-scheme:dark; } }
+:root[data-theme="dark"] { --bg:#14171a; --fg:#e6e9ec; --muted:#98a2ad; --border:#2c333a; --row:#1e2328; color-scheme:dark; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+header { display:flex; flex-wrap:wrap; gap:.6rem 1rem; align-items:center; padding:.8rem 1rem; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:2; }
+h1 { font-size:1.1rem; margin:0; }
+nav { flex:1 1 14rem; min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:.15rem; color:var(--muted); }
+nav a, nav span { padding:.1rem .3rem; border-radius:.3rem; }
+nav a { color:var(--accent); text-decoration:none; cursor:pointer; }
+nav a:hover { background:var(--row); }
+.tools { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
+input, select, button { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--border); border-radius:.4rem; padding:.3rem .55rem; }
+button { cursor:pointer; } button:hover, button[aria-pressed="true"] { background:var(--row); border-color:var(--accent); }
+main { padding:.5rem 1rem 3rem; }
+.head, .row { display:grid; grid-template-columns:minmax(0,1fr) 7rem 11rem; gap:1rem; align-items:center; padding:.35rem .5rem; border-radius:.4rem; }
+.head { color:var(--muted); font-size:.85rem; border-bottom:1px solid var(--border); border-radius:0; }
+.head button { border:0; background:none; padding:0; text-align:left; color:inherit; } .head button[aria-pressed="true"] { color:var(--accent); }
+.row { cursor:pointer; } .row:hover, .row:focus { background:var(--row); outline:none; }
+.name { display:flex; align-items:center; gap:.55rem; min-width:0; } .name b { font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.meta { color:var(--muted); font-size:.9rem; text-align:right; } .meta.date { text-align:left; }
+svg { width:1.25rem; height:1.25rem; flex:none; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+.dir svg { color:var(--accent); } .file svg { color:var(--muted); }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(8.5rem,1fr)); gap:.6rem; padding-top:.6rem; }
+.grid .head { display:none; }
+.grid .row { display:flex; flex-direction:column; align-items:center; text-align:center; padding:.8rem .4rem; gap:.4rem; border:1px solid var(--border); }
+.grid .name { flex-direction:column; width:100%; } .grid svg { width:2.4rem; height:2.4rem; } .grid .name b { max-width:100%; }
+.grid .meta { text-align:center; font-size:.8rem; } .grid .meta.date { display:none; }
+#info { position:fixed; left:0; right:0; bottom:0; padding:.4rem 1rem; background:var(--bg); border-top:1px solid var(--border); color:var(--muted); font-size:.85rem; }
+.empty, .error { color:var(--muted); padding:2rem 0; text-align:center; } .error { color:#c0392b; }
+dialog { width:min(52rem,94vw); max-height:90vh; background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:.6rem; padding:1rem; }
+dialog::backdrop { background:rgba(0,0,0,.55); }
+dialog h2 { margin:0 0 .4rem; font-size:1rem; overflow-wrap:anywhere; } dialog .actions { display:flex; gap:.5rem; margin-top:.7rem; }
+dialog a.btn { padding:.3rem .55rem; border:1px solid var(--border); border-radius:.4rem; color:var(--accent); text-decoration:none; }
+#pv { overflow:auto; max-height:62vh; } #pv img, #pv video { max-width:100%; max-height:62vh; display:block; margin:auto; } #pv audio { width:100%; }
+#pv pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.45 ui-monospace,Menlo,Consolas,monospace; }
+@media (max-width:40rem) { .head, .row { grid-template-columns:minmax(0,1fr) 5rem; } .meta.date, .head .date { display:none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>__TITLE__</h1>
+  <nav id="crumbs" aria-label="Path"></nav>
+  <div class="tools">
+    <input id="q" type="search" placeholder="Filter" aria-label="Filter this folder" size="14">
+    <button id="vlist" type="button" title="List view">List</button>
+    <button id="vgrid" type="button" title="Grid view">Grid</button>
+    <button id="theme" type="button" title="Theme"></button>
+  </div>
+</header>
+<main id="main"></main>
+<div id="info"></div>
+<dialog id="dlg"><h2 id="pt"></h2><div id="pv"></div><div class="actions"><a class="btn" id="pd">Download</a><a class="btn" id="po" target="_blank" rel="noopener">Open raw</a><button id="pc" type="button">Close</button></div></dialog>
+<script>
+(function () {
+"use strict";
+var C = __CONFIG__;
+var ICON = {
+  dir: '<svg viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2.5h9A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></svg>',
+  file: '<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/></svg>'
+};
+var TEXT = /\.(txt|md|json|csv|tsv|log|ini|toml|ya?ml|xml|html?|css|js|mjs|ts|py|c|h|cc|cpp|hpp|rs|go|java|sh|bat|cfg|conf|sql|tex|rst)$/i;
+var IMG = /\.(png|jpe?g|gif|webp|avif|bmp|ico)$/i, AUD = /\.(mp3|wav|ogg|m4a)$/i, VID = /\.(mp4|webm|ogv)$/i;
+var $ = function (id) { return document.getElementById(id); };
+var root = document.documentElement;
+var state = { path: "/", entries: [], view: C.view, key: C.sort, desc: false, filter: "", theme: C.theme, truncated: false };
+function store(k, v) { try { if (v === undefined) return localStorage.getItem("httpp-fb-" + k); localStorage.setItem("httpp-fb-" + k, v); } catch (e) {} return null; }
+if (C.accent) root.style.setProperty("--accent", C.accent);
+var saved = store("theme"); if (saved === "light" || saved === "dark" || saved === "auto") state.theme = saved;
+var savedView = store("view"); if (savedView === "list" || savedView === "grid") state.view = savedView;
+if (!C.search) $("q").style.display = "none";
+
+function applyTheme() { if (state.theme === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", state.theme); $("theme").textContent = "Theme: " + state.theme; }
+function segs(p) { return p.split("/").filter(Boolean); }
+function enc(p) { return segs(p).map(encodeURIComponent).join("/"); }
+function rawUrl(p) { return C.base + "/raw/" + enc(p); }
+function joinPath(dir, name) { return (dir === "/" ? "" : dir) + "/" + name; }
+function size(n) { var u = ["B", "KB", "MB", "GB", "TB"], i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i ? n.toFixed(n < 10 ? 1 : 0) : n) + " " + u[i]; }
+function date(s) { return s ? new Date(s * 1000).toLocaleString() : ""; }
+function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+
+function hashPath() { try { return "/" + segs(decodeURIComponent(location.hash.slice(1))).join("/"); } catch (e) { return "/"; } }
+function go(p) { location.hash = "#/" + enc(p); }
+
+function crumbs() {
+  var nav = $("crumbs"); nav.textContent = "";
+  var acc = "/", root_ = el("a", "", "Home"); root_.onclick = function () { go("/"); }; nav.appendChild(root_);
+  segs(state.path).forEach(function (s) {
+    acc = joinPath(acc, s); var target = acc;
+    nav.appendChild(el("span", "", "/"));
+    var a = el("a", "", s); a.onclick = function () { go(target); }; nav.appendChild(a);
+  });
+}
+
+function sorted() {
+  var q = state.filter.toLowerCase(), k = state.key, d = state.desc ? -1 : 1;
+  var list = state.entries.filter(function (e) { return !q || e.name.toLowerCase().indexOf(q) >= 0; });
+  list.sort(function (a, b) {
+    if ((a.type === "dir") !== (b.type === "dir")) return a.type === "dir" ? -1 : 1;
+    var r = k === "size" ? a.size - b.size : k === "date" ? a.mtime - b.mtime : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+    return (r || a.name.localeCompare(b.name)) * d;
+  });
+  return list;
+}
+
+function row(name, type, sz, mt, onopen, icon) {
+  var r = el("div", "row " + type); r.tabIndex = 0; r.setAttribute("role", "link");
+  var n = el("div", "name"); n.insertAdjacentHTML("beforeend", ICON[icon || type]); n.appendChild(el("b", "", name)); n.title = name;
+  r.appendChild(n); r.appendChild(el("div", "meta", sz)); r.appendChild(el("div", "meta date", mt));
+  r.onclick = onopen; r.onkeydown = function (ev) { if (ev.key === "Enter") onopen(); };
+  return r;
+}
+
+function render(error) {
+  var main = $("main"); main.textContent = ""; crumbs();
+  $("vlist").setAttribute("aria-pressed", state.view === "list"); $("vgrid").setAttribute("aria-pressed", state.view === "grid");
+  if (error) { main.appendChild(el("div", "error", error)); $("info").textContent = ""; return; }
+  var box = el("div", state.view === "grid" ? "grid" : "list");
+  var head = el("div", "head");
+  [["name", "Name"], ["size", "Size"], ["date", "Modified"]].forEach(function (c) {
+    var b = el("button", c[0] === "date" ? "date" : "", c[1] + (state.key === c[0] ? (state.desc ? " ▾" : " ▴") : ""));
+    b.type = "button"; b.setAttribute("aria-pressed", state.key === c[0]);
+    b.onclick = function () { if (state.key === c[0]) state.desc = !state.desc; else { state.key = c[0]; state.desc = false; } render(); };
+    head.appendChild(b);
+  });
+  box.appendChild(head);
+  if (state.path !== "/") box.appendChild(row("..", "dir", "", "", function () { go("/" + segs(state.path).slice(0, -1).join("/")); }, "up"));
+  var list = sorted(), dirs = 0, files = 0, total = 0;
+  state.entries.forEach(function (e) { if (e.type === "dir") dirs++; else { files++; total += e.size; } });
+  list.forEach(function (e) {
+    var p = joinPath(state.path, e.name);
+    box.appendChild(row(e.name, e.type, e.type === "dir" ? "" : size(e.size), date(e.mtime), function () { if (e.type === "dir") go(p); else preview(e, p); }));
+  });
+  main.appendChild(box);
+  if (!list.length) main.appendChild(el("div", "empty", state.entries.length ? "Nothing matches the filter." : "This folder is empty."));
+  var info = dirs + " folder" + (dirs === 1 ? "" : "s") + ", " + files + " file" + (files === 1 ? "" : "s") + ", " + size(total);
+  if (state.filter) info += " (showing " + list.length + ")";
+  if (state.truncated) info += ". Only the first " + C.limit + " entries are listed.";
+  $("info").textContent = info;
+}
+
+function preview(e, p) {
+  var url = rawUrl(p), pv = $("pv"); pv.textContent = ""; $("pt").textContent = e.name + " (" + size(e.size) + ")";
+  $("pd").href = url + "?download=1"; $("po").href = url;
+  if (IMG.test(e.name)) { var i = el("img"); i.alt = e.name; i.src = url; pv.appendChild(i); }
+  else if (AUD.test(e.name)) { var a = el("audio"); a.controls = true; a.src = url; pv.appendChild(a); }
+  else if (VID.test(e.name)) { var v = el("video"); v.controls = true; v.src = url; pv.appendChild(v); }
+  else if (TEXT.test(e.name) && e.size > 0) {
+    pv.appendChild(el("div", "empty", "Loading..."));
+    fetch(url, { headers: { Range: "bytes=0-262143" } }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); }).then(function (t) {
+      pv.textContent = ""; pv.appendChild(el("pre", "", t)); if (e.size > 262144) pv.appendChild(el("div", "empty", "Showing the first 256 KB."));
+    }).catch(function () { pv.textContent = ""; pv.appendChild(el("div", "error", "Could not load the preview.")); });
+  } else pv.appendChild(el("div", "empty", "No preview for this file type."));
+  if ($("dlg").showModal) $("dlg").showModal(); else $("dlg").setAttribute("open", "");
+}
+
+var seq = 0;
+function load() {
+  var mine = ++seq; state.path = hashPath(); state.filter = ""; $("q").value = "";
+  fetch(C.base + "/api/list?path=" + encodeURIComponent(state.path), { headers: { Accept: "application/json" } })
+    .then(function (r) { if (r.status === 404) throw new Error("This folder does not exist (or is not available)."); if (!r.ok) throw new Error("The server answered " + r.status + "."); return r.json(); })
+    .then(function (j) { if (mine !== seq) return; state.entries = j.entries; state.truncated = j.truncated; render(); })
+    .catch(function (e) { if (mine === seq) { state.entries = []; render(e.message); } });
+}
+
+$("q").oninput = function () { state.filter = this.value; render(); };
+$("vlist").onclick = function () { state.view = "list"; store("view", "list"); render(); };
+$("vgrid").onclick = function () { state.view = "grid"; store("view", "grid"); render(); };
+$("theme").onclick = function () { state.theme = state.theme === "auto" ? "light" : state.theme === "light" ? "dark" : "auto"; store("theme", state.theme); applyTheme(); };
+$("pc").onclick = function () { $("dlg").close(); };
+$("dlg").addEventListener("close", function () { $("pv").textContent = ""; });
+window.addEventListener("hashchange", load);
+applyTheme(); load();
+})();
+</script>
+</body>
+</html>

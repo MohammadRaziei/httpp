@@ -61,6 +61,7 @@ TARGETS = {
     ("log.hpp", ""): httpp,
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("swagger_ui.hpp", ""): httpp,
+    ("file_browser.hpp", ""): httpp,
     ("server.hpp", "responder"): None,  # handed to route_async handlers; Python handlers just return or await
     ("websocket.hpp", "websocket"): None,  # Python's WebSocket is its own awaitable API over a mailbox (ADR-0027), not this handle
     ("websocket.hpp", "ws_acceptor"): None,  # Python's handler accepts through `await websocket.accept()`
@@ -83,7 +84,7 @@ ALIASES = {
         "route_async": "route", "get_async": "get", "post_async": "post", "put_async": "put",
         "patch_async": "patch", "del_async": "delete",
     },
-    "": {"mount_swagger_ui": None},  # lives on Server: Server.mount_swagger_ui (checked below)
+    "": {"mount_swagger_ui": None, "mount_file_browser": None},  # live on Server (checked below)
 }
 
 # C++ setters that are constructor arguments in Python: name -> keyword, with a value that must be accepted.
@@ -168,6 +169,7 @@ def test_aliases_point_at_real_python_names():
             if py is not None:
                 assert py in _py_names(target), f"alias {owner}::{cpp} -> {py} does not exist"
     assert "mount_swagger_ui" in _py_names(httpp.Server)
+    assert "mount_file_browser" in _py_names(httpp.Server)
 
 
 def test_cpp_setters_are_accepted_as_constructor_arguments():

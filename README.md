@@ -33,7 +33,7 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - [Features](#features)
 - [Install](#install)
 - [Python](#python)
-  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [`def` or `async def`](#def-or-async-def) · [Routers](#routers) · [Forms and uploads](#forms-and-uploads) · [`response` and background work](#the-response-argument-and-background-work) · [Streaming and files](#streaming-and-files) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async)
+  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [`def` or `async def`](#def-or-async-def) · [Routers](#routers) · [Forms and uploads](#forms-and-uploads) · [`response` and background work](#the-response-argument-and-background-work) · [Streaming and files](#streaming-and-files) · [File browser](#a-read-only-file-browser) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async)
 - [Build from source](#build-from-source)
 - [Status](#status)
 - [Logging](#logging)
@@ -287,6 +287,21 @@ def login():
   `path` is trusted: never build it from user input (path traversal); use `serve_directory` for that.
 - `httpp.set_cookie` defaults to `Path=/; HttpOnly`, like the C++ helper. A name or value that is not
   cookie-safe raises `ValueError` (percent-encode spaces, quotes, commas and semicolons yourself).
+
+### A read-only file browser
+
+```python
+app.mount_file_browser("/files", "/srv/shared", title="Shared", theme="dark", accent="#2a7de1", show_hidden=False)
+```
+
+```
+httpp browse ~/Downloads --port 8000 --theme auto
+```
+
+Lists folders, opens text and images, downloads files; nothing can be written, renamed or deleted. The folder you give is a ceiling:
+`..`, absolute paths and symlinks that leave it are refused, dotfiles are hidden (404 too) unless `show_hidden=True` / `--hidden`, and html, svg and
+other active types are always downloads. A folder is cut at `max_entries` (5000). It has **no login**: it listens on 127.0.0.1 by default, and for anything
+else put a `before_request` hook in front of it. A bad option or folder raises `ValueError`.
 
 ### Settings
 

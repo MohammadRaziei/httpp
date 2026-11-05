@@ -1466,6 +1466,23 @@ cdef class Server:
         """Serve Swagger UI at `docs_path` from the files compiled into libhttpp, entirely in C++ (no GIL)."""
         mount_swagger_ui(self._srv[0], docs_path.encode("utf-8"), openapi_url.encode("utf-8"), title.encode("utf-8"))
 
+    def mount_file_browser(self, str base, str root, *, str title="Files", str theme="auto", str accent="", bint search=True,
+                           bint show_hidden=False, max_entries=5000, str view="list", str sort="name"):
+        """Serve a read-only file browser for the folder `root` under `base` (see include/httpp/file_browser.hpp), entirely in C++ (no GIL).
+        Raises ValueError for a bad `base`, a `root` that is not a folder (or is the file system root) or a bad option."""
+        cdef cpp_file_browser_options o
+        if max_entries < 1:
+            raise ValueError("max_entries must be above 0")
+        o.title = title.encode("utf-8")
+        o.theme = theme.encode("utf-8")
+        o.accent = accent.encode("utf-8")
+        o.search = search
+        o.show_hidden = show_hidden
+        o.max_entries = <size_t>max_entries
+        o.view = view.encode("utf-8")
+        o.sort = sort.encode("utf-8")
+        mount_file_browser(self._srv[0], base.encode("utf-8"), root.encode("utf-8"), o)
+
     def add_route(self, str method, str path, handler):
         """Low-level: register `handler` for `method` + `path` ("/users/:id").
         `handler(method, path, body, headers, query, path_params)` returns (status, body, headers):
@@ -2204,6 +2221,19 @@ cdef extern from "httpp/swagger_ui.hpp" namespace "httpp":
         bint gzip
     const swagger_ui_asset_t* find_swagger_ui_asset(string_view name) noexcept
     void mount_swagger_ui(cpp_server& s, string docs_path, string openapi_url, string title) except +
+
+
+cdef extern from "httpp/file_browser.hpp" namespace "httpp":
+    cdef cppclass cpp_file_browser_options "httpp::file_browser_options":
+        string title
+        string theme
+        string accent
+        bint search
+        bint show_hidden
+        size_t max_entries
+        string view
+        string sort
+    void mount_file_browser(cpp_server& s, const string& base, const string& root, const cpp_file_browser_options& options) except +
 
 
 def _swagger_ui_asset(str name):

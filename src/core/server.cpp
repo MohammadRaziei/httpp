@@ -151,6 +151,7 @@ struct prepared {
 struct mount_entry {
     std::string prefix; // "/files" (no trailing slash, "" = root)
     std::string dir;
+    server::directory_options options;
 };
 
 // True on the threads that run an engine (the I/O threads) while the server listens.
@@ -736,19 +737,43 @@ struct server::impl {
 #endif
     }
 
+    // A file shown inline must not be able to run code in the page's origin: only types that cannot are shown, the rest is a download.
+    static void add_download_headers(const request& req, const std::string& full, response& res) {
+        const std::string type = mime_for(full);
+        const bool plain = type == "text/plain" || type == "application/json" || type == "text/csv" || type == "text/markdown" || type == "application/pdf" ||
+                           (type.compare(0, 6, "image/") == 0 && type != "image/svg+xml") || type.compare(0, 6, "audio/") == 0 || type.compare(0, 6, "video/") == 0;
+        res.headers.emplace_back("X-Content-Type-Options", "nosniff");
+        if (plain && req.query_param("download") != "1") return;
+        const std::size_t slash = full.find_last_of("/\\");
+        const std::string name = slash == std::string::npos ? full : full.substr(slash + 1);
+        std::string ascii, encoded;
+        static const char hex[] = "0123456789ABCDEF";
+        for (unsigned char c : name) {
+            const bool unreserved = std::isalnum(c) || c == '.' || c == '-' || c == '_' || c == '~';
+            if (unreserved) encoded += static_cast<char>(c); else { encoded += '%'; encoded += hex[c >> 4]; encoded += hex[c & 15]; }
+            ascii += (c >= 0x20 && c < 0x7f && c != '"' && c != '\\' && c != '%') ? static_cast<char>(c) : '_';
+        }
+        res.headers.emplace_back("Content-Disposition", "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + encoded);
+    }
+
     bool serve_static(const request& req, const send_fn& send) {
         for (const auto& m : mounts) {
             const std::string& p = req.path;
             if (!under_prefix(p, m.prefix)) continue;
             const std::string rel = p.substr(m.prefix.size()); // "" or "/a/b"
-            if (rel.find('\\') != std::string::npos) continue;
+            if (rel.find('\\') != std::string::npos || rel.find('\0') != std::string::npos) continue; // a NUL would end the file name early
             bool safe = true;
-            for (const auto& seg : split_path(rel.empty() ? "/" : rel)) if (seg == "..") safe = false;
-            if (!safe) continue; // never leave the mounted directory
+            for (const auto& seg : split_path(rel.empty() ? "/" : rel)) {
+                if (seg == "..") safe = false;
+                if (!m.options.hidden && !seg.empty() && seg[0] == '.') safe = false; // also "." and ".hidden"
+            }
+            if (!safe) continue; // never leave the mounted directory (and never show what the mount keeps hidden)
+            const bool names_a_folder = rel.empty() || rel.back() == '/';
+            if (names_a_folder && !m.options.index) continue;
             std::string full = m.dir;
             if (!full.empty() && full.back() != '/' && full.back() != '\\') full += '/';
             full += rel.empty() ? "" : rel.substr(1);
-            if (rel.empty() || rel.back() == '/') full += "index.html";
+            if (names_a_folder) full += "index.html";
             if (!inside_dir(full, m.dir)) continue; // a symlink must not lead out of the mounted directory
             const long long size = file_size(full);
             if (size < 0) continue;
@@ -758,6 +783,7 @@ struct server::impl {
             res.file = full;
             res.headers.emplace_back("Content-Type", mime_for(full));
             res.headers.emplace_back("Accept-Ranges", "bytes");
+            if (m.options.download_active) add_download_headers(req, full, res);
             long long start = 0, end = size - 1;
             switch (parse_range(req.header("Range"), size, start, end)) {
                 case range_result::unsatisfiable: {
@@ -1151,10 +1177,14 @@ server& server::set_async_timeout(int seconds) {
 }
 
 void server::serve_directory(const std::string& mount_path, const std::string& local_dir) {
+    serve_directory(mount_path, local_dir, directory_options{});
+}
+
+void server::serve_directory(const std::string& mount_path, const std::string& local_dir, const directory_options& options) {
     std::string prefix = mount_path;
     while (!prefix.empty() && prefix.back() == '/') prefix.pop_back(); // "/" -> "" (the root)
     if (!prefix.empty() && prefix[0] != '/') prefix = "/" + prefix;
-    impl_->mounts.push_back({std::move(prefix), local_dir});
+    impl_->mounts.push_back({std::move(prefix), local_dir, options});
 }
 
 int server::bind_to_any_port(const std::string& host) {

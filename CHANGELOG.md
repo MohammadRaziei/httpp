@@ -7,8 +7,16 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Added
+
+- C++: `httpp::mount_file_browser(server&, base, root, file_browser_options)`, a read-only file browser (list, navigate, preview, download; theme, accent, filter, hidden files, entry limit) with its own
+  embedded page and no dependencies (ADR-0032).
+- Python: `Server.mount_file_browser(base, root, **options)` (same options as C++) and the `httpp browse [DIRECTORY]` command.
+- C++: `server::directory_options` and `serve_directory(mount, dir, options)`: `index`, `hidden` and `download_active` (nosniff, attachment for active types). The defaults keep the old behaviour.
+
 ### Fixed
 
+- Server: a NUL byte in a path under a mounted directory is refused.
 - Server: a late answer through the `after` hook, error handler or compression no longer reads the server object after the server is destroyed, and a refused job runs on the current thread
   instead of using a moved-from response (ADR-0035). No API change.
 

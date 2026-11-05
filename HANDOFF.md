@@ -1,7 +1,19 @@
 # httpp hand-off (consolidated)
 
 This one file replaces handoff.md and handoff_5 to handoff_14. Read it first; the ADRs hold the reasoning. Older files can be deleted or kept for history.
-Owner: Mohammad (GitHub `mohammadraziei`), the author of httpp. Date of this file: 2026-11-04 (sections 1 to 10 date from before; read sections 11 and 12 first for the latest state).
+Owner: Mohammad (GitHub `mohammadraziei`), the author of httpp. Date of this file: 2026-11-05 (sections 1 to 10 date from before; read sections 0, 13 and 14 first for the latest state).
+
+## 0. How the owner and I work together (read this first)
+This is a long collaboration, not a one-off task. The owner (Mohammad) is an experienced systems developer who owns the code and the decisions about his goals; I am the hands that read, measure, write, test and explain. How it goes:
+- **Language and tone.** Conversation in Persian, plain words, short paragraphs; a table or a number is fine but he says "I don't understand" when it is terse, so explain what it means. Everything inside the repo is English, no em dash, no Persian anywhere in code, comments, tests or commands.
+- **He delegates, I decide and record.** For performance and architecture he says "continue" or "you decide": then I pick the most principled option, say what and why in a few lines, and record it in an ADR (check `docs/adr/` for the next free number first; numbers have raced with upstream before). Only constraint: the C++ and Python APIs stay dual. "Continue" means: take the proposed plan, decide the open questions, and go.
+- **Never push, never commit.** He commits and pushes. After every step build `httpp.zip` (command in section 2) and send it with SendUserFile without asking.
+- **Honesty is the rule he checks hardest.** State what was measured and what was not; never claim parity with a competitor from an unfair or single run; own mistakes (in this session I guessed a URL and a cause that were wrong, and said so). Keep a "Not verified" list. Numbers compare only inside one interleaved run on his machine. A hypothesis is called a hypothesis.
+- **He runs things I cannot.** The sandbox has 2 cores, no `perf`, no `oha`, a proxy allowlist and no Windows or macOS. For anything that needs his machine (the official bench, `perf`, `diag_io.sh`) I give one copy-paste block he can run from the project root, tell him what to send back (usually a small zip made by the block, without raw `.data` files), and then read the files. He pastes terminal output or sends zips; he wants exact commands, not explanations of tools. Do not make him guess which directory or which flags.
+- **He pushes back and thinks aloud.** He proposes ideas (arena allocator, SIMD in llhttp, copying Drogon's parser, own parser). Answer with the numbers we have (an upper bound from the profile is enough), the risks (safety, portability, vendor rules), and a cheaper alternative; then he decides. When he decides ("forget it, llhttp stays"), record it and move on without re-arguing.
+- **Small wins add up.** He values several 1 to 3 percent gains together. But every change is checked: C++ suite, ThreadSanitizer for anything concurrent, ASan for lifetime changes, and a test that a request outlives its handler when touching the request type.
+- **Process.** Task list for multi-step work; tests before code (TDD); `ponytail:` comment on each deliberate simplification with its upgrade path; zero system dependencies; STL-like snake_case; macOS 10.13 limits in `src/core` (no `std::filesystem` there; the Windows branch may use it).
+- **Permissions.** If the sandbox safety classifier refuses something, explain and ask; do not work around it.
 
 ## 1. What httpp is
 A C++ HTTP library (async server on Asio + llhttp, clients, downloads, progress bars, URL, WebSocket) with a Cython/Python layer. Direction (ADR-0001):
@@ -189,3 +201,40 @@ Instructions per request: compile `benchmarks/cpp/cpp_bench.cpp` against `build/
 
 ### Not verified (keep stating)
 The official-bench effect of ADR-0034, Windows and macOS, the Python suite and Python layer under TSan after all of the above, free-threaded behaviour, whether kernel time per request still differs from Drogon's, the descriptor handover under heavy connection churn (one extra hop per new connection; not measured).
+
+## 13. Session 2026-11-04 to 11-05: ADR-0035, ADR-0036, diag results, file browser in C++ (ADR-0032)
+Nothing is committed or pushed (the owner commits). Rules of section 2 apply unchanged.
+
+### Done (all uncommitted)
+- **ADR-0035:** the hook path of `make_sender` no longer uses `this` after `weak.lock()` (pool pointer lives in `config`, `answer_with_hooks` is static); a refused pool job runs inline instead of using a moved-from response. A stress test exists but did NOT fail on the old code under ASan (narrow window): the fix rests on reading the code. Still open: `worker_pool*` itself can be read just before the pool is destroyed (see the ADR).
+- **ADR-0036:** the 16 KiB per-connection read buffer is no longer zero-filled (`perf record -e cache-misses`: memset 4.2 percent, `adopt` 1.3 percent of the misses). Estimated gain about 0.3 misses per request, not measured; idle memory per connection not measured.
+- **Owner's `diag_io.sh` on the ADR-0034 tree (4 I/O threads, single runs):** thread ticks 309 to 312 (even; Drogon 294 to 303); httpp 592k to 639k req/s against Drogon 661k to 689k, so a gap of about 7 to 10 percent remains. Kernel share of cycles 56 percent (Drogon 59). Per request: cycles 24.3k against 22.9k, instructions 29.8k against 27.1k. The `perf stat` counters (cache misses 7.5 against 2.9, context switches 8619 against 216) did NOT reproduce with sampling (both servers sleep in `epoll_wait` for 87 and 98 percent of their switches), so treat them as unconfirmed. The official bench on this tree has NOT been run (the owner's uv could not reach PyPI; slow network, about 1.6 KB/s). Use `diag_io.sh` or fix the network. A fair Drogon comparison should run `cpp_bench PORT 4 0` (keep_alive_max 0) because Drogon does not close connections.
+- **File browser (ADR-0032), C++ core finished:** `include/httpp/file_browser.hpp`, `src/core/file_browser.cpp`, `src/assets/file_browser.html` (embedded with COMPRESS, `httpp_file_browser_data.hpp`), `server::directory_options` plus a `serve_directory` overload (defaults keep the old behaviour), `tests/cpp/test_file_browser.cpp` (15 tests). Decisions taken on the owner's "continue": free function (not a member), `search` is a filter of the open folder, no ETag. Headless Chromium check: no console errors, list and grid, navigation, image and text preview, filter, dark mode.
+- Tests: 407 C++ tests pass (Release). Not run: Python suite, TSan or ASan on the file browser, Windows, macOS.
+
+### Next steps
+1. **Python:** `Server.mount_file_browser(base, root, **options)` in Cython (follow `mount_swagger_ui`), then the `httpp browse [DIRECTORY]` command (`--host` 127.0.0.1, `--port`, `--theme`, `--accent`, `--no-search`, `--hidden`, `--max-entries`, `--title`, `--view`, `--sort`), a parity test, README section. A `.pyx` change needs the 100 s reinstall (section 5).
+2. TSan and ASan on `test_file_browser` and the whole suite; a run on Windows and macOS (the Windows branch of `file_browser.cpp` was never compiled).
+3. Owner: official bench or `diag_io.sh` on this tree; commit; CI on three OS.
+4. Perf: the remaining 7 to 10 percent gap is unexplained; next idea is `perf record -e cache-misses` with call graphs on both servers, or reading trantor's connection and buffer handling.
+
+## 14. Later in the same session (2026-11-05 01:00 to 01:12): ideas discussed and decisions
+Decisions by the owner:
+- **`llhttp` stays unmodified and vendored.** No SIMD patch, no own parser, no Drogon parser copy ("forget it"). Do not bring it up again unless a profile shows the parser is the hot path and he asks.
+- Move semantics and copies in OUR callbacks and request building are fair game (they live in `src/core`, not in third_party).
+
+What the profile data says (owner's `diag_io.sh` run, 4 I/O threads, share of cycles; sampled, single run):
+- httpp: `malloc` 1.78, `free` 1.26, `llhttp__internal__run` 3.02, `libstdc++` as a whole 3.56 (`string::operator=` 0.59, `_M_append` 0.57), `_Sp_counted_base::_M_release` 2.0.
+- Drogon: `malloc` 1.08, `free` 1.09, its own parser about 6 in total (`parseRequest` 2.08, `addHeader` 2.30, `tolower` 1.43, `reset` 0.49), `libstdc++` 0.93.
+- So allocation is about 0.8 percentage points worse than Drogon, the parser is not slower, and the visible difference is string handling in libstdc++ (3.6 against 0.9). The remaining throughput gap is 7 to 10 percent; the profile only explains a few points of it. An arena was judged not worth it now (small ceiling; requests are answered from other threads, so an arena must be freed thread-safely, which brings back the atomic and cache-line cost we are chasing).
+- Safety warning agreed with the owner: do NOT make `request` hold `string_view`s into the connection's read buffer. `route_io` and `route_shared` requests outlive the handler (tests `the_request_outlives_the_handler...`, ADR-0027) and the buffer is reused by the next read, so that is a use-after-free. Safe variants: `reserve` plus move, or one contiguous buffer owned by the `request` itself that its views point into. Every such change goes through ASan, TSan and the outlive test.
+
+Pending command for the owner (not yet run, waiting for his `alloc.zip`): from the project root, `perf record -F 1999 -e cycles --call-graph dwarf,16384` on `build-bench/cpp_bench 18080 4` pinned to CPUs 0-7 with `oha -z 6s -c 64` from CPUs 8-15 against `/io`, then `perf report` into `build-bench/diag/alloc/{inclusive,malloc_callers,stdcxx_callers}.txt` and zip them (without the `.data`) to `build-bench/diag/alloc.zip`. The exact block is in the previous conversation; regenerate it from this description if needed (use the same style as `benchmarks/diag_io.sh`). It answers: which of our functions call `malloc` and `libstdc++` string code the most. Then fix only those, one change at a time, with the callgrind recipe of section 12 (instructions per request) and the owner's `diag_io.sh` (or the official bench) to confirm.
+
+Owner's network note: his uv could not reach PyPI (about 1.6 KB/s), so the official `--target bench` (it builds virtualenvs) failed; `diag_io.sh` needs no pip and works. If he wants the official bench: fix the network (proxy or VPN he used before), then `UV_HTTP_TIMEOUT=600 cmake --build build-bench --target bench 2>&1 | tee bench_new2.log`. His build dir is `/mnt/windowsD/Projects/httpp/build-bench` (an NTFS drive mounted under Linux; he is on Ubuntu, not Windows).
+
+### Next steps for the next chat, in order
+1. Ask him for `alloc.zip` (or the output of the block). Read the three files; propose the smallest changes; do them one at a time with measurement.
+2. File browser Python wrapper and `httpp browse` command (section 13, step 1).
+3. TSan and ASan on the file browser tests; the official bench when his network works; commit and CI are his.
+4. Everything in sections 7, 11, 12 and 13 that is still open.

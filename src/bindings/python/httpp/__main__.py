@@ -32,6 +32,31 @@ def _cmd_server(args):
         srv.stop()
 
 
+def _cmd_browse(args):
+    from httpp import Server
+
+    root = Path(args.directory)
+    if not root.is_dir():
+        print(f"httpp: error: {args.directory!r} is not a folder", file=sys.stderr)
+        return 1
+    srv = Server()
+    try:
+        srv.mount_file_browser("/", str(root.resolve()), title=args.title, theme=args.theme, accent=args.accent, search=not args.no_search,
+                               show_hidden=args.hidden, max_entries=args.max_entries, view=args.view, sort=args.sort)
+    except ValueError as e:
+        print(f"httpp: error: {e}", file=sys.stderr)
+        return 1
+    print(f"Browsing {str(root.resolve())!r} (read-only) at http://{args.host}:{args.port}/")
+    try:
+        srv.listen(args.host, args.port)
+    except OSError as e:
+        print(f"httpp: error: {e}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        srv.stop()
+    return 0
+
+
 def _cmd_run(args):
     from httpp import run
 
@@ -188,6 +213,20 @@ def build_parser():
     p_server.add_argument("--host", default="0.0.0.0")
     p_server.add_argument("--port", "-p", type=int, default=8000)
     p_server.set_defaults(func=_cmd_server)
+
+    p_browse = sub.add_parser("browse", help="Browse a directory in the web browser (read-only: list, open, download).")
+    p_browse.add_argument("directory", nargs="?", default=".")
+    p_browse.add_argument("--host", default="127.0.0.1", help="default 127.0.0.1; use 0.0.0.0 to share on every interface (there is no login)")
+    p_browse.add_argument("--port", "-p", type=int, default=8000)
+    p_browse.add_argument("--title", default="Files")
+    p_browse.add_argument("--theme", choices=("auto", "light", "dark"), default="auto")
+    p_browse.add_argument("--accent", default="", metavar="#RRGGBB", help="accent colour")
+    p_browse.add_argument("--no-search", action="store_true", help="hide the filter box")
+    p_browse.add_argument("--hidden", action="store_true", help="list and serve names that start with a dot")
+    p_browse.add_argument("--max-entries", type=int, default=5000, metavar="N", help="longest folder listing (default 5000)")
+    p_browse.add_argument("--view", choices=("list", "grid"), default="list")
+    p_browse.add_argument("--sort", choices=("name", "size", "date"), default="name")
+    p_browse.set_defaults(func=_cmd_browse)
 
     p_run = sub.add_parser("run", help="Run an httpp app: `httpp run main:app`.")
     p_run.add_argument("app", help="import string 'module:attribute' of an httpp.Server")
