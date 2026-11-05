@@ -121,8 +121,12 @@ std::string describe(std::exception_ptr ep) {
 // ---------------------------------------------------------------- the server
 
 struct config { // read-only once listening; shared with answers that may outlive the server
-    server::before_hook before;
+    server::before_hook before;  // what the engine calls: the middleware and the application's hook, composed by rebuild_hooks()
     server::after_hook after;
+    server::before_hook app_before; // the application's own hooks (server::before / server::after)
+    server::after_hook app_after;
+    std::vector<server::before_hook> mw_before; // server::use(), in registration order
+    std::vector<server::after_hook> mw_after;
     server::error_hook error;
     server::exception_hook exception;
     detail::response_compression compression; // off unless set_compression() was called
@@ -1133,8 +1137,30 @@ void server::put_async(const std::string& path, async_handler h) { route_async("
 void server::patch_async(const std::string& path, async_handler h) { route_async("PATCH", path, std::move(h)); }
 void server::del_async(const std::string& path, async_handler h) { route_async("DELETE", path, std::move(h)); }
 
-server& server::before(before_hook hook) { impl_->cfg->before = std::move(hook); return *this; }
-server& server::after(after_hook hook) { impl_->cfg->after = std::move(hook); return *this; }
+// ponytail: composing once per change keeps the per-request path at one std::function call, and no call at all when
+// nothing is registered (the engine's fast path checks for an empty hook). Upgrade path: none needed.
+static void rebuild_hooks(config& c) {
+    if (c.mw_before.empty()) c.before = c.app_before;
+    else c.before = [mws = c.mw_before, app = c.app_before](const request& req, response& res) {
+        for (const auto& h : mws) if (h(req, res)) return true;
+        return app ? app(req, res) : false;
+    };
+    if (c.mw_after.empty()) c.after = c.app_after;
+    else c.after = [mws = c.mw_after, app = c.app_after](const request& req, response& res) {
+        if (app) app(req, res);
+        for (auto it = mws.rbegin(); it != mws.rend(); ++it) (*it)(req, res);
+    };
+}
+
+server& server::before(before_hook hook) { impl_->cfg->app_before = std::move(hook); rebuild_hooks(*impl_->cfg); return *this; }
+server& server::after(after_hook hook) { impl_->cfg->app_after = std::move(hook); rebuild_hooks(*impl_->cfg); return *this; }
+server& server::use(before_hook before, after_hook after) {
+    config& c = *impl_->cfg;
+    if (before) c.mw_before.push_back(std::move(before));
+    if (after) c.mw_after.push_back(std::move(after));
+    rebuild_hooks(c);
+    return *this;
+}
 server& server::set_error_handler(error_hook hook) { impl_->cfg->error = std::move(hook); return *this; }
 server& server::set_exception_handler(exception_hook hook) { impl_->cfg->exception = std::move(hook); return *this; }
 

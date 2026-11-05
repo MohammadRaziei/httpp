@@ -218,6 +218,13 @@ public:
     HTTPP_API server& after(after_hook hook);
     HTTPP_API server& set_error_handler(error_hook hook);
     HTTPP_API server& set_exception_handler(exception_hook hook);
+    // Middleware (ADR-0037): a before and an after hook that sit next to the application's own, so any number
+    // can be added (see httpp/middleware.hpp for the ready-made ones). Either may be empty. Before hooks run in
+    // the order of the use() calls, then the application's before(); the first that returns true answers and
+    // the rest are skipped. After hooks run for every answer (also the ones a before hook gave): the
+    // application's after() first, then the middleware in the reverse order. before() and after() never
+    // remove middleware. Call it before listening.
+    HTTPP_API server& use(before_hook before, after_hook after = {});
 
     // --- Settings; call them before listening. Each returns *this. ---
     // Worker threads for sync handlers: `base` are kept, up to `max` are used under load

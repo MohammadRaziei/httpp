@@ -467,6 +467,23 @@ are not sent to a different origin). A cancelled `await` stops waiting, but the 
 running until it finishes. In C++: `request::run_async()` returns a `std::future`, or takes a callback
 that runs on the network thread; `async_client` is the session form.
 
+### Middleware
+
+```python
+from httpp import Server, CORSMiddleware, TrustedHostMiddleware, GZipMiddleware
+
+app = Server()
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["example.com", "*.example.com"])
+app.add_middleware(CORSMiddleware, allow_origins=["https://app.example.com"], allow_methods=["GET", "POST"],
+                   allow_headers=["Authorization"], allow_credentials=True)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+```
+
+The options are Starlette's. The work runs in C++ without the GIL: a CORS preflight is answered on the I/O thread and never reaches Python.
+`before_request` hooks run after the middleware, `after_request` hooks before it. In C++: `httpp::add_cors(server&, cors_options)`,
+`httpp::add_trusted_host(server&, trusted_host_options)` (`httpp/middleware.hpp`), or your own pair of hooks with `server::use(before, after)`.
+Not supported: ASGI middleware, and an HTTPS redirect (the server has no TLS yet).
+
 ## Build from source
 
 Most dependencies are vendored (`cpp-httplib`, unmodified; `llhttp`, unmodified) or git submodules

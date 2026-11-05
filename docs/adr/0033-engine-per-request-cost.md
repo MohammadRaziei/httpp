@@ -100,3 +100,10 @@ The allocations are spread over many call sites (3 from header pair copies, 2 in
 Done: comparisons of the method and target with string literals (`make_request`, `serve_static` test, HEAD to GET mapping, engine `req_head`) go through `std::string_view`, so no `strlen` call: 10 to 7 `strlen` per request,
 13440 to 13327 instructions per request (0.8 percent, callgrind, sandbox). Not measured on the owner's machine; expected to be within noise there. C++ suite: 407 passed.
 Not done: fewer `shared_ptr` copies (about 14 releases per request spread over `send`, `run`, `request_complete`, `~wire_response`); the ceiling is about 2 percent of cycles and it touches request lifetime, so it needs ASan, TSan and the outlive tests.
+
+### Owner's A/B runs, 2026-11-05 (`diag_io.sh`, 4 I/O threads, httpp and Drogon alternating, 3 + 3 rounds in two sessions, `keep_alive_max` 0 only in the second)
+
+Requests per second, httpp: 694k, 693k, 647k, 570k, 657k, 641k (median 652k, range 570k to 694k). Drogon: 606k, 597k, 646k, 668k, 603k, 629k (median 618k, range 597k to 668k).
+The ranges overlap, so this does not show that httpp is faster; it shows the 7 to 10 percent gap of the earlier single runs is gone in these runs. The first number of each pair is measured under `perf record`.
+Counters of the last pair (one window, single run): cycles per request 23.2k (httpp) against 23.6k (Drogon), instructions 28.7k against 30.6k, cache misses 2.6 against 4.5, thread ticks 308 against 300 (httpp's four I/O threads are the busier ones).
+The earlier pair had 29.8k against 27.1k instructions: Drogon's own figure moved by 3.5k between sessions, so cross-session comparisons of these counters are weak. Not measured: the interleaved official bench (the owner's `uv` could not reach PyPI), a `performance` governor, more than one machine.

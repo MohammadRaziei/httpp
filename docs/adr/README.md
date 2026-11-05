@@ -42,6 +42,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0034](0034-balanced-connections-between-io-threads.md) | Connections are shared evenly between I/O threads (least loaded engine takes the next one) | accepted |
 | [0035](0035-hook-path-needs-no-server-pointer.md) | The answer hook path does not touch the server object (late answers after the server is gone) | accepted |
 | [0036](0036-connection-read-buffer-not-zero-filled.md) | The per-connection read buffer is not zero-filled | accepted |
+| [0037](0037-middleware-through-use.md) | Middleware through `server::use()` and ready-made hooks (CORS, trusted host, gzip) | accepted |
 
 ## Not decided yet
 

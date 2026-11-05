@@ -1483,6 +1483,25 @@ cdef class Server:
         o.sort = sort.encode("utf-8")
         mount_file_browser(self._srv[0], base.encode("utf-8"), root.encode("utf-8"), o)
 
+    def _add_cors(self, origins, str origin_regex, methods, headers, bint credentials, expose, int max_age):
+        """Install the C++ CORS middleware (include/httpp/middleware.hpp); use Server.add_middleware(CORSMiddleware, ...)."""
+        cdef cpp_cors_options o
+        o.allow_origins = [x.encode("utf-8") for x in origins]
+        o.allow_origin_regex = origin_regex.encode("utf-8")
+        o.allow_methods = [x.encode("utf-8") for x in methods]
+        o.allow_headers = [x.encode("utf-8") for x in headers]
+        o.allow_credentials = credentials
+        o.expose_headers = [x.encode("utf-8") for x in expose]
+        o.max_age = max_age
+        add_cors(self._srv[0], o)
+
+    def _add_trusted_host(self, hosts, bint www_redirect):
+        """Install the C++ trusted-host middleware; use Server.add_middleware(TrustedHostMiddleware, ...)."""
+        cdef cpp_trusted_host_options o
+        o.allowed_hosts = [x.encode("utf-8") for x in hosts]
+        o.www_redirect = www_redirect
+        add_trusted_host(self._srv[0], o)
+
     def add_route(self, str method, str path, handler):
         """Low-level: register `handler` for `method` + `path` ("/users/:id").
         `handler(method, path, body, headers, query, path_params)` returns (status, body, headers):
@@ -2234,6 +2253,22 @@ cdef extern from "httpp/file_browser.hpp" namespace "httpp":
         string view
         string sort
     void mount_file_browser(cpp_server& s, const string& base, const string& root, const cpp_file_browser_options& options) except +
+
+
+cdef extern from "httpp/middleware.hpp" namespace "httpp":
+    cdef cppclass cpp_cors_options "httpp::cors_options":
+        vector[string] allow_origins
+        string allow_origin_regex
+        vector[string] allow_methods
+        vector[string] allow_headers
+        cbool allow_credentials
+        vector[string] expose_headers
+        int max_age
+    cdef cppclass cpp_trusted_host_options "httpp::trusted_host_options":
+        vector[string] allowed_hosts
+        cbool www_redirect
+    void add_cors(cpp_server& s, const cpp_cors_options& options) except +
+    void add_trusted_host(cpp_server& s, const cpp_trusted_host_options& options) except +
 
 
 def _swagger_ui_asset(str name):

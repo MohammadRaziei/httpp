@@ -62,6 +62,7 @@ TARGETS = {
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("swagger_ui.hpp", ""): httpp,
     ("file_browser.hpp", ""): httpp,
+    ("middleware.hpp", ""): httpp,
     ("server.hpp", "responder"): None,  # handed to route_async handlers; Python handlers just return or await
     ("websocket.hpp", "websocket"): None,  # Python's WebSocket is its own awaitable API over a mailbox (ADR-0027), not this handle
     ("websocket.hpp", "ws_acceptor"): None,  # Python's handler accepts through `await websocket.accept()`
@@ -75,6 +76,7 @@ ALIASES = {
     "server": {
         "del": "delete", "before": "before_request", "after": "after_request",
         "set_error_handler": "error_handler", "set_exception_handler": "exception_handler",
+        "use": "add_middleware",  # the C++ use() takes raw hooks; Python installs the ready-made classes of httpp.middleware
         # an `async def` handler goes through the ordinary decorator in Python
         "route_async": "route", "get_async": "get", "post_async": "post", "put_async": "put",
         "patch_async": "patch", "del_async": "delete",
@@ -84,7 +86,8 @@ ALIASES = {
         "route_async": "route", "get_async": "get", "post_async": "post", "put_async": "put",
         "patch_async": "patch", "del_async": "delete",
     },
-    "": {"mount_swagger_ui": None, "mount_file_browser": None},  # live on Server (checked below)
+    "": {"mount_swagger_ui": None, "mount_file_browser": None,
+         "add_cors": "CORSMiddleware", "add_trusted_host": "TrustedHostMiddleware"},  # live on Server (checked below)
 }
 
 # C++ setters that are constructor arguments in Python: name -> keyword, with a value that must be accepted.

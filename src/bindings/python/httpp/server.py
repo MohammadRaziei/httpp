@@ -1186,6 +1186,15 @@ class Server(_Server):
 
     # --- hooks (the C++ core keeps one hook of each kind; these chain any number of them) ---
 
+    def add_middleware(self, middleware_class, **options):
+        """app.add_middleware(CORSMiddleware, allow_origins=["*"]): install a ready-made middleware from
+        httpp.middleware (CORSMiddleware, TrustedHostMiddleware, GZipMiddleware). They run in C++ without the GIL,
+        before_request hooks run after them, and after_request hooks before them. Options are validated here."""
+        if not (isinstance(middleware_class, type) and callable(getattr(middleware_class, "install", None))):
+            raise TypeError("add_middleware() takes a class from httpp.middleware (arbitrary ASGI middleware is not supported)")
+        middleware_class(**options).install(self)
+        return self
+
     def before_request(self, fn):
         """@app.before_request: fn(request) returns None to go on, or a response (anything a
         route may return) to answer right here without calling the route."""

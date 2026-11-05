@@ -9,6 +9,8 @@ such changes are listed under **Changed**).
 
 ### Added
 
+- C++: `server::use(before, after)` for middleware next to the application's own hooks, `httpp::add_cors` and `httpp::add_trusted_host` (`httpp/middleware.hpp`) (ADR-0037).
+- Python: `Server.add_middleware(CORSMiddleware | TrustedHostMiddleware | GZipMiddleware, **options)`, shaped like Starlette's; the work runs in C++ without the GIL.
 - C++: `httpp::mount_file_browser(server&, base, root, file_browser_options)`, a read-only file browser (list, navigate, preview, download; theme, accent, filter, hidden files, entry limit) with its own
   embedded page and no dependencies (ADR-0032).
 - Python: `Server.mount_file_browser(base, root, **options)` (same options as C++) and the `httpp browse [DIRECTORY]` command.
