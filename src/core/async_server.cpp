@@ -198,6 +198,7 @@ struct async_server::impl {
     std::shared_ptr<poster> poster_ = std::make_shared<poster>();
     std::unordered_set<std::shared_ptr<asio::steady_timer>> timers; // loop thread only
     bool closing = false;                                           // loop thread only
+    bool draining = false;                                          // loop thread only: a graceful stop is in progress
     bool failed = false;
 
     std::mutex mu; // lifecycle flags
@@ -227,6 +228,7 @@ struct async_server::impl {
     }
 
     void begin_close();
+    void begin_drain(std::chrono::milliseconds grace);
     void accept_next();
     void adopt(tcp::socket s);        // loop thread: the connection becomes this engine's (or is refused over the limit)
     impl* pick_engine();              // any thread: the engine with the fewest connections, this one on a tie; counts the promise
@@ -555,7 +557,11 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
             tq.clear();
             t->on_close();
         }
+        if (srv.draining && !srv.closing && srv.conns.empty()) srv.begin_close(); // the last one left: the drain is over
     }
+
+    // Waiting for the first byte of a request (nothing half read, nothing being answered), and not a tunnel.
+    bool idle() const { return !answering && !got_bytes && !tun; }
 
     // ---- reading ----
     void start() { next_request(); }
@@ -697,7 +703,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
             log_what.clear();
         }
         const bool bodyless = req_head || r.status < 200 || r.status == 204 || r.status == 304;
-        bool keep = req_keep && remaining > 1 && !r.close && !srv.closing;
+        bool keep = req_keep && remaining > 1 && !r.close && !srv.closing && !srv.draining;
         const bool streaming = static_cast<bool>(r.next);
         bool chunked = false;
         if (streaming && r.length < 0 && !bodyless) {
@@ -863,6 +869,24 @@ void async_server::impl::begin_close() {
     timers.clear();
     auto all = conns; // close() erases from the set
     for (auto& c : all) c->close();
+}
+
+void async_server::impl::begin_drain(std::chrono::milliseconds grace) {
+    if (closing || draining) return;
+    draining = true;
+    std::error_code ec;
+    acceptor.close(ec);
+    backoff.cancel();
+    auto all = conns; // close() erases from the set
+    for (auto& c : all) if (c->idle() || c->tun) c->close();
+    if (closing || conns.empty()) { begin_close(); return; }
+    auto t = std::make_shared<asio::steady_timer>(io);
+    timers.insert(t);
+    t->expires_after(grace);
+    t->async_wait([this, t](std::error_code e) {
+        timers.erase(t);
+        if (!e && !closing) begin_close(); // the grace period is over: cut what is left
+    });
 }
 
 // A socket that was released from one engine's reactor on its way to another engine. If the other engine never takes it (it is shutting
@@ -1060,6 +1084,7 @@ bool async_server::run() {
         stop_now = m.stop_requested;
     }
     m.closing = false;
+    m.draining = false;
     m.failed = false;
     m.io.restart();
     m.accept_next();
@@ -1078,6 +1103,14 @@ bool async_server::run() {
     m.io.poll();
     t_loop_engine = nullptr;
     return !m.failed;
+}
+
+void async_server::drain(std::chrono::milliseconds grace) {
+    auto& m = *impl_;
+    std::lock_guard<std::mutex> lock(m.mu);
+    if (!m.bound) return;
+    if (!m.running) { m.stop_requested = true; return; }
+    asio::post(m.io, [&m, grace] { m.begin_drain(grace); });
 }
 
 void async_server::stop() {

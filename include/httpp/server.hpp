@@ -202,6 +202,12 @@ public:
     HTTPP_API bool listen_after_bind();
     HTTPP_API bool listen(const std::string& host, int port);
     HTTPP_API void stop();
+    // Graceful stop (ADR-0038), from any thread; listen() returns once it is done. The listener closes at once (new connections
+    // are refused), idle keep-alive connections and WebSocket connections are closed at once, and a request that is being
+    // handled gets its answer, with "Connection: close", before its connection ends. Whatever is still open after `grace`
+    // (a handler that never answers, a slow client) is cut as stop() does. stop() stays the immediate one and may be called
+    // during a drain to end it. Does nothing when the server is not listening.
+    HTTPP_API void shutdown(std::chrono::milliseconds grace = std::chrono::seconds(10));
 
     // --- Hooks. They run for every request, including static files and unmatched paths. ---
     // before: return true to answer the request yourself (the route is then not called), e.g. to

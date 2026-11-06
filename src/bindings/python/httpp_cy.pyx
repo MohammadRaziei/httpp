@@ -120,6 +120,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cbool listen_after_bind() except + nogil
         cbool listen(string host, int port) except + nogil
         void stop() except +
+        void shutdown(cpp_milliseconds grace) except +
 
 
 # Bridge from a plain C function pointer (+ context) to httpp::handler, which
@@ -1695,6 +1696,16 @@ cdef class Server:
 
     def stop(self):
         self._srv.stop()
+
+    def shutdown(self, grace=10.0):
+        """Graceful stop: refuse new connections, close idle ones, let requests in progress finish (with
+        "Connection: close"), and cut whatever is still open after `grace` seconds (default 10). listen() returns
+        when done. Does nothing when not listening; stop() is the immediate one."""
+        if isinstance(grace, bool) or not isinstance(grace, (int, float)):
+            raise TypeError("grace must be a number of seconds")
+        if not (0 <= grace < 1e9):  # also false for nan
+            raise ValueError("grace must be a number of seconds from 0 up")
+        self._srv.shutdown(cpp_milliseconds(<long long>(grace * 1000)))
 
 
 cdef class DownloadResult:

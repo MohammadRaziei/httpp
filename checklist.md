@@ -44,8 +44,9 @@ Design and costs: `HANDOFF.md` section 6.1. Rules: tests first; behaviour identi
 - [ ] **(proposed)** A test client in Python (`httpp.testclient`), Starlette-shaped, running the app in process without a port: needed for users' own tests
 - [~] Middleware set (ADR-0037): CORS, TrustedHost and GZip done (C++ and Python); HTTPS redirect waits for server TLS (the server has no request scheme yet)
 - [ ] **(proposed)** TLS for the server (`https`, `wss`): the engine has no TLS; mbedTLS is already vendored for the client; needs its own design and an ADR
-- [ ] **(proposed)** `--reload` for development
-- [ ] **(proposed)** Graceful shutdown with connection drain and a timeout; `--workers` respawn of crashed workers (today no respawn, and SIGKILL of the supervisor leaves workers)
+- [x] `--reload` for development (ADR-0039)
+- [x] Graceful shutdown with connection drain and a timeout (ADR-0038)
+- [ ] **(proposed)** `--workers` respawn of crashed workers (today no respawn, and SIGKILL of the supervisor leaves workers)
 - [ ] Dependencies with `yield` (cleanup after the response) and `response_model` filtering: check what the FastAPI layer lacks against FastAPI's docs
 - [ ] Static files mounted from Python (`mount_static`-style) beyond `serve_directory`; ETag, `Last-Modified` and 304 (not in the file browser v1 either)
 - [ ] A total deadline for a dripped request body

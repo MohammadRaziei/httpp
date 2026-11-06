@@ -62,7 +62,8 @@ def _cmd_run(args):
 
     try:
         return run(args.app, args.host, args.port, workers=args.workers, reuse_port=args.reuse_port, log_level=args.log_level,
-                   io_threads=args.io_threads)
+                   io_threads=args.io_threads, shutdown_timeout=args.shutdown_timeout,
+                   reload=args.reload, reload_dirs=args.reload_dirs, reload_patterns=args.reload_patterns)
     except (ValueError, TypeError, OSError) as e:
         print(f"httpp: error: {e}", file=sys.stderr)
         return 1
@@ -238,6 +239,15 @@ def build_parser():
     p_run.add_argument("--io-threads", type=int, default=None, metavar="N",
                        help="I/O threads sharing the port inside each process (default 1); on a free-threaded Python "
                             "each also gets its own asyncio loop")
+    p_run.add_argument("--shutdown-timeout", type=float, default=None, metavar="SECONDS",
+                       help="on Ctrl+C or SIGTERM, how long requests in progress may take to finish before they are cut "
+                            "(default 10)")
+    p_run.add_argument("--reload", action="store_true",
+                       help="development: restart the app when a source file changes (one worker; polls the files)")
+    p_run.add_argument("--reload-dir", dest="reload_dirs", action="append", default=None, metavar="DIR",
+                       help="with --reload, a directory to watch (repeatable; default: the current directory)")
+    p_run.add_argument("--reload-pattern", dest="reload_patterns", action="append", default=None, metavar="GLOB",
+                       help="with --reload, a file name pattern to watch (repeatable; default: *.py)")
     p_run.add_argument("--reuse-port", action="store_true", help="let other httpp processes share the port (Linux only)")
     p_run.add_argument("--log-level", choices=("trace", "debug", "info", "warning", "error", "off"), default=None)
     p_run.set_defaults(func=_cmd_run)

@@ -107,6 +107,10 @@ public:
     // Thread-safe. Closes the listener and every connection; run() then returns. A stop()
     // requested after bind() but before run() is honoured.
     void stop();
+    // Thread-safe. Graceful stop: the listener closes, idle and tunnel connections close at once, a request in progress is
+    // answered with "Connection: close", and whatever is still open after `grace` is closed as stop() does. run() returns
+    // when the last connection is gone. A hard stop() during a drain ends it. Before run(), same as stop().
+    void drain(std::chrono::milliseconds grace);
 
     // Thread-safe. Runs `fn` on the loop thread after `delay`; it must not block. Dropped when the
     // loop stops. Does nothing if the loop is not running.

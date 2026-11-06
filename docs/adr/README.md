@@ -43,6 +43,8 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0035](0035-hook-path-needs-no-server-pointer.md) | The answer hook path does not touch the server object (late answers after the server is gone) | accepted |
 | [0036](0036-connection-read-buffer-not-zero-filled.md) | The per-connection read buffer is not zero-filled | accepted |
 | [0037](0037-middleware-through-use.md) | Middleware through `server::use()` and ready-made hooks (CORS, trusted host, gzip) | accepted |
+| [0038](0038-graceful-shutdown.md) | Graceful shutdown with a grace period (`shutdown()`, SIGTERM, `--shutdown-timeout`) | accepted |
+| [0039](0039-reload-supervisor.md) | `--reload`: a polling supervisor that restarts the app process | accepted |
 
 ## Not decided yet
 

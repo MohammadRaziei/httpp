@@ -341,6 +341,7 @@ struct server::impl {
     std::size_t pool_base = std::max<std::size_t>(8, std::thread::hardware_concurrency());
     std::size_t pool_max = 0; // 0 = 4 x base
     std::chrono::microseconds pool_grow_after{500};
+    std::atomic<bool> draining{false}; // shutdown() was called: an engine that finishes early must not stop the others (ADR-0038)
     std::atomic<int> async_timeout{60};
 
     // Requests that wait for the answer of a route_async / route_io handler, oldest first. They all have
@@ -1220,6 +1221,7 @@ int server::bind_to_any_port(const std::string& host) {
 }
 
 bool server::listen_after_bind() {
+    impl_->draining = false;
     const std::size_t base = impl_->pool_base;
     const std::size_t max = impl_->pool_max ? impl_->pool_max : base * 4;
     detail::worker_pool pool(base, max, impl_->pool_grow_after);
@@ -1265,7 +1267,9 @@ bool server::listen_after_bind() {
     tl_wait_list = nullptr;
     tl_wait_owner = nullptr;
     tl_on_io_thread = false;
-    for (auto& e : impl_->engines) e->stop(); // if this one ended on its own, the others must end too
+    // If this one ended on its own (a failure), the others must end too. After shutdown() each engine ends when its own
+    // connections are gone or its grace period is over, so one that finishes first must not cut the others.
+    if (!ok || !impl_->draining.load()) for (auto& e : impl_->engines) e->stop();
     for (auto& t : more) t.join();
     impl_->pool = nullptr;
     pool.shutdown(); // joins the workers
@@ -1283,5 +1287,9 @@ bool server::listen(const std::string& host, int port) {
 }
 
 void server::stop() { for (auto& e : impl_->engines) e->stop(); }
+void server::shutdown(std::chrono::milliseconds grace) {
+    impl_->draining = true;
+    for (auto& e : impl_->engines) e->drain(grace);
+}
 
 } // namespace httpp

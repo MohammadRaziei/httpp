@@ -83,10 +83,15 @@ def _resolve_workers(workers):
     raise ValueError('workers must be an integer >= 1 or "auto"')
 
 
-def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_level=None, io_threads=None):
+def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_level=None, io_threads=None, shutdown_timeout=None,
+        reload=False, reload_dirs=None, reload_patterns=None):
     """Serve `app` (an httpp.Server, or an import string 'module:attr') until Ctrl+C or SIGTERM.
 
-    Shutdown is graceful: in-flight work ends and the app's on_shutdown hooks run.
+    Shutdown is graceful: the port closes, requests in progress finish (they get "Connection: close"), and the app's on_shutdown
+    hooks run. shutdown_timeout (seconds, default the app's `shutdown_timeout`, 10) is how long that may take before what is
+    still open is cut; a second Ctrl+C cuts at once.
+    reload=True (development only; needs an import string and one worker) runs the app in a child process and restarts
+    it when a file matching reload_patterns (default ["*.py"]) under reload_dirs (default: the current directory) changes.
     workers > 1 starts that many processes sharing the port (Linux only), which is how a
     Python server gets past the GIL; it needs an import string, because each worker imports
     the app itself. log_level is "info" by default (one access line per request on stderr);
@@ -102,6 +107,17 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
         raise ValueError("host must be a non-empty string")
     if not (isinstance(port, int) and 1 <= port <= 65535):
         raise ValueError("port must be an integer from 1 to 65535")
+    if shutdown_timeout is not None:
+        if isinstance(shutdown_timeout, bool) or not isinstance(shutdown_timeout, (int, float)):
+            raise TypeError("shutdown_timeout must be a number of seconds")
+        if not (0 <= shutdown_timeout < 1e9):
+            raise ValueError("shutdown_timeout must be a number of seconds from 0 up")
+    if reload:
+        if not isinstance(app, str):
+            raise TypeError("reload needs an import string like 'main:app': the app is imported again in a new process")
+        if workers != "auto" and workers != 1:
+            raise ValueError("reload cannot be combined with workers")
+        workers = 1
     auto = workers == "auto"
     workers = _resolve_workers(workers)
     if auto and workers > 1 and not isinstance(app, str):
@@ -112,10 +128,15 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
     set_log_level(log_level or "info")  # like uvicorn: startup and one line per request; "warning" silences them
     _log.ensure_handler()  # with no logging configured by the app, print to stderr
 
+    if reload:
+        from . import _reload
+
+        return _reload.serve(app, host, port, log_level, io_threads, shutdown_timeout, reload_dirs, reload_patterns)
+
     if workers > 1:
         if not isinstance(app, str):
             raise TypeError("workers > 1 needs an import string like 'main:app': each worker process imports the app itself")
-        return _supervise(app, host, port, workers, log_level, io_threads)
+        return _supervise(app, host, port, workers, log_level, io_threads, shutdown_timeout)
 
     if isinstance(app, str):
         # The file may also start itself (`app.listen(...)` / `app.run()` outside an `if __name__` guard);
@@ -133,12 +154,14 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
         app.set_reuse_port(True)
     if io_threads is not None:
         app.set_io_threads(io_threads)
+    if shutdown_timeout is not None:
+        app.shutdown_timeout = shutdown_timeout
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGTERM, signal.default_int_handler)  # SIGTERM stops like Ctrl+C: graceful
     app.listen(host, port)  # logs "listening on ..." (info) once the port is really bound  # returns after Ctrl+C / stop(); raises OSError if the port can't be bound
 
 
-def _supervise(target, host, port, workers, log_level, io_threads=None):
+def _supervise(target, host, port, workers, log_level, io_threads=None, shutdown_timeout=None):
     """Start `workers` fresh `httpp run` processes on one port and keep them until a signal or a death.
 
     ponytail: a worker that dies stops the whole group (exit code 1) instead of being restarted;
@@ -151,6 +174,9 @@ def _supervise(target, host, port, workers, log_level, io_threads=None):
         cmd += ["--log-level", log_level]
     if io_threads is not None:
         cmd += ["--io-threads", str(io_threads)]
+    grace = _GRACE if shutdown_timeout is None else shutdown_timeout
+    if shutdown_timeout is not None:
+        cmd += ["--shutdown-timeout", str(shutdown_timeout)]
     # Own session: Ctrl+C reaches only this supervisor, which then sends each worker exactly one SIGTERM.
     procs = [subprocess.Popen(cmd, start_new_session=True) for _ in range(workers)]
     stop = []
@@ -170,7 +196,7 @@ def _supervise(target, host, port, workers, log_level, io_threads=None):
         for p in procs:
             if p.poll() is None:
                 p.terminate()
-        deadline = time.monotonic() + _GRACE
+        deadline = time.monotonic() + grace + 2  # the workers cut at `grace` themselves; this is only for a stuck one
         for p in procs:
             try:
                 p.wait(max(0.0, deadline - time.monotonic()))

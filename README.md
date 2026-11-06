@@ -395,9 +395,16 @@ if __name__ == "__main__":
 httpp run main:app --host 0.0.0.0 --port 8000
 httpp run main:app --workers 4             # four processes sharing the port (Linux only)
 httpp run main:app --workers auto          # one per usable CPU
+httpp run main:app --reload                # development: restart when a .py file changes
 ```
 
-- `run()` stops on **Ctrl+C or SIGTERM**, gracefully: in-flight work ends and `on_shutdown` hooks run.
+- `run()` stops on **Ctrl+C or SIGTERM**, gracefully: the port closes at once, requests in progress finish (they are answered with
+  `Connection: close`), then `on_shutdown` hooks run. `--shutdown-timeout SECONDS` (`run(shutdown_timeout=...)`, default 10) is how long
+  that may take before what is still open is cut; a second Ctrl+C cuts at once. `app.shutdown(grace)` / `server::shutdown(grace)` do the same from code.
+- **`--reload` is for development.** The app runs in a child process; when a file matching `--reload-pattern` (repeatable, default `*.py`) under
+  `--reload-dir` (repeatable, default the current directory) changes, the child is stopped (1 second grace) and a new one starts, so the new code is
+  imported fresh. A syntax error leaves the watcher waiting for the next save. It needs an import string and one worker, and it polls the files
+  (hidden directories, `__pycache__`, `node_modules` and virtual environments are skipped), so it works the same on every OS.
   `httpp.run(app_or_"module:attr", ...)` is the same function; `listen()` stays as the low-level call.
 - **`--workers N` (`workers=N`) is how you get past the GIL.** Python code in a handler needs the GIL
   whatever the server does, so one process runs at most one handler's Python at a time. N processes

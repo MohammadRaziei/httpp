@@ -1307,6 +1307,9 @@ class Server(_Server):
                 except Exception:
                     traceback.print_exc()  # one failing hook must not stop the others
 
+    #: Seconds a graceful stop (Ctrl+C, SIGTERM) waits for requests in progress before cutting them. `httpp run --shutdown-timeout`.
+    shutdown_timeout = 10.0
+
     def listen_after_bind(self):
         """Block until stop(), running the startup/shutdown hooks around it."""
         with self._lifecycle():
@@ -1343,10 +1346,15 @@ class Server(_Server):
                 while not finished:
                     time.sleep(0.05)
             except KeyboardInterrupt:
-                # stop() does nothing until the port is bound, so repeat it until the server is really done.
+                # Graceful (ADR-0038): requests in progress finish, within shutdown_timeout seconds. shutdown() and stop() do
+                # nothing until the port is bound, so repeat until the server is really done; a second Ctrl+C cuts at once.
+                hard = False
                 while not finished:
-                    self.stop()
-                    time.sleep(0.05)
+                    try:
+                        (self.stop if hard else lambda: self.shutdown(self.shutdown_timeout))()
+                        time.sleep(0.05)
+                    except KeyboardInterrupt:
+                        hard = True
         if failure:
             raise failure[0]
 
