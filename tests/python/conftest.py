@@ -22,6 +22,12 @@ import httpp_cli
 _PACKAGE_ROOT = str(Path(httpp.__file__).resolve().parent.parent)
 os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, [_PACKAGE_ROOT, os.environ.get("PYTHONPATH")]))
 
+# Python 3.14 argparse colours its help when FORCE_COLOR is set (CI sets it), which puts escape codes inside "usage: httpp py". The tests
+# compare text, so neither this process nor the commands it starts may colour.
+os.environ.pop("FORCE_COLOR", None)
+os.environ["NO_COLOR"] = "1"
+os.environ["PYTHON_COLORS"] = "0"
+
 
 def _find_command():
     name = "httpp.exe" if os.name == "nt" else "httpp"
