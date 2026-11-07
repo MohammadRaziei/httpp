@@ -1,10 +1,13 @@
-"""Command-line interface for httpp. Stdlib only (argparse) - no
-third-party dependencies, matching the rest of the project."""
+"""The Python half of the httpp command line (ADR-0041): `run` and `path`. Stdlib only (argparse).
+
+`httpp py run main:app` is `python -m httpp run main:app` (the `httpp` command is httpp_cli.py, next to the package, which starts the native
+executable for server, browse, download and curl; `python -m httpp browse` does that too)."""
 
 import argparse
-import shutil
 import sys
-from pathlib import Path
+
+from httpp_cli import NATIVE_COMMANDS, run_native
+
 
 
 def _workers_arg(text):
@@ -20,159 +23,17 @@ def _workers_arg(text):
     return n
 
 
-def _cmd_server(args):
-    from httpp import Server
-
-    srv = Server()
-    srv.serve_directory("/", args.directory)
-    print(f"Serving {args.directory!r} at http://{args.host}:{args.port}/")
-    try:
-        srv.listen(args.host, args.port)
-    except KeyboardInterrupt:
-        srv.stop()
-
-
-def _cmd_browse(args):
-    from httpp import Server
-
-    root = Path(args.directory)
-    if not root.is_dir():
-        print(f"httpp: error: {args.directory!r} is not a folder", file=sys.stderr)
-        return 1
-    srv = Server()
-    try:
-        srv.mount_file_browser("/", str(root.resolve()), title=args.title, theme=args.theme, accent=args.accent, search=not args.no_search,
-                               show_hidden=args.hidden, max_entries=args.max_entries, view=args.view, sort=args.sort)
-    except ValueError as e:
-        print(f"httpp: error: {e}", file=sys.stderr)
-        return 1
-    print(f"Browsing {str(root.resolve())!r} (read-only) at http://{args.host}:{args.port}/")
-    try:
-        srv.listen(args.host, args.port)
-    except OSError as e:
-        print(f"httpp: error: {e}", file=sys.stderr)
-        return 1
-    except KeyboardInterrupt:
-        srv.stop()
-    return 0
-
-
 def _cmd_run(args):
     from httpp import run
 
     try:
         return run(args.app, args.host, args.port, workers=args.workers, reuse_port=args.reuse_port, log_level=args.log_level,
                    io_threads=args.io_threads, shutdown_timeout=args.shutdown_timeout,
-                   reload=args.reload, reload_dirs=args.reload_dirs, reload_patterns=args.reload_patterns)
+                   reload=args.reload, reload_dirs=args.reload_dirs, reload_patterns=args.reload_patterns,
+                   ssl_certfile=args.ssl_certfile, ssl_keyfile=args.ssl_keyfile, ssl_keyfile_password=args.ssl_keyfile_password)
     except (ValueError, TypeError, OSError) as e:
         print(f"httpp: error: {e}", file=sys.stderr)
         return 1
-
-
-def _cmd_download(args):
-    if args.output:
-        # Real download to a file, with a terminal progress bar (see
-        # httpp::download / httpp::progress::bar) - nothing here
-        # reimplements the request or the progress logic, it's all in C++.
-        from httpp import Download
-
-        result = Download(args.url, args.output).enable_progress(not args.quiet).run()
-        if not result.ok:
-            print(f"error: {result.error}", file=sys.stderr)
-            return 1
-        return 0
-
-    # No destination given: behave like `curl URL` with no -o - print the
-    # body to stdout. URL parsing happens entirely in the C++ layer
-    # (httpp::client::fetch, backed by the vendored liburlparser).
-    from httpp import Client
-
-    res = Client.fetch(args.url)
-    if not res.ok:
-        print(f"error: request failed with status {res.status}", file=sys.stderr)
-        return 1
-    print(res.body)
-    return 0
-
-
-def _sdk_base(args):
-    if args.prefix:
-        return Path(args.prefix)
-    if args.user:
-        return Path.home() / ".local"
-    return Path("/usr/local")
-
-
-def _cmd_install(args):
-    import httpp as _httpp
-
-    base = _sdk_base(args)
-    target = base / "httpp"
-    sources = {
-        "include": _httpp.get_include_dir(),
-        "lib": _httpp.get_lib_dir(),
-        "cmake": _httpp.get_cmake_dir(),
-    }
-    try:
-        for name, src in sources.items():
-            shutil.copytree(src, target / name, dirs_exist_ok=True)
-    except PermissionError:
-        print(
-            f"error: no permission to write to {target}\n"
-            f"Try `httpp install --user`, or re-run with sudo.",
-            file=sys.stderr,
-        )
-        return 1
-
-    print(f"Installed httpp headers/lib/cmake config to {target}")
-    print(f"To use: cmake -DCMAKE_PREFIX_PATH={base} ...  then find_package(httpp CONFIG)")
-    return 0
-
-
-def _cmd_uninstall(args):
-    base = _sdk_base(args)
-    target = base / "httpp"
-    if not target.exists():
-        print(f"nothing installed at {target}")
-        return 0
-    try:
-        shutil.rmtree(target)
-    except PermissionError:
-        print(
-            f"error: no permission to remove {target}\n"
-            f"Try `httpp uninstall --user`, or re-run with sudo.",
-            file=sys.stderr,
-        )
-        return 1
-    print(f"Removed {target}")
-    return 0
-
-
-def _cmd_curl(args):
-    from httpp import Request
-
-    req = Request(args.url)
-    if args.request:
-        req.method(args.request)
-    for h in args.header or []:
-        if ":" not in h:
-            print(f"error: malformed header (expected 'Name: value'): {h!r}", file=sys.stderr)
-            return 1
-        name, value = h.split(":", 1)
-        req.header(name.strip(), value.strip())
-    if args.data is not None:
-        req.data(args.data)
-
-    res = req.run()
-    if args.output:
-        with open(args.output, "w", encoding="utf-8") as f:
-            f.write(res.body)
-    else:
-        print(res.body)
-    if not res.ok:
-        print(f"error: request failed with status {res.status}", file=sys.stderr)
-        return 1
-    return 0
 
 
 def _cmd_path(args):
@@ -198,9 +59,10 @@ def _cmd_path(args):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="httpp", description="httpp: a lightweight HTTP client + server toolkit."
+        prog="httpp py", description="httpp Python commands: run an app, print the SDK directories. "
+        "The native commands (server, browse, download, curl) are `httpp server` etc., without `py`."
     )
-    # Top-level path flags (nanobind/pybind11 style: `httpp --cmake-dir`,
+    # Top-level path flags (nanobind/pybind11 style: `httpp py --cmake-dir`,
     # same info as `python -c "import httpp; print(httpp.get_cmake_dir())"`)
     # work standalone, without a subcommand.
     parser.add_argument("--cmake-dir", action="store_true", help="Print the directory containing httppConfig.cmake and exit.")
@@ -209,27 +71,7 @@ def build_parser():
 
     sub = parser.add_subparsers(dest="command")
 
-    p_server = sub.add_parser("server", help="Serve a directory over HTTP, like `python -m http.server`.")
-    p_server.add_argument("directory", nargs="?", default=".")
-    p_server.add_argument("--host", default="0.0.0.0")
-    p_server.add_argument("--port", "-p", type=int, default=8000)
-    p_server.set_defaults(func=_cmd_server)
-
-    p_browse = sub.add_parser("browse", help="Browse a directory in the web browser (read-only: list, open, download).")
-    p_browse.add_argument("directory", nargs="?", default=".")
-    p_browse.add_argument("--host", default="127.0.0.1", help="default 127.0.0.1; use 0.0.0.0 to share on every interface (there is no login)")
-    p_browse.add_argument("--port", "-p", type=int, default=8000)
-    p_browse.add_argument("--title", default="Files")
-    p_browse.add_argument("--theme", choices=("auto", "light", "dark"), default="auto")
-    p_browse.add_argument("--accent", default="", metavar="#RRGGBB", help="accent colour")
-    p_browse.add_argument("--no-search", action="store_true", help="hide the filter box")
-    p_browse.add_argument("--hidden", action="store_true", help="list and serve names that start with a dot")
-    p_browse.add_argument("--max-entries", type=int, default=5000, metavar="N", help="longest folder listing (default 5000)")
-    p_browse.add_argument("--view", choices=("list", "grid"), default="list")
-    p_browse.add_argument("--sort", choices=("name", "size", "date"), default="name")
-    p_browse.set_defaults(func=_cmd_browse)
-
-    p_run = sub.add_parser("run", help="Run an httpp app: `httpp run main:app`.")
+    p_run = sub.add_parser("run", help="Run an httpp app: `httpp py run main:app`.")
     p_run.add_argument("app", help="import string 'module:attribute' of an httpp.Server")
     p_run.add_argument("--host", default="127.0.0.1", help="default 127.0.0.1; use 0.0.0.0 to listen on every interface")
     p_run.add_argument("--port", "-p", type=int, default=8000)
@@ -248,41 +90,14 @@ def build_parser():
                        help="with --reload, a directory to watch (repeatable; default: the current directory)")
     p_run.add_argument("--reload-pattern", dest="reload_patterns", action="append", default=None, metavar="GLOB",
                        help="with --reload, a file name pattern to watch (repeatable; default: *.py)")
+    p_run.add_argument("--ssl-certfile", default=None, metavar="FILE", help="serve https and wss: the certificate chain (PEM, leaf first)")
+    p_run.add_argument("--ssl-keyfile", default=None, metavar="FILE", help="the private key (PEM) of --ssl-certfile")
+    p_run.add_argument("--ssl-keyfile-password", default=None, metavar="PASSWORD", help="the password of an encrypted --ssl-keyfile")
     p_run.add_argument("--reuse-port", action="store_true", help="let other httpp processes share the port (Linux only)")
     p_run.add_argument("--log-level", choices=("trace", "debug", "info", "warning", "error", "off"), default=None)
     p_run.set_defaults(func=_cmd_run)
 
-    p_download = sub.add_parser("download", help="Download a URL (to stdout, or a file with -o).")
-    p_download.add_argument("url")
-    p_download.add_argument("-o", "--output", default=None, help="Save to this file (shows a progress bar) instead of printing to stdout.")
-    p_download.add_argument("-q", "--quiet", action="store_true", help="With -o, suppress the progress bar.")
-    p_download.set_defaults(func=_cmd_download)
-
-    p_curl = sub.add_parser("curl", help="Make a request (limited curl-like subset: -X/-H/-d).")
-    p_curl.add_argument("url")
-    p_curl.add_argument("-X", "--request", default=None, help="HTTP method (default: GET, or POST if -d is given).")
-    p_curl.add_argument("-H", "--header", action="append", default=None, help="Extra header 'Name: value' (repeatable).")
-    p_curl.add_argument("-d", "--data", default=None, help="Request body.")
-    p_curl.add_argument("-o", "--output", default=None, help="Write the response body to this file instead of stdout.")
-    p_curl.set_defaults(func=_cmd_curl)
-
-    sdk_parent = argparse.ArgumentParser(add_help=False)
-    sdk_parent.add_argument("--prefix", default=None, help="Install location (parent of httpp/). Default: /usr/local.")
-    sdk_parent.add_argument("--user", action="store_true", help="Use ~/.local instead of /usr/local.")
-
-    p_install = sub.add_parser(
-        "install", parents=[sdk_parent],
-        help="Install the httpp C++ SDK (headers, lib, CMake config) onto the system.",
-    )
-    p_install.set_defaults(func=_cmd_install)
-
-    p_uninstall = sub.add_parser(
-        "uninstall", parents=[sdk_parent],
-        help="Remove what `httpp install` copied.",
-    )
-    p_uninstall.set_defaults(func=_cmd_uninstall)
-
-    # Same three flags as a subcommand too: `httpp path --cmake-dir`.
+    # Same three flags as a subcommand too: `httpp py path --cmake-dir`.
     p_path = sub.add_parser("path", help="Print include/lib/cmake directories (see also the top-level --cmake-dir etc.).")
     p_path.add_argument("--cmake-dir", action="store_true")
     p_path.add_argument("--include-dir", action="store_true")
@@ -293,10 +108,13 @@ def build_parser():
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] in NATIVE_COMMANDS:
+        return run_native(argv)  # `python -m httpp browse` is `httpp browse`
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    # Top-level path flags work with no subcommand: `httpp --cmake-dir`.
+    # Top-level path flags work with no subcommand: `httpp py --cmake-dir`.
     if getattr(args, "command", None) is None:
         if args.cmake_dir or args.include_dir or args.lib_dir:
             return _cmd_path(args)

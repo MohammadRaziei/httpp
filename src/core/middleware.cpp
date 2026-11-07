@@ -214,7 +214,7 @@ void add_trusted_host(server& s, const trusted_host_options& o) {
                 std::string port;
                 const std::string h = lower(trim(header));
                 if (const auto colon = h.rfind(':'); colon != std::string::npos && h.find(':') == colon) port = h.substr(colon);
-                std::string target = "http://" + other + port + encode(req.path, true);
+                std::string target = req.scheme() + "://" + other + port + encode(req.path, true);
                 char sep = '?';
                 for (const auto& [k, v] : req.query) { target += sep; target += encode(k, false) + "=" + encode(v, false); sep = '&'; }
                 res.redirect(target, 307);
@@ -222,6 +222,24 @@ void add_trusted_host(server& s, const trusted_host_options& o) {
             }
         }
         bad_request(res, "Invalid host header");
+        return true;
+    });
+}
+
+void add_https_redirect(server& s, const https_redirect_options& o) {
+    const bool trust = o.trust_forwarded_proto;
+    s.use([trust](const request& req, response& res) {
+        if (req.secure) return false;
+        if (trust && lower(trim(req.header("X-Forwarded-Proto"))) == "https") return false;
+        std::string host = trim(req.header("Host"));
+        if (host.empty()) { bad_request(res, "Invalid host header"); return true; }
+        // ponytail: the port of the Host header is kept, except the plain-HTTP default; a proxy that listens on 80 and 443 is the usual case.
+        const auto colon = host.rfind(':');
+        if (colon != std::string::npos && host.find(':') == colon && host.compare(colon, std::string::npos, ":80") == 0) host.resize(colon);
+        std::string target = "https://" + host + encode(req.path, true);
+        char sep = '?';
+        for (const auto& [k, v] : req.query) { target += sep; target += encode(k, false) + "=" + encode(v, false); sep = '&'; }
+        res.redirect(target, 307);
         return true;
     });
 }

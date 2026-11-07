@@ -95,9 +95,9 @@ def _free_port():
         return s.getsockname()[1]
 
 
-def test_browse_command(tree):
+def test_browse_command(tree, httpp_exe):
     port = _free_port()
-    proc = subprocess.Popen([sys.executable, "-m", "httpp", "browse", str(tree), "--port", str(port), "--title", "Docs", "--hidden"],
+    proc = subprocess.Popen([httpp_exe, "browse", str(tree), "--port", str(port), "--title", "Docs", "--hidden"],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         url = f"http://127.0.0.1:{port}"
@@ -115,11 +115,11 @@ def test_browse_command(tree):
         proc.wait(timeout=10)
 
 
-def test_browse_command_refuses_a_missing_folder(tmp_path):
-    r = subprocess.run([sys.executable, "-m", "httpp", "browse", str(tmp_path / "nope")], capture_output=True, text=True, timeout=30)
+def test_browse_command_refuses_a_missing_folder(tmp_path, httpp_exe):
+    r = subprocess.run([httpp_exe, "browse", str(tmp_path / "nope")], capture_output=True, text=True, timeout=30)
     assert r.returncode == 1 and "not a folder" in r.stderr
 
 
-def test_browse_command_refuses_a_bad_accent(tree):
-    r = subprocess.run([sys.executable, "-m", "httpp", "browse", str(tree), "--accent", "red"], capture_output=True, text=True, timeout=30)
+def test_browse_command_refuses_a_bad_accent(tree, httpp_exe):
+    r = subprocess.run([httpp_exe, "browse", str(tree), "--accent", "red"], capture_output=True, text=True, timeout=30)
     assert r.returncode == 1 and "error" in r.stderr

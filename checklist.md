@@ -24,26 +24,28 @@
 
 ---
 
-## 1. Command line in C++ (next, owner's design)
+## 1. Command line in C++ (done in the tree, ADR-0041; verification below)
 
-Design and costs: `HANDOFF.md` section 6.1. Rules: tests first; behaviour identical to today's `__main__.py`; English only, no em dash; zero system dependencies.
+Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl` native, `httpp py run|path` Python, `HTTPP_PYTHON`.
 
-- [ ] Tests: extend `tests/python/test_cli.py` (today `browse` is covered in `test_file_browser.py`): `server`, `download`, `curl`, `--help`, exit codes, argv with spaces and quotes passed through the shim unchanged, `run` delegation
-- [ ] Vendor `CLI11.hpp` (v2.5.0, single header, unmodified) in `src/third_party/CLI11/`; add it to `src/third_party/README.md` (version, license, "unmodified")
-- [ ] `src/cli/httpp_cli.cpp`: subcommands `server`, `browse`, `download`, `curl`, `run` (delegates to `$HTTPP_PYTHON -m httpp._run_cli`), `path`/`install`/`uninstall` (decision below)
-- [ ] CMake: executable target with `OUTPUT_NAME httpp`, linked to `httpp_core`, installed with the SDK and into the wheel inside the package folder (`httpp/_bin/`), with a non-Windows and a Windows (`.exe`) path; macOS 10.13 limits apply (POSIX calls, no `std::filesystem`)
-- [ ] `httpp/__main__.py`: only locate the binary, set `HTTPP_PYTHON=sys.executable`, `subprocess.run([binary, *argv])`, return its exit code; a clear error when the binary is missing; the `httpp` console script stays
-- [ ] `httpp/_run_cli.py` (or reuse `_run.py`): the Python half of `run`, same flags as today
-- [ ] Decide with the owner: `path`, `install`, `uninstall` in Python (proposed) or in C++
-- [ ] Wheel CI: the executable is present and runs in every wheel (`cp39-abi3`, `cp313t`, `cp314t`, `cp315t`) on three OS
-- [ ] ADR-0037, CHANGELOG, README (`httpp browse`, `httpp server` run without the GIL)
+- [x] Tests: `tests/python/test_cli.py` (server, download, curl, `--help`, exit codes, `py` argv unchanged, `HTTPP_PYTHON`), `tests/python/conftest.py` (`httpp_exe`), `test_file_browser.py` uses the executable
+- [x] Vendor `CLI11.hpp` v2.5.0 in `src/third_party/CLI11/`, listed in `src/third_party/README.md`
+- [x] `src/cli/httpp_cli.cpp`; `python -m httpp` is only `run` and `path`
+- [x] CMake: `httpp_cli` target (`OUTPUT_NAME httpp`), SDK install to `bin/`, wheel install to `httpp/bin/`; `httpp_cli.py` (next to the package in site-packages) is the console script that finds and runs it
+- [x] README, CHANGELOG, ADR-0041
+- [x] Decided 2026-11-06: no `install` or `uninstall`
+- [ ] Wheel CI: the executable is present and runs in every wheel (`cp39-abi3`, `cp313t`, `cp314t`, `cp315t`) on three OS (also check `auditwheel repair` and `delocate` with an executable inside the package, and that the execute bit survives or is restored)
+- [ ] Windows: the launcher's PATH for the DLL and the executable's own `py` spawn were never compiled or run
+- [x] Launcher outside the `httpp` package: native commands start in 25 ms through the console script (2 ms for the executable alone)
+- [ ] macOS: `@executable_path` RPATH and the 10.13 limits in `src/cli` were never compiled or run
+- [ ] Windows registry lookup of a Python (PEP 514) when none is next to the executable or on PATH
 
 ## 2. Features
 
 ### Server and framework
 - [ ] **(proposed)** A test client in Python (`httpp.testclient`), Starlette-shaped, running the app in process without a port: needed for users' own tests
-- [~] Middleware set (ADR-0037): CORS, TrustedHost and GZip done (C++ and Python); HTTPS redirect waits for server TLS (the server has no request scheme yet)
-- [ ] **(proposed)** TLS for the server (`https`, `wss`): the engine has no TLS; mbedTLS is already vendored for the client; needs its own design and an ADR
+- [x] Middleware set (ADR-0037, ADR-0040): CORS, TrustedHost, GZip and HTTPS redirect (C++ and Python)
+- [x] TLS for the server (`https`, `wss`) (ADR-0040); not yet: certificate reload without restart, session tickets, client certificates, ALPN
 - [x] `--reload` for development (ADR-0039)
 - [x] Graceful shutdown with connection drain and a timeout (ADR-0038)
 - [ ] **(proposed)** `--workers` respawn of crashed workers (today no respawn, and SIGKILL of the supervisor leaves workers)

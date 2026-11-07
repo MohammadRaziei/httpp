@@ -69,6 +69,11 @@ if(DEFINED SKBUILD)
         COMPONENT httpp_wheel
         FILES_MATCHING PATTERN "*.py"
     )
+    # The `httpp` command (ADR-0041): a module next to the package, not in it, so starting it does not import the package.
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/httpp_cli.py
+        DESTINATION .
+        COMPONENT httpp_wheel
+    )
 
     # --- also ship the C++ library inside the wheel ---
     # `pip install httpp` gives you not just the Python module but a usable

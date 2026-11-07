@@ -42,4 +42,13 @@ struct trusted_host_options {
 // Throws std::invalid_argument for an empty list or an entry such as "*example.com" or "a.*.com".
 HTTPP_API void add_trusted_host(server& s, const trusted_host_options& options);
 
+// Send requests that did not arrive over TLS to the https:// address of the same URL (307, keeping the Host header's port unless it is 80).
+// The server itself serves TLS or plain HTTP on a port, never both, so this is for a plain-HTTP server behind a proxy that terminates TLS
+// and says so with "X-Forwarded-Proto: https" (with `trust_forwarded_proto`; leave it off when clients can reach this port directly, because
+// they could then claim any scheme), or just to point people at the secure address. Requests on a TLS server are never redirected.
+struct https_redirect_options {
+    bool trust_forwarded_proto = false;
+};
+HTTPP_API void add_https_redirect(server& s, const https_redirect_options& options = {});
+
 } // namespace httpp

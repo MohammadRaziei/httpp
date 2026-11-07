@@ -23,7 +23,7 @@ The server had one `before` and one `after` hook, and the Python layer chained a
 
 - Replace `before` and `after` by a list: a breaking change for no gain; `use()` keeps both APIs.
 - Write the middleware in Python on top of `before_request`: costs a GIL round trip per request and cannot answer a preflight on the I/O thread.
-- Make `https_redirect` part of this step: the server has no TLS and no notion of a request scheme yet, so a redirect rule would loop. It comes with ADR for server TLS.
+- Make `https_redirect` part of this step: the server has no TLS and no notion of a request scheme yet, so a redirect rule would loop. It came with ADR-0040 (server TLS), which added `request::secure` and `add_https_redirect`.
 
 ## Consequences
 

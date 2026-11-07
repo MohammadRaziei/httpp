@@ -95,3 +95,8 @@ dynamic, fixed or stored Huffman blocks (upstream stb only writes fixed blocks).
 `src/core/deflate.cpp` includes it. With `stb_inflate` it gives gzip/deflate in both directions (client and server), with
 no system zlib. Its output is a plain zlib stream that the wrapper strips and re-wraps as zlib, gzip or raw deflate. To
 upgrade: copy the same section from a new libstb and re-run `tests/cpp/test_deflate.cpp`.
+
+## CLI11
+
+`CLI11/CLI11.hpp` is the single-header CLI11 v2.5.0 (<https://github.com/CLIUtils/CLI11>, BSD-3-Clause), **unmodified**, downloaded from
+`https://github.com/CLIUtils/CLI11/releases/download/v2.5.0/CLI11.hpp`. Only `src/cli/httpp_cli.cpp` includes it (the `httpp` command line, ADR-0041), built with `CLI11_HAS_FILESYSTEM=0`.

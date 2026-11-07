@@ -33,7 +33,7 @@ requires-python = ">=3.8"
 dependencies = []
 
 [project.scripts]
-httpp = "httpp.__main__:main"
+httpp = "httpp_cli:main"
 
 [project.optional-dependencies]
 test = [

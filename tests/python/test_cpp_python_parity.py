@@ -87,7 +87,8 @@ ALIASES = {
         "patch_async": "patch", "del_async": "delete",
     },
     "": {"mount_swagger_ui": None, "mount_file_browser": None,
-         "add_cors": "CORSMiddleware", "add_trusted_host": "TrustedHostMiddleware"},  # live on Server (checked below)
+         "add_cors": "CORSMiddleware", "add_trusted_host": "TrustedHostMiddleware",
+         "add_https_redirect": "HTTPSRedirectMiddleware"},  # live on Server (checked below)
 }
 
 # C++ setters that are constructor arguments in Python: name -> keyword, with a value that must be accepted.

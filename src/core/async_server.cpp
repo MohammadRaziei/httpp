@@ -199,6 +199,7 @@ struct async_server::impl {
     std::unordered_set<std::shared_ptr<asio::steady_timer>> timers; // loop thread only
     bool closing = false;                                           // loop thread only
     bool draining = false;                                          // loop thread only: a graceful stop is in progress
+    std::shared_ptr<const tls_context> tls_ctx;                     // set before run(); null = plain HTTP
     bool failed = false;
 
     std::mutex mu; // lifecycle flags
@@ -262,6 +263,17 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     std::string log_what;     // "METHOD target" of the request being answered, kept only when the info level is on
     std::size_t remaining;    // requests this connection may still serve, counting the current one
 
+    // ---- TLS (null `tls`: plain TCP; every path below checks it once) ----
+    // The loop thread only. The session is a memory BIO: ciphertext goes in (feed), ciphertext and alerts come out (take_output).
+    std::unique_ptr<tls_session> tls;
+    bool hs_done = false;
+    std::string plain_in;                 // decrypted bytes not yet handed to a reader
+    std::unique_ptr<char[]> cbuf;         // ciphertext read buffer, made on first use
+    struct net_item { std::string data; std::function<void(std::error_code)> done; };
+    std::deque<net_item> net_q;           // ciphertext waiting for the socket, in order
+    std::string net_wbuf;                 // what is being written
+    bool net_writing = false;
+
     std::atomic<bool> closed{false};
     std::uint64_t armed = 0;          // generation of the scheduled timer wait; older waits are ignored
     std::chrono::steady_clock::time_point deadline{}, wake{};  // when the connection times out, and when the timer wakes
@@ -324,8 +336,13 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
                         // ponytail: 25 bytes into an empty send buffer, so a blocking write cannot stall.
                         // Upgrade: make it an async write if this ever shows up in a profile.
                         static const char cont[] = "HTTP/1.1 100 Continue\r\n\r\n";
-                        std::error_code ec;
-                        asio::write(c->sock, asio::buffer(cont, sizeof cont - 1), ec);
+                        if (c->tls) {
+                            c->tls->write(std::string(cont, sizeof cont - 1));
+                            c->net_send(c->tls->take_output(), nullptr);
+                        } else {
+                            std::error_code ec;
+                            asio::write(c->sock, asio::buffer(cont, sizeof cont - 1), ec);
+                        }
                     }
                 }
             }
@@ -411,7 +428,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     void t_read() {
         if (closed || !tun || treading || (tpaused && !tflush)) return;
         treading = true;
-        sock.async_read_some(asio::buffer(rbuf.get(), rbuf_size), [self = shared_from_this()](std::error_code ec, std::size_t n) {
+        io_read([self = shared_from_this()](std::error_code ec, std::size_t n) {
             self->treading = false;
             if (self->closed) return;
             if (ec) return self->close();
@@ -447,7 +464,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         tq.pop_front();
         twriting = true;
         arm(srv.write_to.load());
-        asio::async_write(sock, asio::buffer(wbuf), [self = shared_from_this()](std::error_code ec, std::size_t n) {
+        io_write(wbuf, [self = shared_from_this()](std::error_code ec, std::size_t n) {
             self->twriting = false;
             if (self->closed) return;
             if (ec) return self->close();
@@ -546,6 +563,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         ++armed;
         std::error_code ec;
         timer.cancel();
+        tls_goodbye();
         sock.close(ec);
         stream.reset(); // releases a body generator whose client went away
         sent_guard.reset();
@@ -563,12 +581,112 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     // Waiting for the first byte of a request (nothing half read, nothing being answered), and not a tunnel.
     bool idle() const { return !answering && !got_bytes && !tun; }
 
+
+    // ---- transport: every read and write of the connection goes through these two ----
+    // io_read delivers PLAINTEXT into rbuf and calls h(ec, n); io_write writes `data` (plaintext) and calls h(ec, bytes of data written).
+    template <class H> void io_read(H&& h) {
+        if (!tls) { sock.async_read_some(asio::buffer(rbuf.get(), rbuf_size), std::forward<H>(h)); return; }
+        tls_read(std::function<void(std::error_code, std::size_t)>(std::forward<H>(h)));
+    }
+    template <class H> void io_write(const std::string& data, H&& h) {
+        if (!tls) { asio::async_write(sock, asio::buffer(data), std::forward<H>(h)); return; }
+        tls_write(data, std::function<void(std::error_code, std::size_t)>(std::forward<H>(h)));
+    }
+
+    void tls_deliver(const std::function<void(std::error_code, std::size_t)>& h) {
+        const std::size_t n = std::min(plain_in.size(), rbuf_size);
+        std::memcpy(rbuf.get(), plain_in.data(), n);
+        plain_in.erase(0, n);
+        h({}, n);
+    }
+    void tls_flush() {
+        std::string out = tls->take_output();
+        if (!out.empty()) net_send(std::move(out), nullptr);
+    }
+    void tls_read(std::function<void(std::error_code, std::size_t)> h) {
+        if (!plain_in.empty()) { // left over from the last record: hand it out from the loop, not from inside this call
+            asio::post(srv.io, [self = shared_from_this(), h = std::move(h)] { if (!self->closed) self->tls_deliver(h); });
+            return;
+        }
+        tls_pump(std::move(h));
+    }
+    // Runs the handshake and the decryption as far as the ciphertext we have goes; reads more from the socket when it runs out.
+    void tls_pump(std::function<void(std::error_code, std::size_t)> h) {
+        for (;;) {
+            if (!hs_done) {
+                const auto r = tls->handshake();
+                tls_flush();
+                if (r == tls_session::result::failed) {
+                    HTTPP_LOG(debug) << tls->error();
+                    return h(asio::error::connection_aborted, 0);
+                }
+                if (r == tls_session::result::ok) { hs_done = true; continue; }
+                break;
+            }
+            const auto r = tls->read(plain_in);
+            tls_flush();
+            if (r == tls_session::result::ok) return tls_deliver(h);
+            if (r == tls_session::result::closed) return h(asio::error::eof, 0);
+            if (r == tls_session::result::failed) {
+                HTTPP_LOG(debug) << tls->error();
+                return h(asio::error::connection_aborted, 0);
+            }
+            break;
+        }
+        if (!cbuf) cbuf.reset(new char[rbuf_size]);
+        sock.async_read_some(asio::buffer(cbuf.get(), rbuf_size),
+                             [self = shared_from_this(), h = std::move(h)](std::error_code ec, std::size_t n) mutable {
+                                 if (self->closed) return;
+                                 if (ec) return h(ec, 0);
+                                 self->tls->feed(self->cbuf.get(), n);
+                                 self->tls_pump(std::move(h));
+                             });
+    }
+    void tls_write(const std::string& data, std::function<void(std::error_code, std::size_t)> h) {
+        if (tls->write(data) == tls_session::result::failed) {
+            HTTPP_LOG(debug) << tls->error();
+            asio::post(srv.io, [self = shared_from_this(), h = std::move(h)] { if (!self->closed) h(asio::error::connection_aborted, 0); });
+            return;
+        }
+        const std::size_t n = data.size();
+        net_send(tls->take_output(), [h = std::move(h), n](std::error_code ec) { h(ec, ec ? 0 : n); });
+    }
+    // One socket write at a time, in the order asked: handshake bytes, alerts and application data share the wire.
+    void net_send(std::string data, std::function<void(std::error_code)> done) {
+        net_q.push_back({std::move(data), std::move(done)});
+        if (!net_writing) net_next();
+    }
+    void net_next() {
+        if (closed || net_q.empty()) { net_writing = false; return; }
+        net_writing = true;
+        net_wbuf = std::move(net_q.front().data);
+        auto done = std::move(net_q.front().done);
+        net_q.pop_front();
+        asio::async_write(sock, asio::buffer(net_wbuf), [self = shared_from_this(), done = std::move(done)](std::error_code ec, std::size_t) {
+            if (self->closed) return;
+            if (ec) { if (done) done(ec); else self->close(); return; }
+            if (done) done({}); // may queue the next write; this one is over
+            self->net_next();
+        });
+    }
+    // Best effort, at the end of a connection: tell the peer the stream is over (so it can tell a close from a cut).
+    void tls_goodbye() {
+        if (!tls || !hs_done) return;
+        tls->close_notify();
+        const std::string out = tls->take_output();
+        if (out.empty()) return;
+        std::error_code ignore;
+        sock.non_blocking(true, ignore);
+        sock.send(asio::buffer(out), 0, ignore);
+    }
+
     // ---- reading ----
     void start() { next_request(); }
 
     void next_request() {
         if (closed) return;
         req = http_request{};
+        req.secure = tls != nullptr;
         last_was_value = true;
         headers_done = false;
         header_bytes = 0;
@@ -606,7 +724,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         } else {
             arm(per_read);
         }
-        sock.async_read_some(asio::buffer(rbuf.get(), rbuf_size), [self = shared_from_this()](std::error_code ec, std::size_t n) {
+        io_read([self = shared_from_this()](std::error_code ec, std::size_t n) {
             if (self->closed) return;
             if (ec) return self->close(); // peer closed, or timeout/shutdown cancelled the read
             if (!self->got_bytes) self->head_start = std::chrono::steady_clock::now();
@@ -683,13 +801,12 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     void write(std::string data, std::function<void()> then) {
         wbuf = std::move(data);
         arm(srv.write_to.load());
-        asio::async_write(sock, asio::buffer(wbuf),
-                          [self = shared_from_this(), then = std::move(then)](std::error_code ec, std::size_t) {
-                              if (self->closed) return;
-                              if (ec) return self->close();
-                              self->disarm();
-                              then();
-                          });
+        io_write(wbuf, [self = shared_from_this(), then = std::move(then)](std::error_code ec, std::size_t) {
+            if (self->closed) return;
+            if (ec) return self->close();
+            self->disarm();
+            then();
+        });
     }
 
     void send(wire_response&& r) {
@@ -846,6 +963,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     // sending, read and discard whatever arrives until the peer is done (or a short limit), then close.
     void linger() {
         std::error_code ec;
+        tls_goodbye();
         sock.shutdown(tcp::socket::shutdown_send, ec);
         arm(linger_seconds);
         drain();
@@ -922,7 +1040,7 @@ void async_server::impl::adopt(tcp::socket s) {
     std::error_code ignore;
     const std::size_t cap = max_conn.load();
     if (closing || (cap && conns.size() >= cap)) {
-        if (!closing) { // over the limit: a short 503, then hang up
+        if (!closing && !tls_ctx) { // over the limit: a short 503 (not over TLS: it would be noise before a handshake), then hang up
             static const char busy[] = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
             s.send(asio::buffer(busy, sizeof busy - 1), 0, ignore); // best effort into an empty send buffer
             HTTPP_LOG(debug) << "connection refused: " << cap << " connections already open";
@@ -934,6 +1052,10 @@ void async_server::impl::adopt(tcp::socket s) {
     s.set_option(tcp::no_delay(true), ignore);
     auto c = std::make_shared<conn>(*this, std::move(s));
     conns.insert(c);
+    if (tls_ctx) {
+        c->tls = std::make_unique<tls_session>(tls_ctx);
+        if (!c->tls->ok()) { c->close(); return; }
+    }
     c->start();
 }
 
@@ -985,6 +1107,7 @@ async_server::async_server(options opt, request_fn on_request, blocking_fn run_b
 
 async_server::~async_server() = default;
 
+void async_server::set_tls(std::shared_ptr<const tls_context> ctx) { impl_->tls_ctx = std::move(ctx); }
 void async_server::set_read_timeout(int seconds) { impl_->read_to = seconds; }
 void async_server::set_write_timeout(int seconds) { impl_->write_to = seconds; }
 void async_server::set_keep_alive_timeout(int seconds) { impl_->ka_to = seconds; }

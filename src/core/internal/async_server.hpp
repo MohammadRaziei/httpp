@@ -8,6 +8,7 @@
 //
 // Like async_http.hpp this header includes neither Asio nor cpp-httplib.
 
+#include "tls_session.hpp"
 #include <chrono>
 #include <cstddef>
 #include <functional>
@@ -50,6 +51,7 @@ struct http_request {
     int version_minor = 1;
     std::vector<std::pair<std::string, std::string>> headers; // wire order
     std::string body;     // whole body, de-chunked
+    bool secure = false;  // the connection is TLS
 };
 
 // What the engine writes back. It adds Content-Length / Transfer-Encoding, Connection and Date.
@@ -99,6 +101,10 @@ public:
     ~async_server();
     async_server(const async_server&) = delete;
     async_server& operator=(const async_server&) = delete;
+
+    // Serve TLS on every connection this engine accepts (a context from make_tls_server_context); null = plain. Set it before
+    // run(); it is read on the loop thread without a lock.
+    void set_tls(std::shared_ptr<const tls_context> ctx);
 
     // Opens, binds, listens. `port` 0 picks a free one. Returns the bound port or -1.
     int bind(const std::string& host, int port);

@@ -1,4 +1,19 @@
-# httpp hand-off (consolidated, 2026-11-05)
+# httpp hand-off (consolidated, 2026-11-05; updates 2026-11-06 and 2026-11-07 below)
+
+> **Update 2026-11-07 (not committed, all in the working tree).** The command line moved to C++ (ADR-0041, **the next free ADR is 0042**), written first and only then built and tested at the owner's request.
+> Final design (decided with the owner): a native executable `httpp` (`src/cli/httpp_cli.cpp`, CLI11 v2.5.0 vendored) with `server`, `browse`, `download`, `curl`, `--version`; Python commands behind `py`:
+> `httpp py run main:app`, `httpp py path`. No alias `httpp run`: it fails with exit 2 and says `httpp py run`. **The executable lives inside the package, `httpp/bin/httpp` (`.exe` on Windows)**, RPATH `$ORIGIN/../lib`, one copy of the core library;
+> the console script `httpp` is `httpp_cli.py` (a module in site-packages next to the package, not in it, so it starts without importing `httpp`), which finds it, restores its execute bit if needed and `exec`s it (`python -m httpp browse` does the same); `httpp py ...` runs in the launcher's own process. Run on its own the executable
+> starts `HTTPP_PYTHON` or a PATH Python for `py`. Tests: `tests/python/test_cli.py`, `tests/python/conftest.py` (`httpp_exe` runs each command test through the console script and on the executable, `httpp_bin` is the executable only).
+> Section 6.1 below is the old plan; ADR-0041 and `checklist.md` section 1 are the truth. See "Verification of the CLI move" at the end of this file for what was run.
+
+> **Update 2026-11-06 (not committed yet, all in the working tree).** Four features were added at the owner's request, each with tests first and an ADR:
+> middleware (ADR-0037: `server::use`, CORS, TrustedHost, GZip, HTTPS redirect), graceful shutdown (ADR-0038: `shutdown(grace)`, SIGTERM/Ctrl+C drain, `--shutdown-timeout`),
+> `--reload` (ADR-0039: polling supervisor), server TLS (ADR-0040: `set_tls`, https and wss, `request.secure`, `--ssl-*`). **The next free ADR is 0041.**
+> State: C++ 438 tests (Release, TSan and ASan/UBSan clean apart from the known 18 KB exit leak in `async_http`), Python 691 passed and 4 skipped on 3.13 only.
+> Not run: 3.14 and 3.14t, Windows, macOS, a browser against CORS or TLS, benchmarks after these changes (the hook path got a `std::function` call per middleware layer; plain connections got one pointer check per read and write).
+> Still open from this round: WebSocket close frame 1001 on drain (tunnels are cut), certificate reload without restart, session tickets, client certificates, respawn of crashed workers (checklist).
+> The CLI move to C++ (section 6.1) was NOT started; `httpp run` now has `--reload`, `--shutdown-timeout` and `--ssl-*` that the C++ CLI must pass through to the Python `run`.
 
 This one file replaces every earlier hand-off. Read it first; the ADRs in `docs/adr/` hold the reasoning and `checklist.md` holds the open work.
 Owner: Mohammad (GitHub `mohammadraziei`), the author of httpp. Section 0 is how we work; sections 1 to 4 are what exists; section 5 is the state of the last session; section 6 is the next work.
@@ -92,9 +107,9 @@ Full list with checkboxes is in `checklist.md`. The owner asked for these next:
 ### 6.1 Move the command line into C++ (owner's idea, design decided on his "go")
 Goal: `src/cli/httpp_cli.cpp` with the vendored single header `CLI11.hpp`; the executable's output name is `httpp`; Python only starts it: `httpp/__main__.py` passes the right argv to the binary with `subprocess.run` and returns its exit code.
 - CLI11 v2.5.0 single header: `https://github.com/CLIUtils/CLI11/releases/download/v2.5.0/CLI11.hpp` (reachable from the sandbox, 444 KB, BSD-3-Clause). Put it in `src/third_party/CLI11/CLI11.hpp` and list it in `src/third_party/README.md` (unmodified, version, license).
-- CMake: `add_executable(httpp_cli src/cli/httpp_cli.cpp)`, `set_target_properties(httpp_cli PROPERTIES OUTPUT_NAME httpp)`, link `httpp_core`; install it in the SDK (so `httpp install` and a C++-only install get a real `httpp`) and into the wheel inside the package folder (for example `httpp/_bin/httpp`), not onto PATH, so there is one `httpp` on PATH: the Python console script `httpp = httpp.__main__:main` stays as the shim.
+- CMake: `add_executable(httpp_cli src/cli/httpp_cli.cpp)`, `set_target_properties(httpp_cli PROPERTIES OUTPUT_NAME httpp)`, link `httpp_core`; install it in the SDK (so a C++-only install gets a real `httpp`) and into the wheel inside the package folder (for example `httpp/_bin/httpp`), not onto PATH, so there is one `httpp` on PATH: the Python console script `httpp = httpp.__main__:main` stays as the shim.
 - Commands that need no Python move wholly to C++ and then run with no GIL and no interpreter start: `server`, `browse`, `download`, `curl`. `run` cannot (it imports the user's app): the C++ parser accepts `run` with all its options (so `--help` and validation live in one place) and then re-executes `$HTTPP_PYTHON -m httpp._run_cli <args>`; `__main__.py` sets `HTTPP_PYTHON=sys.executable`. A standalone C++ binary without that variable answers "run needs Python: use `python -m httpp run`".
-- Open for the owner: `path`, `install`, `uninstall` (they copy files of the installed wheel): proposed to stay in Python because they must know the wheel layout, which the shim knows for free; the owner said `__main__.py` only forwards argv, so if he wants them in C++ the binary finds its siblings relative to its own path.
+- Decided by the owner (2026-11-06): there is no `install` or `uninstall` (removed from `__main__.py`); only `httpp path` stays, with `--include-dir`, `--lib-dir`, `--cmake-dir` (all three, labeled, when no flag is given). Where it runs after the move is still open: it needs the wheel layout, so the proposal is to keep it in the Python shim; in C++ the binary would find its siblings relative to its own path.
 - Costs to say out loud: one extra process start (about tens of milliseconds) for every CLI call; the wheel gets a platform executable per wheel (Windows `.exe`, macOS 10.13 limits apply to `src/cli` as well, so POSIX calls instead of `std::filesystem`); `scikit-build-core` must install the executable into the package (component `httpp_wheel`).
 - Order: tests first (`tests/python/test_cli.py` already covers `browse`; add `server`, `download`, `curl`, `--help`, exit codes, `run` delegation, the shim passing argv unchanged with spaces and quotes), then the binary, then `__main__.py`, then ADR-0037, CHANGELOG and README. Keep behaviour identical to today's `__main__.py` (flags, defaults, messages) so the existing tests stay green.
 
@@ -103,3 +118,11 @@ See `checklist.md`, sections "Features" and "Quality and release". Highlights: C
 
 ### 6.3 Performance leftovers (optional, small)
 A ten-round A/B script with medians for both servers; `performance` governor; the official bench; maybe fewer `shared_ptr` copies; reading trantor's connection and buffer handling if a gap shows up again.
+
+## Verification of the CLI move (2026-11-07)
+Run in the sandbox (Linux x86_64, 2 cores). The first design (executable in the scripts directory with a second copy of the library) was built and tested, then replaced at the owner's request by the layout above; what follows is the final one.
+- Wheel installed with `uv pip install` into a 3.13 venv: Python suite 779 passed, 4 skipped. New: `tests/python/test_cli.py` (SIGINT and SIGTERM of `server` and `browse`, `py` passing 13 awkward arguments unchanged through a fake interpreter, `HTTPP_PYTHON`,
+  no Python found, a lost execute bit restored, a missing executable and an unfixable mode reported, `python -m httpp browse`). `test_file_browser.py` runs the commands through both entry points.
+- Not rerun after this change: Python 3.14t (it passed with the first design: 735 passed, 5 skipped), the SDK install (passed with the first design; the CMake rule for it did not change), `uv build`.
+- Startup: `httpp --version` through the launcher 25 ms (78 ms while the launcher was inside the package), the executable alone 2 ms, `python -c pass` 15 ms, `python -c "import httpp"` 98 ms.
+- Not run: Windows, macOS, `auditwheel`/`delocate`, 3.14 with a GIL, 3.15t, the C++ suite (no C++ library code changed), sanitizers, benchmarks, CI.

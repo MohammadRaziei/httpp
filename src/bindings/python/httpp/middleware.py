@@ -80,3 +80,18 @@ class GZipMiddleware:
 
     def install(self, app) -> None:
         app.set_compression(self.minimum_size, self.compresslevel)
+
+
+class HTTPSRedirectMiddleware:
+    """Send requests that did not arrive over TLS to the https:// address of the same URL (307).
+
+    A server serves TLS or plain HTTP on a port, never both, so this is for a plain-HTTP server behind a proxy that terminates TLS and says so
+    with "X-Forwarded-Proto: https" (set trust_forwarded_proto=True; leave it off when clients can reach this port directly), or to point
+    people at the secure address. Requests on a TLS server are never redirected.
+    """
+
+    def __init__(self, trust_forwarded_proto: bool = False):
+        self.trust_forwarded_proto = bool(trust_forwarded_proto)
+
+    def install(self, app) -> None:
+        app._add_https_redirect(self.trust_forwarded_proto)

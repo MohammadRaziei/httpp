@@ -1,6 +1,7 @@
 #include "internal/tls_session.hpp"
 
 #include <mbedtls/error.h>
+#include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 #include <psa/crypto.h>
@@ -20,6 +21,7 @@
 #endif
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -77,8 +79,20 @@ bool load_system_roots(mbedtls_x509_crt& crt) {
 struct tls_context {
     mbedtls_ssl_config conf;
     mbedtls_x509_crt ca;
-    tls_context() { mbedtls_ssl_config_init(&conf); mbedtls_x509_crt_init(&ca); }
-    ~tls_context() { mbedtls_ssl_config_free(&conf); mbedtls_x509_crt_free(&ca); }
+    mbedtls_x509_crt own_crt;  // server only: the certificate chain we present
+    mbedtls_pk_context own_key; // server only: its private key
+    tls_context() {
+        mbedtls_ssl_config_init(&conf);
+        mbedtls_x509_crt_init(&ca);
+        mbedtls_x509_crt_init(&own_crt);
+        mbedtls_pk_init(&own_key);
+    }
+    ~tls_context() {
+        mbedtls_ssl_config_free(&conf);
+        mbedtls_x509_crt_free(&ca);
+        mbedtls_x509_crt_free(&own_crt);
+        mbedtls_pk_free(&own_key);
+    }
     tls_context(const tls_context&) = delete;
     tls_context& operator=(const tls_context&) = delete;
 };
@@ -108,6 +122,54 @@ std::shared_ptr<const tls_context> make_tls_context(bool verify, const std::stri
         return nullptr;
     }
     mbedtls_ssl_conf_ca_chain(&c->conf, &c->ca, nullptr);
+    return c;
+}
+
+namespace {
+bool read_file(const std::string& path, std::string& out) {
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    char buf[4096];
+    std::size_t n;
+    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
+    std::fclose(f);
+    return true;
+}
+} // namespace
+
+std::shared_ptr<const tls_context> make_tls_server_context(const std::string& cert_file, const std::string& key_file,
+                                                           const std::string& password, std::string& error) {
+    static std::once_flag psa_once;
+    static int psa_ok = 0;
+    std::call_once(psa_once, [] { psa_ok = psa_crypto_init() == PSA_SUCCESS; });
+    if (!psa_ok) { error = "cannot initialise the crypto backend"; return nullptr; }
+
+    auto c = std::make_shared<tls_context>();
+    std::string cert, key;
+    if (!read_file(cert_file, cert)) { error = "cannot read the certificate file '" + cert_file + "'"; return nullptr; }
+    if (!read_file(key_file, key)) { error = "cannot read the key file '" + key_file + "'"; return nullptr; }
+    // PEM text must be NUL terminated for mbedtls (the length includes the NUL).
+    int r = mbedtls_x509_crt_parse(&c->own_crt, reinterpret_cast<const unsigned char*>(cert.c_str()), cert.size() + 1);
+    if (r != 0) { error = "cannot parse the certificate file '" + cert_file + "' (PEM expected): " + mbed_error(r); return nullptr; }
+    r = mbedtls_pk_parse_key(&c->own_key, reinterpret_cast<const unsigned char*>(key.c_str()), key.size() + 1,
+                             password.empty() ? nullptr : reinterpret_cast<const unsigned char*>(password.data()), password.size());
+    if (r != 0) { error = "cannot parse the key file '" + key_file + "' (PEM expected" + (password.empty() ? "" : ", or the password is wrong, or the key is encrypted with 3DES, which is not supported: use AES") + "): " + mbed_error(r); return nullptr; }
+    {
+        // The key belongs to the certificate when both give the same public key. Compared as DER rather than with mbedtls_pk_check_pair,
+        // which signs and verifies a test message through PSA and fails for RSA keys in this build.
+        unsigned char a[1024], b[1024];
+        const int la = mbedtls_pk_write_pubkey_der(&c->own_crt.pk, a, sizeof a);
+        const int lb = mbedtls_pk_write_pubkey_der(&c->own_key, b, sizeof b);
+        if (la <= 0 || lb <= 0 || la != lb || std::memcmp(a + sizeof a - la, b + sizeof b - lb, static_cast<std::size_t>(la)) != 0) {
+            error = "the key in '" + key_file + "' does not match the certificate in '" + cert_file + "'";
+            return nullptr;
+        }
+    }
+    r = mbedtls_ssl_config_defaults(&c->conf, MBEDTLS_SSL_IS_SERVER, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
+    if (r != 0) { error = mbed_error(r); return nullptr; }
+    r = mbedtls_ssl_conf_own_cert(&c->conf, &c->own_crt, &c->own_key);
+    if (r != 0) { error = "cannot use the certificate and key: " + mbed_error(r); return nullptr; }
+    mbedtls_ssl_conf_authmode(&c->conf, MBEDTLS_SSL_VERIFY_NONE); // no client certificates
     return c;
 }
 
@@ -145,6 +207,16 @@ tls_session::tls_session(std::shared_ptr<const tls_context> ctx, const std::stri
     if (r != 0) { error_ = mbed_error(r); impl_.reset(); return; }
     mbedtls_ssl_set_bio(&impl_->ssl, impl_.get(), impl::send_cb, impl::recv_cb, nullptr);
 }
+
+tls_session::tls_session(std::shared_ptr<const tls_context> ctx) : impl_(std::make_unique<impl>()) {
+    impl_->ctx = std::move(ctx);
+    mbedtls_ssl_init(&impl_->ssl);
+    int r = mbedtls_ssl_setup(&impl_->ssl, &impl_->ctx->conf);
+    if (r != 0) { error_ = mbed_error(r); impl_.reset(); return; }
+    mbedtls_ssl_set_bio(&impl_->ssl, impl_.get(), impl::send_cb, impl::recv_cb, nullptr);
+}
+
+void tls_session::close_notify() { if (impl_ && impl_->ready) mbedtls_ssl_close_notify(&impl_->ssl); }
 
 tls_session::~tls_session() { if (impl_) mbedtls_ssl_free(&impl_->ssl); }
 

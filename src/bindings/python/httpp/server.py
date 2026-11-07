@@ -83,9 +83,10 @@ class ServerRequest:
     The fields are read-only.
     """
 
-    __slots__ = ("_raw", "_method", "_path", "_body", "_headers", "_query", "_path_params", "_form")
+    __slots__ = ("_raw", "_method", "_path", "_body", "_headers", "_query", "_path_params", "_form", "_secure")
 
-    def __init__(self, method, path, body, headers, query, path_params):
+    def __init__(self, method, path, body, headers, query, path_params, secure=False):
+        self._secure = secure
         self._raw = None
         self._form = None
         self._method = method
@@ -100,7 +101,20 @@ class ServerRequest:
         self = cls.__new__(cls)
         self._raw = raw
         self._method = self._path = self._body = self._headers = self._query = self._path_params = self._form = None
+        self._secure = None
         return self
+
+    @property
+    def secure(self):
+        """True when the connection is TLS (the server was given set_tls())."""
+        if self._secure is None:
+            self._secure = self._raw.secure
+        return self._secure
+
+    @property
+    def scheme(self):
+        """"https" over TLS, else "http"."""
+        return "https" if self.secure else "http"
 
     @property
     def method(self):
@@ -645,15 +659,15 @@ def _call(fn, *args, **kwargs):
     return rv
 
 
-_defer_listen = False  # True while `httpp run` imports the app: listen()/run() calls in the file are skipped
+_defer_listen = False  # True while `httpp py run` imports the app: listen()/run() calls in the file are skipped
 
 
 def _skipped(call, host, port):
-    """The warning for a listen()/run() the file made at import time while `httpp run` was importing it."""
+    """The warning for a listen()/run() the file made at import time while `httpp py run` was importing it."""
     import sys
 
     sys.stderr.write(
-        f"httpp: ignoring app.{call}({host!r}, {port!r}): `httpp run` decides host, port and workers "
+        f"httpp: ignoring app.{call}({host!r}, {port!r}): `httpp py run` decides host, port and workers "
         f"(call it under `if __name__ == \"__main__\":` to keep both ways working)\n")
     sys.stderr.flush()
 _loop = None  # lane 0's loop: what code outside the lanes (a sync handler calling an async one) uses
@@ -1307,7 +1321,7 @@ class Server(_Server):
                 except Exception:
                     traceback.print_exc()  # one failing hook must not stop the others
 
-    #: Seconds a graceful stop (Ctrl+C, SIGTERM) waits for requests in progress before cutting them. `httpp run --shutdown-timeout`.
+    #: Seconds a graceful stop (Ctrl+C, SIGTERM) waits for requests in progress before cutting them. `httpp py run --shutdown-timeout`.
     shutdown_timeout = 10.0
 
     def listen_after_bind(self):
@@ -1322,7 +1336,7 @@ class Server(_Server):
         sees Ctrl+C while inside it; run it on a thread and keep the main
         thread in Python. # ponytail: 50 ms poll; upgrade path is signal.set_wakeup_fd.
         """
-        if _defer_listen:  # `httpp run` owns host, port and workers
+        if _defer_listen:  # `httpp py run` owns host, port and workers
             return _skipped("listen", host, port)
         _log.sync()  # a root-level change the "httpp" logger only inherits is not announced; pick it up here
         failure = []

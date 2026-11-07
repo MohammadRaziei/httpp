@@ -33,7 +33,7 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - [Features](#features)
 - [Install](#install)
 - [Python](#python)
-  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [`def` or `async def`](#def-or-async-def) · [Routers](#routers) · [Forms and uploads](#forms-and-uploads) · [`response` and background work](#the-response-argument-and-background-work) · [Streaming and files](#streaming-and-files) · [File browser](#a-read-only-file-browser) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async)
+  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [`def` or `async def`](#def-or-async-def) · [Routers](#routers) · [Forms and uploads](#forms-and-uploads) · [`response` and background work](#the-response-argument-and-background-work) · [Streaming and files](#streaming-and-files) · [File browser](#a-read-only-file-browser) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Command line](#command-line) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async)
 - [Build from source](#build-from-source)
 - [Status](#status)
 - [Logging](#logging)
@@ -381,10 +381,28 @@ speed-up on several cores is not measured yet, and the classifier says "Unstable
 Your own handler code must be thread-safe: shared dicts, counters and globals now really are
 touched by several threads at once.
 
+### Command line
+
+`httpp` is a command that starts a native executable (`httpp/bin/httpp` inside the package; `bin/httpp` of a C++ SDK install runs on its own). The commands below need no Python and run without the GIL:
+
+```sh
+httpp server ./site --port 8000          # serve a directory
+httpp browse ~/Downloads                 # read-only file browser (see below)
+httpp download https://example.com/f.zip -o f.zip
+httpp curl https://example.com/api -X POST -H "X-Key: 1" -d "a=1"
+```
+
+Commands that run your Python code go behind `py`; everything after `py` goes to Python as typed (the SDK's own `bin/httpp` starts the Python named by `HTTPP_PYTHON`, or the one on PATH):
+
+```sh
+httpp py run main:app --reload           # was `httpp run main:app`
+httpp py path --include-dir
+```
+
 ### Running the server
 
 `app.run()` is the launcher: `python app.py` is all it takes. The same app also runs from the shell
-with `httpp run main:app`.
+with `httpp py run main:app`.
 
 ```python
 if __name__ == "__main__":
@@ -392,10 +410,10 @@ if __name__ == "__main__":
 ```
 
 ```sh
-httpp run main:app --host 0.0.0.0 --port 8000
-httpp run main:app --workers 4             # four processes sharing the port (Linux only)
-httpp run main:app --workers auto          # one per usable CPU
-httpp run main:app --reload                # development: restart when a .py file changes
+httpp py run main:app --host 0.0.0.0 --port 8000
+httpp py run main:app --workers 4             # four processes sharing the port (Linux only)
+httpp py run main:app --workers auto          # one per usable CPU
+httpp py run main:app --reload                # development: restart when a .py file changes
 ```
 
 - `run()` stops on **Ctrl+C or SIGTERM**, gracefully: the port closes at once, requests in progress finish (they are answered with
@@ -474,6 +492,20 @@ are not sent to a different origin). A cancelled `await` stops waiting, but the 
 running until it finishes. In C++: `request::run_async()` returns a `std::future`, or takes a callback
 that runs on the network thread; `async_client` is the session form.
 
+### TLS (https, wss)
+
+```bash
+httpp py run main:app --port 8443 --ssl-certfile cert.pem --ssl-keyfile key.pem   # [--ssl-keyfile-password ...]
+```
+
+```python
+app.set_tls("cert.pem", "key.pem")        # C++: server.set_tls(cert, key)
+```
+
+PEM files (certificate chain, leaf first; private key), TLS 1.2 and 1.3, no client certificates, no session resumption. The files are checked when you call it and are
+not watched: restart after renewing. One port serves TLS or plain HTTP, never both; a plain request to a TLS port is dropped. `request.secure` / `request.scheme` tell a handler which one it got.
+Behind a proxy that terminates TLS, `add_middleware(HTTPSRedirectMiddleware, trust_forwarded_proto=True)` redirects what arrived as plain http.
+
 ### Middleware
 
 ```python
@@ -489,7 +521,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 The options are Starlette's. The work runs in C++ without the GIL: a CORS preflight is answered on the I/O thread and never reaches Python.
 `before_request` hooks run after the middleware, `after_request` hooks before it. In C++: `httpp::add_cors(server&, cors_options)`,
 `httpp::add_trusted_host(server&, trusted_host_options)` (`httpp/middleware.hpp`), or your own pair of hooks with `server::use(before, after)`.
-Not supported: ASGI middleware, and an HTTPS redirect (the server has no TLS yet).
+Not supported: ASGI middleware. `HTTPSRedirectMiddleware` sends plain requests to the https address (see TLS below).
 
 ## Build from source
 

@@ -341,6 +341,7 @@ struct server::impl {
     std::size_t pool_base = std::max<std::size_t>(8, std::thread::hardware_concurrency());
     std::size_t pool_max = 0; // 0 = 4 x base
     std::chrono::microseconds pool_grow_after{500};
+    bool tls_on = false; // set_tls() was called: the log says https
     std::atomic<bool> draining{false}; // shutdown() was called: an engine that finishes early must not stop the others (ADR-0038)
     std::atomic<int> async_timeout{60};
 
@@ -429,6 +430,7 @@ struct server::impl {
     static bool make_request(detail::http_request& hr, request& req, std::string& raw_path) {
         req.method = std::move(hr.method);
         req.body = std::move(hr.body);
+        req.secure = hr.secure;
         req.headers = std::move(hr.headers);
         std::string target = std::move(hr.target);  // put back below when the target is refused (the caller logs it)
         const std::size_t hash = target.find('#');
@@ -1178,6 +1180,14 @@ server& server::set_write_timeout(int seconds) { impl_->configure([seconds](deta
 server& server::set_keep_alive_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_keep_alive_timeout(seconds); }); return *this; }
 server& server::set_keep_alive_max(std::size_t requests) { impl_->configure([requests](detail::async_server& e) { e.set_keep_alive_max(requests); }); return *this; }
 server& server::set_max_body(std::size_t bytes) { impl_->configure([bytes](detail::async_server& e) { e.set_max_body(bytes); }); return *this; }
+server& server::set_tls(const std::string& cert_file, const std::string& key_file, const std::string& key_password) {
+    std::string error;
+    auto ctx = detail::make_tls_server_context(cert_file, key_file, key_password, error);
+    if (!ctx) throw std::runtime_error("set_tls: " + error);
+    impl_->configure([ctx](detail::async_server& e) { e.set_tls(ctx); });
+    impl_->tls_on = true;
+    return *this;
+}
 server& server::set_header_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_header_timeout(seconds); }); return *this; }
 server& server::set_body_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_body_timeout(seconds); }); return *this; }
 server& server::set_max_connections(std::size_t n) { impl_->max_conn_total = n; impl_->share_max_connections(); return *this; }
@@ -1216,7 +1226,7 @@ void server::serve_directory(const std::string& mount_path, const std::string& l
 
 int server::bind_to_any_port(const std::string& host) {
     const int port = impl_->bind_all(host, 0);
-    if (port >= 0) { HTTPP_LOG(info) << "listening on http://" << host << ':' << port; }
+    if (port >= 0) { HTTPP_LOG(info) << "listening on " << (impl_->tls_on ? "https" : "http") << "://" << host << ':' << port; }
     return port;
 }
 
@@ -1282,7 +1292,7 @@ bool server::listen(const std::string& host, int port) {
         HTTPP_LOG(error) << "cannot listen on " << host << ':' << port;
         return false;
     }
-    HTTPP_LOG(info) << "listening on http://" << host << ':' << bound;  // after the bind, so a taken port never says it
+    HTTPP_LOG(info) << "listening on " << (impl_->tls_on ? "https" : "http") << "://" << host << ':' << bound;  // after the bind, so a taken port never says it
     return listen_after_bind();
 }
 

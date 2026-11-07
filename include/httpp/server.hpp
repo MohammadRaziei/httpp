@@ -53,6 +53,8 @@ struct request {
     std::vector<std::pair<std::string, std::string>> headers;
     std::vector<std::pair<std::string, std::string>> query;        // ?a=1&b=2
     std::vector<std::pair<std::string, std::string>> path_params;  // "/users/:id"
+    bool secure = false;  // the connection is TLS (https, wss): the server was given set_tls()
+    std::string scheme() const { return secure ? "https" : "http"; }
 
     // First match, "" if absent. Header names are case-insensitive.
     std::string header(const std::string& name) const {
@@ -224,6 +226,12 @@ public:
     HTTPP_API server& after(after_hook hook);
     HTTPP_API server& set_error_handler(error_hook hook);
     HTTPP_API server& set_exception_handler(exception_hook hook);
+    // TLS (ADR-0040): serve https and wss instead of http and ws, with a certificate chain (PEM, leaf first) and its private key (PEM,
+    // `key_password` when it is encrypted). Files are read now: a missing or unreadable file, bad PEM, a wrong password or a key that does
+    // not belong to the certificate throws std::runtime_error naming the file. TLS 1.2 and 1.3, no client certificates, no session
+    // resumption. Call it before listening; the files are not watched (set it again, or restart, after renewing a certificate).
+    // One port serves either TLS or plain HTTP, never both: a plain request to a TLS port is dropped.
+    HTTPP_API server& set_tls(const std::string& cert_file, const std::string& key_file, const std::string& key_password = "");
     // Middleware (ADR-0037): a before and an after hook that sit next to the application's own, so any number
     // can be added (see httpp/middleware.hpp for the ready-made ones). Either may be empty. Before hooks run in
     // the order of the use() calls, then the application's before(); the first that returns true answers and

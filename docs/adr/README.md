@@ -45,6 +45,8 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0037](0037-middleware-through-use.md) | Middleware through `server::use()` and ready-made hooks (CORS, trusted host, gzip) | accepted |
 | [0038](0038-graceful-shutdown.md) | Graceful shutdown with a grace period (`shutdown()`, SIGTERM, `--shutdown-timeout`) | accepted |
 | [0039](0039-reload-supervisor.md) | `--reload`: a polling supervisor that restarts the app process | accepted |
+| [0040](0040-server-tls.md) | Server TLS (https, wss) on the engine with the vendored Mbed TLS | accepted |
+| [0041](0041-native-cli-and-py.md) | The command line is a native executable; Python commands live behind `py` | accepted |
 
 ## Not decided yet
 

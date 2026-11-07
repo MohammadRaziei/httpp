@@ -84,12 +84,15 @@ def _resolve_workers(workers):
 
 
 def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_level=None, io_threads=None, shutdown_timeout=None,
-        reload=False, reload_dirs=None, reload_patterns=None):
+        reload=False, reload_dirs=None, reload_patterns=None,
+        ssl_certfile=None, ssl_keyfile=None, ssl_keyfile_password=None):
     """Serve `app` (an httpp.Server, or an import string 'module:attr') until Ctrl+C or SIGTERM.
 
     Shutdown is graceful: the port closes, requests in progress finish (they get "Connection: close"), and the app's on_shutdown
     hooks run. shutdown_timeout (seconds, default the app's `shutdown_timeout`, 10) is how long that may take before what is
     still open is cut; a second Ctrl+C cuts at once.
+    ssl_certfile and ssl_keyfile (PEM files; ssl_keyfile_password if the key is encrypted) serve https and wss instead of http and ws
+    (ADR-0040); both are needed, and the files are checked before anything starts.
     reload=True (development only; needs an import string and one worker) runs the app in a child process and restarts
     it when a file matching reload_patterns (default ["*.py"]) under reload_dirs (default: the current directory) changes.
     workers > 1 starts that many processes sharing the port (Linux only), which is how a
@@ -118,6 +121,16 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
         if workers != "auto" and workers != 1:
             raise ValueError("reload cannot be combined with workers")
         workers = 1
+    if (ssl_certfile is None) != (ssl_keyfile is None):
+        raise ValueError("ssl_certfile and ssl_keyfile go together")
+    for name, value in (("ssl_certfile", ssl_certfile), ("ssl_keyfile", ssl_keyfile)):
+        if value is not None and not isinstance(value, (str, os.PathLike)):
+            raise TypeError(f"{name} must be a path")
+    if ssl_keyfile_password is not None and not isinstance(ssl_keyfile_password, str):
+        raise TypeError("ssl_keyfile_password must be a string")
+    if ssl_certfile is not None:
+        ssl_certfile, ssl_keyfile = os.fspath(ssl_certfile), os.fspath(ssl_keyfile)
+        Server().set_tls(ssl_certfile, ssl_keyfile, ssl_keyfile_password)  # check the files now: a bad one fails before anything starts
     auto = workers == "auto"
     workers = _resolve_workers(workers)
     if auto and workers > 1 and not isinstance(app, str):
@@ -131,12 +144,12 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
     if reload:
         from . import _reload
 
-        return _reload.serve(app, host, port, log_level, io_threads, shutdown_timeout, reload_dirs, reload_patterns)
+        return _reload.serve(app, host, port, log_level, io_threads, shutdown_timeout, reload_dirs, reload_patterns, tls=_tls_args(ssl_certfile, ssl_keyfile, ssl_keyfile_password))
 
     if workers > 1:
         if not isinstance(app, str):
             raise TypeError("workers > 1 needs an import string like 'main:app': each worker process imports the app itself")
-        return _supervise(app, host, port, workers, log_level, io_threads, shutdown_timeout)
+        return _supervise(app, host, port, workers, log_level, io_threads, shutdown_timeout, tls=_tls_args(ssl_certfile, ssl_keyfile, ssl_keyfile_password))
 
     if isinstance(app, str):
         # The file may also start itself (`app.listen(...)` / `app.run()` outside an `if __name__` guard);
@@ -150,6 +163,8 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
             _server._defer_listen = False
     if not isinstance(app, Server):
         raise TypeError(f"expected an httpp.Server, got {type(app).__name__} (ASGI/WSGI apps are not supported yet)")
+    if ssl_certfile is not None:
+        app.set_tls(ssl_certfile, ssl_keyfile, ssl_keyfile_password)
     if reuse_port:
         app.set_reuse_port(True)
     if io_threads is not None:
@@ -161,8 +176,18 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
     app.listen(host, port)  # logs "listening on ..." (info) once the port is really bound  # returns after Ctrl+C / stop(); raises OSError if the port can't be bound
 
 
-def _supervise(target, host, port, workers, log_level, io_threads=None, shutdown_timeout=None):
-    """Start `workers` fresh `httpp run` processes on one port and keep them until a signal or a death.
+def _tls_args(certfile, keyfile, password):
+    """The command line options that give a child `httpp py run` the same TLS settings."""
+    if certfile is None:
+        return []
+    args = ["--ssl-certfile", certfile, "--ssl-keyfile", keyfile]
+    if password is not None:
+        args += ["--ssl-keyfile-password", password]
+    return args
+
+
+def _supervise(target, host, port, workers, log_level, io_threads=None, shutdown_timeout=None, tls=()):
+    """Start `workers` fresh `httpp py run` processes on one port and keep them until a signal or a death.
 
     ponytail: a worker that dies stops the whole group (exit code 1) instead of being restarted;
     let systemd/docker restart it. Upgrade path: respawn with a back-off.
@@ -174,6 +199,7 @@ def _supervise(target, host, port, workers, log_level, io_threads=None, shutdown
         cmd += ["--log-level", log_level]
     if io_threads is not None:
         cmd += ["--io-threads", str(io_threads)]
+    cmd += list(tls)
     grace = _GRACE if shutdown_timeout is None else shutdown_timeout
     if shutdown_timeout is not None:
         cmd += ["--shutdown-timeout", str(shutdown_timeout)]

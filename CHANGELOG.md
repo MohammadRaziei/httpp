@@ -7,6 +7,18 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- The command line is a native executable now (ADR-0041): `httpp server`, `httpp browse`, `httpp download`, `httpp curl` and `httpp --version` run without Python and without the GIL (new `--shutdown-timeout` on
+  `server` and `browse`). The Python commands moved behind `py`: **`httpp run ...` is now `httpp py run ...`, and `httpp path ...` is now `httpp py path ...`** (`python -m httpp run ...` is unchanged). The old spelling
+  fails with exit 2 and says what to type. Everything after `py` goes to Python untouched.
+- The native executable is inside the package (`httpp/bin/httpp`, `httpp.exe` on Windows); the `httpp` console script is `httpp_cli.py` (a module next to the package, so a native command does not import it: 25 ms to start, not 80), which finds it (restoring its execute bit if an installer dropped it) and runs it. `python -m httpp browse`
+  does the same. C++: CMake target `httpp_cli` (`-DHTTPP_BUILD_CLI=OFF` to skip), installed to `bin/` with the SDK. `HTTPP_PYTHON` names the interpreter the executable starts for `py` when it is run on its own.
+
+### Removed
+
+- `httpp install` and `httpp uninstall` are gone (they were never released); `httpp path` (`--include-dir`, `--lib-dir`, `--cmake-dir`) is the only SDK helper.
+
 ### Added
 
 - C++: `server::use(before, after)` for middleware next to the application's own hooks, `httpp::add_cors` and `httpp::add_trusted_host` (`httpp/middleware.hpp`) (ADR-0037).
@@ -16,6 +28,8 @@ such changes are listed under **Changed**).
 - Python: `Server.mount_file_browser(base, root, **options)` (same options as C++) and the `httpp browse [DIRECTORY]` command.
 - C++: `server::directory_options` and `serve_directory(mount, dir, options)`: `index`, `hidden` and `download_active` (nosniff, attachment for active types). The defaults keep the old behaviour.
 
+- TLS for the server (ADR-0040): C++ `server::set_tls(cert, key, password)`, `request::secure` / `scheme()`, `add_https_redirect`; Python `Server.set_tls`, `request.secure` / `request.scheme`, `HTTPSRedirectMiddleware`,
+  `run(ssl_certfile=, ssl_keyfile=, ssl_keyfile_password=)` and `httpp run --ssl-certfile --ssl-keyfile --ssl-keyfile-password` (also with `--workers` and `--reload`). https and wss; TLS 1.2/1.3; no client certificates.
 - Python: `httpp run --reload` (`--reload-dir`, `--reload-pattern`, `run(reload=True, ...)`): restarts the app when a source file changes, development only (ADR-0039).
 - C++: `server::shutdown(grace)`; Python: `Server.shutdown(grace)`, `Server.shutdown_timeout`, `run(shutdown_timeout=...)` and `httpp run --shutdown-timeout` (ADR-0038).
 

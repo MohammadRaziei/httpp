@@ -254,6 +254,44 @@ target_compile_options(httpp_core PRIVATE
 
 apply_optimization_flags(httpp_core)
 
+# --- the command line: `httpp` (ADR-0041) ---
+# Native commands (server, browse, download, curl) are this executable, started by httpp_cli.py (next to the package) in the wheel; run on its
+# own it hands `httpp py ...` to `python -m httpp`. CLI11 is one vendored header (src/third_party/CLI11, unmodified). std::filesystem is switched off in it
+# because the macOS 10.13 target does not have it.
+option(HTTPP_BUILD_CLI "Build the httpp command line" ON)
+if(HTTPP_BUILD_CLI)
+    add_executable(httpp_cli ${PROJECT_SOURCE_DIR}/src/cli/httpp_cli.cpp)
+    set_target_properties(httpp_cli PROPERTIES
+        OUTPUT_NAME httpp
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+    )
+    target_link_libraries(httpp_cli PRIVATE httpp_core)
+    target_include_directories(httpp_cli SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/src/third_party/CLI11)
+    target_compile_definitions(httpp_cli PRIVATE CLI11_HAS_FILESYSTEM=0)
+    if(WIN32)
+        target_compile_definitions(httpp_cli PRIVATE _WIN32_WINNT=0x0A00 NOMINMAX WIN32_LEAN_AND_MEAN)
+    endif()
+    target_compile_options(httpp_cli PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4 /EHsc>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>
+    )
+    apply_optimization_flags(httpp_cli)
+
+    # The executable sits in a bin/ folder next to lib/ (<prefix>/bin and <prefix>/lib for an SDK install, httpp/bin and
+    # httpp/lib inside the wheel), so one relative RPATH finds libhttpp_core in both.
+    if(APPLE)
+        set(_httpp_cli_origin "@executable_path")
+    else()
+        set(_httpp_cli_origin "$ORIGIN")
+    endif()
+    set_target_properties(httpp_cli PROPERTIES INSTALL_RPATH "${_httpp_cli_origin}/../lib")
+    if(DEFINED SKBUILD)
+        # Inside the package, not in the scripts directory: httpp_cli.py (the `httpp` command, next to the package) finds it and runs it.
+        install(TARGETS httpp_cli RUNTIME DESTINATION httpp/bin COMPONENT httpp_wheel)
+    endif()
+endif()
+
 if(HTTPP_BUILD_PYTHON OR DEFINED SKBUILD)
     set(PYTHON_INSTALL_DIR ${CMAKE_BINARY_DIR}/python/install)
     add_subdirectory(${PROJECT_SOURCE_DIR}/src/bindings/python)
@@ -268,6 +306,9 @@ install(TARGETS httpp_core
     LIBRARY DESTINATION lib
 )
 install(DIRECTORY include DESTINATION .)
+if(HTTPP_BUILD_CLI)
+    install(TARGETS httpp_cli RUNTIME DESTINATION bin)
+endif()
 
 # Tests
 if(HTTPP_BUILD_TESTS)

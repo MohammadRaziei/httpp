@@ -12,7 +12,7 @@ with a Python layer in which applications are written with its own decorators (`
 The main goal: **remove the layer boundaries**, not optimize them.
 
 > Current direction (decided by the project owner): **httpp replaces FastAPI/Starlette (above) and uvicorn (below).**
-> A Starlette-like API (with FastAPI on top of it) is implemented natively and started with `httpp run main:app` or `app.run()`.
+> A Starlette-like API (with FastAPI on top of it) is implemented natively and started with `httpp py run main:app` or `app.run()`.
 > Because both layers are ours, shared memory, declarative work in C++ and getting away from the GIL can be designed across the whole stack.
 > The exact scope of the API (Starlette-like only, or FastAPI-like as well, pydantic) is still open (risk 4).
 
@@ -118,7 +118,7 @@ graph LR
 graph TB
     subgraph "Layer 3: Python API"
         API["@app.get('/user/:id')<br/>def get_user(id: int): ..."]
-        RUN["httpp.run / httpp run main:app<br/>--workers N (Linux)"]
+        RUN["httpp.run / httpp py run main:app<br/>--workers N (Linux)"]
     end
 
     subgraph "Layer 2: Cython Binding"

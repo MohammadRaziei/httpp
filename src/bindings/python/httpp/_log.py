@@ -63,7 +63,7 @@ def set_log_level(level):
 
 
 def ensure_handler():
-    """For `httpp run`: if the application configured no logging at all, print the log to stderr."""
+    """For `httpp py run`: if the application configured no logging at all, print the log to stderr."""
     if LOGGER.handlers or logging.getLogger().handlers:
         return
     handler = logging.StreamHandler()

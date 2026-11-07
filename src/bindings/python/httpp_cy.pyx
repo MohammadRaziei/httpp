@@ -70,6 +70,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         vector[pair[string, string]] headers
         vector[pair[string, string]] query
         vector[pair[string, string]] path_params
+        cbool secure
         cpp_form_data form() except +  # std::invalid_argument -> ValueError
 
     cdef cppclass cpp_handler "httpp::handler":
@@ -121,6 +122,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cbool listen(string host, int port) except + nogil
         void stop() except +
         void shutdown(cpp_milliseconds grace) except +
+        cpp_server& set_tls(const string& cert_file, const string& key_file, const string& key_password) except +
 
 
 # Bridge from a plain C function pointer (+ context) to httpp::handler, which
@@ -681,6 +683,10 @@ cdef class RawRequest:
     def body(self):
         cdef bytes b = self._req.get().body
         return b
+
+    @property
+    def secure(self):
+        return bool(self._req.get().secure)
 
     def headers(self):
         """[(name, value), ...] in wire order."""
@@ -1496,6 +1502,23 @@ cdef class Server:
         o.max_age = max_age
         add_cors(self._srv[0], o)
 
+    def _add_https_redirect(self, bint trust_forwarded_proto):
+        """Install the C++ HTTPS redirect middleware; use Server.add_middleware(HTTPSRedirectMiddleware, ...)."""
+        cdef cpp_https_redirect_options o
+        o.trust_forwarded_proto = trust_forwarded_proto
+        add_https_redirect(self._srv[0], o)
+
+    def set_tls(self, str cert_file, str key_file, password=None):
+        """Serve https and wss: a certificate chain (PEM, leaf first) and its private key (PEM; `password` when encrypted).
+        The files are read now; ValueError names the file for a missing or unreadable file, bad PEM, a wrong password or a
+        key that does not belong to the certificate. Before listening. One port serves TLS or plain HTTP, not both."""
+        cdef string pw = b"" if password is None else (<str>password).encode("utf-8")
+        try:
+            self._srv.set_tls(cert_file.encode("utf-8"), key_file.encode("utf-8"), pw)
+        except RuntimeError as e:
+            raise ValueError(str(e)) from None
+        return self
+
     def _add_trusted_host(self, hosts, bint www_redirect):
         """Install the C++ trusted-host middleware; use Server.add_middleware(TrustedHostMiddleware, ...)."""
         cdef cpp_trusted_host_options o
@@ -2278,6 +2301,9 @@ cdef extern from "httpp/middleware.hpp" namespace "httpp":
     cdef cppclass cpp_trusted_host_options "httpp::trusted_host_options":
         vector[string] allowed_hosts
         cbool www_redirect
+    cdef cppclass cpp_https_redirect_options "httpp::https_redirect_options":
+        cbool trust_forwarded_proto
+    void add_https_redirect(cpp_server& s, const cpp_https_redirect_options& options) except +
     void add_cors(cpp_server& s, const cpp_cors_options& options) except +
     void add_trusted_host(cpp_server& s, const cpp_trusted_host_options& options) except +
 

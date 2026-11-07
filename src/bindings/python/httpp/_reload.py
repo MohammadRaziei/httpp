@@ -1,6 +1,6 @@
-"""httpp run --reload: restart the app when a source file changes (development only, ADR-0039).
+"""httpp py run --reload: restart the app when a source file changes (development only, ADR-0039).
 
-A supervisor process polls the files, and runs the app as a child `httpp run` process; on a change it stops the child
+A supervisor process polls the files, and runs the app as a child `httpp py run` process; on a change it stops the child
 (a graceful stop with a short grace period) and starts a new one, so the new code is imported fresh. A child that
 fails to start (a syntax error) or dies leaves the supervisor waiting for the next change.
 """
@@ -71,7 +71,7 @@ def _stop_child(child, grace):
         child.wait()
 
 
-def serve(target, host, port, log_level=None, io_threads=None, shutdown_timeout=None, dirs=None, patterns=None):
+def serve(target, host, port, log_level=None, io_threads=None, shutdown_timeout=None, dirs=None, patterns=None, tls=()):
     """Run `target` ('module:attr') and restart it when a file under `dirs` (default: the current directory) changes."""
     dirs = [os.path.abspath(d) for d in (dirs or ["."])]
     for d in dirs:
@@ -84,6 +84,7 @@ def serve(target, host, port, log_level=None, io_threads=None, shutdown_timeout=
         cmd += ["--log-level", log_level]
     if io_threads is not None:
         cmd += ["--io-threads", str(io_threads)]
+    cmd += list(tls)
 
     def spawn():
         # Own session on POSIX: Ctrl+C reaches only this supervisor, which stops the child itself.
