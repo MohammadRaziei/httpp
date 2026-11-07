@@ -194,7 +194,7 @@ def _supervise(target, host, port, workers, log_level, io_threads=None, shutdown
     """
     if not sys.platform.startswith("linux"):
         raise OSError("workers > 1 relies on SO_REUSEPORT load balancing, which only Linux provides")
-    cmd = [sys.executable, "-m", "httpp", "run", target, "--host", host, "--port", str(port), "--reuse-port"]
+    cmd = [sys.executable, "-m", "httpp", "py", "run", target, "--host", host, "--port", str(port), "--reuse-port"]
     if log_level:
         cmd += ["--log-level", log_level]
     if io_threads is not None:

@@ -32,18 +32,18 @@ if(DEFINED SKBUILD)
         VERSION_INFO=${PROJECT_VERSION}
     )
 
-    # libhttpp_core is installed in the standard `httpp/lib/` layout
-    # (alongside `httpp/include/`, `httpp/cmake/` - see below), not next to
-    # the Python module itself. So the loader needs to look one directory
-    # down from wherever it is:
-    #   - Linux:   $ORIGIN/lib
-    #   - macOS:   @loader_path/lib (dylib's own id is set to @rpath below)
+    # libhttpp_core is installed under `httpp/sdk/lib/` (the wheel's SDK folder:
+    # `httpp/sdk/{bin,include,lib}`, the shape of an SDK install prefix - see
+    # below), not next to the Python module itself. So the loader needs to look
+    # in a folder below wherever it is:
+    #   - Linux:   $ORIGIN/sdk/lib
+    #   - macOS:   @loader_path/sdk/lib (dylib's own id is set to @rpath below)
     #   - Windows: no RPATH concept - handled at import time instead, see
     #              httpp/__init__.py (os.add_dll_directory(get_lib_dir())).
     if(APPLE)
-        set(_httpp_rpath "@loader_path/lib")
+        set(_httpp_rpath "@loader_path/sdk/lib")
     elseif(UNIX)
-        set(_httpp_rpath "$ORIGIN/lib")
+        set(_httpp_rpath "$ORIGIN/sdk/lib")
     endif()
     if(_httpp_rpath)
         set_target_properties(httpp_cy PROPERTIES
@@ -78,7 +78,7 @@ if(DEFINED SKBUILD)
     # --- also ship the C++ library inside the wheel ---
     # `pip install httpp` gives you not just the Python module but a usable
     # C++ package too: headers, the compiled core library, and a CMake
-    # config, all under the installed `httpp` package directory (the
+    # config, all under the installed `httpp/sdk` folder (the
     # nanobind/pybind11 pattern: httpp.get_cmake_dir() etc., see
     # httpp/__init__.py). A downstream CMakeLists.txt can then do:
     #
@@ -91,18 +91,18 @@ if(DEFINED SKBUILD)
     # (see examples/find_httpp_via_python/ for a full working example.)
     install(TARGETS httpp_core
         EXPORT httppTargets
-        ARCHIVE DESTINATION httpp/lib COMPONENT httpp_wheel
-        LIBRARY DESTINATION httpp/lib COMPONENT httpp_wheel
-        RUNTIME DESTINATION httpp/lib COMPONENT httpp_wheel
+        ARCHIVE DESTINATION httpp/sdk/lib COMPONENT httpp_wheel
+        LIBRARY DESTINATION httpp/sdk/lib COMPONENT httpp_wheel
+        RUNTIME DESTINATION httpp/sdk/lib COMPONENT httpp_wheel
     )
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/
-        DESTINATION httpp/include
+        DESTINATION httpp/sdk/include
         COMPONENT httpp_wheel
     )
     install(EXPORT httppTargets
         FILE httppTargets.cmake
         NAMESPACE httpp::
-        DESTINATION httpp/cmake
+        DESTINATION httpp/sdk/lib/cmake/httpp
         COMPONENT httpp_wheel
     )
 
@@ -110,7 +110,7 @@ if(DEFINED SKBUILD)
     configure_package_config_file(
         ${CMAKE_SOURCE_DIR}/cmake/httppConfig.cmake.in
         ${CMAKE_CURRENT_BINARY_DIR}/httppConfig.cmake
-        INSTALL_DESTINATION httpp/cmake
+        INSTALL_DESTINATION httpp/sdk/lib/cmake/httpp
     )
     write_basic_package_version_file(
         ${CMAKE_CURRENT_BINARY_DIR}/httppConfigVersion.cmake
@@ -120,7 +120,7 @@ if(DEFINED SKBUILD)
     install(FILES
         ${CMAKE_CURRENT_BINARY_DIR}/httppConfig.cmake
         ${CMAKE_CURRENT_BINARY_DIR}/httppConfigVersion.cmake
-        DESTINATION httpp/cmake
+        DESTINATION httpp/sdk/lib/cmake/httpp
         COMPONENT httpp_wheel
     )
 

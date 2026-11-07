@@ -145,7 +145,7 @@ def test_httpp_run_with_ssl_options(certs, tmp_path, extra):
     cert, key, other = certs
     (tmp_path / "myapp.py").write_text(APP)
     port = free_port()
-    proc = subprocess.Popen([sys.executable, "-m", "httpp", "run", "myapp:app", "--port", str(port),
+    proc = subprocess.Popen([sys.executable, "-m", "httpp", "py", "run", "myapp:app", "--port", str(port),
                              "--ssl-certfile", cert, "--ssl-keyfile", key, *extra], cwd=tmp_path, env=child_env())
     try:
         status, body, _ = wait_for(lambda: https_get(port, cert))
@@ -161,7 +161,7 @@ def test_httpp_run_with_ssl_options(certs, tmp_path, extra):
 def test_httpp_run_with_a_bad_key_exits_with_a_message(certs, tmp_path):
     cert, key, other = certs
     (tmp_path / "myapp.py").write_text(APP)
-    r = subprocess.run([sys.executable, "-m", "httpp", "run", "myapp:app", "--port", str(free_port()),
+    r = subprocess.run([sys.executable, "-m", "httpp", "py", "run", "myapp:app", "--port", str(free_port()),
                         "--ssl-certfile", cert, "--ssl-keyfile", other], cwd=tmp_path, env=child_env(),
                        capture_output=True, text=True, timeout=30)
     assert r.returncode == 1 and "match" in r.stderr
@@ -172,7 +172,7 @@ def test_workers_serve_tls(certs, tmp_path):
     cert, key, _ = certs
     (tmp_path / "myapp.py").write_text(APP)
     port = free_port()
-    proc = subprocess.Popen([sys.executable, "-m", "httpp", "run", "myapp:app", "--port", str(port), "--workers", "2",
+    proc = subprocess.Popen([sys.executable, "-m", "httpp", "py", "run", "myapp:app", "--port", str(port), "--workers", "2",
                              "--ssl-certfile", cert, "--ssl-keyfile", key], cwd=tmp_path, env=child_env())
     try:
         assert wait_for(lambda: https_get(port, cert))[:2] == (200, "https")

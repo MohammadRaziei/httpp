@@ -211,7 +211,7 @@ def test_crash_recovery():
     """A worker dies (SIGKILL) while holding a lock: the others must not block and the state must stay intact."""
 ```
 
-To start the workers, read the same pattern as `tests/python/test_run.py` (`python -m httpp run` processes
+To start the workers, read the same pattern as `tests/python/test_run.py` (`python -m httpp py run` processes
 with a `PYTHONPATH` computed from `httpp.__file__`).
 
 ---

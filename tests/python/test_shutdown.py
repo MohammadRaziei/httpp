@@ -91,7 +91,7 @@ def test_run_validates_shutdown_timeout():
 def _start(app_dir, *args, slow="0.6"):
     (app_dir / "myapp.py").write_text(SLOW_APP)
     env = child_env(BYE_DIR=str(app_dir), SLOW_SECONDS=slow)
-    return subprocess.Popen([sys.executable, "-m", "httpp", "run", "myapp:app", *args], cwd=app_dir, env=env)
+    return subprocess.Popen([sys.executable, "-m", "httpp", "py", "run", "myapp:app", *args], cwd=app_dir, env=env)
 
 
 def _get_raw(port, path, timeout=10):

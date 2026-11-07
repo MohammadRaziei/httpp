@@ -2,7 +2,7 @@
 
 import httpp
 import pytest
-from httpp.__main__ import main
+from httpp.__main__ import py_main as main
 
 
 def test_path_without_flags_prints_all_three_labeled(capsys):

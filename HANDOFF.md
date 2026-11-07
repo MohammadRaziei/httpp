@@ -1,5 +1,12 @@
 # httpp hand-off (consolidated, 2026-11-05; updates 2026-11-06 and 2026-11-07 below)
 
+> **Update 2026-11-07, later (not committed).** CI on macOS failed 71 CLI tests: the CMake test target runs the suite on a staged install directory where pip never made the `httpp` console script. Fixes, all in the working tree:
+> (1) `tests/python/conftest.py`: `httpp_exe` looks up the console script only for its `command` variant, which is skipped when there is none; the `binary` variant (`httpp/bin/httpp`) always runs.
+> (2) Owner decision: **`python -m httpp ARGS` is the same program as `httpp ARGS`** (`__main__.main` calls `httpp_cli.main`; the Python half is `__main__.py_main`). So `python -m httpp py run main:app`, `python -m httpp server ...`; the old `python -m httpp run` fails with exit 2 like `httpp run`.
+> `_run.py` and `_reload.py` spawn `-m httpp py run`; the C++ `py` forwarding starts `<python> -m httpp py <rest>`. Tests updated, 3 new ones. Sandbox: 782 passed, 4 skipped on 3.13 and 3.14, 781 passed, 5 skipped on 3.14t; `uv build`, SDK install, C++ suite (438) pass.
+> (3) Owner decision: the wheel has one `httpp/sdk/{bin,include,lib}` folder (CMake config in `sdk/lib/cmake/httpp`); see the ADR-0041 addendum. 783 passed on 3.13, 782 on 3.14t; `find_package` verified through `get_cmake_dir()` and `CMAKE_PREFIX_PATH`. Windows, macOS and `auditwheel`/`delocate` with the new RPATH not run.
+> Still open: one `1 failed` line of the macOS CI log was cut off (test name unknown, did not reproduce on Linux); the launcher tests are skipped in CI's staged install (an idea: make the `command` variant use `python -m httpp` as a prefix command).
+
 > **Update 2026-11-07 (not committed, all in the working tree).** The command line moved to C++ (ADR-0041, **the next free ADR is 0042**), written first and only then built and tested at the owner's request.
 > Final design (decided with the owner): a native executable `httpp` (`src/cli/httpp_cli.cpp`, CLI11 v2.5.0 vendored) with `server`, `browse`, `download`, `curl`, `--version`; Python commands behind `py`:
 > `httpp py run main:app`, `httpp py path`. No alias `httpp run`: it fails with exit 2 and says `httpp py run`. **The executable lives inside the package, `httpp/bin/httpp` (`.exe` on Windows)**, RPATH `$ORIGIN/../lib`, one copy of the core library;

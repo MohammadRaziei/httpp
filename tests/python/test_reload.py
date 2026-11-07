@@ -115,7 +115,7 @@ def test_reload_restarts_on_change_survives_a_broken_file_and_stops_on_sigterm(t
     app_file = tmp_path / "myapp.py"
     write_app(app_file, "1")
     port = free_port()
-    proc = subprocess.Popen([sys.executable, "-m", "httpp", "run", "myapp:app", "--port", str(port), "--reload"],
+    proc = subprocess.Popen([sys.executable, "-m", "httpp", "py", "run", "myapp:app", "--port", str(port), "--reload"],
                             cwd=tmp_path, env=child_env())
     try:
         first = wait_for(lambda: wait_value(port, "1"))
@@ -144,6 +144,6 @@ def test_reload_restarts_on_change_survives_a_broken_file_and_stops_on_sigterm(t
 @pytest.mark.skipif(sys.platform == "win32", reason="SIGTERM")
 def test_cli_reload_with_workers_is_an_error(tmp_path):
     write_app(tmp_path / "myapp.py", "1")
-    r = subprocess.run([sys.executable, "-m", "httpp", "run", "myapp:app", "--reload", "--workers", "2", "--port", str(free_port())],
+    r = subprocess.run([sys.executable, "-m", "httpp", "py", "run", "myapp:app", "--reload", "--workers", "2", "--port", str(free_port())],
                        cwd=tmp_path, env=child_env(), capture_output=True, text=True, timeout=30)
     assert r.returncode == 1 and "reload" in r.stderr

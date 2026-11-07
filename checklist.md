@@ -30,8 +30,8 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 
 - [x] Tests: `tests/python/test_cli.py` (server, download, curl, `--help`, exit codes, `py` argv unchanged, `HTTPP_PYTHON`), `tests/python/conftest.py` (`httpp_exe`), `test_file_browser.py` uses the executable
 - [x] Vendor `CLI11.hpp` v2.5.0 in `src/third_party/CLI11/`, listed in `src/third_party/README.md`
-- [x] `src/cli/httpp_cli.cpp`; `python -m httpp` is only `run` and `path`
-- [x] CMake: `httpp_cli` target (`OUTPUT_NAME httpp`), SDK install to `bin/`, wheel install to `httpp/bin/`; `httpp_cli.py` (next to the package in site-packages) is the console script that finds and runs it
+- [x] `src/cli/httpp_cli.cpp`; `python -m httpp ARGS` is the same program as `httpp ARGS` (one grammar: `py run`, `py path`, `server`, `browse`, `download`, `curl`, `--version`)
+- [x] CMake: `httpp_cli` target (`OUTPUT_NAME httpp`), SDK install to `bin/`, wheel install to `httpp/sdk/bin/`; `httpp_cli.py` (next to the package in site-packages) is the console script that finds and runs it
 - [x] README, CHANGELOG, ADR-0041
 - [x] Decided 2026-11-06: no `install` or `uninstall`
 - [ ] Wheel CI: the executable is present and runs in every wheel (`cp39-abi3`, `cp313t`, `cp314t`, `cp315t`) on three OS (also check `auditwheel repair` and `delocate` with an executable inside the package, and that the execute bit survives or is restored)

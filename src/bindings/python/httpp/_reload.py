@@ -79,7 +79,7 @@ def serve(target, host, port, log_level=None, io_threads=None, shutdown_timeout=
             raise ValueError(f"reload directory not found: {d}")
     patterns = list(patterns or ["*.py"])
     grace = _CHILD_GRACE if shutdown_timeout is None else shutdown_timeout
-    cmd = [sys.executable, "-m", "httpp", "run", target, "--host", host, "--port", str(port), "--shutdown-timeout", str(grace)]
+    cmd = [sys.executable, "-m", "httpp", "py", "run", target, "--host", host, "--port", str(port), "--shutdown-timeout", str(grace)]
     if log_level:
         cmd += ["--log-level", log_level]
     if io_threads is not None:

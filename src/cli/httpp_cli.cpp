@@ -9,7 +9,7 @@
 //   httpp py run main:app ...    run an httpp app
 //   httpp py path ...            print the SDK directories
 //
-// Everything after `py` is handed to `<python> -m httpp` untouched, so the options of the Python commands are defined
+// Everything after `py` is handed to `<python> -m httpp py` untouched, so the options of the Python commands are defined
 // in one place only (src/bindings/python/httpp/__main__.py).
 //
 // macOS 10.13 limits apply here too: POSIX calls instead of std::filesystem.
@@ -269,7 +269,7 @@ std::string quote_windows_arg(const std::string& arg) {
 }
 #endif
 
-// Runs `python -m httpp <args>`; returns the exit code (on POSIX it only returns when the interpreter could not be started).
+// Runs `python -m httpp py <args>`; returns the exit code (on POSIX it only returns when the interpreter could not be started).
 // Which Python: $HTTPP_PYTHON (httpp/httpp_cli.py sets it to its own interpreter when it starts this executable), else python3 or python
 // next to this executable (an SDK install has none), else python3 or python on PATH.
 int run_python(const char* argv0, const std::vector<std::string>& args) {
@@ -293,7 +293,7 @@ int run_python(const char* argv0, const std::vector<std::string>& args) {
             if (env && *env && py == env) return fail("HTTPP_PYTHON is set to '" + py + "', which is not an executable file");
             continue;
         }
-        std::vector<std::string> argv_store{py, "-m", "httpp"};
+        std::vector<std::string> argv_store{py, "-m", "httpp", "py"};
         argv_store.insert(argv_store.end(), args.begin(), args.end());
 #ifdef _WIN32
         std::vector<std::string> quoted;

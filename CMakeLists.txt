@@ -164,7 +164,7 @@ set_target_properties(httpp_core PROPERTIES
 target_include_directories(httpp_core
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:httpp/include>
+        $<INSTALL_INTERFACE:httpp/sdk/include>
 )
 # SYSTEM: these are vendored/third-party headers we don't control (cpp-httplib,
 # indicators, etc.). Marking them SYSTEM tells the compiler their own internal
@@ -278,8 +278,8 @@ if(HTTPP_BUILD_CLI)
     )
     apply_optimization_flags(httpp_cli)
 
-    # The executable sits in a bin/ folder next to lib/ (<prefix>/bin and <prefix>/lib for an SDK install, httpp/bin and
-    # httpp/lib inside the wheel), so one relative RPATH finds libhttpp_core in both.
+    # The executable sits in a bin/ folder next to lib/ (<prefix>/bin and <prefix>/lib for an SDK install, httpp/sdk/bin and
+    # httpp/sdk/lib inside the wheel), so one relative RPATH finds libhttpp_core in both.
     if(APPLE)
         set(_httpp_cli_origin "@executable_path")
     else()
@@ -288,7 +288,7 @@ if(HTTPP_BUILD_CLI)
     set_target_properties(httpp_cli PROPERTIES INSTALL_RPATH "${_httpp_cli_origin}/../lib")
     if(DEFINED SKBUILD)
         # Inside the package, not in the scripts directory: httpp_cli.py (the `httpp` command, next to the package) finds it and runs it.
-        install(TARGETS httpp_cli RUNTIME DESTINATION httpp/bin COMPONENT httpp_wheel)
+        install(TARGETS httpp_cli RUNTIME DESTINATION httpp/sdk/bin COMPONENT httpp_wheel)
     endif()
 endif()
 

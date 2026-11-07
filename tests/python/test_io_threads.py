@@ -117,7 +117,7 @@ def test_the_command_line_takes_io_threads(tmp_path):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    proc = subprocess.Popen([sys.executable, "-m", "httpp", "run", "tapp:app", "--port", str(port), "--io-threads", "3",
+    proc = subprocess.Popen([sys.executable, "-m", "httpp", "py", "run", "tapp:app", "--port", str(port), "--io-threads", "3",
                              "--log-level", "error"], cwd=tmp_path, env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [str(tmp_path), root, os.environ.get("PYTHONPATH")]))})
     try:
         for _ in range(100):

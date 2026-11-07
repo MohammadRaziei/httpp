@@ -59,7 +59,7 @@ def child_env(**extra):
 
 def start(app_dir, *args):
     env = child_env(BYE_DIR=str(app_dir))
-    return subprocess.Popen([sys.executable, "-m", "httpp", "run", "myapp:app", *args], cwd=app_dir, env=env)
+    return subprocess.Popen([sys.executable, "-m", "httpp", "py", "run", "myapp:app", *args], cwd=app_dir, env=env)
 
 
 def wait_for(fn, seconds=20):
@@ -115,7 +115,7 @@ def test_cli_run_serves_and_stops_gracefully_on_sigterm(app_dir):
 @pytest.mark.parametrize("args, logged", [((), True), (("--log-level", "info"), True), (("--log-level", "warning"), False)])
 def test_cli_run_logs_each_request_unless_the_level_is_raised(app_dir, args, logged):
     port = free_port()
-    proc = subprocess.Popen([sys.executable, "-m", "httpp", "run", "myapp:app", "--port", str(port), *args],
+    proc = subprocess.Popen([sys.executable, "-m", "httpp", "py", "run", "myapp:app", "--port", str(port), *args],
                             cwd=app_dir, env=child_env(BYE_DIR=str(app_dir)), stderr=subprocess.PIPE, text=True)
     try:
         wait_for(lambda: get_pid(port))
@@ -140,7 +140,7 @@ def test_cli_run_wins_over_a_listen_call_at_import_time(app_dir, workers):
         pytest.skip("SO_REUSEPORT balancing is Linux")
     (app_dir / "myapp.py").write_text(SELF_STARTING)
     port = free_port()
-    proc = subprocess.Popen([sys.executable, "-m", "httpp", "run", "myapp:app", "--port", str(port), "--workers", str(workers)],
+    proc = subprocess.Popen([sys.executable, "-m", "httpp", "py", "run", "myapp:app", "--port", str(port), "--workers", str(workers)],
                             cwd=app_dir, env=child_env(BYE_DIR=str(app_dir)), stderr=subprocess.PIPE, text=True)
     try:
         assert wait_for(lambda: get_pid(port))  # served on run's port, not the one in the file
@@ -156,7 +156,7 @@ def test_cli_run_wins_over_a_listen_call_at_import_time(app_dir, workers):
 
 
 def test_cli_run_reports_a_bad_target_and_exits_1(app_dir):
-    r = subprocess.run([sys.executable, "-m", "httpp", "run", "myapp:missing"], cwd=app_dir, env=child_env(), capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "-m", "httpp", "py", "run", "myapp:missing"], cwd=app_dir, env=child_env(), capture_output=True, text=True)
     assert r.returncode == 1 and "no attribute 'missing'" in r.stderr and "Traceback" not in r.stderr
 
 
@@ -279,7 +279,7 @@ def test_workers_auto_with_an_app_object_runs_one_process_and_serves(monkeypatch
 
 
 def test_cli_accepts_workers_auto_and_rejects_nonsense(app_dir):
-    out = subprocess.run([sys.executable, "-m", "httpp", "run", "myapp:app", "--workers", "many"], cwd=app_dir,
+    out = subprocess.run([sys.executable, "-m", "httpp", "py", "run", "myapp:app", "--workers", "many"], cwd=app_dir,
                          env=child_env(BYE_DIR=str(app_dir)), capture_output=True, text=True, timeout=30)
     assert out.returncode == 2 and "workers" in out.stderr
 

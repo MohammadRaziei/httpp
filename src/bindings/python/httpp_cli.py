@@ -1,8 +1,8 @@
 """The `httpp` command (ADR-0041): finds the native executable inside the package and runs it.
 
-The commands without Python (server, browse, download, curl, --version) are the executable `httpp/bin/httpp` (`httpp.exe` on Windows),
+The commands without Python (server, browse, download, curl, --version) are the executable `httpp/sdk/bin/httpp` (`httpp.exe` on Windows),
 built from src/cli/httpp_cli.cpp. On POSIX this launcher replaces itself with it (`exec`), so nothing of Python is left running.
-`httpp py ...` is the Python half (`httpp.__main__`) and runs in this process. Stdlib only.
+`httpp py ...` is the Python half (`httpp.__main__.py_main`) and runs in this process. `python -m httpp ARGS` calls `main` here, so it is the same program. Stdlib only.
 
 This module sits next to the `httpp` package in site-packages, not inside it, on purpose: a module inside the package would make
 Python import `httpp/__init__` (the compiled extension, about 80 ms) before this code runs, to start a program that does not need it.
@@ -21,7 +21,7 @@ _EXE_NAME = "httpp.exe" if os.name == "nt" else "httpp"
 
 def binary_path():
     """Where the native executable is in this installation."""
-    return Path(__file__).resolve().parent / "httpp" / "bin" / _EXE_NAME
+    return Path(__file__).resolve().parent / "httpp" / "sdk" / "bin" / _EXE_NAME
 
 
 def ensure_executable(path):
@@ -47,7 +47,7 @@ def run_native(args):
     if sys.executable:
         env.setdefault("HTTPP_PYTHON", sys.executable)  # `httpp py ...` run by the executable itself uses this same interpreter
     if os.name == "nt":
-        # Windows finds libhttpp_core.dll next to the executable or on PATH; it is in ../lib
+        # Windows finds libhttpp_core.dll next to the executable or on PATH; it is in ../lib (httpp/sdk/lib)
         env["PATH"] = str(exe.parent.parent / "lib") + os.pathsep + env.get("PATH", "")
 
     sys.stdout.flush()
@@ -68,7 +68,7 @@ def main(argv=None):
         if len(argv) == 1:
             print("usage: httpp py COMMAND [ARGS...]\nPython commands: run, path. Try: httpp py --help", file=sys.stderr)
             return 2
-        from httpp.__main__ import main as python_main
+        from httpp.__main__ import py_main as python_main
 
         return python_main(argv[1:])
     if argv and argv[0] in _PY_ONLY_COMMANDS:

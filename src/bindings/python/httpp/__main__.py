@@ -1,13 +1,10 @@
-"""The Python half of the httpp command line (ADR-0041): `run` and `path`. Stdlib only (argparse).
+"""`python -m httpp` (ADR-0041): the same program as the `httpp` command, whatever the arguments.
 
-`httpp py run main:app` is `python -m httpp run main:app` (the `httpp` command is httpp_cli.py, next to the package, which starts the native
-executable for server, browse, download and curl; `python -m httpp browse` does that too)."""
+`python -m httpp server|browse|download|curl|--version ...` starts the native executable, `python -m httpp py run|path ...` is the Python half
+(`py_main` below, argparse, stdlib only). The routing is httpp_cli.main, shared with the console script, so there is one grammar."""
 
 import argparse
 import sys
-
-from httpp_cli import NATIVE_COMMANDS, run_native
-
 
 
 def _workers_arg(text):
@@ -107,10 +104,9 @@ def build_parser():
     return parser
 
 
-def main(argv=None):
+def py_main(argv=None):
+    """The Python commands, the arguments after `py` (httpp_cli.main calls this)."""
     argv = sys.argv[1:] if argv is None else list(argv)
-    if argv and argv[0] in NATIVE_COMMANDS:
-        return run_native(argv)  # `python -m httpp browse` is `httpp browse`
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -122,6 +118,13 @@ def main(argv=None):
         return 1
 
     return args.func(args) or 0
+
+
+def main(argv=None):
+    """Same as the `httpp` command."""
+    import httpp_cli
+
+    return httpp_cli.main(argv)
 
 
 if __name__ == "__main__":

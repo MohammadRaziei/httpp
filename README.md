@@ -383,7 +383,7 @@ touched by several threads at once.
 
 ### Command line
 
-`httpp` is a command that starts a native executable (`httpp/bin/httpp` inside the package; `bin/httpp` of a C++ SDK install runs on its own). The commands below need no Python and run without the GIL:
+`httpp` is a command that starts a native executable (`httpp/sdk/bin/httpp` inside the package; `bin/httpp` of a C++ SDK install runs on its own). The commands below need no Python and run without the GIL:
 
 ```sh
 httpp server ./site --port 8000          # serve a directory

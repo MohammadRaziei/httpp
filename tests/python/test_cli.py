@@ -310,7 +310,7 @@ def test_py_passes_every_argument_unchanged(httpp_bin, tmp_path):
     args = ["run", "main:app", "two words", 'has"quote', "it's", "", "--port", "--help", "-h", "--version", "$HOME", "*", "ünï"]
     r = run(httpp_bin, "py", *args, env={"HTTPP_PYTHON": str(fake)})
     assert r.returncode == 7  # the interpreter's exit code is ours
-    assert json.loads(r.stdout) == ["-m", "httpp", *args]
+    assert json.loads(r.stdout) == ["-m", "httpp", "py", *args]
 
 
 @posix_only
@@ -338,8 +338,22 @@ def test_without_a_python_the_error_says_what_to_do(httpp_bin, tmp_path):
 
 def test_the_launcher_finds_the_executable_in_the_package():
     exe = httpp_cli.binary_path()
-    assert exe.parent.name == "bin" and exe.parent.parent == Path(httpp.__file__).resolve().parent
-    assert exe.parent.parent.joinpath("lib").is_dir()  # the executable's RPATH is ../lib
+    sdk = Path(httpp.__file__).resolve().parent / "sdk"
+    assert exe.parent == sdk / "bin"
+    assert (sdk / "lib").is_dir()  # the executable's RPATH is ../lib
+
+
+def test_the_package_ships_one_sdk_folder():
+    """include, lib, bin and the CMake config sit under httpp/sdk, the same shape as an SDK install prefix."""
+    pkg = Path(httpp.__file__).resolve().parent
+    sdk = pkg / "sdk"
+    assert Path(httpp.get_include_dir()).resolve() == sdk / "include"
+    assert Path(httpp.get_lib_dir()).resolve() == sdk / "lib"
+    assert (sdk / "include" / "httpp.h").is_file()
+    assert (Path(httpp.get_cmake_dir()) / "httppConfig.cmake").is_file()
+    assert Path(httpp.get_cmake_dir()).resolve().is_relative_to(sdk / "lib") if hasattr(Path, "is_relative_to") else True
+    for old in ("include", "lib", "bin", "cmake"):
+        assert not (pkg / old).exists(), f"httpp/{old} should now live in httpp/sdk/{old}"
 
 
 def test_importing_the_launcher_does_not_import_the_package():
@@ -403,6 +417,29 @@ def test_python_dash_m_httpp_runs_the_native_commands_too(native):
     assert r.returncode == 0 and native in r.stdout
 
 
-def test_python_dash_m_httpp_keeps_run_and_path():
-    r = subprocess.run([sys.executable, "-m", "httpp", "path", "--cmake-dir"], capture_output=True, text=True, timeout=60)
+def python_m(*args):
+    return subprocess.run([sys.executable, "-m", "httpp", *args], capture_output=True, text=True, timeout=60)
+
+
+def test_python_dash_m_httpp_is_the_httpp_command():
+    """`python -m httpp ARGS` and `httpp ARGS` are the same program: same grammar, same exit codes."""
+    r = python_m("--version")
+    assert r.returncode == 0 and r.stdout.startswith("httpp "), r.stderr
+    r = python_m("py", "path", "--cmake-dir")
     assert r.returncode == 0 and r.stdout == f"{httpp.get_cmake_dir()}\n"
+    r = python_m("py")
+    assert r.returncode == 2 and "usage: httpp py" in r.stderr
+    r = python_m("py", "run", "nomod:app")
+    assert r.returncode == 1 and "nomod" in r.stderr
+
+
+@pytest.mark.parametrize("old", ["run", "path"])
+def test_python_dash_m_httpp_has_no_old_spelling_either(old):
+    r = python_m(old)
+    assert r.returncode == 2 and f"httpp py {old}" in r.stderr
+
+
+def test_python_dash_m_httpp_and_the_executable_answer_alike(httpp_bin):
+    for args in (["--version"], ["curl", "--help"], ["download"], ["bogus-command"]):
+        a, b = python_m(*args), run(httpp_bin, *args)
+        assert (a.returncode, a.stdout, a.stderr) == (b.returncode, b.stdout, b.stderr), args
