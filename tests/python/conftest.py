@@ -6,6 +6,7 @@ Two ways to start the same commands: `httpp` the command (httpp_cli.py, a consol
 
 import os
 import shutil
+import sys
 import sysconfig
 from pathlib import Path
 
@@ -41,7 +42,7 @@ def httpp_command():
     """The `httpp` console script that pip generates (httpp_cli.py). Set HTTPP_EXE to test another one.
 
     A tree that is not pip-installed has none (the CMake test target runs against a staged install directory): then the tests that
-    need the launcher are skipped, and the same commands still run on the native executable through `httpp_bin`."""
+    need this very script are skipped (`httpp_exe` falls back to `python -m httpp`, the same program)."""
     exe = _find_command()
     if exe is None:
         if os.environ.get("HTTPP_EXE"):
@@ -52,5 +53,11 @@ def httpp_command():
 
 @pytest.fixture(params=["command", "binary"])
 def httpp_exe(request):
-    # The fixture is looked up only for the "command" variant, so a missing console script never takes the "binary" variant down with it.
-    return request.getfixturevalue("httpp_command") if request.param == "command" else request.getfixturevalue("httpp_bin")
+    """The command as an argv prefix (a list): `[console script]` or, when the tree is not pip-installed, `[python, -m, httpp]` (the same
+    program, ADR-0041), and `[native executable]` for the other variant. Tests build `[*httpp_exe, ARGS...]`."""
+    if request.param == "binary":
+        return [request.getfixturevalue("httpp_bin")]
+    if os.environ.get("HTTPP_EXE"):  # an explicit choice must exist (the fixture fails when it does not)
+        return [request.getfixturevalue("httpp_command")]
+    exe = _find_command()
+    return [exe] if exe else [sys.executable, "-m", "httpp"]

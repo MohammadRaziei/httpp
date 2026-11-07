@@ -30,9 +30,9 @@ such changes are listed under **Changed**).
 - C++: `server::directory_options` and `serve_directory(mount, dir, options)`: `index`, `hidden` and `download_active` (nosniff, attachment for active types). The defaults keep the old behaviour.
 
 - TLS for the server (ADR-0040): C++ `server::set_tls(cert, key, password)`, `request::secure` / `scheme()`, `add_https_redirect`; Python `Server.set_tls`, `request.secure` / `request.scheme`, `HTTPSRedirectMiddleware`,
-  `run(ssl_certfile=, ssl_keyfile=, ssl_keyfile_password=)` and `httpp run --ssl-certfile --ssl-keyfile --ssl-keyfile-password` (also with `--workers` and `--reload`). https and wss; TLS 1.2/1.3; no client certificates.
-- Python: `httpp run --reload` (`--reload-dir`, `--reload-pattern`, `run(reload=True, ...)`): restarts the app when a source file changes, development only (ADR-0039).
-- C++: `server::shutdown(grace)`; Python: `Server.shutdown(grace)`, `Server.shutdown_timeout`, `run(shutdown_timeout=...)` and `httpp run --shutdown-timeout` (ADR-0038).
+  `run(ssl_certfile=, ssl_keyfile=, ssl_keyfile_password=)` and `httpp py run --ssl-certfile --ssl-keyfile --ssl-keyfile-password` (also with `--workers` and `--reload`). https and wss; TLS 1.2/1.3; no client certificates.
+- Python: `httpp py run --reload` (`--reload-dir`, `--reload-pattern`, `run(reload=True, ...)`): restarts the app when a source file changes, development only (ADR-0039).
+- C++: `server::shutdown(grace)`; Python: `Server.shutdown(grace)`, `Server.shutdown_timeout`, `run(shutdown_timeout=...)` and `httpp py run --shutdown-timeout` (ADR-0038).
 
 ### Fixed
 
@@ -42,7 +42,7 @@ such changes are listed under **Changed**).
 
 ### Changed
 
-- Ctrl+C and SIGTERM in `httpp run` / `Server.listen` now drain: requests in progress finish (answered with `Connection: close`) within `shutdown_timeout` (default 10 s) instead of being cut; a second Ctrl+C cuts at once (ADR-0038).
+- Ctrl+C and SIGTERM in `httpp py run` / `Server.listen` now drain: requests in progress finish (answered with `Connection: close`) within `shutdown_timeout` (default 10 s) instead of being cut; a second Ctrl+C cuts at once (ADR-0038).
 - Server: the method and target are compared with string literals through `std::string_view` (no `strlen`; about 0.8 percent fewer instructions per request, ADR-0033 addendum). No API change.
 - Server: the 16 KiB read buffer of a connection is no longer zero-filled when the connection is made (ADR-0036). No API change.
 - Server: with several I/O threads (`set_io_threads`), new connections go to the I/O thread with the fewest connections instead of wherever the kernel's `SO_REUSEPORT` hash put them (ADR-0034). No API change.

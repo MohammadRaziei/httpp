@@ -22,10 +22,11 @@ posix_only = pytest.mark.skipif(os.name == "nt", reason="uses a script as the in
 
 
 def run(exe, *args, env=None, timeout=60, input=None):
+    exe = [exe] if isinstance(exe, str) else list(exe)
     full_env = dict(os.environ)
     full_env.setdefault("HTTPP_PYTHON", sys.executable)  # what the launcher sets for the executable (which sits in site-packages, with no Python next to it)
     full_env.update(env or {})
-    return subprocess.run([exe, *args], capture_output=True, text=True, timeout=timeout, env=full_env, input=input)
+    return subprocess.run([*exe, *args], capture_output=True, text=True, timeout=timeout, env=full_env, input=input)
 
 
 def free_port():
@@ -124,7 +125,7 @@ def test_run_and_path_point_to_py(httpp_exe, old):
 def test_server_serves_a_directory(httpp_exe, tmp_path):
     (tmp_path / "hello.txt").write_text("hi there")
     port = free_port()
-    proc = subprocess.Popen([httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen([*httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         r = wait_for(f"http://127.0.0.1:{port}/hello.txt", proc)
         assert (r.status, r.text) == (200, "hi there")
@@ -154,7 +155,7 @@ def test_ctrl_c_and_sigterm_stop_the_server_cleanly(httpp_exe, tmp_path, command
 
     for sig in (signal.SIGINT, signal.SIGTERM):
         port = free_port()
-        proc = subprocess.Popen([httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             assert wait_for(f"http://127.0.0.1:{port}/", proc).status != 0
             proc.send_signal(sig)
@@ -292,7 +293,7 @@ def test_py_without_a_command_is_a_usage_error(httpp_exe):
 def test_py_runs_an_app(httpp_exe, tmp_path):
     (tmp_path / "myapp.py").write_text('from httpp import Server\napp = Server(openapi_url=None)\n\n@app.get("/")\ndef index():\n    return "from py run"\n')
     port = free_port()
-    proc = subprocess.Popen([httpp_exe, "py", "run", "myapp:app", "--port", str(port), "--log-level", "warning"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=dict(os.environ, HTTPP_PYTHON=sys.executable))
+    proc = subprocess.Popen([*httpp_exe, "py", "run", "myapp:app", "--port", str(port), "--log-level", "warning"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=dict(os.environ, HTTPP_PYTHON=sys.executable))
     try:
         r = wait_for(f"http://127.0.0.1:{port}/", proc, attempts=200)
         assert (r.status, r.text) == (200, "from py run")
@@ -382,13 +383,13 @@ def test_the_launcher_reports_a_missing_executable(monkeypatch, tmp_path, capsys
 
 
 @posix_only
-def test_the_launcher_restores_a_lost_execute_bit(httpp_command, httpp_bin):
+def test_the_launcher_restores_a_lost_execute_bit(httpp_bin):
     exe = Path(httpp_bin)
     mode = exe.stat().st_mode
     try:
         exe.chmod(mode & ~(stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH))
         assert not os.access(exe, os.X_OK)
-        r = run(httpp_command, "--version")  # not run as root-with-bypass: access() above says it cannot be executed
+        r = run([sys.executable, "-m", "httpp"], "--version")  # the launcher, started as `python -m httpp`; not run as root-with-bypass: access() above says it cannot be executed
         assert r.returncode == 0 and r.stdout.startswith("httpp "), r.stderr
         assert os.access(exe, os.X_OK)
     finally:
