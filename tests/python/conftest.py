@@ -9,24 +9,22 @@ import shutil
 import subprocess
 import sys
 import sysconfig
-from pathlib import Path
 
 import pytest
 
 import httpp
 import httpp_cli
 
-# The CMake test target runs this suite on a staged install directory that is on sys.path only because pytest runs with it as the current
-# directory. The commands start other Pythons (`httpp py run`, `python -m httpp`, reload workers), possibly in another directory: give them the
-# same place to import httpp and httpp_cli from. With a pip-installed package this is just site-packages again.
-_PACKAGE_ROOT = str(Path(httpp.__file__).resolve().parent.parent)
-os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, [_PACKAGE_ROOT, os.environ.get("PYTHONPATH")]))
+# Where the commands under test find httpp: pip-installed it is site-packages; the CMake test target sets PYTHONPATH itself
+# (tests/python/CMakeLists.txt).
 
-# Python 3.14 argparse colours its help when FORCE_COLOR is set (CI sets it), which puts escape codes inside "usage: httpp py". The tests
-# compare text, so neither this process nor the commands it starts may colour.
-os.environ.pop("FORCE_COLOR", None)
-os.environ["NO_COLOR"] = "1"
-os.environ["PYTHON_COLORS"] = "0"
+
+@pytest.fixture(autouse=True)
+def _plain_text(monkeypatch):
+    """Python 3.14 argparse colours its help when FORCE_COLOR is set; the tests compare text, in this process and in the commands they start."""
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("PYTHON_COLORS", "0")
 
 
 def _find_command():
