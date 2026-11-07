@@ -43,7 +43,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 ## 2. Features
 
 ### Server and framework
-- [ ] **(proposed)** A test client in Python (`httpp.testclient`), Starlette-shaped, running the app in process without a port: needed for users' own tests
+- [x] A test client in Python (`httpp.testclient.TestClient`, ADR-0042), Starlette-shaped: a real server on a loopback port of its own. Open: `websocket_connect` (no WebSocket client yet), multipart `files=`, an in-memory mode
 - [x] Middleware set (ADR-0037, ADR-0040): CORS, TrustedHost, GZip and HTTPS redirect (C++ and Python)
 - [x] TLS for the server (`https`, `wss`) (ADR-0040); not yet: certificate reload without restart, session tickets, client certificates, ALPN
 - [x] `--reload` for development (ADR-0039)

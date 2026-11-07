@@ -15,6 +15,12 @@ import pytest
 import httpp
 import httpp_cli
 
+# The CMake test target runs this suite on a staged install directory that is on sys.path only because pytest runs with it as the current
+# directory. The commands start other Pythons (`httpp py run`, `python -m httpp`, reload workers), possibly in another directory: give them the
+# same place to import httpp and httpp_cli from. With a pip-installed package this is just site-packages again.
+_PACKAGE_ROOT = str(Path(httpp.__file__).resolve().parent.parent)
+os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, [_PACKAGE_ROOT, os.environ.get("PYTHONPATH")]))
+
 
 def _find_command():
     name = "httpp.exe" if os.name == "nt" else "httpp"

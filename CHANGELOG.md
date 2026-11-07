@@ -7,6 +7,10 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Added
+
+- **`httpp.testclient.TestClient`** (ADR-0042): a Starlette-shaped client for testing your app. It serves the app on a free loopback port of its own and goes through httpp's client, so tests meet the real routing, middleware and error paths. Cookies, redirects, `base_url`/`Host`, `raise_server_exceptions`, startup and shutdown hooks (`with TestClient(app)`). Not yet: `websocket_connect`, multipart `files=`, an in-memory mode.
+
 ### Changed (breaking)
 
 - The command line is a native executable now (ADR-0041): `httpp server`, `httpp browse`, `httpp download`, `httpp curl` and `httpp --version` run without Python and without the GIL (new `--shutdown-timeout` on

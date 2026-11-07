@@ -624,6 +624,7 @@ def _adapt(fn, app, plan=None, status=200, shape=None):
             except Exception as exc:
                 handler = app._exception_handler_for(exc)
                 if handler is None:
+                    app._unhandled(exc)
                     raise
                 return _to_response(_call(handler, ServerRequest._from_raw(raw), exc), 500)
 
@@ -640,6 +641,7 @@ def _adapt(fn, app, plan=None, status=200, shape=None):
         except Exception as exc:
             handler = app._exception_handler_for(exc)
             if handler is None:
+                app._unhandled(exc)
                 raise  # the compiled core logs it and answers a plain 500
             return _to_response(_call(handler, ServerRequest._from_raw(raw), exc), 500)
 
@@ -858,6 +860,7 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                 except Exception as exc:
                     handler = app._exception_handler_for(exc)
                     if handler is None:
+                        app._unhandled(exc)
                         raise  # answered with a plain 500 below
                     rv = handler(ServerRequest._from_raw(raw), exc)
                     if inspect.isawaitable(rv):
@@ -1048,6 +1051,7 @@ class Server(_Server):
         self._title, self._version, self._description = title, version, description
         self._before, self._after, self._startup, self._shutdown = [], [], [], []
         self._error_handlers, self._exception_handlers = {}, {}
+        self._exception_sink = None  # a list while httpp.testclient is watching: unhandled handler exceptions are appended to it
 
         if threads is None:
             if max_threads is not None:
@@ -1266,6 +1270,12 @@ class Server(_Server):
 
     # ponytail: Python exceptions never reach the C++ exception hook (the adapters catch them), so
     # exception_handler is handled in Python rather than through set_exception_handler.
+    def _unhandled(self, exc):
+        """A handler raised `exc` and no exception handler answers for it (the core answers 500). httpp.testclient re-raises it in the test."""
+        sink = self._exception_sink
+        if sink is not None:
+            sink.append(exc)
+
     def _exception_handler_for(self, exc):
         for cls in type(exc).__mro__:
             handler = self._exception_handlers.get(cls)

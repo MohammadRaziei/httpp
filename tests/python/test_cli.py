@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import socket
 import stat
 import subprocess
@@ -79,7 +80,10 @@ def echo_app():
 def test_version(httpp_exe):
     r = run(httpp_exe, "--version")
     assert r.returncode == 0
-    assert r.stdout.strip() == f"httpp {httpp.__version__}", r.stdout
+    if httpp.__version__.startswith("0.0.0"):  # a staged install has no package metadata, so httpp reports its fallback version
+        assert re.fullmatch(r"httpp \d+\.\d+\.\d+\S*", r.stdout.strip()), r.stdout
+    else:
+        assert r.stdout.strip() == f"httpp {httpp.__version__}", r.stdout
 
 
 def test_help_lists_the_native_commands_and_py(httpp_exe):
@@ -359,7 +363,8 @@ def test_the_package_ships_one_sdk_folder():
 
 def test_importing_the_launcher_does_not_import_the_package():
     """Why httpp_cli.py is next to the package and not in it: starting a native command must not load the compiled extension."""
-    code = "import sys, httpp_cli; sys.exit(1 if 'httpp' in sys.modules else 0)"
+    where = str(Path(httpp_cli.__file__).resolve().parent)  # -I ignores PYTHONPATH and the current directory, so the path is given here
+    code = f"import sys; sys.path.insert(0, {where!r}); import httpp_cli; sys.exit(1 if 'httpp' in sys.modules else 0)"
     assert subprocess.run([sys.executable, "-I", "-c", code], timeout=60).returncode == 0
 
 

@@ -33,7 +33,7 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - [Features](#features)
 - [Install](#install)
 - [Python](#python)
-  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [`def` or `async def`](#def-or-async-def) · [Routers](#routers) · [Forms and uploads](#forms-and-uploads) · [`response` and background work](#the-response-argument-and-background-work) · [Streaming and files](#streaming-and-files) · [File browser](#a-read-only-file-browser) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Command line](#command-line) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async)
+  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [`def` or `async def`](#def-or-async-def) · [Routers](#routers) · [Forms and uploads](#forms-and-uploads) · [`response` and background work](#the-response-argument-and-background-work) · [Streaming and files](#streaming-and-files) · [File browser](#a-read-only-file-browser) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Command line](#command-line) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async) · [Testing your app](#testing-your-app)
 - [Build from source](#build-from-source)
 - [Status](#status)
 - [Logging](#logging)
@@ -491,6 +491,24 @@ Redirects are off by default (`follow_redirects=True` follows up to 20 hops; `Au
 are not sent to a different origin). A cancelled `await` stops waiting, but the request itself keeps
 running until it finishes. In C++: `request::run_async()` returns a `std::future`, or takes a callback
 that runs on the network thread; `async_client` is the session form.
+
+### Testing your app
+
+```python
+from httpp.testclient import TestClient
+
+def test_items():
+    with TestClient(app) as client:                      # startup hooks run here, shutdown hooks when the block ends
+        r = client.post("/items", json={"name": "apple"})
+        assert r.status_code == 200 and r.json()["name"] == "apple"
+        assert client.get("/items/1", params={"q": "x"}).json()["id"] == 1
+```
+
+`TestClient(app)` serves the app on a free loopback port of its own and sends the requests through httpp's client, so routing, middleware, validation and gzip are the real ones.
+It follows Starlette's interface: `get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `request`; `params`, `headers`, `json`, `data` (a dict is a form), `content`, `cookies`, `auth=("user", "pw")`,
+`follow_redirects` (on by default), `base_url` (default `http://testserver`, the `Host` the app sees). Cookies the server sets are kept and sent back (`client.cookies`).
+A handler that raises with no exception handler for it is raised again in your test (`raise_server_exceptions=False` gives you the 500 instead). Without `with`, the first request starts the server and `client.close()` stops it.
+Not yet: `websocket_connect`, multipart `files=`, and a mode without a socket (ADR-0042).
 
 ### TLS (https, wss)
 

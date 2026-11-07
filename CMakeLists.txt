@@ -281,7 +281,9 @@ if(HTTPP_BUILD_CLI)
     # The executable sits in a bin/ folder next to lib/ (<prefix>/bin and <prefix>/lib for an SDK install, httpp/sdk/bin and
     # httpp/sdk/lib inside the wheel), so one relative RPATH finds libhttpp_core in both.
     if(APPLE)
-        set(_httpp_cli_origin "@executable_path")
+        # @loader_path, not @executable_path: for the executable itself they are the same folder at run time, but delocate
+        # (cibuildwheel's repair step) resolves @loader_path and fails with "@rpath/libhttpp_core.dylib not found" on @executable_path.
+        set(_httpp_cli_origin "@loader_path")
     else()
         set(_httpp_cli_origin "$ORIGIN")
     endif()
