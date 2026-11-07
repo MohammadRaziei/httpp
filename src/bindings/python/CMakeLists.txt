@@ -93,7 +93,9 @@ if(DEFINED SKBUILD)
         EXPORT httppTargets
         ARCHIVE DESTINATION httpp/sdk/lib COMPONENT httpp_wheel
         LIBRARY DESTINATION httpp/sdk/lib COMPONENT httpp_wheel
-        RUNTIME DESTINATION httpp/sdk/lib COMPONENT httpp_wheel
+        # RUNTIME is the DLL on Windows: next to httpp/sdk/bin/httpp.exe, which has no RPATH and so finds it only there (or on PATH).
+        # The import library stays in sdk/lib (ARCHIVE), as in any SDK prefix. Linux and macOS have no RUNTIME artifact here.
+        RUNTIME DESTINATION httpp/sdk/bin COMPONENT httpp_wheel
     )
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/
         DESTINATION httpp/sdk/include

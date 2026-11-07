@@ -15,14 +15,15 @@ except Exception:
 _pkg_dir = _os.path.dirname(__file__)
 _sdk_dir = _os.path.join(_pkg_dir, "sdk")  # bin/, include/, lib/ (and lib/cmake/httpp): the shape of an SDK install prefix
 _lib_dir = _os.path.join(_sdk_dir, "lib")
+_bin_dir = _os.path.join(_sdk_dir, "bin")
 
 # On Windows, a .pyd's own directory (and its dependencies' directory) isn't
 # automatically searched for dependent DLLs - libhttpp_core.dll lives in
-# httpp/sdk/lib/, next to but not inside httpp/. Linux/macOS solve the
+# httpp/sdk/bin/ (next to httpp.exe, which has no RPATH), not inside httpp/. Linux/macOS solve the
 # equivalent problem at link time via RPATH ($ORIGIN/sdk/lib / @loader_path/sdk/lib,
 # see src/bindings/python/CMakeLists.txt), so this only runs on win32.
 if _sys.platform == "win32" and hasattr(_os, "add_dll_directory"):
-    _os.add_dll_directory(_lib_dir)
+    _os.add_dll_directory(_bin_dir)
 
 # Import the compiled Cython module
 from .httpp_cy import Client, download, Download, DownloadResult, Request, Response, URL

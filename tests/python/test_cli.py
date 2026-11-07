@@ -22,6 +22,11 @@ from pathlib import Path
 posix_only = pytest.mark.skipif(os.name == "nt", reason="uses a script as the interpreter")
 
 
+def same(text):
+    """Paths as text, compared the way the file system does (Windows ignores case: venv\\Lib or venv\\lib, the same folder)."""
+    return os.path.normcase(text)
+
+
 def run(exe, *args, env=None, timeout=60, input=None):
     exe = [exe] if isinstance(exe, str) else list(exe)
     full_env = dict(os.environ)
@@ -126,7 +131,7 @@ def test_run_and_path_point_to_py(httpp_exe, old):
 # --- server ------------------------------------------------------------------------------------
 
 
-def test_server_serves_a_directory(httpp_exe, tmp_path):
+def test_server_serves_a_directory(httpp_exe, tmp_path, stop_process):
     (tmp_path / "hello.txt").write_text("hi there")
     port = free_port()
     proc = subprocess.Popen([*httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -135,8 +140,7 @@ def test_server_serves_a_directory(httpp_exe, tmp_path):
         assert (r.status, r.text) == (200, "hi there")
         assert httpp.get(f"http://127.0.0.1:{port}/nope.txt").status == 404
     finally:
-        proc.terminate()
-        proc.communicate(timeout=20)
+        stop_process(proc)
 
 
 def test_server_refuses_a_missing_folder(httpp_exe, tmp_path):
@@ -268,11 +272,11 @@ def test_curl_a_failed_request_exits_1(httpp_exe, echo_app):
 def test_py_path_matches_the_package(httpp_exe):
     r = run(httpp_exe, "py", "path")
     assert r.returncode == 0, r.stderr
-    assert r.stdout.splitlines() == [f"include: {httpp.get_include_dir()}", f"lib:     {httpp.get_lib_dir()}", f"cmake:   {httpp.get_cmake_dir()}"]
+    assert [same(x) for x in r.stdout.splitlines()] == [same(f"include: {httpp.get_include_dir()}"), same(f"lib:     {httpp.get_lib_dir()}"), same(f"cmake:   {httpp.get_cmake_dir()}")]
     r = run(httpp_exe, "py", "path", "--cmake-dir")
-    assert r.stdout == f"{httpp.get_cmake_dir()}\n"
+    assert same(r.stdout) == same(f"{httpp.get_cmake_dir()}\n")
     r = run(httpp_exe, "py", "--include-dir")
-    assert r.stdout == f"{httpp.get_include_dir()}\n"
+    assert same(r.stdout) == same(f"{httpp.get_include_dir()}\n")
 
 
 def test_py_help_is_the_python_help(httpp_exe):
@@ -294,7 +298,7 @@ def test_py_without_a_command_is_a_usage_error(httpp_exe):
     assert r.returncode == 2 and "usage: httpp py" in r.stderr
 
 
-def test_py_runs_an_app(httpp_exe, tmp_path):
+def test_py_runs_an_app(httpp_exe, tmp_path, stop_process):
     (tmp_path / "myapp.py").write_text('from httpp import Server\napp = Server(openapi_url=None)\n\n@app.get("/")\ndef index():\n    return "from py run"\n')
     port = free_port()
     proc = subprocess.Popen([*httpp_exe, "py", "run", "myapp:app", "--port", str(port), "--log-level", "warning"], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=dict(os.environ, HTTPP_PYTHON=sys.executable))
@@ -302,8 +306,7 @@ def test_py_runs_an_app(httpp_exe, tmp_path):
         r = wait_for(f"http://127.0.0.1:{port}/", proc, attempts=200)
         assert (r.status, r.text) == (200, "from py run")
     finally:
-        proc.terminate()
-        proc.communicate(timeout=30)
+        stop_process(proc)
 
 
 @posix_only
@@ -432,7 +435,7 @@ def test_python_dash_m_httpp_is_the_httpp_command():
     r = python_m("--version")
     assert r.returncode == 0 and r.stdout.startswith("httpp "), r.stderr
     r = python_m("py", "path", "--cmake-dir")
-    assert r.returncode == 0 and r.stdout == f"{httpp.get_cmake_dir()}\n"
+    assert r.returncode == 0 and same(r.stdout) == same(f"{httpp.get_cmake_dir()}\n")
     r = python_m("py")
     assert r.returncode == 2 and "usage: httpp py" in r.stderr
     r = python_m("py", "run", "nomod:app")

@@ -306,6 +306,7 @@ endif()
 install(TARGETS httpp_core
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin  # the DLL on Windows, next to bin/httpp.exe
 )
 install(DIRECTORY include DESTINATION .)
 if(HTTPP_BUILD_CLI)

@@ -6,6 +6,7 @@ Two ways to start the same commands: `httpp` the command (httpp_cli.py, a consol
 
 import os
 import shutil
+import subprocess
 import sys
 import sysconfig
 from pathlib import Path
@@ -41,6 +42,23 @@ def httpp_bin():
         pytest.fail(f"the native executable is not in the package ({exe})")
     httpp_cli.ensure_executable(exe)
     return str(exe)
+
+
+@pytest.fixture
+def stop_process():
+    """stop_process(proc): stop a command started with Popen together with what it started, and return (stdout, stderr).
+
+    On Windows the pip-generated httpp.exe (and `python -m httpp`) start the native executable as a child process (there is no exec there),
+    so terminate() would leave the server running with the pipes open: the whole process tree is killed instead."""
+
+    def stop(proc, timeout=30):
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        else:
+            proc.terminate()
+        return proc.communicate(timeout=timeout)
+
+    return stop
 
 
 @pytest.fixture(scope="session")

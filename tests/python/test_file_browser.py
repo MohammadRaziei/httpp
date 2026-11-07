@@ -95,7 +95,7 @@ def _free_port():
         return s.getsockname()[1]
 
 
-def test_browse_command(tree, httpp_exe):
+def test_browse_command(tree, httpp_exe, stop_process):
     port = _free_port()
     proc = subprocess.Popen([*httpp_exe, "browse", str(tree), "--port", str(port), "--title", "Docs", "--hidden"],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -111,8 +111,7 @@ def test_browse_command(tree, httpp_exe):
         assert ".hidden.txt" in names and "a.txt" in names
         assert "Docs" in httpp.get(url).text
     finally:
-        proc.terminate()
-        proc.wait(timeout=10)
+        stop_process(proc)
 
 
 def test_browse_command_refuses_a_missing_folder(tmp_path, httpp_exe):

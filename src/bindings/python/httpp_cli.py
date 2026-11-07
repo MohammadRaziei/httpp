@@ -46,9 +46,7 @@ def run_native(args):
     env = dict(os.environ)
     if sys.executable:
         env.setdefault("HTTPP_PYTHON", sys.executable)  # `httpp py ...` run by the executable itself uses this same interpreter
-    if os.name == "nt":
-        # Windows finds libhttpp_core.dll next to the executable or on PATH; it is in ../lib (httpp/sdk/lib)
-        env["PATH"] = str(exe.parent.parent / "lib") + os.pathsep + env.get("PATH", "")
+    # On Windows libhttpp_core.dll sits next to httpp.exe (httpp/sdk/bin), where the loader looks first; on Linux and macOS an RPATH finds ../lib.
 
     sys.stdout.flush()
     sys.stderr.flush()
