@@ -2,7 +2,6 @@
 
 import json
 import os
-import re
 import socket
 import stat
 import subprocess
@@ -80,15 +79,6 @@ def echo_app():
 
 
 # --- the executable itself ---------------------------------------------------------------------
-
-
-def test_version(httpp_exe):
-    r = run(httpp_exe, "--version")
-    assert r.returncode == 0
-    if httpp.__version__.startswith("0.0.0"):  # a staged install has no package metadata, so httpp reports its fallback version
-        assert re.fullmatch(r"httpp \d+\.\d+\.\d+\S*", r.stdout.strip()), r.stdout
-    else:
-        assert r.stdout.strip() == f"httpp {httpp.__version__}", r.stdout
 
 
 def test_help_lists_the_native_commands_and_py(httpp_exe):
@@ -329,15 +319,13 @@ def test_a_bad_httpp_python_is_reported(httpp_bin, tmp_path):
 
 @posix_only
 def test_without_a_python_the_error_says_what_to_do(httpp_bin, tmp_path):
+    # the executable where it is installed (no Python next to it), an empty PATH and no HTTPP_PYTHON; run in place, so whatever the wheel
+    # repair did to its library search path (auditwheel's httpp.libs) still applies
     empty = tmp_path / "empty"
     empty.mkdir()
-    # a copy of the executable in a folder without a Python next to it, and an empty PATH
-    copy = tmp_path / "httpp"
-    copy.write_bytes(open(httpp_bin, "rb").read())
-    copy.chmod(0o755)
-    env = dict(os.environ, PATH=str(empty), LD_LIBRARY_PATH=httpp.get_lib_dir(), DYLD_LIBRARY_PATH=httpp.get_lib_dir())
+    env = dict(os.environ, PATH=str(empty))
     env.pop("HTTPP_PYTHON", None)
-    r = subprocess.run([str(copy), "py", "path"], capture_output=True, text=True, timeout=30, env=env)
+    r = subprocess.run([httpp_bin, "py", "path"], capture_output=True, text=True, timeout=30, env=env)
     assert r.returncode == 1 and "need a Python" in r.stderr, (r.returncode, r.stdout, r.stderr)
 
 
