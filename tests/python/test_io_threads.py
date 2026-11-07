@@ -84,8 +84,11 @@ def test_loops_follow_the_io_threads_only_without_a_gil():
         for _ in range(40):  # a new connection each time: spread over the I/O threads
             names.add(Client(base).get("/loop").text)
     assert all(n.startswith("httpp-asyncio") for n in names)
-    if GIL_FREE and sys.platform.startswith("linux"):  # macOS does not spread connections over SO_REUSEPORT sockets
-        assert len(names) >= 2
+    if GIL_FREE:
+        # One loop per I/O thread. How the kernel spreads connections over the SO_REUSEPORT sockets is its own business: Linux
+        # spreads them (so at least two loops answer), macOS may or may not (CI saw both), so only Linux is asserted.
+        if sys.platform.startswith("linux"):
+            assert len(names) >= 2
     else:
         assert names == {"httpp-asyncio"}
 
