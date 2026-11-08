@@ -295,3 +295,22 @@ def test_cli_workers_auto_serves_and_stops_gracefully(app_dir):
     finally:
         if sup.poll() is None:
             sup.kill()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGINT to self")
+def test_an_interrupt_right_after_the_server_thread_started_is_a_graceful_stop(tmp_path):
+    """The signal can land between starting the serving thread and waiting for it (CI saw SIGTERM kill `httpp py run` with SIGINT)."""
+    script = tmp_path / "interrupt_early.py"
+    script.write_text(
+        "import os, signal, threading\n"
+        "import httpp\n"
+        "real = threading.Thread.start\n"
+        "def start(self):\n"
+        "    real(self)\n"
+        "    os.kill(os.getpid(), signal.SIGINT)\n"
+        "threading.Thread.start = start\n"
+        "httpp.Server().listen('127.0.0.1', 0)\n"
+        "print('stopped cleanly')\n"
+    )
+    r = subprocess.run([sys.executable, str(script)], env=child_env(), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0 and "stopped cleanly" in r.stdout, r.stderr

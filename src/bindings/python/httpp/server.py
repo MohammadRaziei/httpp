@@ -1361,19 +1361,22 @@ class Server(_Server):
                 finished.append(True)
 
         with self._lifecycle():
-            threading.Thread(target=serve, daemon=True).start()
+            # The thread starts inside the try: a SIGTERM/Ctrl+C that lands right after it started (a test sends one the moment the
+            # port answers) must be a graceful stop, not a KeyboardInterrupt that escapes and kills the process with SIGINT.
             # ponytail: this thread polls a flag every 50 ms instead of waiting on a threading.Event. A Ctrl+C that lands
             # inside Event.wait() can leave the Event's internal lock taken (or released twice) on free-threaded CPython,
             # and then this thread and the serving thread both block on it for ever. time.sleep holds no lock.
             # Upgrade path: signal.set_wakeup_fd, which wakes at once with no polling.
+            thread = threading.Thread(target=serve, daemon=True)
             try:
+                thread.start()
                 while not finished:
                     time.sleep(0.05)
             except KeyboardInterrupt:
                 # Graceful (ADR-0038): requests in progress finish, within shutdown_timeout seconds. shutdown() and stop() do
                 # nothing until the port is bound, so repeat until the server is really done; a second Ctrl+C cuts at once.
                 hard = False
-                while not finished:
+                while thread.ident is not None and not finished:  # (an interrupt before the thread even started has nothing to stop)
                     try:
                         (self.stop if hard else lambda: self.shutdown(self.shutdown_timeout))()
                         time.sleep(0.05)
