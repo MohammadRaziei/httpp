@@ -415,6 +415,12 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
             });
         });
         if (closed) return;
+        // A drain that began while the upgrade answer was still on its way to this loop did not see this connection as a tunnel:
+        // tell the tunnel now, or it would stay open until the grace period cuts it (ADR-0043).
+        if (srv.draining) {
+            t->on_drain(tio);
+            if (closed) return;
+        }
         t_write_next();  // starts the write of the head (and of what on_open queued) if on_open did not already
         if (!leftover.empty()) {
             std::string d = std::move(leftover);
@@ -856,7 +862,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         p = put(p, "Date: ");
         p = put(p, http_date());
         p = put(p, "\r\n");
-        if (!(r.status < 200 || r.status == 204)) {
+        if (!(r.status < 200 || r.status == 204 || r.status == 304)) { // a 304 has no body, so no length of its own either (RFC 9110 section 15.4.5)
             if (chunked) p = put(p, "Transfer-Encoding: chunked\r\n");
             else if (!streaming) { p = put(p, "Content-Length: "); p = put_uint(p, r.body.size()); p = put(p, "\r\n"); }
             else if (r.length >= 0) { p = put(p, "Content-Length: "); p = put_uint(p, static_cast<unsigned long long>(r.length)); p = put(p, "\r\n"); }
@@ -996,7 +1002,15 @@ void async_server::impl::begin_drain(std::chrono::milliseconds grace) {
     acceptor.close(ec);
     backoff.cancel();
     auto all = conns; // close() erases from the set
-    for (auto& c : all) if (c->idle() || c->tun) c->close();
+    for (auto& c : all) {
+        if (c->tun) {
+            // A tunnel ends in its own way (WebSocket: close 1001 and wait for the peer's close). The grace timer below cuts the ones that do not.
+            auto t = c->tun;  // the tunnel may close the connection inside the call
+            t->on_drain(c->tio);
+        } else if (c->idle()) {
+            c->close();
+        }
+    }
     if (closing || conns.empty()) { begin_close(); return; }
     auto t = std::make_shared<asio::steady_timer>(io);
     timers.insert(t);

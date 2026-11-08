@@ -25,6 +25,34 @@ def test_server_serves_a_directory(tmp_path):
         th.join()
 
 
+def test_a_served_file_has_validators_and_answers_a_conditional_request_with_304(tmp_path):
+    from httpp.httpp_cy import Server, Client
+
+    (tmp_path / "a.txt").write_text("hello world")
+
+    srv = Server()
+    srv.serve_directory("/", str(tmp_path))
+    port = srv.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=srv.listen_after_bind)
+    th.start()
+    time.sleep(0.05)
+    try:
+        cli = Client("127.0.0.1", port)
+        first = cli.get("/a.txt")
+        assert first.status == 200
+        names = {k.lower(): v for k, v in first.headers}
+        etag = names["etag"]
+        assert etag.startswith('"') and "last-modified" in names
+        again = cli.get("/a.txt", headers={"If-None-Match": etag})
+        assert again.status == 304 and again.body == ""
+        assert cli.get("/a.txt", headers={"If-None-Match": '"stale"'}).status == 200
+        part = cli.get("/a.txt", headers={"Range": "bytes=6-10", "If-Range": '"stale"'})
+        assert part.status == 200 and part.body == "hello world"
+    finally:
+        srv.stop()
+        th.join()
+
+
 def test_client_returns_404_for_missing_path():
     from httpp.httpp_cy import Server, Client
 

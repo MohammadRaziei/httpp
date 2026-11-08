@@ -42,6 +42,9 @@ public:
     virtual void on_bytes(tunnel_io& io, const char* data, std::size_t n) = 0;
     virtual void on_written(tunnel_io& io, std::size_t n) { (void)io; (void)n; } // n bytes of the queue went out
     virtual void on_idle(tunnel_io& io) { (void)io; }
+    // The server started a graceful shutdown (async_server::drain). End the connection politely if the protocol has a way (WebSocket: a close
+    // frame, then wait for the peer); the default closes at once. Whatever is still open when the grace period ends is cut by the engine.
+    virtual void on_drain(tunnel_io& io) { io.close(); }
     virtual void on_close() = 0;                                   // exactly once, however the connection ends
 };
 

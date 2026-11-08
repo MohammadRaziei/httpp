@@ -43,14 +43,15 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 ## 2. Features
 
 ### Server and framework
-- [x] A test client in Python (`httpp.testclient.TestClient`, ADR-0042), Starlette-shaped: a real server on a loopback port of its own. Open: `websocket_connect` (no WebSocket client yet), multipart `files=`, an in-memory mode
+- [x] A test client in Python (`httpp.testclient.TestClient`, ADR-0042), Starlette-shaped: a real server on a loopback port of its own. `files=` and `websocket_connect` came with ADR-0046. Open: an in-memory mode
 - [x] Middleware set (ADR-0037, ADR-0040): CORS, TrustedHost, GZip and HTTPS redirect (C++ and Python)
 - [x] TLS for the server (`https`, `wss`) (ADR-0040); not yet: certificate reload without restart, session tickets, client certificates, ALPN
 - [x] `--reload` for development (ADR-0039)
-- [x] Graceful shutdown with connection drain and a timeout (ADR-0038)
-- [ ] **(proposed)** `--workers` respawn of crashed workers (today no respawn, and SIGKILL of the supervisor leaves workers)
+- [x] Graceful shutdown with connection drain and a timeout (ADR-0038); open WebSockets get a close 1001 and are waited for (ADR-0043)
+- [x] `--workers` respawn of crashed workers with a back-off, give-up after a crash loop, and workers that end with their supervisor (ADR-0044); open: a restart budget over a long time, jitter
 - [ ] Dependencies with `yield` (cleanup after the response) and `response_model` filtering: check what the FastAPI layer lacks against FastAPI's docs
-- [ ] Static files mounted from Python (`mount_static`-style) beyond `serve_directory`; ETag, `Last-Modified` and 304 (not in the file browser v1 either)
+- [x] ETag, `Last-Modified`, 304, 412 and `If-Range` for mounted files and the file browser raw route (ADR-0045)
+- [ ] Static files mounted from Python (`mount_static`-style) beyond `serve_directory`
 - [ ] A total deadline for a dripped request body
 - [ ] Swagger UI body is copied per request (changes a public type; ask the owner first)
 - [ ] The 504 deadline of an unanswered async request starts when the handler returns (document or change)

@@ -2,6 +2,7 @@
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/server.hpp"
+#include "ws_test_client.hpp"
 
 #include <asio.hpp>
 
@@ -169,4 +170,53 @@ UTEST(httpp_shutdown, a_server_that_is_not_listening_ignores_it_and_stop_still_w
     srv.srv.shutdown(seconds(1));
     srv.srv.stop(); // a hard stop during or after a drain is harmless
     ASSERT_TRUE(srv.wait_returned(seconds(2)));
+}
+
+UTEST(httpp_shutdown, a_websocket_gets_a_1001_close_frame_and_the_server_ends_when_it_answers) {
+    run_server srv([](httpp::server& s) { s.route_ws("/ws", httpp::ws_handler{}); });
+    testutil::ws_client c(srv.port);
+    ASSERT_EQ(101, testutil::head_status(c.handshake("/ws")));
+    srv.srv.shutdown(seconds(10));
+    testutil::ws_frame_in f;
+    ASSERT_TRUE(c.read_frame(f, milliseconds(2000)));
+    ASSERT_EQ(8u, f.op);
+    ASSERT_TRUE(f.payload.size() >= 2 && f.payload.substr(0, 2) == testutil::ws_close_body(1001));
+    ASSERT_FALSE(srv.returned); // it waits for the answer: the connection is still open
+    c.send_frame(8, testutil::ws_close_body(1001));
+    ASSERT_TRUE(c.closed_by_peer(milliseconds(2000))); // the server ends the connection once the answer is in
+    c.close_socket();                                  // a real client closes its end too; the server waits for that, up to its linger time
+    ASSERT_TRUE(srv.wait_returned(milliseconds(2000)));
+}
+
+UTEST(httpp_shutdown, a_websocket_that_never_answers_is_cut_when_the_grace_period_is_over) {
+    run_server srv([](httpp::server& s) { s.route_ws("/ws", httpp::ws_handler{}); });
+    testutil::ws_client c(srv.port);
+    ASSERT_EQ(101, testutil::head_status(c.handshake("/ws")));
+    const auto t0 = steady_clock::now();
+    srv.srv.shutdown(milliseconds(300));
+    testutil::ws_frame_in f;
+    ASSERT_TRUE(c.read_frame(f, milliseconds(2000)));
+    ASSERT_EQ(8u, f.op);
+    ASSERT_TRUE(srv.wait_returned(milliseconds(3000)));
+    ASSERT_TRUE(c.closed_by_peer(milliseconds(2000)));
+    ASSERT_TRUE(steady_clock::now() - t0 >= milliseconds(250)); // it did wait for the peer, it did not cut at once
+}
+
+UTEST(httpp_shutdown, a_websocket_handler_sees_the_close_with_the_peers_code) {
+    std::atomic<int> code{0};
+    run_server srv([&](httpp::server& s) {
+        httpp::ws_handler h;
+        h.on_close = [&](const httpp::websocket&, std::uint16_t c, std::string_view) { code = c; };
+        s.route_ws("/ws", h);
+    });
+    testutil::ws_client c(srv.port);
+    ASSERT_EQ(101, testutil::head_status(c.handshake("/ws")));
+    srv.srv.shutdown(seconds(10));
+    testutil::ws_frame_in f;
+    ASSERT_TRUE(c.read_frame(f, milliseconds(2000)));
+    c.send_frame(8, testutil::ws_close_body(1001));
+    ASSERT_TRUE(c.closed_by_peer(milliseconds(2000)));
+    c.close_socket();
+    ASSERT_TRUE(srv.wait_returned(milliseconds(2000)));
+    ASSERT_EQ(1001, code.load());
 }

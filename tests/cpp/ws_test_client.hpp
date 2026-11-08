@@ -58,6 +58,8 @@ struct ws_client {
     }
 
     void send_raw(const std::string& bytes) { asio::write(sock, asio::buffer(bytes)); }
+    // What a real client does once the server has ended the closing handshake: it closes its end too. The server waits for that (up to its linger time).
+    void close_socket() { std::error_code ec; sock.close(ec); }
     void send_frame(unsigned op, const std::string& payload, bool fin = true) { send_raw(ws_mask_frame(op, payload, fin)); }
 
     static std::string upgrade_request(const std::string& path, const std::string& extra = "",

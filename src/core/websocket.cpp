@@ -256,6 +256,11 @@ void ws_session::on_idle(tunnel_io& io) {
     io.write(std::move(frame));
 }
 
+void ws_session::on_drain(tunnel_io& io) {
+    if (close_sent_ || dead_) return;  // already closing: the close handshake in progress ends the connection
+    start_close(io, 1001, {}, true);
+}
+
 void ws_session::on_close() {
     if (closed_notified_) return;
     closed_notified_ = true;

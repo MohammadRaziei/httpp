@@ -429,9 +429,10 @@ httpp py run main:app --reload                # development: restart when a .py 
   each have their own GIL and share one port (`SO_REUSEPORT`; the kernel spreads connections). Each
   worker is a fresh process that imports the app itself, which is why `workers > 1` needs an import
   string (`"main:app"`), like uvicorn and gunicorn; module-level state is therefore per worker.
-  Linux only for now. If a worker dies, the supervisor stops the others and exits with code 1 (let
-  systemd or Docker restart it); it does not respawn workers yet. Keep the supervisor alive: killing it
-  with SIGKILL leaves its workers running.
+  Linux only for now. If a worker dies, the supervisor starts a new one (at once the first time, then
+  after 0.5, 1, 2 and 4 seconds while it keeps dying right after it starts); a worker that keeps dying
+  that way stops the whole group with exit code 1, so a broken app or a busy port is not hidden. If the
+  supervisor itself is killed, even with SIGKILL, the kernel sends SIGTERM to its workers.
 - `workers="auto"` / `--workers auto` starts one worker per CPU the process can use: its affinity mask,
   capped by a container CPU quota (rounded down, at least 1). It runs a single process on one CPU, off
   Linux, and when `app` is an object rather than an import string (it says so).
@@ -508,7 +509,7 @@ def test_items():
 It follows Starlette's interface: `get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `request`; `params`, `headers`, `json`, `data` (a dict is a form), `content`, `cookies`, `auth=("user", "pw")`,
 `follow_redirects` (on by default), `base_url` (default `http://testserver`, the `Host` the app sees). Cookies the server sets are kept and sent back (`client.cookies`).
 A handler that raises with no exception handler for it is raised again in your test (`raise_server_exceptions=False` gives you the 500 instead). Without `with`, the first request starts the server and `client.close()` stops it.
-Not yet: `websocket_connect`, multipart `files=`, and a mode without a socket (ADR-0042).
+`files=` sends multipart, and `client.websocket_connect("/ws")` gives a session with `send_text`, `receive_text`, `send_json` and friends (ADR-0046). Not there: a mode without a socket (ADR-0042).
 
 ### TLS (https, wss)
 
@@ -567,7 +568,7 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
   be cancelled by `handler_timeout`. Handler code is Python, so it still needs the GIL: `async def`
   handlers share one loop thread, plain `def` handlers take the GIL on pool threads (set `threads=` to
   fit your blocking calls), and real parallelism needs `--workers` or a free-threaded Python (below).
-- HTTP/1.1 only; the server does not speak TLS; a cancelled `await` stops waiting but the request itself
+- HTTP/1.1 only (the server speaks TLS, see the TLS section); a cancelled `await` stops waiting but the request itself
   keeps running until it finishes.
 - Platforms: the connection layer is tested on Linux. Windows and macOS are untested by the author; CI
   on those platforms is the real check.
@@ -576,7 +577,7 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
 - `cpp-httplib` (unmodified) now serves only the synchronous client; the server and the async engine are
   our own (Asio + llhttp). It is planned to retire it once the synchronous client is ours too.
 - The libcurl compatibility layer covers a subset of `curl_easy_*`.
-- No auto-reload. `--workers` is Linux only and does not respawn dead workers.
+- `--workers` is Linux only.
 
 Issues and pull requests are welcome.
 

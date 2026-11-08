@@ -10,7 +10,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0002](0002-standard-asyncio-loop.md) | `async def` handlers run on the standard asyncio loop | accepted |
 | [0003](0003-engine-and-third-party.md) | Asio + llhttp + Mbed TLS; cpp-httplib only for the sync client | accepted |
 | [0004](0004-zero-system-dependencies.md) | No system dependencies | accepted |
-| [0005](0005-multiprocess-workers.md) | Fresh processes + `SO_REUSEPORT` (Linux) | accepted |
+| [0005](0005-multiprocess-workers.md) | Fresh processes + `SO_REUSEPORT` (Linux) | accepted (respawn part superseded by 0044) |
 | [0006](0006-own-model-layer.md) | Pydantic-v2-shaped models with Cython validators | accepted |
 | [0007](0007-openapi-from-one-plan.md) | OpenAPI from the same request plan | accepted |
 | [0008](0008-swagger-ui-compiled-in.md) | Swagger UI compiled into the library | accepted |
@@ -48,6 +48,10 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0040](0040-server-tls.md) | Server TLS (https, wss) on the engine with the vendored Mbed TLS | accepted |
 | [0041](0041-native-cli-and-py.md) | The command line is a native executable; Python commands live behind `py` | accepted |
 | [0042](0042-test-client.md) | `httpp.testclient.TestClient` serves the app on a loopback port | accepted |
+| [0043](0043-websocket-close-1001-on-drain.md) | WebSocket connections get a close 1001 frame when the server drains | accepted |
+| [0044](0044-worker-respawn.md) | The `--workers` supervisor restarts dead workers and workers die with it | accepted |
+| [0045](0045-conditional-static-files.md) | Files from a mounted directory carry ETag and Last-Modified and answer conditional requests | accepted |
+| [0046](0046-testclient-websocket-and-files.md) | `TestClient.websocket_connect` and multipart `files=` | accepted |
 
 ## Not decided yet
 

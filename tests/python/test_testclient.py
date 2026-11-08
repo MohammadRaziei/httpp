@@ -288,3 +288,189 @@ def test_two_clients_for_two_apps_do_not_mix():
 def test_the_client_only_takes_a_server(client):
     with pytest.raises(TypeError):
         TestClient(object())
+
+
+# ---- multipart files= (ADR-0042 addendum, ADR-0046) ----
+
+def upload_app():
+    app = Server(openapi_url=None)
+
+    @app.post("/up")
+    def up(request: httpp.ServerRequest):
+        form = request.form()
+        return {
+            "fields": {k: form.getlist(k) for k in ("who", "tag")},
+            "files": {k: {"filename": f.filename, "type": f.content_type, "size": f.size, "text": f.text()}
+                      for k in ("doc", "pic") if (f := form.file(k)) is not None},
+            "type": request.header("content-type").split(";")[0],
+        }
+
+    return app
+
+
+def test_files_are_sent_as_multipart_with_the_data_fields():
+    with TestClient(upload_app()) as c:
+        r = c.post("/up", data={"who": "me", "tag": ["a", "b"]}, files={"doc": ("r.txt", b"hello", "text/plain")})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["type"] == "multipart/form-data"
+        assert body["fields"] == {"who": ["me"], "tag": ["a", "b"]}
+        assert body["files"]["doc"] == {"filename": "r.txt", "type": "text/plain", "size": 5, "text": "hello"}
+
+
+def test_a_file_value_can_be_bytes_a_pair_a_file_object_or_come_from_a_list():
+    import io
+
+    with TestClient(upload_app()) as c:
+        r = c.post("/up", files={"doc": b"raw bytes", "pic": ("p.png", io.BytesIO(b"\x89PNG-ish"))})
+        files = r.json()["files"]
+        assert files["doc"]["size"] == 9 and files["doc"]["type"] == "application/octet-stream"
+        assert files["pic"]["filename"] == "p.png" and files["pic"]["type"] == "image/png"  # guessed from the name
+        r = c.post("/up", files=[("doc", ("a.txt", "text body")), ("doc", ("b.txt", b"x"))])
+        assert r.json()["files"]["doc"]["filename"] in ("a.txt", "b.txt")
+
+
+def test_a_filename_with_quotes_and_non_ascii_survives():
+    with TestClient(upload_app()) as c:
+        r = c.post("/up", files={"doc": ('café "x".txt', b"1", "text/plain")})
+        assert r.json()["files"]["doc"]["filename"] == 'café "x".txt'
+
+
+def test_files_cannot_be_combined_with_json_or_content():
+    with TestClient(upload_app()) as c:
+        with pytest.raises(ValueError):
+            c.post("/up", files={"doc": b"x"}, json={"a": 1})
+        with pytest.raises(ValueError):
+            c.post("/up", files={"doc": b"x"}, content=b"y")
+        with pytest.raises(ValueError):
+            c.post("/up", files={"doc": b"x"}, data=b"y")  # data must be a dict next to files
+
+
+# ---- websocket_connect ----
+
+def ws_app():
+    app = Server(openapi_url=None)
+
+    @app.websocket("/ws")
+    async def echo(websocket):
+        await websocket.accept()
+        async for message in websocket:
+            if isinstance(message, str):
+                await websocket.send_text(message)
+            else:
+                await websocket.send_bytes(message)
+
+    @app.websocket("/proto")
+    async def proto(websocket):
+        await websocket.accept(subprotocol="chat")
+        await websocket.send_text("hi")
+        await websocket.close(1001, "later")
+
+    @app.websocket("/cookie")
+    async def cookie(websocket):
+        await websocket.accept()
+        await websocket.send_json({"cookie": websocket.headers.get("cookie"), "x": websocket.headers.get("x-token"),
+                                   "other": websocket.headers.get("x-other"), "host": websocket.headers.get("host")})
+        await websocket.close()
+
+    @app.websocket("/refuse")
+    async def refuse(websocket):
+        await websocket.close(1008)
+
+    @app.get("/login")
+    def login():
+        return "ok", 200, [httpp.set_cookie("sid", "abc")]
+
+    return app
+
+
+def test_websocket_connect_echoes_text_binary_and_json():
+    with TestClient(ws_app()) as c:
+        with c.websocket_connect("/ws") as ws:
+            ws.send_text("héllo")
+            assert ws.receive_text() == "héllo"
+            ws.send_bytes(b"\x00\x01\xff")
+            assert ws.receive_bytes() == b"\x00\x01\xff"
+            ws.send_json({"a": [1, 2]})
+            assert ws.receive_json() == {"a": [1, 2]}
+            ws.send_json({"b": 1}, mode="binary")
+            assert ws.receive_json(mode="binary") == {"b": 1}
+            ws.send_text("m")
+            assert ws.receive() == {"type": "websocket.receive", "text": "m"}
+
+
+def test_websocket_connect_works_without_with_and_before_any_request():
+    c = TestClient(ws_app())
+    try:
+        with c.websocket_connect("/ws") as ws:
+            ws.send_text("x")
+            assert ws.receive_text() == "x"
+    finally:
+        c.close()
+
+
+def test_the_server_closing_raises_websocket_disconnect_with_its_code():
+    with TestClient(ws_app()) as c:
+        with c.websocket_connect("/proto", subprotocols=["chat"]) as ws:
+            assert ws.accepted_subprotocol == "chat"
+            assert ws.receive_text() == "hi"
+            with pytest.raises(httpp.WebSocketDisconnect) as info:
+                ws.receive_text()
+            assert info.value.code == 1001 and info.value.reason == "later"
+
+
+def test_a_refused_handshake_raises_websocket_disconnect():
+    with TestClient(ws_app()) as c:
+        with pytest.raises(httpp.WebSocketDisconnect):
+            with c.websocket_connect("/refuse") as ws:
+                ws.receive_text()
+        with pytest.raises(httpp.WebSocketDisconnect):
+            with c.websocket_connect("/no-such-route"):
+                pass
+
+
+def test_websocket_connect_sends_the_clients_cookies_headers_and_subprotocols():
+    with TestClient(ws_app(), headers={"X-Token": "t1"}) as c:
+        c.get("/login")
+        with c.websocket_connect("/cookie", headers={"X-Other": "1"}) as ws:
+            got = ws.receive_json()
+        assert got == {"cookie": "sid=abc", "x": "t1", "other": "1", "host": "testserver"}
+        with c.websocket_connect("/proto", subprotocols=["chat", "superchat"]) as ws:
+            assert ws.accepted_subprotocol == "chat"
+
+
+def test_the_client_closes_with_a_code_and_a_close_after_the_with_is_harmless():
+    seen = []
+    app = Server(openapi_url=None)
+
+    @app.websocket("/ws")
+    async def ws(websocket):
+        await websocket.accept()
+        try:
+            await websocket.receive()
+        except httpp.WebSocketDisconnect as exc:
+            seen.append(exc.code)
+
+    with TestClient(app) as c:
+        with c.websocket_connect("/ws") as session:
+            session.close(1001)
+            session.close(1001)  # twice: nothing happens
+        deadline = __import__("time").monotonic() + 5
+        while not seen and __import__("time").monotonic() < deadline:
+            __import__("time").sleep(0.01)
+    assert seen == [1001]
+
+
+def test_messages_sent_back_to_back_are_read_in_order():
+    app = Server(openapi_url=None)
+
+    @app.websocket("/ws")
+    async def ws(websocket):
+        await websocket.accept()
+        await websocket.send_text("one")
+        await websocket.send_text("two")
+
+    with TestClient(app) as c:
+        with c.websocket_connect("/ws") as session:
+            assert session.receive_text() == "one"
+            assert session.receive_text() == "two"

@@ -9,7 +9,14 @@ such changes are listed under **Changed**).
 
 ### Added
 
-- **`httpp.testclient.TestClient`** (ADR-0042): a Starlette-shaped client for testing your app. It serves the app on a free loopback port of its own and goes through httpp's client, so tests meet the real routing, middleware and error paths. Cookies, redirects, `base_url`/`Host`, `raise_server_exceptions`, startup and shutdown hooks (`with TestClient(app)`). Not yet: `websocket_connect`, multipart `files=`, an in-memory mode.
+- **WebSocket close 1001 on shutdown** (ADR-0043): `server.shutdown()` and SIGTERM now send each open WebSocket a close frame with code 1001 and wait for the peer's answer (up to the grace period) instead of dropping the connection; a handler sees a clean close.
+- **Dead `--workers` are restarted** (ADR-0044): the supervisor starts a new worker at once the first time and with a growing wait after that (0.5, 1, 2, 4 seconds); a worker that keeps dying right after it starts stops the group with exit code 1. Workers also end when the supervisor is killed, even with SIGKILL (Linux).
+- **`ETag`, `Last-Modified` and conditional requests for mounted files** (ADR-0045): `If-None-Match` and `If-Modified-Since` give 304, `If-Match` and `If-Unmodified-Since` give 412, `If-Range` decides whether a `Range` is honoured. This covers `serve_directory` and the file browser's raw route.
+- **`httpp.testclient.TestClient`** (ADR-0042): a Starlette-shaped client for testing your app. It serves the app on a free loopback port of its own and goes through httpp's client, so tests meet the real routing, middleware and error paths. Cookies, redirects, `base_url`/`Host`, `raise_server_exceptions`, startup and shutdown hooks (`with TestClient(app)`). Also `files=` (multipart) and `websocket_connect` (ADR-0046). Not yet: an in-memory mode.
+
+### Fixed
+
+- A 304 answer no longer carries `Content-Length: 0`.
 
 ### Changed (breaking)
 

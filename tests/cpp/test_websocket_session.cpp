@@ -473,6 +473,31 @@ UTEST(httpp_ws_session, a_close_by_us_waits_for_the_peer_and_has_a_deadline) {
     ASSERT_EQ(1000u, r.close_code);
 }
 
+UTEST(httpp_ws_session, a_drain_sends_1001_and_waits_for_the_peer_like_a_close_by_us) {
+    rig r;
+    r.session->on_drain(r.io);
+    ASSERT_TRUE(r.closed_with(1001));
+    ASSERT_EQ(1u, r.out().size());
+    ASSERT_FALSE(r.shared->is_open());
+    ASSERT_FALSE(r.io.closed);
+    ASSERT_FALSE(r.io.after_flush);
+    ASSERT_EQ(5000, static_cast<int>(r.io.deadline.count()));
+    r.feed(client_frame(ws_close, close_payload(1001)));
+    ASSERT_EQ(1u, r.out().size()); // the peer's close is the answer: no second close frame
+    ASSERT_TRUE(r.io.after_flush);
+    r.session->on_close();
+    ASSERT_EQ(1001u, r.close_code);
+}
+
+UTEST(httpp_ws_session, a_drain_after_a_close_has_started_changes_nothing) {
+    rig r;
+    r.shared->close(1000, "bye");
+    r.session->on_drain(r.io);
+    ASSERT_EQ(1u, r.out().size());
+    ASSERT_TRUE(r.closed_with(1000));
+    ASSERT_FALSE(r.io.closed);
+}
+
 UTEST(httpp_ws_session, closing_twice_sends_one_frame) {
     rig r;
     r.shared->close(1000, "");

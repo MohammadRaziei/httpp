@@ -186,13 +186,175 @@ def test_workers_share_one_port_and_all_stop_gracefully(app_dir):
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="SO_REUSEPORT balancing is Linux")
-def test_a_dead_worker_stops_the_group_with_exit_1(app_dir):
+def test_workers_that_keep_dying_stop_the_group_with_exit_1(app_dir):
     port = free_port()
-    with socket.socket() as blocker:  # a plain listener on the port: every worker fails to bind
+    with socket.socket() as blocker:  # a plain listener on the port: every worker fails to bind, again and again
         blocker.bind(("127.0.0.1", port))
         blocker.listen()
         sup = start(app_dir, "--port", str(port), "--workers", "2")
-        assert sup.wait(30) == 1
+        assert sup.wait(60) == 1
+
+
+def pids_seen(port, count, tries=60):
+    """Collects worker pids from fresh connections until `count` distinct ones answered."""
+    seen = set()
+    for _ in range(tries):
+        try:
+            seen.add(get_pid(port))
+        except OSError:
+            pass
+        if len(seen) >= count:
+            break
+    return seen
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="SO_REUSEPORT balancing is Linux")
+def test_a_killed_worker_is_replaced_and_the_group_keeps_serving(app_dir):
+    port = free_port()
+    sup = start(app_dir, "--port", str(port), "--workers", "3")
+    try:
+        before = wait_for(lambda: pids_seen(port, 3) if len(pids_seen(port, 3)) == 3 else (_ for _ in ()).throw(OSError("not yet")))
+        victim = sorted(before)[0]
+        os.kill(victim, signal.SIGKILL)
+
+        def replaced():
+            now = pids_seen(port, 3)
+            if len(now) != 3 or victim in now or sup.poll() is not None:
+                raise OSError("not replaced yet")
+            return now
+
+        after = wait_for(replaced)
+        assert sup.poll() is None  # the supervisor never stopped
+        assert len(after & before) == 2 and not alive(victim)
+        sup.send_signal(signal.SIGTERM)
+        assert sup.wait(20) == 0
+        for pid in after:
+            assert (app_dir / f"bye.{pid}").read_text() == "graceful"
+    finally:
+        if sup.poll() is None:
+            sup.kill()
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="PR_SET_PDEATHSIG is Linux")
+def test_workers_stop_when_the_supervisor_is_killed(app_dir):
+    port = free_port()
+    sup = start(app_dir, "--port", str(port), "--workers", "2")
+    try:
+        pids = wait_for(lambda: pids_seen(port, 2) if len(pids_seen(port, 2)) == 2 else (_ for _ in ()).throw(OSError("not yet")))
+        sup.kill()  # SIGKILL: no handler runs, so only the kernel can tell the workers
+        sup.wait(10)
+        end = time.monotonic() + 15
+        while any(alive(p) for p in pids) and time.monotonic() < end:
+            time.sleep(0.1)
+        assert not any(alive(p) for p in pids)
+    finally:
+        for p in locals().get("pids", ()):
+            if alive(p):
+                os.kill(p, signal.SIGKILL)
+        if sup.poll() is None:
+            sup.kill()
+
+
+# ---- the respawn policy, with fake processes (no sleeping) ------------------------------------------
+
+class FakeProc:
+    _next = 1000
+
+    def __init__(self):
+        FakeProc._next += 1
+        self.pid = FakeProc._next
+        self.returncode = None
+
+    def poll(self):
+        return self.returncode
+
+    def die(self, code=-9):
+        self.returncode = code
+
+
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def make_group(count=2):
+    from httpp._run import _WorkerGroup
+
+    clock, spawned, said = Clock(), [], []
+
+    def spawn():
+        proc = FakeProc()
+        spawned.append(proc)
+        return proc
+
+    group = _WorkerGroup(spawn, count, clock=clock, say=said.append)
+    return group, clock, spawned, said
+
+
+def test_the_group_starts_every_worker_once():
+    group, _clock, spawned, _said = make_group(3)
+    assert group.poll() is True
+    assert len(spawned) == 3 and group.procs() == spawned
+
+
+def test_a_dead_worker_is_restarted_at_once_the_first_time_and_the_others_are_left_alone():
+    group, clock, spawned, said = make_group(2)
+    first, second = spawned[0], spawned[1]
+    first.die(-9)
+    clock.now = 1.0
+    assert group.poll() is True
+    assert len(spawned) == 3 and spawned[2] not in (first, second)
+    assert second in group.procs() and first not in group.procs()
+    assert any("restarting" in line and str(first.pid) in line for line in said)
+
+
+def replace_only_worker(group, clock):
+    """Kills the only worker and moves the clock until a new one runs. Returns (seconds waited, gave up)."""
+    group.procs()[0].die(1)
+    start_time = clock.now
+    for _ in range(4000):
+        if group.poll() is False:
+            return clock.now - start_time, True
+        if group.procs()[0].returncode is None:
+            return clock.now - start_time, False
+        clock.now += 0.05
+    raise AssertionError("neither replaced nor given up")
+
+
+def test_quick_deaths_in_a_row_back_off_and_then_give_up():
+    group, clock, spawned, _said = make_group(1)
+    waits = []
+    while True:
+        waited, gave_up = replace_only_worker(group, clock)
+        if gave_up:
+            break
+        waits.append(round(waited, 2))
+        assert len(waits) < 20, "never gave up"
+    assert waits[0] == 0.0  # the first death is probably a one-off: restart at once
+    assert waits[1:] == sorted(waits[1:]) and waits[-1] > waits[1] >= 0.4  # then it waits longer each time
+    assert len(spawned) == len(waits) + 1  # one start, one per restart, none after giving up
+
+
+def test_a_worker_that_lived_long_enough_resets_the_streak():
+    group, clock, _spawned, _said = make_group(1)
+    for _ in range(3):  # three quick deaths in a row
+        replace_only_worker(group, clock)
+    clock.now += 120.0  # then this one lives two minutes
+    waited, gave_up = replace_only_worker(group, clock)
+    assert (waited, gave_up) == (0.0, False)  # restarted at once: the streak started over
 
 
 def test_free_threaded_build_keeps_the_gil_off_after_importing_httpp():

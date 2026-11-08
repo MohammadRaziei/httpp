@@ -86,6 +86,7 @@ public:
     void on_bytes(tunnel_io& io, const char* data, std::size_t n) override;
     void on_written(tunnel_io& io, std::size_t n) override;
     void on_idle(tunnel_io& io) override;
+    void on_drain(tunnel_io& io) override;  // the server is shutting down: close 1001, then wait for the peer (see ADR-0043)
     void on_close() override;
 
 private:

@@ -69,6 +69,65 @@ def test_shutdown_lets_an_in_flight_request_finish_and_then_returns():
     assert result == {"status": 200, "body": b"done", "conn": "close"}
 
 
+def test_shutdown_closes_a_websocket_with_1001_and_ends_when_the_peer_answers():
+    import struct
+
+    from test_websocket import Client, wait_until
+
+    app = Server(openapi_url=None)
+    seen = []
+
+    @app.websocket("/ws")
+    async def ws(websocket):
+        await websocket.accept()
+        try:
+            await websocket.receive()
+        except httpp.WebSocketDisconnect as exc:
+            seen.append(exc.code)
+
+    port = app.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=app.listen_after_bind)
+    th.start()
+    time.sleep(0.05)
+    c = Client(port)
+    assert c.status == 101
+    app.shutdown(10)
+    op, payload = c.recv()
+    assert op == 8 and struct.unpack(">H", payload[:2])[0] == 1001
+    assert th.is_alive()  # it waits for the answer
+    c.close(1001)
+    th.join(5)
+    assert not th.is_alive()
+    assert wait_until(lambda: seen)
+    assert seen == [1001]
+
+
+def test_shutdown_cuts_a_websocket_that_never_answers_after_the_grace_period():
+    import struct
+
+    from test_websocket import Client
+
+    app = Server(openapi_url=None)
+
+    @app.websocket("/ws")
+    async def ws(websocket):
+        await websocket.accept()
+        await websocket.receive()
+
+    port = app.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=app.listen_after_bind)
+    th.start()
+    time.sleep(0.05)
+    c = Client(port)
+    start = time.monotonic()
+    app.shutdown(0.3)
+    op, payload = c.recv()
+    assert op == 8 and struct.unpack(">H", payload[:2])[0] == 1001
+    th.join(5)
+    assert not th.is_alive()
+    assert time.monotonic() - start >= 0.25
+
+
 def test_shutdown_checks_its_argument():
     app = Server(openapi_url=None)
     for bad in (-1, float("nan")):

@@ -22,6 +22,9 @@
 #include <climits>
 #include <cstdlib>
 #endif
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <ctime>
 #include <fstream>
 #include <charconv>
 #include <cstdint>
@@ -106,6 +109,144 @@ long long file_size(const std::string& path) {
     in.seekg(0);
     if (size > 0 && in.peek() == std::ifstream::traits_type::eof()) return -1;
     return static_cast<long long>(size);
+}
+
+// ---- validators of a file answer (ADR-0045)
+
+struct file_stamp {
+    long long mtime = 0; // seconds since the epoch
+    long nsec = 0;       // the sub-second part where the platform has one, else 0
+};
+
+bool stat_file(const std::string& path, file_stamp& out) {
+#ifdef _WIN32
+    struct _stat64 st;
+    if (_stat64(path.c_str(), &st) != 0) return false;
+    out.mtime = static_cast<long long>(st.st_mtime);
+    out.nsec = 0;
+#else
+    struct stat st;
+    if (::stat(path.c_str(), &st) != 0) return false;
+    out.mtime = static_cast<long long>(st.st_mtime);
+#if defined(__APPLE__)
+    out.nsec = static_cast<long>(st.st_mtimespec.tv_nsec);
+#else
+    out.nsec = static_cast<long>(st.st_mtim.tv_nsec);
+#endif
+#endif
+    return true;
+}
+
+// Strong validator from the size and the modification time (nanoseconds where known): it changes whenever either does.
+std::string make_etag(long long size, const file_stamp& st) {
+    char buf[80];
+    std::snprintf(buf, sizeof buf, "\"%llx-%llx-%lx\"", static_cast<unsigned long long>(size), static_cast<unsigned long long>(st.mtime),
+                  static_cast<unsigned long>(st.nsec));
+    return buf;
+}
+
+const char* const k_days[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+const char* const k_months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
+std::string format_http_date(long long t) {
+    const std::time_t tt = static_cast<std::time_t>(t);
+    std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &tt);
+#else
+    gmtime_r(&tt, &tm);
+#endif
+    char buf[48];
+    std::snprintf(buf, sizeof buf, "%s, %02d %s %04d %02d:%02d:%02d GMT", k_days[tm.tm_wday], tm.tm_mday, k_months[tm.tm_mon], tm.tm_year + 1900,
+                  tm.tm_hour, tm.tm_min, tm.tm_sec);
+    return buf;
+}
+
+// Days since 1970-01-01 of a civil date (Howard Hinnant's algorithm); no timegm, which Windows lacks.
+long long days_from_civil(long long y, unsigned m, unsigned d) {
+    y -= m <= 2;
+    const long long era = (y >= 0 ? y : y - 399) / 400;
+    const unsigned yoe = static_cast<unsigned>(y - era * 400);
+    const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + static_cast<long long>(doe) - 719468;
+}
+
+// Only the IMF-fixdate ("Sun, 06 Nov 1994 08:49:37 GMT"), which is what every current client sends; the two obsolete formats are ignored,
+// and a header that is ignored behaves as if it was not sent (RFC 9110 section 13.1.3).
+bool parse_http_date(const std::string& s, long long& out) {
+    if (s.size() != 29 || s[3] != ',' || s[4] != ' ' || s[7] != ' ' || s[11] != ' ' || s[16] != ' ' || s[19] != ':' || s[22] != ':' || s[25] != ' ' ||
+        s.compare(26, 3, "GMT") != 0)
+        return false;
+    bool day_ok = false;
+    for (const char* d : k_days) if (s.compare(0, 3, d) == 0) day_ok = true;
+    if (!day_ok) return false;
+    unsigned month = 0;
+    for (unsigned i = 0; i < 12; ++i) if (s.compare(8, 3, k_months[i]) == 0) month = i + 1;
+    if (month == 0) return false;
+    auto num = [&](std::size_t at, std::size_t n, long long& v) {
+        v = 0;
+        for (std::size_t i = at; i < at + n; ++i) {
+            if (s[i] < '0' || s[i] > '9') return false;
+            v = v * 10 + (s[i] - '0');
+        }
+        return true;
+    };
+    long long day, year, hour, minute, second;
+    if (!num(5, 2, day) || !num(12, 4, year) || !num(17, 2, hour) || !num(20, 2, minute) || !num(23, 2, second)) return false;
+    if (day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60) return false;
+    out = days_from_civil(year, month, static_cast<unsigned>(day)) * 86400 + hour * 3600 + minute * 60 + second;
+    return true;
+}
+
+// Does the comma separated list of entity tags (If-Match, If-None-Match) hold `etag`? "*" matches anything. A weak tag ("W/...") is skipped when
+// `strong_only` (If-Match), and otherwise compared by its opaque part (If-None-Match). ponytail: a comma inside a tag splits it; our tags have none.
+bool etag_list_has(const std::string& list, const std::string& etag, bool strong_only) {
+    std::size_t pos = 0;
+    while (pos <= list.size()) {
+        std::size_t end = list.find(',', pos);
+        if (end == std::string::npos) end = list.size();
+        std::size_t a = pos, b = end;
+        while (a < b && (list[a] == ' ' || list[a] == '\t')) ++a;
+        while (b > a && (list[b - 1] == ' ' || list[b - 1] == '\t')) --b;
+        std::string token = list.substr(a, b - a);
+        pos = end + 1;
+        if (token == "*") return true;
+        if (token.compare(0, 2, "W/") == 0) {
+            if (strong_only) continue;
+            token.erase(0, 2);
+        }
+        if (token == etag) return true;
+    }
+    return false;
+}
+
+enum class precondition { proceed, not_modified, failed };
+
+// RFC 9110 section 13.2.2 for a GET or HEAD of a file, in the order the RFC gives. `honour_range` is false when an If-Range
+// says the client's copy is not this file: the Range header is then ignored and the whole file is sent.
+precondition evaluate_preconditions(const request& req, const std::string& etag, long long mtime, bool& honour_range) {
+    honour_range = true;
+    long long when = 0;
+    const std::string if_match = req.header("If-Match");
+    if (!if_match.empty()) {
+        if (!etag_list_has(if_match, etag, true)) return precondition::failed;
+    } else if (parse_http_date(req.header("If-Unmodified-Since"), when) && mtime > when) {
+        return precondition::failed;
+    }
+    const std::string if_none_match = req.header("If-None-Match");
+    if (!if_none_match.empty()) {
+        if (etag_list_has(if_none_match, etag, false)) return precondition::not_modified;
+    } else if (parse_http_date(req.header("If-Modified-Since"), when) && mtime <= when) {
+        return precondition::not_modified;
+    }
+    const std::string if_range = req.header("If-Range");
+    if (!if_range.empty() && !req.header("Range").empty()) {
+        if (if_range[0] == '"') honour_range = if_range == etag;
+        else if (if_range.compare(0, 2, "W/") == 0) honour_range = false; // a weak tag never matches here
+        else honour_range = parse_http_date(if_range, when) && when == mtime;
+    }
+    return precondition::proceed;
 }
 
 std::string describe(std::exception_ptr ep) {
@@ -784,15 +925,45 @@ struct server::impl {
             if (!inside_dir(full, m.dir)) continue; // a symlink must not lead out of the mounted directory
             const long long size = file_size(full);
             if (size < 0) continue;
+            return answer_file(req, send, full, size, m.options);
+        }
+        return false;
+    }
+
+    // The answer for one existing file: validators, conditional requests (ADR-0045), then the whole file or a range.
+    bool answer_file(const request& req, const send_fn& send, const std::string& full, long long size, const server::directory_options& options) {
+        {
+            file_stamp stamp;
+            const bool stamped = stat_file(full, stamp);
+            const std::string etag = stamped ? make_etag(size, stamp) : std::string();
+            const std::string modified = stamped ? format_http_date(stamp.mtime) : std::string();
+            bool honour_range = true;
+            if (stamped) {
+                const precondition p = evaluate_preconditions(req, etag, stamp.mtime, honour_range);
+                if (p != precondition::proceed) {
+                    response out;
+                    out.status = p == precondition::failed ? 412 : 304;
+                    if (p == precondition::not_modified) { // the validators go with a 304 (RFC 9110 section 15.4.5)
+                        out.headers.emplace_back("ETag", etag);
+                        out.headers.emplace_back("Last-Modified", modified);
+                    }
+                    send(std::move(out), 0, -1);
+                    return true;
+                }
+            }
 
             response res;
             res.status = 200;
             res.file = full;
             res.headers.emplace_back("Content-Type", mime_for(full));
             res.headers.emplace_back("Accept-Ranges", "bytes");
-            if (m.options.download_active) add_download_headers(req, full, res);
+            if (stamped) {
+                res.headers.emplace_back("ETag", etag);
+                res.headers.emplace_back("Last-Modified", modified);
+            }
+            if (options.download_active) add_download_headers(req, full, res);
             long long start = 0, end = size - 1;
-            switch (parse_range(req.header("Range"), size, start, end)) {
+            switch (honour_range ? parse_range(req.header("Range"), size, start, end) : range_result::none) {
                 case range_result::unsatisfiable: {
                     response bad;
                     bad.status = 416;
@@ -810,7 +981,6 @@ struct server::impl {
             send(std::move(res), 0, -1);
             return true;
         }
-        return false;
     }
 
     // ---- the 504 backstop ----

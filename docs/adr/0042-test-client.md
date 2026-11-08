@@ -37,7 +37,7 @@ in Python, which would drift.
 - A test needs a loopback socket; each request is a real HTTP round trip (about a millisecond).
 - The scheme of `base_url` only shows in `response.url`; `request.secure` is always false.
 - `Server._exception_sink` is a private hook that costs one attribute read on the failure path only.
-- Not done: `websocket_connect` (httpp has no WebSocket client), multipart `files=`, in-memory mode, `client=("testclient", 50000)`, cookie Domain/Path/Secure matching.
+- Not done: in-memory mode (`websocket_connect` and multipart `files=` came with ADR-0046), `client=("testclient", 50000)`, cookie Domain/Path/Secure matching.
 - Verified on Linux x86_64 (2026-11-07): `tests/python/test_testclient.py`, 22 tests, and the whole Python suite on 3.13 (805 passed, 4 skipped) and 3.14t (804 passed, 5 skipped).
   Not verified: Windows, macOS, a sandbox without loopback, many clients at once on one app.
 

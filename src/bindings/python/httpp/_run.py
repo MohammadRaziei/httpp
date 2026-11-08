@@ -9,6 +9,10 @@ import threading
 import time
 
 _GRACE = 10  # seconds a worker gets to finish after SIGTERM before it is killed
+# Worker respawn (ADR-0044). Seconds to wait before restart number 1, 2, ... of a worker that keeps dying young; one more quick death
+# after the last entry stops the whole group. A worker that lived at least _STABLE seconds starts the count over.
+_RESPAWN_DELAYS = (0.0, 0.5, 1.0, 2.0, 4.0)
+_STABLE = 30.0
 
 
 def _say(message):
@@ -186,11 +190,96 @@ def _tls_args(certfile, keyfile, password):
     return args
 
 
-def _supervise(target, host, port, workers, log_level, io_threads=None, shutdown_timeout=None, tls=()):
-    """Start `workers` fresh `httpp py run` processes on one port and keep them until a signal or a death.
+def _describe_exit(code):
+    if code < 0:
+        try:
+            return f"was killed by {signal.Signals(-code).name}"
+        except ValueError:
+            return f"was killed by signal {-code}"
+    return f"exited with code {code}"
 
-    ponytail: a worker that dies stops the whole group (exit code 1) instead of being restarted;
-    let systemd/docker restart it. Upgrade path: respawn with a back-off.
+
+class _WorkerGroup:
+    """The worker processes of one supervisor: starts them, notices deaths and restarts them with a back-off.
+
+    `spawn()` returns a started process (anything with `pid`, `poll()` and `returncode`). The supervisor calls `poll()` every
+    few hundred milliseconds; it returns False when a worker keeps dying right after it starts, which means the supervisor
+    should stop the group: restarting for ever would only hide a broken app or a port that cannot be bound.
+    """
+
+    class _Slot:
+        __slots__ = ("proc", "started", "streak", "restart_at")
+
+        def __init__(self):
+            self.proc = None
+            self.started = 0.0
+            self.streak = 0          # deaths in a row of a worker that lived less than _STABLE seconds
+            self.restart_at = None   # set while the dead worker of this slot waits to be started again
+
+    def __init__(self, spawn, count, clock=time.monotonic, say=None):
+        self._spawn, self._clock, self._say = spawn, clock, say or _say
+        self._slots = [self._Slot() for _ in range(count)]
+        for slot in self._slots:
+            self._start(slot)
+
+    def _start(self, slot):
+        slot.proc = self._spawn()
+        slot.started = self._clock()
+        slot.restart_at = None
+
+    def procs(self):
+        """Every process of the group, the dead one of a slot that waits for its restart included."""
+        return [slot.proc for slot in self._slots if slot.proc is not None]
+
+    def poll(self):
+        now = self._clock()
+        for slot in self._slots:
+            if slot.restart_at is None:
+                code = slot.proc.poll()
+                if code is None:
+                    continue
+                if now - slot.started >= _STABLE:
+                    slot.streak = 0
+                slot.streak += 1
+                what = f"worker {slot.proc.pid} {_describe_exit(code)}"
+                if slot.streak > len(_RESPAWN_DELAYS):
+                    self._say(f"{what}; it keeps dying right after it starts, stopping all")
+                    return False
+                delay = _RESPAWN_DELAYS[slot.streak - 1]
+                slot.restart_at = now + delay
+                self._say(f"{what}; restarting" + (f" in {delay:g}s" if delay else ""))
+            if now >= slot.restart_at:
+                self._start(slot)
+        return True
+
+
+def _parent_death_hook():
+    """A `preexec_fn` that makes the kernel send SIGTERM to a worker when its supervisor dies, even by SIGKILL (Linux).
+
+    Without it the workers of a killed supervisor keep the port for ever. None when libc has no prctl.
+    """
+    try:
+        import ctypes
+
+        prctl = ctypes.CDLL(None, use_errno=True).prctl
+        prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+    except (ImportError, OSError, AttributeError):
+        return None
+    supervisor = os.getpid()
+
+    def hook():  # runs in the child between fork and exec: nothing but plain calls here
+        prctl(1, int(signal.SIGTERM), 0, 0, 0)  # PR_SET_PDEATHSIG
+        if os.getppid() != supervisor:  # the supervisor died before the line above took effect
+            os._exit(1)
+
+    return hook
+
+
+def _supervise(target, host, port, workers, log_level, io_threads=None, shutdown_timeout=None, tls=()):
+    """Start `workers` fresh `httpp py run` processes on one port and keep them until a signal.
+
+    A worker that dies is started again (back-off, see _WorkerGroup); one that keeps dying right after it starts stops the
+    whole group with exit code 1. Workers also stop when this process is killed (see _parent_death_hook).
     """
     if not sys.platform.startswith("linux"):
         raise OSError("workers > 1 relies on SO_REUSEPORT load balancing, which only Linux provides")
@@ -203,8 +292,9 @@ def _supervise(target, host, port, workers, log_level, io_threads=None, shutdown
     grace = _GRACE if shutdown_timeout is None else shutdown_timeout
     if shutdown_timeout is not None:
         cmd += ["--shutdown-timeout", str(shutdown_timeout)]
+    hook = _parent_death_hook()
     # Own session: Ctrl+C reaches only this supervisor, which then sends each worker exactly one SIGTERM.
-    procs = [subprocess.Popen(cmd, start_new_session=True) for _ in range(workers)]
+    group = _WorkerGroup(lambda: subprocess.Popen(cmd, start_new_session=True, preexec_fn=hook), workers)
     stop = []
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.append(1))
@@ -213,12 +303,11 @@ def _supervise(target, host, port, workers, log_level, io_threads=None, shutdown
     try:
         while not stop:
             time.sleep(0.2)
-            dead = [p for p in procs if p.poll() is not None]
-            if dead:
-                _say(f"worker {dead[0].pid} exited with code {dead[0].returncode}; stopping all")
+            if not group.poll():
                 code = 1
                 break
     finally:
+        procs = group.procs()
         for p in procs:
             if p.poll() is None:
                 p.terminate()

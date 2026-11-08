@@ -1,6 +1,6 @@
 # ADR-0005: Multi-process with fresh processes and `SO_REUSEPORT` (Linux only)
 
-- **Status:** accepted
+- **Status:** accepted; the "dead worker stops the group" rule is superseded by [ADR-0044](0044-worker-respawn.md)
 - **Decided by:** the project owner
 - **Source:** `Architecture.md` section 6, `handoff.md`, `src/bindings/python/httpp/_run.py`
 
