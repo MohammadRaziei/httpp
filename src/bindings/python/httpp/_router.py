@@ -13,6 +13,7 @@ router only remembers the function and its options.
 from collections import namedtuple
 
 RouterEntry = namedtuple("RouterEntry", "path methods fn meta")
+WebSocketEntry = namedtuple("WebSocketEntry", "path fn options")
 
 
 def _clean_prefix(prefix):
@@ -48,6 +49,7 @@ class APIRouter:
         self._prefix = _clean_prefix(prefix)
         self._tags = list(tags or ())
         self._routes = []
+        self._ws_routes = []
 
     @property
     def prefix(self):
@@ -57,6 +59,25 @@ class APIRouter:
     def routes(self):
         """Every route as a RouterEntry(path, methods, fn, meta); paths are relative to this router (its prefix is not in them)."""
         return list(self._routes)
+
+    @property
+    def websocket_routes(self):
+        """Every WebSocket route as a WebSocketEntry(path, fn, options); paths are relative to this router."""
+        return list(self._ws_routes)
+
+    def websocket(self, path, **options):
+        """Like Server.websocket (same options, same handler rules); registered on a Server when the router is included."""
+        from .server import _WS_OPTS, _check_ws_options
+        unknown = set(options) - _WS_OPTS
+        if unknown:
+            raise TypeError(f"websocket() got unexpected options {sorted(unknown)}; known: {sorted(_WS_OPTS)}")
+        _check_ws_options(**{k: v for k, v in options.items() if k != "origins"})
+
+        def register(fn):
+            self._ws_routes.append(WebSocketEntry(_clean_path(path), fn, dict(options)))
+            return fn  # unchanged, like Server.websocket
+
+        return register
 
     def route(self, path, methods=("GET",), **meta):
         from .server import _ROUTE_META  # server.py imports this module, so only here
@@ -94,6 +115,7 @@ class APIRouter:
         """Add every route of `other` under prefix + other.prefix. `other` may change afterwards; it is not kept."""
         outer = _clean_prefix(prefix) + other._prefix
         self._routes.extend([e._replace(path=join(outer, e.path)) for e in other._routes])
+        self._ws_routes.extend([e._replace(path=join(outer, e.path)) for e in other._ws_routes])
         return self
 
     include_router = include  # FastAPI's name
@@ -104,3 +126,5 @@ def include_into(server, router, prefix=""):
     outer = _clean_prefix(prefix) + router.prefix
     for entry in router.routes:
         server.route(join(outer, entry.path), entry.methods, **entry.meta)(entry.fn)
+    for entry in router.websocket_routes:
+        server.websocket(join(outer, entry.path), **entry.options)(entry.fn)

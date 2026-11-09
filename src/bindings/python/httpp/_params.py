@@ -152,7 +152,7 @@ class Param:
 
 
 class Plan:
-    __slots__ = ("path", "path_info", "path_checks", "path_from_raw", "params", "body", "embed", "deps", "wants_request", "wants_response", "background_name", "websocket_name", "active")
+    __slots__ = ("path", "path_info", "path_checks", "path_from_raw", "params", "body", "embed", "deps", "wants_request", "wants_response", "background_name", "websocket_name", "wants_websocket", "active")
 
     def __init__(self):
         self.path = {}         # name -> hint, or None when the handler didn't annotate it
@@ -167,6 +167,7 @@ class Plan:
         self.wants_response = False   # a route handler asked for the injected `response`
         self.background_name = None   # ... or for BackgroundTasks, under this argument name
         self.websocket_name = None    # a WebSocket route: the argument that gets the connection (named `websocket` or annotated WebSocket)
+        self.wants_websocket = False  # a dependency asked for the connection (only a WebSocket route can supply it)
         self.active = False
 
     def run(self, raw, kwargs):
@@ -320,10 +321,11 @@ def _cookies(raw):
 class Ctx:
     """What one request shares between its dependencies: a cache, the stack that cleans up `yield` ones, the request."""
 
-    __slots__ = ("raw", "cache", "stack", "_make_request", "_request")
+    __slots__ = ("raw", "cache", "stack", "_make_request", "_request", "websocket")
 
-    def __init__(self, raw, stack, make_request):
+    def __init__(self, raw, stack, make_request, websocket=None):
         self.raw = raw
+        self.websocket = websocket  # the connection, on a WebSocket route
         self.cache = {}
         self.stack = stack
         self._make_request = make_request
@@ -396,6 +398,8 @@ class Dependency:
             return V.INVALID
         if self.plan.wants_request:
             kw["request"] = ctx.request()
+        if self.plan.wants_websocket:
+            kw["websocket"] = ctx.websocket
         if self.kind == "asyncgen":
             value = await ctx.stack.enter_async_context(contextlib.asynccontextmanager(self.fn)(**kw))
         elif self.kind == "gen":
@@ -485,8 +489,11 @@ def make_plan(fn, path, top=True):
         if top and name == "response":  # like `request`: injected by name (a dependency does not get it)
             plan.wants_response = True
             continue
-        if top and (name == "websocket" or hint is WebSocket):
-            plan.websocket_name = name
+        if name == "websocket" or hint is WebSocket:
+            if top:
+                plan.websocket_name = name
+            else:  # a dependency of a WebSocket route may take the connection (to accept or close it)
+                plan.wants_websocket = True
             continue
         if top and hint is BackgroundTasks:
             plan.background_name = name

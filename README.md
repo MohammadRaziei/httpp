@@ -197,6 +197,7 @@ app.include(api, "/v1")       # GET /v1/api/users/{user_id}  (include_router is 
 The order is: outer prefix, the router's own prefix, then the route's path. A route path `/` under a prefix is the
 prefix itself (`/users`, never `/users/`). Prefixes are joined once, when `include()` runs, so a request costs the same as
 with plain `@app.get(...)`. A router is not kept by the server: routes added to it afterwards are not on the server.
+WebSocket routes work the same way (`@users.websocket("/ws/{room}")`, C++: `router::route_ws`), and a WebSocket handler may use `Depends` (for example to check a token before the upgrade).
 
 ### The `response` argument and background work
 

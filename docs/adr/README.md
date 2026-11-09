@@ -53,6 +53,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0045](0045-conditional-static-files.md) | Files from a mounted directory carry ETag and Last-Modified and answer conditional requests | accepted |
 | [0046](0046-testclient-websocket-and-files.md) | `TestClient.websocket_connect` and multipart `files=` | accepted |
 | [0047](0047-one-mime-table-and-exchange-leak.md) | One MIME table for the C++ and Python servers, and the exchange leak of `async_http` | accepted |
+| [0048](0048-websocket-on-routers-and-dependencies.md) | WebSocket routes on routers, and dependencies on WebSocket routes | accepted |
 
 ## Not decided yet
 

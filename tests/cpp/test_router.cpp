@@ -4,6 +4,7 @@
 #include "httpp/router.hpp"
 #include "httpp/server.hpp"
 #include "local_server.hpp"
+#include "ws_test_client.hpp"
 
 #include <memory>
 #include <stdexcept>
@@ -93,4 +94,30 @@ UTEST(httpp_router, prefix_and_routes_can_be_read_back) {
     ASSERT_EQ(1u, r.routes().size());
     ASSERT_STREQ("/x", r.routes()[0].path.c_str());
     ASSERT_STREQ("GET", r.routes()[0].method.c_str());
+}
+
+UTEST(httpp_router, websocket_routes_get_the_prefixes_like_http_routes_and_nest) {
+    local_server srv([](httpp::server& s) {
+        httpp::router inner("/inner");
+        inner.route_ws("/ws/:room", httpp::ws_handler{});
+        httpp::router outer("/outer");
+        outer.include(inner, "/mid");
+        s.include(outer, "/v1");
+    });
+    {
+        testutil::ws_client c(srv.port);
+        ASSERT_EQ(101, testutil::head_status(c.handshake("/v1/outer/mid/inner/ws/a")));
+    }
+    testutil::ws_client c(srv.port);
+    ASSERT_EQ(404, testutil::head_status(c.handshake("/inner/ws/a")));  // not mounted without the prefixes
+}
+
+UTEST(httpp_router, a_router_lists_its_websocket_routes_relative_to_itself) {
+    httpp::router r("/chat");
+    r.route_ws("room", httpp::ws_handler{});  // no leading slash
+    httpp::router outer("/api");
+    outer.include(r);
+    ASSERT_EQ(1u, r.ws_routes().size());
+    ASSERT_STREQ("/room", r.ws_routes()[0].path.c_str());
+    ASSERT_STREQ("/chat/room", outer.ws_routes()[0].path.c_str());
 }

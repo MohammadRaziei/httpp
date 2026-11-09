@@ -49,6 +49,11 @@ router& router::route_io(const std::string& method, const std::string& path, io_
     return *this;
 }
 
+router& router::route_ws(const std::string& path, ws_handler h) {
+    ws_routes_.push_back({clean_path(path), std::move(h)});
+    return *this;
+}
+
 router& router::get(const std::string& path, handler h) { return route("GET", path, std::move(h)); }
 router& router::post(const std::string& path, handler h) { return route("POST", path, std::move(h)); }
 router& router::put(const std::string& path, handler h) { return route("PUT", path, std::move(h)); }
@@ -66,11 +71,16 @@ router& router::include(const router& other, const std::string& prefix) {
     copy.reserve(other.routes_.size());
     for (const entry& e : other.routes_) copy.push_back({e.method, join(outer, e.path), e.h});
     for (entry& e : copy) routes_.push_back(std::move(e));
+    std::vector<ws_entry> ws_copy;
+    ws_copy.reserve(other.ws_routes_.size());
+    for (const ws_entry& e : other.ws_routes_) ws_copy.push_back({join(outer, e.path), e.h});
+    for (ws_entry& e : ws_copy) ws_routes_.push_back(std::move(e));
     return *this;
 }
 
 const std::string& router::prefix() const { return prefix_; }
 const std::vector<router::entry>& router::routes() const { return routes_; }
+const std::vector<router::ws_entry>& router::ws_routes() const { return ws_routes_; }
 
 // ---- server::include (declared in server.hpp) ----
 void server::include(const router& r, const std::string& prefix) {
@@ -84,6 +94,7 @@ void server::include(const router& r, const std::string& prefix) {
             default: route_io(e.method, path, std::get<io_handler>(e.h)); break;
         }
     }
+    for (const router::ws_entry& e : r.ws_routes()) route_ws(join(outer, e.path), e.h);
 }
 
 }  // namespace httpp

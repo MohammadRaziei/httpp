@@ -9,6 +9,7 @@ such changes are listed under **Changed**).
 
 ### Added
 
+- **WebSocket routes on routers and `Depends` on WebSocket routes** (ADR-0048): `router::route_ws` and `@router.websocket(...)` join prefixes like HTTP routes; a Python WebSocket handler may use `Depends` (sync, async, `yield` cleanup, sub-dependencies). A failing dependency refuses the upgrade (`HTTPException` status, or 422); a dependency may take `websocket`.
 - **WebSocket close 1001 on shutdown** (ADR-0043): `server.shutdown()` and SIGTERM now send each open WebSocket a close frame with code 1001 and wait for the peer's answer (up to the grace period) instead of dropping the connection; a handler sees a clean close.
 - **Dead `--workers` are restarted** (ADR-0044): the supervisor starts a new worker at once the first time and with a growing wait after that (0.5, 1, 2, 4 seconds); a worker that keeps dying right after it starts stops the group with exit code 1. Workers also end when the supervisor is killed, even with SIGKILL (Linux).
 - **`ETag`, `Last-Modified` and conditional requests for mounted files** (ADR-0045): `If-None-Match` and `If-Modified-Since` give 304, `If-Match` and `If-Unmodified-Since` give 412, `If-Range` decides whether a `Range` is honoured. This covers `serve_directory` and the file browser's raw route.

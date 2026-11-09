@@ -948,6 +948,16 @@ def _origin_ok(raw, allowed):
     return host is not None and netloc.lower() == host.lower()
 
 
+_WS_OPTS = frozenset(("origins", "max_message", "max_buffered", "max_queued", "ping_interval"))
+
+
+def _check_ws_options(**opts):
+    """The numeric limits of a WebSocket route must be integers in range (shared by Server.websocket and APIRouter.websocket)."""
+    for name, value in opts.items():
+        if not isinstance(value, int) or isinstance(value, bool) or value < (0 if name == "ping_interval" else 1):
+            raise ValueError(f"{name} must be a {'non-negative' if name == 'ping_interval' else 'positive'} integer")
+
+
 def _adapt_ws(fn, plan, origins):
     """A WebSocket handler -> `dispatch(raw, core)` for the compiled core: runs on the loop thread, starts one task for the
     connection and returns at once. The task answers the upgrade (accept / reject), runs the handler, and when it ends closes the
@@ -962,11 +972,21 @@ def _adapt_ws(fn, plan, origins):
         failed = False
         try:
             kwargs, early = prepare(raw)
-            if early is not None:
-                core.reject(early[0], early[1] if isinstance(early[1], bytes) else b"")
-            else:
+            if early is None and plan.deps:
+                # Dependencies run before the handler; the ones with `yield` are closed after it, last opened first.
+                async with contextlib.AsyncExitStack() as stack:
+                    ctx = _params.Ctx(raw, stack, ServerRequest._from_raw, ws)
+                    errors = await _params.asolve_deps(plan, ctx, kwargs)
+                    if errors:
+                        early = _unprocessable(errors)
+                    else:
+                        kwargs[ws_name] = ws
+                        await fn(**kwargs)
+            elif early is None:
                 kwargs[ws_name] = ws
                 await fn(**kwargs)
+            if early is not None:
+                core.reject(early[0], early[1] if isinstance(early[1], bytes) else b"")
         except WebSocketDisconnect:
             pass
         except HTTPException as exc:
@@ -1106,6 +1126,9 @@ class Server(_Server):
                         if dep.kind in ("async", "asyncgen"):
                             raise TypeError(f"{fn.__name__}: a sync route can't use the async dependency {dep.fn.__name__!r}; "
                                             "make the route `async def`")
+            for sub in plan.walk():
+                if sub.wants_websocket:
+                    raise TypeError(f"{fn.__name__}: a dependency that takes `websocket` can only be used on a WebSocket route")
             status = meta.get("status_code") or 200
             model = meta.get("response_model")
             check = V.compile_type(model) if model is not None else None
@@ -1126,7 +1149,7 @@ class Server(_Server):
 
         return register
 
-    def websocket(self, path, *, origins=None, max_message=1 << 20, max_buffered=1 << 20, max_queued=1 << 20, ping_interval=0):
+    def websocket(self, path, *, origins=None, max_message=1 << 20, max_buffered=1 << 20, max_queued=1 << 20, ping_interval=0):  # keep _WS_OPTS in step
         """WebSocket route (RFC 6455), FastAPI / Starlette style:
 
             @app.websocket("/ws/{room}")
@@ -1141,10 +1164,7 @@ class Server(_Server):
         all). max_message: bytes of one message (more closes with 1009). max_buffered: bytes queued for sending; past it a
         send waits. max_queued: received bytes waiting for the handler; past it the socket is not read (TCP pushes back on the
         peer). ping_interval: seconds of silence before a ping, and again before the connection is closed; 0 = off."""
-        for name, value in (("max_message", max_message), ("max_buffered", max_buffered), ("max_queued", max_queued),
-                            ("ping_interval", ping_interval)):
-            if not isinstance(value, int) or isinstance(value, bool) or value < (0 if name == "ping_interval" else 1):
-                raise ValueError(f"{name} must be a {'non-negative' if name == 'ping_interval' else 'positive'} integer")
+        _check_ws_options(max_message=max_message, max_buffered=max_buffered, max_queued=max_queued, ping_interval=ping_interval)
         allowed = None if origins is None else frozenset(o.rstrip("/").lower() for o in origins)
         pattern = _params.to_cpp_pattern(path)
 
@@ -1154,8 +1174,8 @@ class Server(_Server):
             plan = _params.make_plan(fn, path)
             if plan.websocket_name is None:
                 raise TypeError(f"{fn.__name__}: a WebSocket handler must take the connection as `websocket` (or annotated WebSocket)")
-            if plan.deps or plan.wants_response or plan.background_name is not None:
-                raise TypeError(f"{fn.__name__}: dependencies, `response` and background tasks are not supported on a WebSocket route")
+            if plan.wants_response or plan.background_name is not None:
+                raise TypeError(f"{fn.__name__}: `response` and background tasks are not supported on a WebSocket route")
             self._add_ws_route(pattern, _adapt_ws(fn, plan, allowed), max_message, max_buffered, ping_interval, max_queued)
             self._has_async = True  # the connection's lane (loop thread + inbox) must be running
             return fn

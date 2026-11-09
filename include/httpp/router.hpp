@@ -32,6 +32,12 @@ public:
         std::variant<handler, async_handler, shared_handler, io_handler> h;
     };
 
+    // One WebSocket route: a path relative to the router and its handler (see server::route_ws).
+    struct ws_entry {
+        std::string path;
+        ws_handler h;
+    };
+
     HTTPP_API explicit router(std::string prefix = "");
 
     // Same names and meanings as the server's route registration (see server.hpp).
@@ -50,16 +56,22 @@ public:
     HTTPP_API router& route_shared(const std::string& method, const std::string& path, shared_handler h);
     HTTPP_API router& route_io(const std::string& method, const std::string& path, io_handler h);
 
+    // A WebSocket endpoint under this router's prefix; registered with server::route_ws() when the router is included.
+    HTTPP_API router& route_ws(const std::string& path, ws_handler h);
+
     // Adds every route of `other` under `prefix` + other.prefix(). `other` may be changed or destroyed afterwards.
     HTTPP_API router& include(const router& other, const std::string& prefix = "");
 
     HTTPP_API const std::string& prefix() const;
     // Every route, paths relative to this router (the router's own prefix is not part of them).
     HTTPP_API const std::vector<entry>& routes() const;
+    // Every WebSocket route, paths relative to this router.
+    HTTPP_API const std::vector<ws_entry>& ws_routes() const;
 
 private:
     std::string prefix_;
     std::vector<entry> routes_;
+    std::vector<ws_entry> ws_routes_;
 };
 
 } // namespace httpp

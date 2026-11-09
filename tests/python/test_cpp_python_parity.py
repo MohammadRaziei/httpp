@@ -83,7 +83,7 @@ ALIASES = {
         "patch_async": "patch", "del_async": "delete",
     },
     "router": {
-        "del": "delete",
+        "del": "delete", "ws_routes": "websocket_routes",
         "route_async": "route", "get_async": "get", "post_async": "post", "put_async": "put",
         "patch_async": "patch", "del_async": "delete",
     },
@@ -114,6 +114,7 @@ NOT_EXPOSED = {
     ("server", "route_io"): "not necessary: Python handlers need the GIL anyway, so add_loop_route is the fast path",
     ("server", "route_shared"): "not necessary: add_route already hands Python the request on a pool thread",
     ("server", "route_ws"): "Python registers WebSocket routes with the Server.websocket decorator (ADR-0027)",
+    ("router", "route_ws"): "Python registers WebSocket routes with the APIRouter.websocket decorator (ADR-0048)",
     ("router", "route_io"): "same as server::route_io",
     ("router", "route_shared"): "same as server::route_shared",
     ("", "find_swagger_ui_asset"): "internal lookup behind mount_swagger_ui, not meant for users",

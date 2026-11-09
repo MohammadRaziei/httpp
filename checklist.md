@@ -52,12 +52,12 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 - [ ] Dependencies with `yield` (cleanup after the response) and `response_model` filtering: check what the FastAPI layer lacks against FastAPI's docs
 - [x] ETag, `Last-Modified`, 304, 412 and `If-Range` for mounted files and the file browser raw route (ADR-0045)
 - [ ] Static files mounted from Python (`mount_static`-style) beyond `serve_directory`
-- [ ] A total deadline for a dripped request body
+- [x] A total deadline for a dripped request body (`set_body_timeout`, already in place; this line was stale)
 - [ ] Swagger UI body is copied per request (changes a public type; ask the owner first)
 - [ ] The 504 deadline of an unanswered async request starts when the handler returns (document or change)
 
 ### WebSocket
-- [ ] `APIRouter.websocket`, dependencies on WebSocket routes, an OpenAPI note
+- [x] `APIRouter.websocket` and `router::route_ws`, dependencies on WebSocket routes (ADR-0048); WebSocket routes stay out of OpenAPI by design
 - [ ] `on_close` earlier than the lingering close (considered, kept), permessage-deflate (not planned)
 - [ ] The WebSocket benchmark and idle-connection memory (`BENCH_ONLY=ws,idle`) were written (ADR-0030) but never run on the owner's machine; httpp is about 20 KiB per idle connection against Drogon about 9 KiB in the sandbox (unchecked): look for per-connection buffers
 
