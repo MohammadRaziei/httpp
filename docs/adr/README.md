@@ -52,6 +52,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0044](0044-worker-respawn.md) | The `--workers` supervisor restarts dead workers and workers die with it | accepted |
 | [0045](0045-conditional-static-files.md) | Files from a mounted directory carry ETag and Last-Modified and answer conditional requests | accepted |
 | [0046](0046-testclient-websocket-and-files.md) | `TestClient.websocket_connect` and multipart `files=` | accepted |
+| [0047](0047-one-mime-table-and-exchange-leak.md) | One MIME table for the C++ and Python servers, and the exchange leak of `async_http` | accepted |
 
 ## Not decided yet
 

@@ -162,6 +162,43 @@ def test_file_response(tmp_path):
         assert r.body == "file body" and r.header("Content-Type").startswith("text/plain")
 
 
+@pytest.mark.parametrize("name,expected", [
+    ("favicon.ico", "image/x-icon"), ("data.gz", "application/gzip"), ("a.wav", "audio/wav"),
+    ("conf.yaml", "application/yaml"), ("page.html", "text/html"), ("blob.unknownext", "application/octet-stream"),
+])
+def test_a_file_response_and_a_mounted_directory_agree_on_the_content_type(tmp_path, name, expected):
+    (tmp_path / name).write_bytes(b"x")
+    app = Server(openapi_url=None)
+    app.serve_directory("/static", str(tmp_path))
+
+    @app.get("/f")
+    def serve():
+        return httpp.FileResponse(str(tmp_path / name))
+
+    with running(app) as url:
+        assert get(url, "/f").header("Content-Type").split(";")[0] == expected
+        assert get(url, "/static/" + name).header("Content-Type").split(";")[0] == expected
+
+
+def test_the_mime_table_is_public_in_python_and_ignores_case():
+    assert httpp.utils.mime_type_for("/x/Logo.PNG") == "image/png"
+    assert httpp.utils.mime_type_for("conf.YML") == "application/yaml"
+    assert httpp.utils.mime_type_for("noextension") == "application/octet-stream"
+
+
+def test_a_file_response_keeps_an_explicit_content_type(tmp_path):
+    f = tmp_path / "a.yaml"
+    f.write_text("a: 1")
+    app = Server(openapi_url=None)
+
+    @app.get("/f")
+    def serve():
+        return httpp.FileResponse(str(f), media_type="text/x-custom")
+
+    with running(app) as url:
+        assert get(url, "/f").header("Content-Type").startswith("text/x-custom")
+
+
 def test_redirect_status_must_be_3xx():
     with pytest.raises(ValueError):
         httpp.RedirectResponse("/x", status_code=200)

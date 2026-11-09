@@ -60,6 +60,7 @@ TARGETS = {
     ("url.hpp", "url"): httpp.URL,
     ("log.hpp", ""): httpp,
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
+    ("server.hpp", ""): httpp.utils,  # mime_type_for, the same way
     ("swagger_ui.hpp", ""): httpp,
     ("file_browser.hpp", ""): httpp,
     ("middleware.hpp", ""): httpp,

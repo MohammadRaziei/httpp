@@ -87,7 +87,7 @@ const char* mime_for(const std::string& path) {
         {"zip", "application/zip"}, {"gz", "application/gzip"}, {"tar", "application/x-tar"},
         {"wasm", "application/wasm"}, {"woff", "font/woff"}, {"woff2", "font/woff2"}, {"ttf", "font/ttf"},
         {"otf", "font/otf"}, {"mp3", "audio/mpeg"}, {"wav", "audio/wav"}, {"ogg", "audio/ogg"},
-        {"mp4", "video/mp4"}, {"webm", "video/webm"},
+        {"mp4", "video/mp4"}, {"webm", "video/webm"}, {"yaml", "application/yaml"}, {"yml", "application/yaml"},
     };
     const std::size_t dot = path.rfind('.');
     const std::size_t slash = path.find_last_of("/\\");
@@ -1471,5 +1471,7 @@ void server::shutdown(std::chrono::milliseconds grace) {
     impl_->draining = true;
     for (auto& e : impl_->engines) e->drain(grace);
 }
+
+const char* mime_type_for(const std::string& path) { return mime_for(path); }
 
 } // namespace httpp

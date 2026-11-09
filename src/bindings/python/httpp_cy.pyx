@@ -2308,6 +2308,16 @@ cdef extern from "httpp/middleware.hpp" namespace "httpp":
     void add_trusted_host(cpp_server& s, const cpp_trusted_host_options& options) except +
 
 
+cdef extern from "httpp/server.hpp" namespace "httpp":
+    const char* cpp_mime_type_for "httpp::mime_type_for"(const string& path)
+
+
+def mime_type_for(path):
+    """The Content-Type httpp uses for a file by its extension, the same table that mounted directories use (ADR-0047)."""
+    cdef string p = os.fsencode(path)
+    return cpp_mime_type_for(p).decode("ascii")
+
+
 def _swagger_ui_asset(str name):
     """(stored bytes, content type, is_gzip) of one Swagger UI file compiled into libhttpp (see include/httpp/swagger_ui.hpp),
     or None. The stored bytes are a gzip stream when is_gzip is true, not the file. They are copied out of the library's

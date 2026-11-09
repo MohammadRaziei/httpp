@@ -68,7 +68,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 
 ### Clients and downloads
 - [ ] `Client(keep_alive=False)` Python binding decision; sync client against async client (two engines for one behaviour; separate decision)
-- [ ] MIME types: `serve_directory` (C++ table) and `file()` (Python `mimetypes`) disagree for `ico`, `gz`, `wav`, `yaml`, `yml`; fix needs one new public function
+- [x] MIME types: one table for `serve_directory` and Python `file()` through the public `httpp::mime_type_for` (ADR-0047)
 - [ ] Real zlib instead of the vendored stb codecs (owner said drop it for now; recommendation if it returns: madler/zlib as a pinned submodule)
 
 ### Python layer
@@ -89,7 +89,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 ## 4. Quality and release
 - [ ] Windows and macOS runtime: nothing of the server, the tunnel, the descriptor handover (ADR-0034) or the file browser has run there
 - [ ] ASan and TSan on the Python extension (only the C++ suite was run)
-- [ ] The ASan leak report at exit (about 18 KB in `async_http::impl` exchanges alive at exit); the open `worker_pool*` read in ADR-0035
+- [x] The 18 KB exit leak of `async_http` exchanges (a reference cycle, fixed, ADR-0047); still open: the `worker_pool*` read in ADR-0035
 - [ ] Python 3.15t locally (CI only so far)
 - [ ] README gaps: when to use `def` against `async def`, `HTTPException`, response classes, `httpp.status`, 405; the GZip section
 - [ ] An ADR and a benchmark for server gzip (`set_compression`)

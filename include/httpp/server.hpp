@@ -280,4 +280,8 @@ private:
     std::unique_ptr<impl> impl_;
 };
 
+// The Content-Type httpp gives a file by its extension (case-insensitive, the last dot after the last slash). Mounted directories use
+// it, and so does Python's file(), so both agree. "application/octet-stream" when the extension is unknown or missing. See ADR-0047.
+HTTPP_API const char* mime_type_for(const std::string& path);
+
 } // namespace httpp

@@ -146,6 +146,13 @@ struct async_http::impl {
                 self->fail(error_kind::timeout, "timed out");
             });
         }
+        // Releases the callback of the operation in flight without calling it. The callback holds the exchange that owns this
+        // connection, so keeping it after the exchange gave up would be a reference cycle (the exchange then leaks, ADR-0047).
+        void drop_pending() {
+            auto dead = std::move(pending);
+            pending = nullptr;
+        }
+
         void finish(io_result r) {
             ++armed;
             timer.cancel();
@@ -449,7 +456,10 @@ struct async_http::impl {
         void fail(error_kind k, const std::string& msg) {
             if (finished) return;
             HTTPP_LOG(debug) << job.method << ' ' << job.host << ':' << job.port << job.target << " failed: " << msg;
-            if (conn) conn->close();
+            if (conn) {
+                conn->close();
+                conn->drop_pending();  // a callback still waiting names this exchange: break the cycle (the exchange is held by `live` until complete())
+            }
             res.error = k;
             res.error_message = msg;
             if (k != error_kind::too_large) res.status = 0;

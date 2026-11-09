@@ -17,6 +17,8 @@ such changes are listed under **Changed**).
 ### Fixed
 
 - A 304 answer no longer carries `Content-Length: 0`.
+- Python's `file()`, `FileResponse` and `TestClient(files=)` choose the Content-Type with the same table as mounted directories (ADR-0047), so `ico`, `gz`, `wav` and `yaml` no longer differ and nothing depends on the operating system's MIME registry. `yaml` and `yml` are now `application/yaml`.
+- The async client no longer leaks the exchanges that were still waiting when the client was destroyed (a reference cycle, ADR-0047).
 
 ### Changed (breaking)
 

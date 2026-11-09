@@ -27,7 +27,6 @@ import base64
 import hashlib
 import http
 import json as _json
-import mimetypes
 import os
 import socket
 import struct
@@ -38,6 +37,7 @@ import urllib.parse
 from .errors import HTTPError, TooManyRedirects
 from ._http import request as _request
 from ._websocket import WebSocketDisconnect
+from .httpp_cy import mime_type_for
 
 __all__ = ["TestClient", "TestResponse", "WebSocketTestSession"]
 
@@ -153,7 +153,7 @@ def _file_part(name, value):
     if not isinstance(content, (bytes, bytearray, memoryview)):
         raise TypeError(f"file {name!r}: expected bytes, str or a file object, not {type(content).__name__}")
     filename = str(filename) if filename else str(name)
-    return filename, bytes(content), content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    return filename, bytes(content), content_type or mime_type_for(filename)
 
 
 def _multipart(data, files):

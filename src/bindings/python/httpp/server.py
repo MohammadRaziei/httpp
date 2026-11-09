@@ -51,7 +51,6 @@ import dis
 import functools
 import inspect
 import json
-import mimetypes
 import os
 import re
 import selectors
@@ -63,7 +62,7 @@ import traceback
 
 from . import _background, _forms, _log, _params, _router, _schema
 from . import _validate as V
-from .httpp_cy import Server as _Server, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, _set_lanes, parse_form as _parse_form
+from .httpp_cy import Server as _Server, mime_type_for, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, _set_lanes, parse_form as _parse_form
 from ._websocket import WebSocket, WebSocketDisconnect
 from .models import BaseModel, to_jsonable
 from .responses import HTTPException, Response as _ResponseBase
@@ -476,7 +475,7 @@ def _to_response(rv, default_status=200):
         body, ctype = json.dumps(to_jsonable(rv)).encode("utf-8"), "application/json"
     elif isinstance(rv, _File):
         body = rv.path  # a str body = a file to stream (see Server.add_route)
-        ctype = rv.content_type or mimetypes.guess_type(rv.path)[0] or "application/octet-stream"
+        ctype = rv.content_type or mime_type_for(rv.path)
     elif inspect.isgenerator(rv) or inspect.isasyncgen(rv):
         body, ctype = _stream(rv), "text/plain; charset=utf-8"
     else:
