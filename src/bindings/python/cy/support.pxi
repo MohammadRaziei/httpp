@@ -1,4 +1,4 @@
-# library logging, Swagger UI, file browser and middleware mounts. Included by httpp_cy.pyx (textual include: order matters, see the list there).
+# library logging, Swagger UI, file browser and middleware mounts. Included by httpp_cy.pyx (a textual include: the order of the includes matters).
 
 # ---------------------------------------------------------------------------------------------
 # Library logging (httpp/log.hpp). The C++ core logs from its own threads, so the callback form

@@ -1,4 +1,4 @@
-# Response and Client (blocking client), query helpers. Included by httpp_cy.pyx (textual include: order matters, see the list there).
+# Response and Client (blocking client), query helpers. Included by httpp_cy.pyx (a textual include: the order of the includes matters).
 
 import json as _json
 

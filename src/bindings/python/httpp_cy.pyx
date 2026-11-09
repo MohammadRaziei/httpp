@@ -22,12 +22,10 @@ import os
 import traceback
 
 # The module is split into textual includes (Cython .pxi files), in this order; one module, one .so.
-include "cy/_externs.pxi"
-include "cy/_client.pxi"
-include "cy/_request.pxi"
-include "cy/_async_route.pxi"
-include "cy/_server.pxi"
-include "cy/_download.pxi"
-include "cy/_url_request.pxi"
-include "cy/_async_client.pxi"
-include "cy/_misc.pxi"
+include "cy/declarations.pxi"
+include "cy/client.pxi"
+include "cy/request.pxi"
+include "cy/async_routes.pxi"
+include "cy/server.pxi"
+include "cy/transfer.pxi"
+include "cy/support.pxi"

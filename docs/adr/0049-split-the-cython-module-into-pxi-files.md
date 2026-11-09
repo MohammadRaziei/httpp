@@ -10,8 +10,8 @@ Finding anything meant scrolling one file.
 
 ## Decision
 
-The file keeps the cimports and the module docstring, then textually includes nine files from `cy/` in the original order: `_externs`, `_client`, `_request`, `_async_route`, `_server`,
-`_download`, `_url_request`, `_async_client`, `_misc`. Cython's `include` is a textual paste, so the generated module is the same one: still one extension, no import cost, no change of
+The file keeps the cimports and the module docstring, then textually includes seven files from `cy/` in the original order: `declarations`, `client`, `request`, `async_routes`, `server`,
+`transfer`, `support`. Cython's `include` is a textual paste, so the generated module is the same one: still one extension, no import cost, no change of
 public names, and the order of definitions is exactly as before (declarations first, which later code relies on). The split is only a move of line ranges at top-level boundaries.
 The public-header test (ADR-0017 rule 2) now scans the `.pxi` files too.
 

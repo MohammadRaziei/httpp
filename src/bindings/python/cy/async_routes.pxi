@@ -1,4 +1,4 @@
-# async route completion, WebSocket connection, loop lanes and the inbox. Included by httpp_cy.pyx (textual include: order matters, see the list there).
+# async route completion, WebSocket connection, loop lanes and the inbox. Included by httpp_cy.pyx (a textual include: the order of the includes matters).
 
 cdef class _Done:
     """One-shot handle for an async route: calling it sends the response and

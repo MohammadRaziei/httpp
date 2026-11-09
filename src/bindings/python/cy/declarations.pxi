@@ -1,4 +1,4 @@
-# C++ declarations for the client, server, download, URL and progress classes. Included by httpp_cy.pyx (textual include: order matters, see the list there).
+# C++ declarations (cdef extern) for the client, server, download, URL and progress classes. Included by httpp_cy.pyx (a textual include: the order of the includes matters).
 
 cdef extern from "httpp/client.hpp" namespace "httpp":
     cdef cppclass response:
