@@ -9,6 +9,7 @@ such changes are listed under **Changed**).
 
 ### Changed
 
+- **Logging no longer uses the vendored AixLog** (ADR-0050): the library logs through a small internal module ported from libstb (Python-shaped loggers, handlers and formatter, no dependency, no patch). `set_log_level`, `set_log_file`, `set_log_callback` are unchanged in C++ and Python; the default line is now `time [LEVEL] httpp (function): message`.
 - The Cython module `httpp_cy.pyx` is split into `cy/*.pxi` files (textual includes, still one module and one extension; ADR-0049). No behaviour change.
 
 ### Added

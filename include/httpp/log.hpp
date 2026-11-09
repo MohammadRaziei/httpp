@@ -1,7 +1,7 @@
 #pragma once
 
-// Logging for the library itself (not for your application). Built on AixLog, which stays
-// private to the library: it does not touch std::clog or your own logging setup.
+// Logging for the library itself (not for your application). It uses a private logger of its own
+// (ADR-0050): it does not touch std::clog or your own logging setup.
 //
 // By default warnings and errors go to stderr. Quiet it with set_log_level(log_level::off), or send
 // the lines to your own logger with set_log_callback().

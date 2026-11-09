@@ -584,7 +584,7 @@ Issues and pull requests are welcome.
 
 ## Logging
 
-The library logs through AixLog, privately (it never touches `std::clog` or your own logging). By default
+The library logs through a private logger of its own (it never touches `std::clog` or your own logging). By default
 warnings and errors go to stderr, e.g. a handler that throws with no exception handler installed.
 
 ```cpp

@@ -1,4 +1,4 @@
-// Library logging (httpp/log.hpp, built on AixLog): levels, callback, file output, no clog hijack.
+// Library logging (httpp/log.hpp, built on the internal logging module): levels, callback, file output, no clog hijack.
 #include "utest/utest.h"
 #include "httpp/log.hpp"
 #include "local_server.hpp"

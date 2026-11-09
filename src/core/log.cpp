@@ -1,58 +1,58 @@
 #include "internal/log.hpp"
 
-#include "aixlog.hpp" // vendored AixLog v1.5.0: only this file sees it
+#include "internal/logging.hpp" // the internal logging module (ADR-0050); applications only see httpp/log.hpp
 
 #include <atomic>
-#include <chrono>
-#include <iostream>
-#include <memory>
 #include <mutex>
+#include <utility>
 
 namespace httpp {
 namespace {
 
-AixLog::Severity to_aix(log_level l) {
+logging::level to_level(log_level l) {
     switch (l) {
-        case log_level::trace: return AixLog::Severity::trace;
-        case log_level::debug: return AixLog::Severity::debug;
-        case log_level::info: return AixLog::Severity::info;
-        case log_level::warning: return AixLog::Severity::warning;
-        case log_level::error: return AixLog::Severity::error;
+        case log_level::trace: return logging::level::trace;
+        case log_level::debug: return logging::level::debug;
+        case log_level::info: return logging::level::info;
+        case log_level::warning: return logging::level::warning;
+        case log_level::error: return logging::level::error;
         case log_level::off: break;
     }
-    return AixLog::Severity::fatal;
+    return logging::level::critical;
 }
 
-log_level from_aix(AixLog::Severity s) {
-    switch (s) {
-        case AixLog::Severity::trace: return log_level::trace;
-        case AixLog::Severity::debug: return log_level::debug;
-        case AixLog::Severity::info:
-        case AixLog::Severity::notice: return log_level::info;
-        case AixLog::Severity::warning: return log_level::warning;
-        default: return log_level::error;
-    }
+log_level from_level(logging::level l) {
+    if (int(l) <= int(logging::level::trace)) return log_level::trace;
+    if (int(l) <= int(logging::level::debug)) return log_level::debug;
+    if (int(l) <= int(logging::level::info)) return log_level::info;
+    if (int(l) <= int(logging::level::warning)) return log_level::warning;
+    return log_level::error;
 }
+
+constexpr const char* k_pattern = "%(asctime)s [%(levelname)s] %(name)s (%(funcName)s): %(message)s";
 
 struct state {
-    std::mutex mu;                                 // one log line at a time, and no logging while sinks are swapped
+    std::mutex mu;                                 // swapping the output, so a line never meets a half-changed setup
     std::atomic<int> level{static_cast<int>(log_level::warning)};
-    std::unique_ptr<std::ostream> out;             // writes into AixLog's streambuf
-    bool ready = false;
+    logging::logger* lg;
 
-    // Vendored AixLog is patched not to redirect std::clog (see third_party/README.md), so we talk to
-    // its streambuf through a private ostream and the process-wide clog is never touched.
-    void ensure_ready() {
-        if (ready) return;
-        out = std::make_unique<std::ostream>(&AixLog::Log::instance());
-        AixLog::Log::init({std::make_shared<AixLog::SinkCerr>(AixLog::Filter(AixLog::Severity::trace))});
-        ready = true;
+    state() : lg(&logging::get_logger("httpp")) {
+        lg->set_level(logging::level::trace);      // the filtering is done by `level` above (one atomic load, no message built)
+        lg->set_propagate(false);                  // the application's own logging setup is never touched
+        use_stderr();
     }
+    template <class H>
+    void use(H h) {
+        h.set_formatter(logging::formatter(k_pattern));
+        lg->clear_handlers();
+        lg->add_handler(std::move(h));
+    }
+    void use_stderr() { use(logging::stream_handler(stderr)); }
 };
 
 state& st() {
-    static state s; // never destroyed before the last log call from a late thread: leaked on purpose
-    return s;
+    static state* s = new state; // leaked on purpose: a late thread may still log while the process exits
+    return *s;
 }
 
 } // namespace
@@ -62,30 +62,28 @@ void set_log_level(log_level level) { st().level = static_cast<int>(level); }
 bool set_log_file(const std::string& path) {
     auto& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
-    s.ensure_ready();
     if (path.empty()) {
-        AixLog::Log::init({std::make_shared<AixLog::SinkCerr>(AixLog::Filter(AixLog::Severity::trace))});
+        s.use_stderr();
         return true;
     }
-    auto sink = std::make_shared<AixLog::SinkFile>(AixLog::Filter(AixLog::Severity::trace), path);
-    if (!std::ifstream(path)) return false; // SinkFile opens in its constructor; check that it worked
-    AixLog::Log::init({sink});
+    try {
+        s.use(logging::file_handler(path, false)); // truncates; throws when the file cannot be opened
+    } catch (const std::exception&) {
+        return false; // the previous output is kept
+    }
     return true;
 }
 
 void set_log_callback(log_callback fn) {
     auto& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
-    s.ensure_ready();
     if (!fn) {
-        AixLog::Log::init({std::make_shared<AixLog::SinkCerr>(AixLog::Filter(AixLog::Severity::trace))});
+        s.use_stderr();
         return;
     }
-    AixLog::Log::init({std::make_shared<AixLog::SinkCallback>(
-        AixLog::Filter(AixLog::Severity::trace),
-        [fn = std::move(fn)](const AixLog::Metadata& m, const std::string& message) {
-            fn(from_aix(m.severity), m.function ? m.function.name : std::string(), message);
-        })});
+    s.use(logging::callback_handler([fn = std::move(fn)](const logging::record& r) {
+        fn(from_level(r.levelno), std::string(r.where), std::string(r.message));
+    }));
 }
 
 namespace detail {
@@ -96,11 +94,7 @@ bool log_enabled(log_level level) {
 
 void log_write(log_level level, const char* where, const std::string& message) {
     if (!log_enabled(level)) return;
-    auto& s = st();
-    std::lock_guard<std::mutex> lk(s.mu);
-    s.ensure_ready();
-    *s.out << to_aix(level) << AixLog::Tag("httpp") << AixLog::Timestamp(std::chrono::system_clock::now())
-           << AixLog::Function(where, "", 0) << message << std::endl;
+    st().lg->log_from(to_level(level), where, message);
 }
 
 } // namespace detail

@@ -51,7 +51,6 @@ The main goal: **remove the layer boundaries**, not optimize them.
 | **Asio** (standalone) | event loop and async I/O for server and client | Boost Software License | submodule |
 | **mbedTLS** | TLS for the **client** (the server has no TLS yet 🎯) | Apache-2.0 (dual-licensed with GPL-2.0+) | submodule |
 | **liburlparser** | URLs | n/a | submodule |
-| **AixLog** | internal logging | MIT | vendored (one marked patch) |
 | **cpp-httplib** v0.54.1 | **only** the sync client, `curl.cpp`, `download.cpp`. The server does **not** run on it | MIT | vendored, untouched; to be retired |
 | libsharedmemory | **candidate** for shared state | MIT | ❌ not chosen or vendored yet (risk 2) |
 

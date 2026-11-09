@@ -174,7 +174,6 @@ target_include_directories(httpp_core
 target_include_directories(httpp_core PRIVATE ${HTTPP_GENERATED_DIR})
 target_include_directories(httpp_core SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/cpp-httplib
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/aixlog
     ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party
 )
 

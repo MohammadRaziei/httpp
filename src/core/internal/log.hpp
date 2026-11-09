@@ -1,7 +1,7 @@
 #pragma once
 
-// Internal. Library logging without pulling AixLog's global macros (LOG, TAG, ERROR, DEBUG ...)
-// into every file: only src/core/log.cpp includes AixLog.
+// Internal. The macro used inside the library to log; src/core/log.cpp turns it into a record of the
+// internal logging module (internal/logging.hpp, ADR-0050).
 //
 //   HTTPP_LOG(warning) << "handler threw: " << what;
 //
