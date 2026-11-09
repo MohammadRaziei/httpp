@@ -7,6 +7,10 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Changed
+
+- The Cython module `httpp_cy.pyx` is split into `cy/*.pxi` files (textual includes, still one module and one extension; ADR-0049). No behaviour change.
+
 ### Added
 
 - **WebSocket routes on routers and `Depends` on WebSocket routes** (ADR-0048): `router::route_ws` and `@router.websocket(...)` join prefixes like HTTP routes; a Python WebSocket handler may use `Depends` (sync, async, `yield` cleanup, sub-dependencies). A failing dependency refuses the upgrade (`HTTPException` status, or 422); a dependency may take `websocket`.

@@ -54,6 +54,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0046](0046-testclient-websocket-and-files.md) | `TestClient.websocket_connect` and multipart `files=` | accepted |
 | [0047](0047-one-mime-table-and-exchange-leak.md) | One MIME table for the C++ and Python servers, and the exchange leak of `async_http` | accepted |
 | [0048](0048-websocket-on-routers-and-dependencies.md) | WebSocket routes on routers, and dependencies on WebSocket routes | accepted |
+| [0049](0049-split-the-cython-module-into-pxi-files.md) | Split the Cython module into `.pxi` files | accepted |
 
 ## Not decided yet
 

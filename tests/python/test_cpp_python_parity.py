@@ -204,7 +204,7 @@ def test_the_binding_includes_only_public_headers():
     public = {f"httpp/{p.name}" for p in INCLUDE.iterdir()}
     src = INCLUDE.parents[1] / "src" / "bindings" / "python"
     seen = 0
-    for pyx in src.glob("*.pyx"):
+    for pyx in [*src.glob("*.pyx"), *src.glob("cy/*.pxi")]:
         text = pyx.read_text(encoding="utf-8")
         for target in re.findall(r'(?:#include|cdef extern from)\s+"([^"]+)"', text):
             seen += 1
