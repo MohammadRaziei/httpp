@@ -37,7 +37,7 @@ path does not need); copying httplib's client code (it is the blocking design we
 
 - Downloads and `curl.cpp` still use cpp-httplib (steps 2 and 3). `httplib_common.hpp` and the macOS Keychain link flags stay until then.
 - One place for redirect, TLS, proxy and auth bugs; no thread is blocked inside a socket call.
-- Not verified: Windows, macOS, Python 3.14t, the Python test suite (Cython was not available where this step was made), a comparison against live public sites.
+- Verified on Linux, Python 3.13: C++ 465/465; the wheel builds and the Python suite passes (850 passed, 1 skipped: the free-threaded test). Not verified: Windows, macOS, Python 3.14t, a comparison against live public sites.
 
 ## Related
 
