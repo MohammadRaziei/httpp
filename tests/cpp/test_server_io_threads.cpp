@@ -5,6 +5,8 @@
 #include "httpp/server.hpp"
 #include "local_server.hpp"
 
+#include <asio.hpp>
+
 #include <atomic>
 #include <chrono>
 #include <mutex>
@@ -71,10 +73,27 @@ UTEST(httpp_server_io_threads, connections_spread_over_the_io_threads_and_each_s
     std::vector<std::thread> users;
     for (int i = 0; i < 40; ++i) {
         users.emplace_back([&] {
-            httpp::client c(srv.url());
+            // One real connection per user (httpp::client pools connections across sessions, so it cannot
+            // pin one): five keep-alive requests on it must all be answered by the same I/O thread.
+            asio::io_context io;
+            asio::ip::tcp::socket sock(io);
+            sock.connect(asio::ip::tcp::endpoint(asio::ip::make_address("127.0.0.1"), static_cast<unsigned short>(srv.port)));
+            asio::streambuf buf;
             std::string first;
-            for (int k = 0; k < 5; ++k) { // keep-alive: the same connection every time
-                const std::string id = c.get("/who").body;
+            for (int k = 0; k < 5; ++k) {
+                asio::write(sock, asio::buffer(std::string("GET /who HTTP/1.1\r\nHost: x\r\n\r\n")));
+                asio::read_until(sock, buf, "\r\n\r\n");
+                std::istream in(&buf);
+                std::string line, head;
+                std::size_t length = 0;
+                while (std::getline(in, line) && line != "\r") {
+                    std::string low;
+                    for (char ch : line) low += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                    if (low.rfind("content-length:", 0) == 0) length = static_cast<std::size_t>(std::stoul(low.substr(15)));
+                }
+                if (buf.size() < length) asio::read(sock, buf, asio::transfer_exactly(length - buf.size()));
+                std::string id(length, '\0');
+                in.read(&id[0], static_cast<std::streamsize>(length));
                 if (k == 0) first = id;
                 else if (id != first) ++same_connection_moved;
                 std::lock_guard<std::mutex> lock(mu);

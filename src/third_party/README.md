@@ -13,8 +13,8 @@ steps; the files were also compared byte for byte with the upstream tag. It is b
 
 ## cpp-httplib
 
-`cpp-httplib/httplib.h` is the **unmodified** upstream file, version 0.54.1, MIT. Only the synchronous
-client (`src/core/client.cpp`) uses it; the server and the async client do not. To restore or bump it:
+`cpp-httplib/httplib.h` is the **unmodified** upstream file, version 0.54.1, MIT. Only `download.cpp` and `curl.cpp`
+use it; the server, the async client and the blocking client (ADR-0051) do not. To restore or bump it:
 
 ```sh
 wget -O src/third_party/cpp-httplib/httplib.h \

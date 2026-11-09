@@ -17,7 +17,7 @@ A parser, an event loop and TLS must be chosen, with no system dependencies and 
 | TLS (client) | Mbed TLS | git submodule |
 | URL | liburlparser | git submodule |
 | Internal logging | AixLog v1.5.0 | one file, one marked patch |
-| **Sync** client, `curl.cpp`, `download.cpp` | cpp-httplib v0.54.1 | `httplib.h` **untouched** |
+| **Sync** client (moved to our engine by ADR-0051), `curl.cpp`, `download.cpp` | cpp-httplib v0.54.1 | `httplib.h` **untouched** |
 
 The async server and client are not built on cpp-httplib. cpp-httplib is meant to be retired once the sync client is ours too.
 The only AixLog patch makes sure it does not swap `std::clog` for the whole process (a library must not do that).

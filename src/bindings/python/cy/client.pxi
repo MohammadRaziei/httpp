@@ -193,8 +193,8 @@ cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, cbool f
 
 cdef class Client:
     """A small HTTP client session. It keeps its connection alive between calls, so repeated requests
-    to one server skip the TCP/TLS handshake. Calls on one Client take turns (it may be shared
-    between threads); use several, or AsyncClient, to run requests in parallel.
+    to one server skip the TCP/TLS handshake. A Client may be shared between threads and its
+    calls run side by side; AsyncClient runs many requests without a thread each.
 
         c = Client("http://localhost:8000/api", headers={"X-Token": "abc"}, timeout=10)
         c.get("/items", params={"page": 2}).json()

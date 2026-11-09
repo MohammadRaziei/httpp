@@ -11,6 +11,8 @@
 
 - [x] Own async server engine (Asio + llhttp): keep-alive, pipelining, chunked, limits (413/414/431); connections balanced over I/O threads ([ADR-0034](docs/adr/0034-balanced-connections-between-io-threads.md))
 - [x] Server on top of it: router, static files with HEAD/Range, hooks, `route_async` with a 504 backstop, `route_io`/`route_shared`
+- [x] Retire cpp-httplib, step 1: blocking client on the async engine and the shared policy layer (ADR-0051)
+- [ ] Retire cpp-httplib, step 2: downloads on a streaming body sink; step 3: delete the vendored copy (plan in HANDOFF.md)
 - [x] Async client engine (TLS with mbedTLS, keep-alive pool, proxy, redirects, cookies/auth); sync client and downloads on cpp-httplib
 - [x] FastAPI-like layer: `Query/Path/Header/Cookie/Body/Depends`, forms and uploads, OpenAPI 3.1 + compiled-in Swagger UI, response classes, `HTTPException`, `BackgroundTasks`, `APIRouter`, startup/shutdown hooks ([ADR-0007](docs/adr/0007-openapi-from-one-plan.md), [0008](docs/adr/0008-swagger-ui-compiled-in.md), [0020](docs/adr/0020-httpexception-and-response-classes.md))
 - [x] Own Pydantic-v2-shaped models with Cython validators ([ADR-0006](docs/adr/0006-own-model-layer.md))

@@ -108,23 +108,22 @@ struct response {
     }
 };
 
-// Public API exposes no third-party types (no httplib.h here at all).
-// The real implementation (backed by vendored cpp-httplib + mbedtls for
-// HTTPS) lives in src/core/client.cpp and is hidden behind this pointer, so
-// neither httplib.h nor mbedtls ever leak into consumers of this header.
+// Public API exposes no third-party types. The implementation (src/core/client.cpp) is hidden
+// behind a pointer and runs every call on the library's non-blocking network engine.
 //
-// A `client` is a session: it keeps its connection alive between calls, so repeated requests to
-// one server skip the TCP/TLS handshake. Calls on one client are serialized (it is safe to share
-// between threads, but they take turns); use several clients, or async_client, for parallelism.
+// A `client` is a session: it keeps its connection alive between calls (pooled in the engine), so
+// repeated requests to one server skip the TCP/TLS handshake. It is safe to share between threads and
+// calls run side by side; each call uses the settings in force when it started. A blocking call
+// waits for the answer, so it must not be made from an async callback (the network thread): that
+// returns error_kind::other at once instead of hanging.
 // Network failures never throw: they come back as a response with status 0 and error set. (A malformed
 // base URL passed to a constructor is a programming error and throws std::invalid_argument.)
 class client {
 public:
     using headers_t = std::vector<std::pair<std::string, std::string>>;
 
-    // use_ssl selects httplib's SSLClient (mbedtls-backed) vs. its plain
-    // Client internally; both http:// and https:// URLs work through
-    // fetch()/client::request without the caller ever thinking about this.
+    // use_ssl selects https (mbedtls-backed) or plain http; fetch()/client::request take either
+    // kind of URL without the caller ever thinking about this.
     explicit HTTPP_API client(const std::string& host, int port, bool use_ssl = false);
     // "http://host[:port][/base/path]" or "https://...". A base path is prepended to every
     // request path. Throws std::invalid_argument if the URL is not a usable http(s) URL.
@@ -246,7 +245,6 @@ public:
 
     private:
         struct impl;
-        static response run_impl(const impl& r);
         std::unique_ptr<impl> impl_;
     };
 

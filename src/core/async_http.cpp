@@ -658,6 +658,8 @@ void async_http::submit(async_job job, done_fn done) {
     });
 }
 
+bool async_http::on_loop_thread() const { return std::this_thread::get_id() == impl_->thread.get_id(); }
+
 async_http& shared_async_http() {
     static async_http* instance = new async_http; // see the header: leaked on purpose
     return *instance;

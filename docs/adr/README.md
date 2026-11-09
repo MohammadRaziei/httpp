@@ -56,6 +56,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0048](0048-websocket-on-routers-and-dependencies.md) | WebSocket routes on routers, and dependencies on WebSocket routes | accepted |
 | [0049](0049-split-the-cython-module-into-pxi-files.md) | Split the Cython module into `.pxi` files | accepted |
 | [0050](0050-own-logging-module-replaces-aixlog.md) | An internal logging module (ported from libstb) replaces AixLog | accepted |
+| [0051](0051-sync-client-on-the-async-engine.md) | The blocking client runs on the async engine and one shared policy layer | accepted |
 
 ## Not decided yet
 

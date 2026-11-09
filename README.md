@@ -575,8 +575,8 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
   on those platforms is the real check.
 - There is no ASGI or WSGI interface (see above), so ASGI/WSGI applications such as FastAPI or Flask
   cannot be mounted on it yet.
-- `cpp-httplib` (unmodified) now serves only the synchronous client; the server and the async engine are
-  our own (Asio + llhttp). It is planned to retire it once the synchronous client is ours too.
+- `cpp-httplib` (unmodified) now serves only downloads and the `curl` helper; the server and the async engine are
+  our own (Asio + llhttp). It is planned to retire it once downloads move to our engine too.
 - The libcurl compatibility layer covers a subset of `curl_easy_*`.
 - `--workers` is Linux only.
 

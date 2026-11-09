@@ -9,6 +9,7 @@ such changes are listed under **Changed**).
 
 ### Changed
 
+- **The blocking client runs on the async engine** (ADR-0051): `client`, `client::request::run` and `client::fetch` share one policy layer with `async_client` (redirects, auth, cookies, proxy, TLS). A `client` can now be shared between threads without taking turns, connections are pooled across clients, a blocking call from an async callback returns an error instead of deadlocking, and `async_client::set_header` replaces a same-name default. cpp-httplib now serves only downloads and the `curl` helper.
 - **Logging no longer uses the vendored AixLog** (ADR-0050): the library logs through a small internal module ported from libstb (Python-shaped loggers, handlers and formatter, no dependency, no patch). `set_log_level`, `set_log_file`, `set_log_callback` are unchanged in C++ and Python; the default line is now `time [LEVEL] httpp (function): message`.
 - The Cython module `httpp_cy.pyx` is split into `cy/*.pxi` files (textual includes, still one module and one extension; ADR-0049). No behaviour change.
 

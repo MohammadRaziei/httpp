@@ -51,7 +51,7 @@ The main goal: **remove the layer boundaries**, not optimize them.
 | **Asio** (standalone) | event loop and async I/O for server and client | Boost Software License | submodule |
 | **mbedTLS** | TLS for the **client** (the server has no TLS yet 🎯) | Apache-2.0 (dual-licensed with GPL-2.0+) | submodule |
 | **liburlparser** | URLs | n/a | submodule |
-| **cpp-httplib** v0.54.1 | **only** the sync client, `curl.cpp`, `download.cpp`. The server does **not** run on it | MIT | vendored, untouched; to be retired |
+| **cpp-httplib** v0.54.1 | **only** `curl.cpp` and `download.cpp` (the blocking client moved to our engine, ADR-0051) | MIT | vendored, untouched; to be retired |
 | libsharedmemory | **candidate** for shared state | MIT | ❌ not chosen or vendored yet (risk 2) |
 
 > The parser is the same one: `httptools` (which sits under uvicorn) is also built on llhttp. So the speed difference does not come from the parser.
@@ -72,7 +72,8 @@ graph TB
         SRV["server.cpp<br/>router, hooks, static files, worker pool"]
         ENG["async_server.cpp<br/>Asio + llhttp, keep-alive, pipelining"]
         ACLI["async_http.cpp<br/>async client: pool, proxy, TLS (mbedTLS)"]
-        SCLI["client.cpp / download.cpp / curl.cpp<br/>sync client on cpp-httplib"]
+        SCLI["client.cpp + http_exchange.cpp<br/>sync and async client policy, one engine"]
+        DLD["download.cpp / curl.cpp<br/>still on cpp-httplib"]
         SHM["🎯 shared state"]
     end
 
@@ -84,6 +85,7 @@ graph TB
     BIND --> SRV
     BIND --> ACLI
     BIND --> SCLI
+    BIND --> DLD
     SRV --> ENG
     ENG --> SOCK
     ACLI --> SOCK
