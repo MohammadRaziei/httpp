@@ -172,7 +172,7 @@ protected:
     void do_flush() override;
 
 private:
-    std::ofstream out_;
+    std::fstream out_; // opened with path::open
 };
 
 // Calls a function with each record (not formatted; format it with a formatter if you want a line). This

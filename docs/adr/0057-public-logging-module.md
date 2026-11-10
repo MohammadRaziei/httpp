@@ -12,7 +12,7 @@ ADR-0050 ported libstb's logging module as an internal header, on three grounds:
 
 - `src/core/internal/logging.hpp` moved to the installed header `include/httpp/logging.hpp`. Exported: `level_name`, `level_from_string`, `formatter`, `handler` (derivable: your own class overrides `emit()`), `null_handler`, `stream_handler`, `file_handler`, `callback_handler`, `logger`, `get_logger`, `basic_config`; `sformat` and friends are inline.
 - The classes are marked `HTTPP_API` as a whole, not member by member (the convention of `export.hpp` for everything else): a class that callers derive from needs its vtable and type information exported, or the link fails on Linux. The header silences MSVC's C4251 for them (the private pimpl members are never touched by a caller).
-- `file_handler` takes an `httpp::path` (ADR-0055), so a `std::string` still works.
+- `file_handler` takes an `httpp::path` (ADR-0055), so a `std::string` still works, and opens its stream with `path::open`. No pimpl for the handlers: they hold their `std::fstream` / `std::function` directly, like the rest of the public API holds `std::string`s.
 - The logger httpp itself logs to stays the non-propagating "httpp" logger, driven by `set_log_level`, `set_log_file`, `set_log_system` and `set_log_callback`: a program can add handlers to it, `get_logger("httpp").add_handler(...)`, like to any other.
 - The operating system handlers of ADR-0056 stay internal (reached through `set_log_system`); making them public is a one-line move when someone asks.
 - Python: no binding. Python's own `logging` is the module this one imitates, so the parity test maps `logging.hpp` to `None`. The "httpp" logger is already bridged into `logging.getLogger("httpp")` (`httpp/_log.py`). This is a deliberate exception to the dual-API rule, not a gap.
@@ -21,7 +21,7 @@ ADR-0050 ported libstb's logging module as an internal header, on three grounds:
 
 - The module is now API: changing `handler`, `logger` or the record layout changes the ABI.
 - The test program no longer compiles `logging.cpp` itself; it uses the exported one, which exercises the export on every platform CI has.
-- On Windows the export of the whole classes (std members in `file_handler`) was not compiled by anyone yet.
+- On Windows the export of the whole classes was not compiled by anyone yet.
 
 ## Related
 

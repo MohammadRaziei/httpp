@@ -331,7 +331,7 @@ void stream_handler::do_flush() {
 }
 
 file_handler::file_handler(const httpp::path& file, bool append)
-    : out_(file.native(), append ? (std::ios::out | std::ios::app) : (std::ios::out | std::ios::trunc)) {
+    : out_(file.open(append ? (std::ios::out | std::ios::app) : (std::ios::out | std::ios::trunc))) {
     if (!out_) throw std::runtime_error("cannot open the log file " + file.str());
 }
 
