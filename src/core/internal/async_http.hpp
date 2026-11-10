@@ -9,7 +9,7 @@
 // Redirects, auth and cookies are NOT here: they are policy for the layer above (client.cpp), which
 // builds one async_job per hop.
 //
-// Like async_server.hpp this header includes neither Asio nor cpp-httplib.
+// Like async_server.hpp this header includes neither Asio nor mbedtls.
 
 #include "httpp/client.hpp"
 
@@ -21,6 +21,23 @@
 #include <vector>
 
 namespace httpp::detail {
+
+// Receives a response body as it arrives, instead of it being collected in response::body (downloads).
+// Both callbacks run on the engine's loop thread, so they may do short blocking work (a file write) but
+// belong on an engine of their own (see download_async_http()), not on the one API calls share.
+struct body_sink {
+    enum class verdict {
+        stream, // deliver the body to on_data
+        skip,   // read the body and throw it away; the response still comes back (a redirect, an error status)
+        abort,  // stop now (error_kind::canceled)
+    };
+    // The head of the final response (1xx are skipped): status and headers, body empty. Called once, before
+    // any on_data.
+    std::function<verdict(const response& head)> on_head;
+    // A chunk of the body exactly as the server sent it (not gzip/deflate decoded). False stops the exchange
+    // with error_kind::canceled. The next chunk is read only after this returns: that is the back-pressure.
+    std::function<bool(const char* data, std::size_t size)> on_data;
+};
 
 struct async_job {
     std::string host;
@@ -42,6 +59,8 @@ struct async_job {
     std::string proxy_host;
     int proxy_port = 0;
     std::string proxy_authorization;    // value for Proxy-Authorization (e.g. "Basic ..."), or empty
+    // Stream the body to this sink; response::body stays empty and max_response_size does not apply.
+    std::shared_ptr<body_sink> sink;
 };
 
 class async_http {
@@ -71,5 +90,9 @@ private:
 // destroyed: joining the loop thread during static destruction (or while an embedding interpreter is
 // shutting down) is a classic way to hang at exit. The OS reclaims it with the process.
 async_http& shared_async_http();
+
+// A second engine, for transfers that stream to a sink (downloads): a slow disk then stalls other downloads
+// only, never the short API calls on shared_async_http().
+async_http& download_async_http();
 
 } // namespace httpp::detail

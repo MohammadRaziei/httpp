@@ -26,12 +26,11 @@ option(HTTPP_BUILD_PYTHON "Build Python bindings" ${PROJECT_IS_TOP_LEVEL})
 set(HTTPP_SOURCE_DIR ${PROJECT_SOURCE_DIR})
 
 # --- httpp C++ core ---
-# httplib.h is vendored at src/third_party/cpp-httplib (a real committed
-# file, no system package). mbedtls is a git submodule at
-# src/third_party/mbedtls (also built from source, no system package).
-# Both are included only from src/core/*.cpp, never from a public
-# include/httpp/*.hpp header, and are compiled with hidden visibility so
-# they never leak into the httpp .so/.a's public symbols.
+# mbedtls is a git submodule at src/third_party/mbedtls (built from
+# source, no system package). It is included only from src/core/*.cpp,
+# never from a public include/httpp/*.hpp header, and is compiled with
+# hidden visibility so it never leaks into the httpp .so/.a's public
+# symbols.
 file(GLOB HTTPP_CORE_SOURCES ${PROJECT_SOURCE_DIR}/src/core/*.cpp)
 
 # Swagger UI (vendored in src/third_party/swagger-ui) is compiled into the library: at CONFIGURE time its three
@@ -61,7 +60,7 @@ embed_files(
 
 # liburlparser (git submodule, built from source - no system package) does
 # the real URL parsing (scheme/host/port/path, IPv4/IPv6, PSL-aware). It is
-# linked PRIVATE into httpp_core, same as cpp-httplib: consumers of
+# linked PRIVATE into httpp_core, same as mbedtls: consumers of
 # <httpp/url.hpp> see only httpp::url, never urlparser::url directly.
 set(BUILD_PYTHON OFF CACHE BOOL "" FORCE)
 # Needed so liburlparser's static lib can be linked into httpp's shared
@@ -69,7 +68,7 @@ set(BUILD_PYTHON OFF CACHE BOOL "" FORCE)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/third_party/liburlparser)
 
-# mbedtls (TLS support for HTTPS, via cpp-httplib's CPPHTTPLIB_MBEDTLS_SUPPORT).
+# mbedtls (TLS support for HTTPS: src/core/tls_session.cpp).
 set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
 set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
@@ -166,14 +165,12 @@ target_include_directories(httpp_core
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:httpp/sdk/include>
 )
-# SYSTEM: these are vendored/third-party headers we don't control (cpp-httplib,
-# indicators, etc.). Marking them SYSTEM tells the compiler their own internal
+# SYSTEM: these are vendored/third-party headers we don't control (indicators, etc.). Marking them SYSTEM tells the compiler their own internal
 # warnings (e.g. indicators.hpp's narrowing-conversion C4244/C4267 on MSVC)
 # aren't ours to fix and shouldn't surface under our own -Wall/-Wextra/-W4
 # below - without patching vendored code to silence its own warnings.
 target_include_directories(httpp_core PRIVATE ${HTTPP_GENERATED_DIR})
 target_include_directories(httpp_core SYSTEM PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/cpp-httplib
     ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party
 )
 
@@ -181,16 +178,14 @@ find_package(Threads REQUIRED)
 target_link_libraries(httpp_core PUBLIC Threads::Threads)
 target_link_libraries(httpp_core PRIVATE url::base httpp_llhttp)
 
-# HTTPS support: mbedtls is linked PRIVATE and CPPHTTPLIB_MBEDTLS_SUPPORT is
-# only ever defined in src/core/internal/httplib_common.hpp (never in a
-# public header), so consumers of httpp never need mbedtls on their own
-# include/link path - see that file for the shared httplib.h include.
+# HTTPS support: mbedtls is linked PRIVATE and only src/core/tls_session.cpp
+# includes its headers, so consumers of httpp never need mbedtls on their own
+# include/link path.
 target_link_libraries(httpp_core PRIVATE mbedtls mbedx509)
-target_compile_definitions(httpp_core PRIVATE CPPHTTPLIB_MBEDTLS_SUPPORT)
 # Asio (standalone, header-only, vendored) runs the async engines: the server's
 # connection loop and the non-blocking client (epoll on Linux, kqueue on macOS,
 # IOCP on Windows). It is only ever included from src/core/async_server.cpp and
-# src/core/async_http.cpp, never together with httplib.h.
+# src/core/async_http.cpp.
 # Where Asio comes from, in order:
 #   1. -DHTTPP_ASIO_INCLUDE_DIR=<directory containing asio.hpp>  (offline builds, packagers)
 #   2. src/third_party/asio, if it holds a copy: a git submodule (<dir>/asio/include)
@@ -235,8 +230,7 @@ if(MSVC)
     set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
 endif()
 
-# macOS: cpp-httplib (src/third_party/cpp-httplib/httplib.h) reads the
-# system trust store via the Keychain APIs (CPPHTTPLIB_USE_CERTS_FROM_MACOSX_KEYCHAIN),
+# macOS: src/core/tls_session.cpp reads the system trust store via the Keychain APIs,
 # which pulls in CoreFoundation/Security symbols (e.g. SecTrustSettingsCopyCertificates).
 # These aren't linked by default and must be added explicitly, or the final
 # link of libhttpp_core.dylib fails with "symbol(s) not found for architecture".
@@ -259,7 +253,8 @@ apply_optimization_flags(httpp_core)
 # because the macOS 10.13 target does not have it.
 option(HTTPP_BUILD_CLI "Build the httpp command line" ON)
 if(HTTPP_BUILD_CLI)
-    add_executable(httpp_cli ${PROJECT_SOURCE_DIR}/src/cli/httpp_cli.cpp)
+    # fs.cpp is compiled in here too: httpp_core hides its internals, and the CLI uses the same file system module (ADR-0054).
+    add_executable(httpp_cli ${PROJECT_SOURCE_DIR}/src/cli/httpp_cli.cpp ${PROJECT_SOURCE_DIR}/src/core/fs.cpp)
     set_target_properties(httpp_cli PROPERTIES
         OUTPUT_NAME httpp
         CXX_VISIBILITY_PRESET hidden
@@ -267,6 +262,7 @@ if(HTTPP_BUILD_CLI)
     )
     target_link_libraries(httpp_cli PRIVATE httpp_core)
     target_include_directories(httpp_cli SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/src/third_party/CLI11)
+    target_include_directories(httpp_cli PRIVATE ${PROJECT_SOURCE_DIR}/src/core)
     target_compile_definitions(httpp_cli PRIVATE CLI11_HAS_FILESYSTEM=0)
     if(WIN32)
         target_compile_definitions(httpp_cli PRIVATE _WIN32_WINNT=0x0A00 NOMINMAX WIN32_LEAN_AND_MEAN)

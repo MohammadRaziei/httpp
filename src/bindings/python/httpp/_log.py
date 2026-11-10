@@ -10,12 +10,14 @@ level that the logger merely inherits is noticed the next time a server starts. 
 `set_log_file(...)` replaces the bridge.
 """
 
+import atexit
 import logging
 import types
 
 from .httpp_cy import set_log_callback, set_log_level as _set_cpp_level
 
 LOGGER = logging.getLogger("httpp")
+_hooked = False
 
 _PY_LEVEL = {"trace": 5, "debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING, "error": logging.ERROR}
 _LIMITS = (("trace", 5), ("debug", logging.DEBUG), ("info", logging.INFO), ("warning", logging.WARNING),
@@ -50,6 +52,19 @@ def install():
         LOGGER.setLevel = types.MethodType(_set_level, LOGGER)
     set_log_callback(_emit)
     sync()
+    global _hooked
+    if not _hooked:
+        _hooked = True
+        atexit.register(_unhook)
+
+
+def _unhook():
+    """At interpreter exit: stop calling into Python, so a library thread that logs late cannot reach a dying
+    interpreter (the C++ log goes back to stderr)."""
+    try:
+        set_log_callback(None)
+    except Exception:
+        pass
 
 
 def set_log_level(level):

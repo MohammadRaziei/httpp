@@ -12,7 +12,7 @@
 // Everything after `py` is handed to `<python> -m httpp py` untouched, so the options of the Python commands are defined
 // in one place only (src/bindings/python/httpp/__main__.py).
 //
-// macOS 10.13 limits apply here too: POSIX calls instead of std::filesystem.
+// macOS 10.13 limits apply here too: no std::filesystem, the file system goes through httpp::fs (ADR-0054).
 
 #include "CLI11.hpp"
 
@@ -21,6 +21,7 @@
 #include "httpp/download.hpp"
 #include "httpp/file_browser.hpp"
 #include "httpp/server.hpp"
+#include "internal/fs.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -49,6 +50,8 @@
 
 namespace {
 
+namespace fs = httpp::fs;
+
 #define HTTPP_CLI_STR2(x) #x
 #define HTTPP_CLI_STR(x) HTTPP_CLI_STR2(x)
 const char* const k_version = HTTPP_CLI_STR(HTTPP_VERSION_MAJOR) "." HTTPP_CLI_STR(HTTPP_VERSION_MINOR) "." HTTPP_CLI_STR(HTTPP_VERSION_PATCH);
@@ -58,29 +61,12 @@ int fail(const std::string& message) {
     return 1;
 }
 
-bool is_directory(const std::string& path) {
-#ifdef _WIN32
-    struct _stat st;
-    return _stat(path.c_str(), &st) == 0 && (st.st_mode & _S_IFDIR) != 0;
-#else
-    struct stat st;
-    return ::stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
-#endif
-}
+bool is_directory(const std::string& path) { return fs::stat(path).type == fs::kind::directory; }
 
 // The absolute form of a directory that exists, for the "Browsing ..." line (the library resolves it again itself).
 std::string absolute_path(const std::string& path) {
-#ifdef _WIN32
-    char buf[MAX_PATH * 4];
-    DWORD n = GetFullPathNameA(path.c_str(), static_cast<DWORD>(sizeof buf), buf, nullptr);
-    return (n > 0 && n < sizeof buf) ? std::string(buf, n) : path;
-#else
-    char* p = ::realpath(path.c_str(), nullptr);
-    if (!p) return path;
-    std::string out(p);
-    std::free(p);
-    return out;
-#endif
+    const std::string real = fs::real(path);
+    return real.empty() ? path : real;
 }
 
 // --- serving until Ctrl+C or SIGTERM ---
@@ -194,7 +180,7 @@ int cmd_curl(const std::string& url, const std::string& method, const std::vecto
 
     httpp::response res = req.run();
     if (!output.empty()) {
-        std::ofstream out(output, std::ios::binary);
+        std::ofstream out(httpp::fs::native(output), std::ios::binary);
         if (!out) {
             std::cerr << "error: cannot write '" << output << "'" << std::endl;
             return 1;
@@ -235,14 +221,7 @@ std::string exe_dir(const char* argv0) {
     return slash == std::string::npos ? std::string() : path.substr(0, slash + 1);
 }
 
-bool is_executable_file(const std::string& path) {
-#ifdef _WIN32
-    return _access(path.c_str(), 0) == 0;
-#else
-    struct stat st;
-    return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode) && ::access(path.c_str(), X_OK) == 0;
-#endif
-}
+bool is_executable_file(const std::string& path) { return fs::is_executable(path); }
 
 #ifdef _WIN32
 // One argument in the form CommandLineToArgvW and the C runtime read back (the CRT does not quote for us).

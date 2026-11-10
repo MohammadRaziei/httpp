@@ -1,5 +1,7 @@
 #include "internal/logging.hpp"
 
+#include "internal/fs.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -328,9 +330,9 @@ void stream_handler::do_flush() {
     if (file_) std::fflush(file_);
 }
 
-file_handler::file_handler(const std::filesystem::path& path, bool append)
-    : out_(path, append ? (std::ios::out | std::ios::app) : (std::ios::out | std::ios::trunc)) {
-    if (!out_) throw std::runtime_error("cannot open the log file " + path.u8string());
+file_handler::file_handler(const std::string& path, bool append)
+    : out_(fs::native(path), append ? (std::ios::out | std::ios::app) : (std::ios::out | std::ios::trunc)) {
+    if (!out_) throw std::runtime_error("cannot open the log file " + path);
 }
 
 void file_handler::emit(const record& r) {

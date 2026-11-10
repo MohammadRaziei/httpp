@@ -2,7 +2,7 @@
 
 // Internal, NOT installed. TLS client and server over mbedtls for the async engine, with no socket inside:
 // the caller moves ciphertext in (feed) and out (take_output), so it works with any I/O loop
-// (here Asio). Includes neither Asio, cpp-httplib nor mbedtls headers.
+// (here Asio). Includes neither Asio nor mbedtls headers.
 
 #include <cstddef>
 #include <memory>

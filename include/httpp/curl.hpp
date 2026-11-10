@@ -11,9 +11,8 @@ namespace httpp::curl {
 // A small, curl-flavored fluent request builder - the common cases only
 // (-X method, -H headers, -d data), NOT a libcurl API/ABI compatible shim
 // (that's a much bigger, different project; see httpp::client for the
-// plain request API this is built on). Backed by the same vendored
-// cpp-httplib as the rest of httpp, hidden behind this pointer (see
-// src/core/curl.cpp) and never exposed in this public header.
+// plain request API this is built on). A thin face on client::request
+// (see src/core/curl.cpp).
 class request {
 public:
     explicit HTTPP_API request(std::string url);

@@ -1,6 +1,7 @@
 #include "httpp/file_browser.hpp"
 
 #include "httpp_file_browser_data.hpp" // generated at configure time, see CMakeLists.txt
+#include "internal/fs.hpp"
 #include "internal/inflate.hpp"
 
 #include <algorithm>
@@ -12,14 +13,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#ifdef _WIN32
-#include <filesystem>
-#else
-#include <dirent.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#endif
 
 namespace httpp {
 
@@ -102,33 +95,25 @@ bool is_hex_colour(const std::string& s) {
     return true;
 }
 
-// ---- the file system (the only part that differs between platforms) ----
-// ponytail: realpath and dirent, not <filesystem> (macOS >= 10.15 only; the wheels target 10.13). Windows uses <filesystem>, which is fine there.
-// The Windows branch was written without a Windows machine to run it on.
+// ---- the file system (httpp::fs, ADR-0054) ----
+// `root` is always a real() path: links resolved, no trailing '/' (except the file system root itself).
 
-#ifdef _WIN32
-namespace fs = std::filesystem;
-
-bool resolve_dir(const std::string& root, const std::string& rel, std::string& full) { // full: the folder, symlinks resolved; false when it is missing, not a folder or outside
-    std::error_code ec;
-    const fs::path r = fs::canonical(fs::path(root), ec);
-    if (ec) return false;
-    const fs::path f = fs::canonical(r / fs::path(rel.substr(1)), ec);
-    if (ec || !fs::is_directory(f, ec)) return false;
-    const fs::path relative = f.lexically_relative(r);
-    if (relative.empty() || (*relative.begin() == "..")) return false;
-    full = f.string();
+bool resolve_dir(const std::string& root, const std::string& rel, std::string& full) { // full: the folder, links resolved; false when it is missing, not a folder or outside
+    const std::string real = fs::real(rel == "/" ? root : root + rel);
+    if (real.empty() || !fs::is_inside(real, root)) return false;
+    if (fs::stat(real).type != fs::kind::directory) return false;
+    full = real;
     return true;
 }
 
 std::string canonical_root(const std::string& root, bool& is_fs_root) {
-    std::error_code ec;
-    const fs::path r = fs::canonical(fs::path(root), ec);
-    if (ec || !fs::is_directory(r, ec)) return "";
-    is_fs_root = r == r.root_path();
-    return r.string();
+    const std::string real = fs::real(root);
+    if (real.empty() || fs::stat(real).type != fs::kind::directory) return "";
+    is_fs_root = fs::is_root(real);
+    return real;
 }
 
+#ifdef _WIN32
 bool segment_ok(const std::string& seg) { // ponytail: ':' (drives, streams) and the reserved device names are refused outright
     if (seg.find_first_of(":*?\"<>|") != std::string::npos) return false;
     std::string up;
@@ -137,92 +122,36 @@ bool segment_ok(const std::string& seg) { // ponytail: ':' (drives, streams) and
     for (const char* r : reserved) if (up == r) return false;
     return !seg.empty() && seg.back() != ' ' && seg.back() != '.';
 }
+#else
+bool segment_ok(const std::string&) { return true; }
+#endif
 
 // Reads `dir`, keeps what is visible and inside `root`, stops after `limit` + 1 kept items.
 bool read_dir(const std::string& root, const std::string& dir, bool show_hidden, std::size_t limit, std::vector<item>& out) {
-    std::error_code ec;
-    const fs::path r = fs::canonical(fs::path(root), ec);
-    for (fs::directory_iterator it(fs::path(dir), ec), end; !ec && it != end; it.increment(ec)) {
-        const std::string name = it->path().filename().string();
-        if (!show_hidden && !name.empty() && name[0] == '.') continue;
-        if (!valid_utf8(name)) continue;
-        std::error_code e2;
-        const fs::path real = fs::canonical(it->path(), e2);
-        if (e2) continue;
-        const fs::path relative = real.lexically_relative(r);
-        if (relative.empty() || *relative.begin() == "..") continue;
-        item i;
-        i.name = name;
-        if (fs::is_directory(real, e2)) i.dir = true;
-        else if (fs::is_regular_file(real, e2)) { i.size = static_cast<long long>(fs::file_size(real, e2)); }
-        else continue;
-        const auto t = fs::last_write_time(real, e2);
-        i.mtime = e2 ? 0 : static_cast<long long>(std::chrono::duration_cast<std::chrono::seconds>(t.time_since_epoch()).count()) - 11644473600LL;
-        out.push_back(std::move(i));
-        if (out.size() > limit) break;
-    }
-    return !ec;
-}
-#else
-bool inside(const std::string& real, const std::string& root) { // both resolved, root without a trailing '/'
-    return real == root || (real.size() > root.size() && real.compare(0, root.size(), root) == 0 && real[root.size()] == '/');
-}
-
-std::string real_path(const std::string& p) {
-    char* r = ::realpath(p.c_str(), nullptr);
-    if (!r) return "";
-    std::string out(r);
-    std::free(r);
-    return out;
-}
-
-bool resolve_dir(const std::string& root, const std::string& rel, std::string& full) {
-    const std::string real = real_path(rel == "/" ? root : root + rel);
-    if (real.empty() || !inside(real, root)) return false;
-    struct stat st;
-    if (::stat(real.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) return false;
-    full = real;
-    return true;
-}
-
-std::string canonical_root(const std::string& root, bool& is_fs_root) {
-    std::string real = real_path(root.empty() ? "." : root);
-    struct stat st;
-    if (real.empty() || ::stat(real.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) return "";
-    is_fs_root = real == "/";
-    return real;
-}
-
-bool segment_ok(const std::string&) { return true; }
-
-bool read_dir(const std::string& root, const std::string& dir, bool show_hidden, std::size_t limit, std::vector<item>& out) {
-    DIR* d = ::opendir(dir.c_str());
-    if (!d) return false;
-    while (const dirent* e = ::readdir(d)) {
-        const std::string name = e->d_name;
-        if (name == "." || name == "..") continue;
+    std::vector<std::string> names;
+    if (!fs::list(dir, names)) return false;
+    for (const std::string& name : names) {
         if (!show_hidden && name[0] == '.') continue;
         if (!valid_utf8(name)) continue;
-        const std::string path = dir + "/" + name;
-        struct stat st;
-        if (::lstat(path.c_str(), &st) != 0) continue;
-        if (S_ISLNK(st.st_mode)) { // a link counts only when it stays inside the root
-            const std::string real = real_path(path);
-            if (real.empty() || !inside(real, root) || ::stat(path.c_str(), &st) != 0) continue;
+        const std::string path = fs::join(dir, name);
+        fs::info st = fs::lstat(path);
+        if (st.type == fs::kind::missing && !st.link) continue;
+        if (st.link) { // a link counts only when it stays inside the root
+            const std::string real = fs::real(path);
+            if (real.empty() || !fs::is_inside(real, root)) continue;
+            st = fs::stat(path);
         }
         item i;
         i.name = name;
-        if (S_ISDIR(st.st_mode)) i.dir = true;
-        else if (S_ISREG(st.st_mode)) i.size = static_cast<long long>(st.st_size);
+        if (st.type == fs::kind::directory) i.dir = true;
+        else if (st.type == fs::kind::file) i.size = st.size;
         else continue; // sockets, pipes and devices are not files to browse
-        i.mtime = static_cast<long long>(st.st_mtime);
+        i.mtime = st.mtime;
         out.push_back(std::move(i));
         if (out.size() > limit) break;
     }
-    ::closedir(d);
     return true;
 }
-#endif
 
 // ---- the request path ----
 

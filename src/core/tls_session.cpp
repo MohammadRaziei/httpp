@@ -1,4 +1,5 @@
 #include "internal/tls_session.hpp"
+#include "internal/fs.hpp"
 
 #include <mbedtls/error.h>
 #include <mbedtls/pk.h>
@@ -22,6 +23,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <fstream>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -36,7 +38,8 @@ std::string mbed_error(int code) {
 }
 
 // The operating system's trusted roots, parsed into `crt`. Same sources as the sync client's
-// cpp-httplib: Windows ROOT+CA stores, the macOS keychain, or the usual bundle files on Unix.
+// cpp-httplib's (MIT, Copyright (c) Yuji Hirose; this part is derived from it, see src/third_party/README.md): Windows
+// ROOT+CA stores, the macOS keychain, or the usual bundle files on Unix.
 bool load_system_roots(mbedtls_x509_crt& crt) {
     bool loaded = false;
 #ifdef _WIN32
@@ -127,12 +130,10 @@ std::shared_ptr<const tls_context> make_tls_context(bool verify, const std::stri
 
 namespace {
 bool read_file(const std::string& path, std::string& out) {
-    std::FILE* f = std::fopen(path.c_str(), "rb");
-    if (!f) return false;
+    std::ifstream in(fs::native(path), std::ios::binary);
+    if (!in) return false;
     char buf[4096];
-    std::size_t n;
-    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
-    std::fclose(f);
+    while (in.read(buf, sizeof buf) || in.gcount() > 0) out.append(buf, static_cast<std::size_t>(in.gcount()));
     return true;
 }
 } // namespace

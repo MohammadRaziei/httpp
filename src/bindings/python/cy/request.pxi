@@ -185,7 +185,7 @@ cdef void _run_handler(object fn, const cpp_request& req, response& res) except 
 
 
 cdef void _dispatch(void* ctx, const cpp_request& req, response& res) noexcept nogil:
-    # Called from a cpp-httplib worker thread that Python knows nothing about,
+    # Called from a server worker thread that Python knows nothing about,
     # hence the explicit GIL acquire.
     busy_enter()  # see the gate comment above
     try:

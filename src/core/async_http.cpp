@@ -394,6 +394,8 @@ struct async_http::impl {
         bool finished = false;
         bool message_done = false;
         bool informational = false; // current message is a 1xx we skip
+        bool streaming = false;     // the body goes to job.sink->on_data
+        bool discarding = false;    // the body is read and thrown away
         bool resp_keep = false;     // the response allows the connection to be reused
         bool got_bytes = false;     // any response byte arrived on this attempt
         bool retried = false;
@@ -423,10 +425,25 @@ struct async_http::impl {
                 }
                 e->res.status = code;
                 e->resp_keep = llhttp_should_keep_alive(p) != 0;
+                if (e->job.sink) {
+                    switch (e->job.sink->on_head(e->res)) {
+                    case body_sink::verdict::stream: e->streaming = true; break;
+                    case body_sink::verdict::skip: e->discarding = true; break;
+                    case body_sink::verdict::abort:
+                        e->fail(error_kind::canceled, "stopped by the body sink");
+                        return HPE_USER;
+                    }
+                }
                 return ieq(e->job.method, "HEAD") ? 1 : 0; // 1: this response has no body
             };
             settings.on_body = [](llhttp_t* p, const char* at, std::size_t n) -> int {
                 auto* e = static_cast<exchange*>(p->data);
+                if (e->discarding) return 0;
+                if (e->streaming) {
+                    if (e->job.sink->on_data(at, n)) return 0;
+                    e->fail(error_kind::canceled, "stopped by the body sink");
+                    return HPE_USER;
+                }
                 if (e->job.max_response_size && e->res.body.size() + n > e->job.max_response_size) {
                     e->res.status = 413;
                     e->fail(error_kind::too_large, "response body exceeds max_response_size");
@@ -471,7 +488,7 @@ struct async_http::impl {
                 if (job.keep_alive && resp_keep && leftover.empty() && !conn->closed) owner.put_idle(conn);
                 else conn->close();
             }
-            decode_content(res, job.max_response_size); // gzip / deflate bodies, see content_decode.hpp
+            if (!job.sink) decode_content(res, job.max_response_size); // gzip / deflate bodies, see content_decode.hpp; a sink gets the bytes as sent
             complete();
         }
         void complete() {
@@ -542,6 +559,7 @@ struct async_http::impl {
             last_was_value = true;
             message_done = false;
             informational = false;
+            streaming = discarding = false;
             leftover.clear();
             use_connection(true);
             return true;
@@ -662,6 +680,11 @@ bool async_http::on_loop_thread() const { return std::this_thread::get_id() == i
 
 async_http& shared_async_http() {
     static async_http* instance = new async_http; // see the header: leaked on purpose
+    return *instance;
+}
+
+async_http& download_async_http() {
+    static async_http* instance = new async_http; // leaked on purpose, like shared_async_http()
     return *instance;
 }
 

@@ -119,7 +119,15 @@ def set_log_file(path):
         raise OSError("cannot open log file %r" % (path,))
 
 
+cdef extern from "Python.h":
+    int Py_IsInitialized() nogil
+
+
 cdef void _log_trampoline(void* ctx, int level, const string& where, const string& msg) noexcept nogil:
+    # A library thread can log while the interpreter shuts down; taking the GIL then would touch a dead interpreter
+    # (Py_IsInitialized turns false early enough in Py_FinalizeEx; the atexit hook in _log.py also unhooks us).
+    if not Py_IsInitialized():
+        return
     with gil:
         try:
             (<object>ctx)(_LOG_LEVELS[level], where.decode("utf-8", "replace"), msg.decode("utf-8", "replace"))

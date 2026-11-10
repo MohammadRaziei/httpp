@@ -1,3 +1,4 @@
+#include "internal/fs.hpp"
 #include "httpp/sha256.hpp"
 
 #include <psa/crypto.h>
@@ -68,7 +69,7 @@ std::string sha256_hex(const void* data, std::size_t size) {
 }
 
 std::string sha256_file(const std::string& path) {
-    std::ifstream in(path, std::ios::binary);
+    std::ifstream in(fs::native(path), std::ios::binary);
     if (!in) throw std::runtime_error("cannot read " + path);
     hash_op h;
     std::vector<char> buf(64 * 1024);

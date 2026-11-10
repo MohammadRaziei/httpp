@@ -17,23 +17,10 @@ namespace httpp {
 namespace {
 
 using detail::endpoint;
+using detail::endpoint_of;
 using detail::header_list;
 using detail::request_spec;
 using detail::session_settings;
-
-// scheme, host, port and (for a base URL) the base path of a parsed URL.
-endpoint endpoint_of(const url& u, bool with_base_path) {
-    endpoint e;
-    e.scheme = u.scheme();
-    e.host = u.host();
-    e.port = u.port();
-    if (with_base_path) {
-        std::string p = u.path();
-        while (!p.empty() && p.back() == '/') p.pop_back();
-        e.base_path = std::move(p);
-    }
-    return e;
-}
 
 endpoint parse_base(const std::string& base_url, const char* who) {
     const url u = url::parse(base_url);
@@ -147,17 +134,13 @@ client& client::set_keep_alive(bool enable) {
 }
 
 response client::fetch(const std::string& full_url) {
-    const url u = url::parse(full_url);
-    if (!u.valid()) {
+    if (!url::parse(full_url).valid())
         throw std::invalid_argument("httpp::client::fetch: unsupported or invalid URL: " + full_url);
-    }
     session_settings once;
     once.keep_alive = false; // one request: do not park the connection
     request_spec spec;
     response error;
-    std::string target = u.path();
-    if (!u.query().empty()) target += "?" + u.query();
-    if (!once.make_spec(endpoint_of(u, false), "GET", target, {}, {}, {}, spec, error)) return error;
+    if (!once.make_spec_for_url(full_url, "", "GET", {}, {}, {}, spec, error)) return error;
     return detail::run_blocking(std::make_shared<request_spec>(std::move(spec)));
 }
 
@@ -176,19 +159,6 @@ struct client::request::impl {
 
     // The spec for this request. False (and `error` set) when it cannot even start.
     bool make_spec(request_spec& out, response& error) const {
-        const class url u = url::parse(url);
-        if (!u.valid()) {
-            error = detail::failed_response(error_kind::invalid_url, "not a usable http(s) URL: " + url);
-            return false;
-        }
-        std::string query = u.query();
-        if (!params.empty()) {
-            if (!query.empty()) query += "&";
-            query += url::build_query(params);
-        }
-        std::string target = u.path().empty() ? "/" : u.path();
-        if (!query.empty()) target += "?" + query;
-
         header_list call = headers;
         if (!cookies.empty() && !detail::has_header(call, "Cookie")) {
             std::string joined;
@@ -198,7 +168,8 @@ struct client::request::impl {
             }
             call.emplace_back("Cookie", std::move(joined));
         }
-        return settings.make_spec(endpoint_of(u, false), method, target, call, body, content_type, out, error);
+        return settings.make_spec_for_url(url, params.empty() ? std::string() : url::build_query(params), method, call, body,
+                                          content_type, out, error);
     }
 };
 

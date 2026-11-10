@@ -2,7 +2,7 @@
 
 > This file is the guide for an agent (or any developer) working on httpp.
 > Language of reports to the user: **Persian**. Everything written inside the repository (code, comments, docs, ADRs, commit messages) is **English**.
-> The hard project rules (no system dependencies, `snake_case`, ponytail style, untouched cpp-httplib) are in `handoff.md`
+> The hard project rules (no system dependencies, `snake_case`, ponytail style, vendored third-party code stays untouched) are in `handoff.md`
 > and [ADR-0014](adr/0014-coding-conventions.md) and are not repeated here.
 
 ---
@@ -376,7 +376,7 @@ A task is done when:
 - [ ] The test was written before the code and **all** tests pass: C++ (`build/tests/cpp/test_httpp_cpp`) and Python (`pytest tests/python`), and also on a free-threaded interpreter if it concerns thread/GIL behavior.
 - [ ] No system dependency was added; a new dependency is vendored or a submodule.
 - [ ] Naming is `snake_case`; every deliberate simplification is marked with `ponytail:` and an upgrade path; inputs are validated.
-- [ ] `cpp-httplib` is untouched (`httplib.h` is exactly v0.54.1).
+- [ ] Vendored third-party code (`llhttp`, ...) is untouched.
 - [ ] If behavior changed, the README, `CHANGELOG.md` and the relevant ADR are updated.
 - [ ] If a performance claim was made, it is recorded with its measurement conditions and limits.
 - [ ] Critical decisions were made with the user and other choices were reported with reasons.

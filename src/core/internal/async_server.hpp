@@ -6,7 +6,7 @@
 // thread. Code that may block (route handlers, file/stream body providers) runs on a pool owned
 // by the caller; the engine only ever asks the caller to run it.
 //
-// Like async_http.hpp this header includes neither Asio nor cpp-httplib.
+// Like async_http.hpp this header includes neither Asio nor mbedtls.
 
 #include "tls_session.hpp"
 #include <chrono>

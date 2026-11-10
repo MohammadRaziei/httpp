@@ -1,10 +1,10 @@
 #include "httpp/server.hpp"
 
 // httpp::server on top of the async engine (internal/async_server.hpp: Asio + llhttp). Routing,
-// static files, hooks and response building live here; the engine only moves bytes. No
-// cpp-httplib: this translation unit does not include it.
+// static files, hooks and response building live here; the engine only moves bytes.
 
 #include "internal/async_server.hpp"
+#include "internal/fs.hpp"
 #include "internal/log.hpp"
 #include "internal/response_compression.hpp"
 #include "internal/urlencoded.hpp"
@@ -16,14 +16,6 @@
 #include <cctype>
 #include <chrono>
 #include <cstring>
-#ifdef _WIN32
-#include <filesystem>
-#else
-#include <climits>
-#include <cstdlib>
-#endif
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <ctime>
 #include <fstream>
 #include <charconv>
@@ -99,49 +91,21 @@ const char* mime_for(const std::string& path) {
     return "application/octet-stream";
 }
 
-// Size of a readable regular file, or -1. A directory opens fine but cannot be read: peek turns that into -1.
-// ponytail: via ifstream, not <filesystem> (it needs macOS >= 10.15 and the wheels target 10.13).
+// Size of a readable regular file, or -1. (A file that exists but cannot be opened is -1 too.)
 long long file_size(const std::string& path) {
-    std::ifstream in(path, std::ios::binary | std::ios::ate);
-    if (!in) return -1;
-    const std::streamoff size = in.tellg();
-    if (size < 0) return -1;
-    in.seekg(0);
-    if (size > 0 && in.peek() == std::ifstream::traits_type::eof()) return -1;
-    return static_cast<long long>(size);
+    const fs::info i = fs::stat(path);
+    if (i.type != fs::kind::file) return -1;
+    if (!std::ifstream(fs::native(path), std::ios::binary)) return -1;
+    return i.size;
 }
 
 // ---- validators of a file answer (ADR-0045)
 
-struct file_stamp {
-    long long mtime = 0; // seconds since the epoch
-    long nsec = 0;       // the sub-second part where the platform has one, else 0
-};
-
-bool stat_file(const std::string& path, file_stamp& out) {
-#ifdef _WIN32
-    struct _stat64 st;
-    if (_stat64(path.c_str(), &st) != 0) return false;
-    out.mtime = static_cast<long long>(st.st_mtime);
-    out.nsec = 0;
-#else
-    struct stat st;
-    if (::stat(path.c_str(), &st) != 0) return false;
-    out.mtime = static_cast<long long>(st.st_mtime);
-#if defined(__APPLE__)
-    out.nsec = static_cast<long>(st.st_mtimespec.tv_nsec);
-#else
-    out.nsec = static_cast<long>(st.st_mtim.tv_nsec);
-#endif
-#endif
-    return true;
-}
-
 // Strong validator from the size and the modification time (nanoseconds where known): it changes whenever either does.
-std::string make_etag(long long size, const file_stamp& st) {
+std::string make_etag(long long size, const fs::info& st) {
     char buf[80];
     std::snprintf(buf, sizeof buf, "\"%llx-%llx-%lx\"", static_cast<unsigned long long>(size), static_cast<unsigned long long>(st.mtime),
-                  static_cast<unsigned long>(st.nsec));
+                  static_cast<unsigned long>(st.mtime_nsec));
     return buf;
 }
 
@@ -626,7 +590,7 @@ struct server::impl {
             if (offset > size) offset = size;
             const long long len = length < 0 ? size - offset : std::min(length, size - offset);
             w.length = len;
-            auto in = std::make_shared<std::ifstream>(res.file, std::ios::binary);
+            auto in = std::make_shared<std::ifstream>(fs::native(res.file), std::ios::binary);
             w.next = [in, pos = offset, end = offset + len](std::string& piece) mutable {
                 if (pos >= end) return false;
                 const std::size_t n = static_cast<std::size_t>(std::min<long long>(128 * 1024, end - pos));
@@ -860,29 +824,10 @@ struct server::impl {
     // True when `file` (symlinks resolved) is still inside `dir` (resolved too). A file that does not
     // exist counts as inside: the caller's file_size() answers that case.
     static bool inside_dir(const std::string& file, const std::string& dir) {
-#ifdef _WIN32
-        namespace fs = std::filesystem;
-        std::error_code ec;
-        const fs::path real = fs::canonical(fs::path(file), ec);
-        if (ec) return true;
-        const fs::path root = fs::canonical(fs::path(dir.empty() ? "." : dir), ec);
-        if (ec) return false;
-        const fs::path rel = real.lexically_relative(root);
-        return !rel.empty() && *rel.begin() != "..";
-#else
-        // ponytail: realpath, not <filesystem> (it needs macOS >= 10.15 and the wheels target 10.13).
-        char* f = ::realpath(file.c_str(), nullptr);
-        if (!f) return true;
-        std::string real(f);
-        std::free(f);
-        char* d = ::realpath(dir.empty() ? "." : dir.c_str(), nullptr);
-        if (!d) return false;
-        std::string root(d);
-        std::free(d);
-        if (root.size() > 1 && root.back() == '/') root.pop_back();
-        if (root == "/") return true;
-        return real == root || (real.size() > root.size() && real.compare(0, root.size(), root) == 0 && real[root.size()] == '/');
-#endif
+        const std::string real = fs::real(file);
+        if (real.empty()) return true;
+        const std::string root = fs::real(dir.empty() ? "." : dir);
+        return !root.empty() && (fs::is_root(root) || fs::is_inside(real, root));
     }
 
     // A file shown inline must not be able to run code in the page's origin: only types that cannot are shown, the rest is a download.
@@ -933,8 +878,8 @@ struct server::impl {
     // The answer for one existing file: validators, conditional requests (ADR-0045), then the whole file or a range.
     bool answer_file(const request& req, const send_fn& send, const std::string& full, long long size, const server::directory_options& options) {
         {
-            file_stamp stamp;
-            const bool stamped = stat_file(full, stamp);
+            const fs::info stamp = fs::stat(full);
+            const bool stamped = stamp.type == fs::kind::file;
             const std::string etag = stamped ? make_etag(size, stamp) : std::string();
             const std::string modified = stamped ? format_http_date(stamp.mtime) : std::string();
             bool honour_range = true;

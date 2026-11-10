@@ -7,8 +7,15 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Fixed
+
+- **No more `std::filesystem` anywhere in the library or the CLI** (ADR-0054): an internal `httpp::fs` module (POSIX calls, the wide Win32 API on Windows, UTF-8 paths) is used by downloads, the file browser, static files, the logging module, TLS certificate loading, `sha256_file` and the CLI. This removes the macOS 10.13 build break and five private copies of the same operations. On Windows, non-ASCII file names now work in all of them.
+- **macOS wheel build:** the internal logging module's `file_handler` took a `std::filesystem::path`, which the macOS 10.13 target does not have (CI failed in `log.cpp`). It takes a UTF-8 `std::string` now (converted to UTF-16 on Windows, so a non-ASCII log path works there too), and `tests/python/test_portability_sources.py` fails on any `std::filesystem` outside an `_WIN32` block.
+- **Python log bridge at interpreter exit:** the C++ trampoline checks `Py_IsInitialized()` before taking the GIL and an `atexit` hook hands the log back to stderr, so a library thread that logs late cannot reach a dying interpreter (the same fix libstb made for its bridge).
+
 ### Changed
 
+- **cpp-httplib is removed** (ADR-0052, ADR-0053). Downloads now stream through a body sink on a dedicated engine (the destination file is created only for an accepted status; a Range reply of 200 restarts the file), `httpp.curl` is a thin face on `client.request`, and the vendored `httplib.h` is deleted. No public API change.
 - **The blocking client runs on the async engine** (ADR-0051): `client`, `client::request::run` and `client::fetch` share one policy layer with `async_client` (redirects, auth, cookies, proxy, TLS). A `client` can now be shared between threads without taking turns, connections are pooled across clients, a blocking call from an async callback returns an error instead of deadlocking, and `async_client::set_header` replaces a same-name default. cpp-httplib now serves only downloads and the `curl` helper.
 - **Logging no longer uses the vendored AixLog** (ADR-0050): the library logs through a small internal module ported from libstb (Python-shaped loggers, handlers and formatter, no dependency, no patch). `set_log_level`, `set_log_file`, `set_log_callback` are unchanged in C++ and Python; the default line is now `time [LEVEL] httpp (function): message`.
 - The Cython module `httpp_cy.pyx` is split into `cy/*.pxi` files (textual includes, still one module and one extension; ADR-0049). No behaviour change.

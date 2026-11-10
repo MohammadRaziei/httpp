@@ -16,7 +16,6 @@
 #include <cstdarg>
 #include <cstddef>
 #include <cstdio>
-#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -152,10 +151,11 @@ private:
 };
 
 // One line per record appended to a file (append = false truncates it first), flushed after every record.
-// Throws std::runtime_error when the file cannot be opened.
+// `path` is UTF-8 (converted to UTF-16 on Windows). Throws std::runtime_error when the file cannot be opened.
+// A string, not a std::filesystem::path: httpp uses no <filesystem> (ADR-0054).
 class file_handler : public handler {
 public:
-    explicit file_handler(const std::filesystem::path& path, bool append = true);
+    explicit file_handler(const std::string& path, bool append = true);
 
 protected:
     void emit(const record& r) override;

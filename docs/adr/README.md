@@ -57,6 +57,9 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0049](0049-split-the-cython-module-into-pxi-files.md) | Split the Cython module into `.pxi` files | accepted |
 | [0050](0050-own-logging-module-replaces-aixlog.md) | An internal logging module (ported from libstb) replaces AixLog | accepted |
 | [0051](0051-sync-client-on-the-async-engine.md) | The blocking client runs on the async engine and one shared policy layer | accepted |
+| [0052](0052-downloads-stream-through-a-body-sink.md) | Downloads stream through a body sink on their own engine | accepted |
+| [0053](0053-cpp-httplib-removed.md) | cpp-httplib is removed | accepted |
+| [0054](0054-own-file-system-module.md) | An own file system module, `httpp::fs`, replaces std::filesystem | accepted |
 
 ## Not decided yet
 

@@ -9,9 +9,10 @@
 //   run_blocking      waits for run_chain (Adapter: sync on top of async)
 //
 // The engine (async_http.hpp) moves bytes; everything about *what* to send and which redirects to
-// follow lives here, once. This header includes neither Asio nor cpp-httplib.
+// follow lives here, once. This header includes neither Asio nor mbedtls.
 
 #include "httpp/client.hpp"
+#include "httpp/url.hpp"
 #include "async_http.hpp"
 
 #include <cstddef>
@@ -60,6 +61,9 @@ struct request_spec {
     int proxy_port = 0;
     std::size_t max_response_size = 0;
     bool keep_alive = true; // keep the connection in the engine's pool for the next request
+    // Stream the final response body to this sink (it runs on download_async_http()). Redirect and
+    // error-status handling stays in the sink's on_head; a redirect that is followed is never offered to it.
+    std::shared_ptr<body_sink> sink;
     int redirects_left = redirect_limit;
 };
 
@@ -69,6 +73,9 @@ struct endpoint {
     int port = 80;
     std::string base_path; // prepended to every path, no trailing slash
 };
+
+// scheme, host and port of a parsed URL (and its path as the base path, without a trailing slash, for a base URL).
+endpoint endpoint_of(const url& u, bool with_base_path);
 
 // Everything a caller configures once and that applies to each request made afterwards.
 struct session_settings {
@@ -96,7 +103,18 @@ struct session_settings {
     bool make_spec(const endpoint& where, const std::string& method, const std::string& path,
                    const header_list& call_headers, std::string body, std::string content_type,
                    request_spec& out, response& error) const;
+
+    // Same for a full URL: its path and query become the target, `extra_query` is appended to the query.
+    // An unusable URL is error_kind::invalid_url.
+    bool make_spec_for_url(const std::string& full_url, const std::string& extra_query, const std::string& method,
+                           const header_list& call_headers, std::string body, std::string content_type,
+                           request_spec& out, response& error) const;
 };
+
+bool is_redirect(int status);
+
+// The engine a spec runs on: the shared one, or the download one when it streams to a sink.
+async_http& engine_for(const request_spec& spec);
 
 // The engine job for one hop of `spec`.
 async_job make_job(const request_spec& spec);

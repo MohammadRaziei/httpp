@@ -3,9 +3,8 @@
 #include "httpp/progress.hpp"
 #include "httpp/sha256.hpp"
 
-// httplib.h (+ mbedtls support) is included ONLY via this internal header,
-// never in a public httpp/*.hpp header - see its comment for why.
-#include "internal/httplib_common.hpp"
+#include "internal/fs.hpp"
+#include "internal/http_exchange.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -21,179 +20,180 @@
 #include <stdexcept>
 #include <utility>
 #ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h> // MoveFileExA, see replace_file()
-#include <direct.h>  // _mkdir, _rmdir (the lock)
 #include <process.h> // _getpid
 #else
-#include <sys/stat.h> // mkdir
-#include <unistd.h>   // rmdir, getpid
+#include <unistd.h>  // getpid
 #endif
 
 namespace httpp {
 
 namespace {
 
-// Portable (pre-C++17-filesystem-availability-safe - see the note on
-// macOS 10.13 in run_plain() below) "does this file exist, and how big is
-// it" check. Uses ifstream::tellg rather than fseek/ftell: the latter
-// returns a 32-bit long on Windows even in 64-bit builds, which would
-// silently misreport files over 2GB.
-// Moves `from` over `to`, replacing it. std::rename does that on POSIX but fails when `to` exists on Windows, which made
-// every download over an existing file (force, or a finished .part) fail there; MoveFileEx replaces it, atomically.
-// ponytail: the narrow (ANSI code page) call matches what std::rename did; upgrade path for non-ANSI paths is
-// MoveFileExW on a UTF-16 conversion of the UTF-8 path.
-bool replace_file(const std::string& from, const std::string& to) {
-#ifdef _WIN32
-    return MoveFileExA(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
-#else
-    return std::rename(from.c_str(), to.c_str()) == 0;
-#endif
-}
-
+// The size of a regular file, or -1 (missing, a directory, ...).
 long long file_size_or_negative(const std::string& path) {
-    std::ifstream f(path, std::ios::binary | std::ios::ate);
-    if (!f) {
-        return -1;
-    }
-    return static_cast<long long>(f.tellg());
+    const fs::info i = fs::stat(path);
+    return i.type == fs::kind::file ? i.size : -1;
 }
 
-// Always-fresh implementation (no HEAD probe, no resume, no skip): the
-// server's full body streams straight to dest_path, truncating whatever
-// was there before. Used directly when resume() is off, and as the
-// fallback from run_resumable() when a HEAD probe can't establish the
-// server-reported total size (Content-Length missing/unavailable), since
-// resume/skip have nothing to compare against in that case.
-void apply_timeout(httplib::Client& cli, long seconds) {
-    if (seconds <= 0) return; // cpp-httplib's defaults
-    cli.set_connection_timeout(seconds);
-    cli.set_read_timeout(seconds);
-    cli.set_write_timeout(seconds);
+// ---- one transfer: a request whose body streams into a file ----------------------------------------------------
+// A download is the shared client policy (internal/http_exchange: redirects, timeouts, TLS) with a body_sink that
+// writes the file, on the engine reserved for streaming transfers. The sink decides what a response is worth:
+// the file is opened only for a good status, so an error page never lands in it.
+
+struct transfer_result {
+    bool ok = false;
+    int status = 0;            // of the final response, 0 if none arrived
+    bool real_content = false; // body bytes (200/206) reached the file: a failure may leave a usable .part
+    std::string error;
+};
+
+class file_target {
+public:
+    // strict: only 200 and 206 count as success (a resumable download); otherwise any 2xx.
+    // resume_offset > 0: the request asked for bytes from there; a 206 appends, any other success restarts the file.
+    file_target(std::string path, bool strict, long long resume_offset, long long total_hint, bool show_progress)
+        : path_(std::move(path)), strict_(strict), offset_(resume_offset), total_hint_(total_hint), progress_(show_progress) {}
+
+    std::shared_ptr<detail::body_sink> sink() {
+        auto s = std::make_shared<detail::body_sink>();
+        s->on_head = [this](const response& head) { return on_head(head); };
+        s->on_data = [this](const char* data, std::size_t size) { return on_data(data, size); };
+        return s;
+    }
+
+    bool accepts(int status) const { return strict_ ? (status == 200 || status == 206) : (status >= 200 && status < 300); }
+    int status() const { return status_; }
+    bool real_content() const { return real_; }
+    const std::string& error() const { return error_; } // set when this side stopped the transfer
+
+    void finish() {
+        out_.close();
+        if (bar_) bar_->finish();
+    }
+
+private:
+    detail::body_sink::verdict on_head(const response& head) {
+        status_ = head.status;
+        if (!accepts(status_)) return detail::body_sink::verdict::skip; // an error page, or a redirect we do not follow
+        if (status_ != 206) offset_ = 0;                                 // the server ignored the Range: start over
+        out_.open(fs::native(path_), std::ios::binary | (offset_ > 0 ? std::ios::app : std::ios::trunc));
+        if (!out_) {
+            error_ = "could not open destination file: " + path_;
+            return detail::body_sink::verdict::abort;
+        }
+        real_ = true;
+        if (progress_) { // the bar counts the whole file, also when this response is only the rest of it
+            const std::string length = head.header("Content-Length");
+            const long long total = total_hint_ > 0 ? total_hint_ : offset_ + (length.empty() ? 0 : std::atoll(length.c_str()));
+            if (total > 0) bar_ = std::make_unique<progress::bar>(static_cast<std::size_t>(total), "downloading");
+        }
+        received_ = static_cast<std::size_t>(offset_);
+        return detail::body_sink::verdict::stream;
+    }
+
+    bool on_data(const char* data, std::size_t size) {
+        out_.write(data, static_cast<std::streamsize>(size));
+        if (!out_) {
+            error_ = "could not write to " + path_;
+            return false;
+        }
+        received_ += size;
+        if (bar_) bar_->set_progress(received_);
+        return true;
+    }
+
+    std::string path_;
+    bool strict_;
+    long long offset_;
+    long long total_hint_;
+    bool progress_;
+    std::ofstream out_;
+    std::unique_ptr<progress::bar> bar_;
+    std::size_t received_ = 0;
+    int status_ = 0;
+    bool real_ = false;
+    std::string error_;
+};
+
+// The request every download step makes: identity coding (the bytes on disk are what the server sent, and a
+// checksum is over those), redirects as asked, and `extra` headers.
+bool make_transfer_spec(const std::string& url_str, const char* method, bool follow, long timeout_seconds,
+                        const detail::header_list& extra, detail::request_spec& spec, std::string& error) {
+    detail::session_settings settings;
+    settings.follow = follow;
+    settings.set_timeout(timeout_seconds);
+    detail::header_list headers{{"Accept-Encoding", "identity"}};
+    headers.insert(headers.end(), extra.begin(), extra.end());
+    response bad;
+    if (settings.make_spec_for_url(url_str, "", method, headers, {}, {}, spec, bad)) return true;
+    error = "invalid or unsupported URL: " + url_str;
+    return false;
 }
 
-download_result run_plain(const std::string& url_str, const std::string& dest_path, bool show_progress,
-                          bool follow_redirects, long timeout_seconds) {
-    download_result result;
+transfer_result transfer(const std::string& url_str, bool follow, long timeout_seconds, long long range_from, file_target& target) {
+    transfer_result result;
+    detail::header_list extra;
+    if (range_from > 0) extra.emplace_back("Range", "bytes=" + std::to_string(range_from) + "-");
+    detail::request_spec spec;
+    if (!make_transfer_spec(url_str, "GET", follow, timeout_seconds, extra, spec, result.error)) return result;
+    spec.sink = target.sink();
+    const response r = detail::run_blocking(std::make_shared<detail::request_spec>(std::move(spec)));
+    target.finish();
 
-    const url u = url::parse(url_str);
-    if (!u.valid()) {
-        result.error = "invalid or unsupported URL: " + url_str;
-        return result;
-    }
-
-    std::ofstream out(dest_path, std::ios::binary);
-    if (!out) {
-        result.error = "could not open destination file: " + dest_path;
-        return result;
-    }
-
-    std::string path = u.path();
-    if (!u.query().empty()) {
-        path += "?" + u.query();
-    }
-
-    httplib::Client cli(detail::scheme_host_port(u.scheme(), u.host(), u.port()));
-    cli.set_decompress(false); // save exactly what the server sends (a checksum is over those bytes); no zlib here
-    // Without this a 302 is reported as the final status and the caller is
-    // left with a 0-byte file - which is what GitHub release assets, CDN
-    // links and shortened URLs all hand back before the real content.
-    // httplib suppresses the content receiver and progress callback for the
-    // intermediate 3xx responses, so only the final body reaches the file.
-    cli.set_follow_location(follow_redirects);
-    apply_timeout(cli, timeout_seconds);
-
-    std::unique_ptr<progress::bar> pb;
-
-    auto res = cli.Get(
-        path,
-        [&](const char* data, std::size_t len) {
-            out.write(data, static_cast<std::streamsize>(len));
-            return static_cast<bool>(out);
-        },
-        [&](std::size_t current, std::size_t total) {
-            if (show_progress && total > 0) {
-                if (!pb) {
-                    pb = std::make_unique<progress::bar>(total, "downloading");
-                }
-                pb->set_progress(current);
-            }
-            return true;
-        });
-
-    if (pb) {
-        pb->finish();
-    }
-
-    // A failed download must not leave a 0-byte (or half-written) file at
-    // dest_path: callers reasonably treat "the file exists" as "it worked",
-    // and a stale partial file also defeats naive resume/skip logic. (Plain
-    // std::remove from <cstdio>, not std::filesystem::remove: the latter is
-    // marked unavailable below macOS 10.15 in libc++, and this project
-    // targets 10.13.)
-    auto discard_partial_file = [&] {
-        out.close();
-        std::remove(dest_path.c_str()); // best-effort; ignore failure
-    };
-
-    if (!res) {
-        discard_partial_file();
-        result.error = "request failed (connection error)";
-        return result;
-    }
-
-    result.status = res->status;
-    result.ok = res->status >= 200 && res->status < 300;
-    if (!result.ok) {
-        discard_partial_file();
-        result.error = "request failed with status " + std::to_string(res->status);
-    }
+    result.status = target.status() > 0 ? target.status() : r.status;
+    result.real_content = target.real_content();
+    if (!target.error().empty()) result.error = target.error();
+    else if (r.error != error_kind::none) result.error = "request failed (connection error): " + r.error_message;
+    else if (!target.accepts(r.status)) result.error = "request failed with status " + std::to_string(r.status);
+    result.ok = result.error.empty();
     return result;
 }
 
-// resume()/force()-aware implementation: skip-if-complete, stage into
-// dest_path + ".part", and Range-resume that .part if it already has bytes
-// from an earlier attempt. See download::resume() in the header for the
-// full behavior contract.
+// The size the server reports for the whole file (HEAD), or -1 if it does not say.
+long long probe_size(const std::string& url_str, bool follow, long timeout_seconds) {
+    detail::request_spec spec;
+    std::string error;
+    if (!make_transfer_spec(url_str, "HEAD", follow, timeout_seconds, {}, spec, error)) return -1;
+    const response r = detail::run_blocking(std::make_shared<detail::request_spec>(std::move(spec)));
+    const std::string length = r.header("Content-Length");
+    return r.status >= 200 && r.status < 300 && !length.empty() ? std::atoll(length.c_str()) : -1;
+}
+
+download_result to_result(const transfer_result& t) {
+    download_result r;
+    r.ok = t.ok;
+    r.status = t.status;
+    r.error = t.error;
+    return r;
+}
+
+// Always-fresh implementation (no HEAD probe, no resume, no skip): the server's full body streams straight to
+// dest_path. Used directly when resume() is off, for the checksum file, and as the fallback from run_resumable()
+// when the server does not report a size.
+download_result run_plain(const std::string& url_str, const std::string& dest_path, bool show_progress,
+                          bool follow_redirects, long timeout_seconds) {
+    file_target target(dest_path, false, 0, -1, show_progress);
+    const transfer_result t = transfer(url_str, follow_redirects, timeout_seconds, 0, target);
+    // A failed download must not leave a 0-byte (or half-written) file at dest_path: callers reasonably treat
+    // "the file exists" as "it worked".
+    if (!t.ok) fs::remove_file(dest_path);
+    return to_result(t);
+}
+
+// resume()/force()-aware implementation: skip-if-complete, stage into dest_path + ".part", and Range-resume that
+// .part if it already has bytes from an earlier attempt. See download::resume() in the header for the contract.
 download_result run_resumable(const std::string& url_str, const std::string& dest_path, bool show_progress,
                               bool follow_redirects, bool force, long timeout_seconds) {
     download_result result;
-
-    const url u = url::parse(url_str);
-    if (!u.valid()) {
+    if (!url::parse(url_str).valid()) {
         result.error = "invalid or unsupported URL: " + url_str;
         return result;
     }
 
-    std::string path = u.path();
-    if (!u.query().empty()) {
-        path += "?" + u.query();
-    }
-
-    httplib::Client cli(detail::scheme_host_port(u.scheme(), u.host(), u.port()));
-    cli.set_decompress(false); // save exactly what the server sends (a checksum is over those bytes); no zlib here
-    cli.set_follow_location(follow_redirects);
-    apply_timeout(cli, timeout_seconds);
-
-    // Find out the full size up front: this is what both "already
-    // complete, skip" and "is this .part actually the full file already"
-    // are checked against. If the server won't answer HEAD or doesn't
-    // report Content-Length, resume/skip aren't possible - fall back to
-    // the plain always-fresh implementation rather than guessing.
-    auto head_res = cli.Head(path);
-    long long total_size = -1; // -1: unknown
-    if (head_res && head_res->status >= 200 && head_res->status < 300 &&
-        head_res->has_header("Content-Length")) {
-        total_size = std::atoll(head_res->get_header_value("Content-Length").c_str());
-    }
-    if (total_size < 0) {
-        return run_plain(url_str, dest_path, show_progress, follow_redirects, timeout_seconds);
-    }
+    // Find out the full size up front: both "already complete, skip" and "is this .part already the full file"
+    // are checked against it. Without it resume/skip have nothing to compare with: do a plain download.
+    const long long total_size = probe_size(url_str, follow_redirects, timeout_seconds);
+    if (total_size < 0) return run_plain(url_str, dest_path, show_progress, follow_redirects, timeout_seconds);
 
     if (!force && file_size_or_negative(dest_path) == total_size) {
         result.ok = true;
@@ -203,105 +203,35 @@ download_result run_resumable(const std::string& url_str, const std::string& des
     }
 
     const std::string part_path = dest_path + ".part";
-    long long resumed_offset = force ? -1 : file_size_or_negative(part_path);
-    if (resumed_offset < 0) {
-        resumed_offset = 0;
-    } else if (resumed_offset >= total_size) {
-        // .part already holds the full file (e.g. a previous run completed
-        // the write but was interrupted before the final rename); nothing
-        // left to transfer.
-        if (replace_file(part_path, dest_path)) {
+    long long offset = force ? -1 : file_size_or_negative(part_path);
+    if (offset < 0) {
+        offset = 0;
+    } else if (offset >= total_size) {
+        // .part already holds the full file (a previous run finished writing but was interrupted before the
+        // rename); nothing is left to transfer.
+        if (fs::replace(part_path, dest_path)) {
             result.ok = true;
             result.status = 200;
             return result;
         }
-        resumed_offset = 0; // rename failed; restart cleanly instead of erroring out
+        offset = 0; // rename failed; restart cleanly instead of erroring out
     }
 
-    bool resuming = resumed_offset > 0;
-    std::ofstream out(part_path, std::ios::binary | (resuming ? std::ios::app : std::ios::trunc));
-    if (!out) {
-        result.error = "could not open destination file: " + part_path;
-        return result;
-    }
-
-    httplib::Headers hdrs;
-    if (resuming) {
-        hdrs.emplace("Range", "bytes=" + std::to_string(resumed_offset) + "-");
-    }
-
-    // Set once headers arrive, before any body bytes are read - this is
-    // what lets a Range request that the server ignored (200 instead of
-    // 206) be caught and corrected before a single byte is (mis)appended.
-    int response_status = 0;
-    auto response_handler = [&](const httplib::Response& res) {
-        response_status = res.status;
-        if (resuming && res.status != 206) {
-            resuming = false;
-            resumed_offset = 0;
-            out.close();
-            out.open(part_path, std::ios::binary | std::ios::trunc);
-        }
-        return static_cast<bool>(out);
-    };
-
-    std::unique_ptr<progress::bar> pb;
-    auto res = cli.Get(
-        path, hdrs, response_handler,
-        [&](const char* data, std::size_t len) {
-            out.write(data, static_cast<std::streamsize>(len));
-            return static_cast<bool>(out);
-        },
-        [&](std::size_t current, std::size_t total) {
-            // `current`/`total` are relative to this response's own body
-            // (e.g. the *remaining* bytes on a 206), not the whole file;
-            // offset both by what a resume already had on disk so the bar
-            // reflects the true, total-file progress.
-            if (show_progress) {
-                auto bar_total = total_size > 0 ? static_cast<std::size_t>(total_size)
-                                                : resumed_offset + total;
-                if (bar_total > 0) {
-                    if (!pb) {
-                        pb = std::make_unique<progress::bar>(bar_total, "downloading");
-                    }
-                    pb->set_progress(static_cast<std::size_t>(resumed_offset) + current);
-                }
-            }
-            return true;
-        });
-    if (pb) {
-        pb->finish();
-    }
-    out.close();
-
-    const bool got_real_content = response_status == 200 || response_status == 206;
-    if (!res) {
-        if (!got_real_content) {
-            // Never got past the response headers with useful status -
-            // whatever is in .part (if anything) isn't valid content.
-            std::remove(part_path.c_str());
-        }
-        result.status = response_status;
-        result.error = "request failed (connection error)";
-        return result;
-    }
-
-    result.status = res->status;
-    if (res->status == 200 || res->status == 206) {
-        result.ok = replace_file(part_path, dest_path);
-        if (!result.ok) {
-            result.error = "downloaded but could not rename " + part_path + " to " + dest_path;
-        }
-    } else {
-        std::remove(part_path.c_str()); // an error page, not real content - don't keep it
-        result.error = "request failed with status " + std::to_string(res->status);
+    file_target target(part_path, true, offset, total_size, show_progress);
+    const transfer_result t = transfer(url_str, follow_redirects, timeout_seconds, offset, target);
+    result = to_result(t);
+    if (t.ok) {
+        result.ok = fs::replace(part_path, dest_path);
+        if (!result.ok) result.error = "downloaded but could not rename " + part_path + " to " + dest_path;
+    } else if (!t.real_content) {
+        fs::remove_file(part_path); // never got real content (an error page, no connection): .part is not valid
     }
     return result;
 }
 
 // The checksum file is one short line; anything longer is read only as far as parse_sha256_checksum needs to reject it.
 std::string read_prefix(const std::string& path, std::size_t limit) {
-    std::ifstream in(path, std::ios::binary);
+    std::ifstream in(fs::native(path), std::ios::binary);
     std::string text(limit, '\0');
     in.read(&text[0], static_cast<std::streamsize>(limit));
     text.resize(static_cast<std::size_t>(in.gcount()));
@@ -309,28 +239,9 @@ std::string read_prefix(const std::string& path, std::size_t limit) {
 }
 
 // ---- the cross-process lock (download::lock) -------------------------------------------------------------------
-// No <filesystem> (see the macOS 10.13 note above): mkdir/rmdir plus plain files are all it needs. Creating a
-// directory is atomic everywhere, so whoever creates "<dest>.lock" owns it. Liveness is judged by the waiter's own
-// clock from whether `alive` *changes*, not from file times, so clock skew and coarse mtimes do not matter.
-
-// Returns true if the directory was created; `exists` tells "already there" apart from "cannot create it".
-bool make_dir(const std::string& path, bool& exists) {
-#ifdef _WIN32
-    const int r = _mkdir(path.c_str());
-#else
-    const int r = mkdir(path.c_str(), 0777);
-#endif
-    exists = r != 0 && errno == EEXIST;
-    return r == 0;
-}
-
-void remove_dir(const std::string& path) {
-#ifdef _WIN32
-    _rmdir(path.c_str());
-#else
-    rmdir(path.c_str());
-#endif
-}
+// Creating a directory is atomic everywhere, so whoever creates "<dest>.lock" owns it (fs::make_dir). Liveness is
+// judged by the waiter's own clock from whether `alive` *changes*, not from file times, so clock skew and coarse mtimes
+// do not matter.
 
 long current_pid() {
 #ifdef _WIN32
@@ -353,22 +264,22 @@ public:
         auto last_change = clock::now();
         bool first = true;
         for (;;) {
-            bool exists = false;
-            if (make_dir(path_, exists)) {
+            const fs::made made = fs::make_dir(path_);
+            if (made == fs::made::created) {
                 owned_ = true;
                 break;
             }
-            if (!exists) break; // cannot create it (read-only directory?): go on without a lock
+            if (made == fs::made::failed) break; // cannot create it (read-only directory?): go on without a lock
             waited_ = true;
-            const std::string seen = read_prefix(path_ + "/alive", 64);
+            const std::string seen = read_prefix(fs::join(path_, "alive"), 64);
             const auto now = clock::now();
             if (first || seen != last_seen) { // the owner is alive (or this is the first look)
                 last_seen = seen;
                 last_change = now;
                 first = false;
             } else if (now - last_change > stale_after) { // no sign of life for the whole timeout: its owner died
-                std::remove((path_ + "/alive").c_str());
-                remove_dir(path_);
+                fs::remove_file(fs::join(path_, "alive"));
+                fs::remove_dir(path_);
                 first = true;
                 continue;
             }
@@ -389,8 +300,8 @@ public:
         }
         wake_.notify_all();
         if (heart_.joinable()) heart_.join();
-        std::remove((path_ + "/alive").c_str());
-        remove_dir(path_);
+        fs::remove_file(fs::join(path_, "alive"));
+        fs::remove_dir(path_);
     }
 
     dir_lock(const dir_lock&) = delete;
@@ -401,7 +312,7 @@ public:
 
 private:
     void beat(unsigned long long n) const {
-        std::ofstream out(path_ + "/alive", std::ios::binary | std::ios::trunc);
+        std::ofstream out(fs::native(fs::join(path_, "alive")), std::ios::binary | std::ios::trunc);
         out << current_pid() << ' ' << n << '\n';
     }
 
@@ -434,7 +345,7 @@ struct job {
     bool progress = true, follow = true, resume = false, force = false;
     std::string sha256, sha256_url;
     bool use_sha256_url = false;
-    long timeout_seconds = 0; // 0: cpp-httplib's defaults for the network, 15 s for the lock
+    long timeout_seconds = 0; // 0: the default (300 s) for the network, 15 s for the lock
     std::chrono::milliseconds max_wait{2000}; // how long an unchanged lock is waited for
 };
 
@@ -461,12 +372,12 @@ bool expected_digest(const job& j, std::string& digest, std::string& error) {
         const std::string tmp = j.dest + ".sha256.part";
         const download_result got = run_plain(sum_url, tmp, false, j.follow, j.timeout_seconds);
         if (!got.ok) {
-            std::remove(tmp.c_str());
+            fs::remove_file(tmp);
             error = "could not download the checksum file " + sum_url + ": " + got.error;
             return false;
         }
         const std::string text = read_prefix(tmp, 1025);
-        std::remove(tmp.c_str());
+        fs::remove_file(tmp);
         try {
             digest = parse_sha256_checksum(text, file_name_of(j.url));
         } catch (const std::exception& e) {
@@ -526,7 +437,7 @@ download_result execute(const job& j) {
         r.sha256 = actual;
         if (actual == expected) return r;
 
-        std::remove(j.dest.c_str());  // never leave a file that failed its check
+        fs::remove_file(j.dest);  // never leave a file that failed its check
         if (j.resume && !force && attempt == 0) {
             force = true;  // a stale or corrupt file / .part was trusted: once more, from byte 0
             continue;

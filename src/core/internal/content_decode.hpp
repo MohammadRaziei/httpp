@@ -1,7 +1,7 @@
 #pragma once
 
 // Internal. Undo a response's Content-Encoding in place (gzip, x-gzip, deflate, and chains of them), so that
-// the client hands out the real body. Used by both client engines (blocking cpp-httplib and the async one).
+// the client hands out the real body. Used by the client engine (blocking and async calls alike).
 //
 // Headers are left as received (like requests and httpx): Content-Encoding and Content-Length still describe
 // what was on the wire. An encoding we do not advertise (br, zstd, compress) leaves the body untouched.

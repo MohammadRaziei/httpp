@@ -85,8 +85,8 @@ public:
     // checksum file (an HTML error page, say) fails the call without downloading anything. Overrides sha256().
     HTTPP_API download& sha256_url(std::string checksum_url = "");
 
-    // Seconds, for connecting, reading and writing (like client::set_timeout); 0 or less keeps cpp-httplib's
-    // defaults for those. It is also how long a download waits for another process that holds the same file's
+    // Seconds, for connecting, reading and writing (like client::set_timeout); 0 or less keeps the default
+    // (300 s) for those. It is also how long a download waits for another process that holds the same file's
     // lock (below) while that lock shows no sign of life: see "Locking".
     HTTPP_API download& set_timeout(long seconds);
 

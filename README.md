@@ -545,7 +545,7 @@ Not supported: ASGI middleware. `HTTPSRedirectMiddleware` sends plain requests t
 
 ## Build from source
 
-Most dependencies are vendored (`cpp-httplib`, unmodified; `llhttp`, unmodified) or git submodules
+Most dependencies are vendored (`llhttp`, unmodified) or git submodules
 (`mbedtls`, `liburlparser`, `asio`). The full history of the `mbedtls` submodule is large; if you only need the source, clone
 with `git clone --depth 1 --recurse-submodules --shallow-submodules`.
 
@@ -575,8 +575,8 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
   on those platforms is the real check.
 - There is no ASGI or WSGI interface (see above), so ASGI/WSGI applications such as FastAPI or Flask
   cannot be mounted on it yet.
-- `cpp-httplib` (unmodified) now serves only downloads and the `curl` helper; the server and the async engine are
-  our own (Asio + llhttp). It is planned to retire it once downloads move to our engine too.
+- cpp-httplib is no longer used: the server, the client (blocking and async) and downloads all run on our own
+  engines (Asio + llhttp + mbedTLS), see ADR-0051 to ADR-0053.
 - The libcurl compatibility layer covers a subset of `curl_easy_*`.
 - `--workers` is Linux only.
 

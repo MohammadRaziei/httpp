@@ -18,8 +18,8 @@ if(DEFINED SKBUILD)
         set(Python_SOABI ${SKBUILD_SOABI})
     endif()
 
-    # Create the Python extension module. httpp_core (httplib.h compiled
-    # in, hidden visibility) is linked PRIVATE, so httplib never leaks
+    # Create the Python extension module. httpp_core (mbedtls and the
+    # parsers compiled in, hidden visibility) is linked PRIVATE, so they never leak
     # into this .so's public symbols or into the Python package's headers.
     python_add_library(httpp_cy MODULE "${httpp_cxx_file}" WITH_SOABI ${USE_SABI})
 

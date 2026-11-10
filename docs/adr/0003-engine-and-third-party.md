@@ -1,6 +1,6 @@
 # ADR-0003: Network engine = Asio + llhttp + Mbed TLS; cpp-httplib only for the sync client
 
-- **Status:** accepted
+- **Status:** accepted; the cpp-httplib part was superseded by ADR-0051 to ADR-0053 (removed)
 - **Decided by:** the project owner
 - **Source:** `Architecture.md` sections 3 and 6, `src/third_party/README.md`
 

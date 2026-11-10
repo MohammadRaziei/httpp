@@ -90,6 +90,21 @@ UTEST(log, debug_level_shows_connection_level_detail) {
     ASSERT_TRUE(c.lines.size() >= 2); // the warning plus trace/debug lines (connection closed ...)
 }
 
+UTEST(log, a_file_name_is_utf8_and_a_missing_directory_is_reported) {
+    log_guard g;
+    const std::string path = "httpp_test_log_\xD9\x84\xD9\x88\xD8\xAC.txt"; // a Persian word, in UTF-8
+    std::remove(path.c_str());
+    ASSERT_TRUE(httpp::set_log_file(path));
+    httpp::set_log_level(httpp::log_level::warning);
+    trigger_warning();
+    httpp::set_log_file("");
+    std::ifstream in(path);
+    ASSERT_TRUE(in.good());
+    in.close();
+    std::remove(path.c_str());
+    ASSERT_FALSE(httpp::set_log_file("no_such_directory_for_httpp/log.txt"));
+}
+
 UTEST(log, can_write_to_a_file_and_back_to_stderr) {
     log_guard g;
     const std::string path = "httpp_test_log.txt";

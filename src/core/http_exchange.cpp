@@ -130,6 +130,35 @@ bool session_settings::make_spec(const endpoint& where, const std::string& metho
     return true;
 }
 
+endpoint endpoint_of(const url& u, bool with_base_path) {
+    endpoint e;
+    e.scheme = u.scheme();
+    e.host = u.host();
+    e.port = u.port();
+    if (with_base_path) {
+        std::string p = u.path();
+        while (!p.empty() && p.back() == '/') p.pop_back();
+        e.base_path = std::move(p);
+    }
+    return e;
+}
+
+bool session_settings::make_spec_for_url(const std::string& full_url, const std::string& extra_query,
+                                         const std::string& method, const header_list& call_headers,
+                                         std::string body_bytes, std::string ctype, request_spec& out,
+                                         response& error) const {
+    const url u = url::parse(full_url);
+    if (!u.valid()) {
+        error = failed_response(error_kind::invalid_url, "not a usable http(s) URL: " + full_url);
+        return false;
+    }
+    std::string query = u.query();
+    if (!extra_query.empty()) query += (query.empty() ? "" : "&") + extra_query;
+    std::string target = u.path().empty() ? "/" : u.path();
+    if (!query.empty()) target += "?" + query;
+    return make_spec(endpoint_of(u, false), method, target, call_headers, std::move(body_bytes), std::move(ctype), out, error);
+}
+
 // --- one hop, and the redirect loop ---
 
 async_job make_job(const request_spec& s) {
@@ -155,6 +184,15 @@ async_job make_job(const request_spec& s) {
     j.keep_alive = s.keep_alive;
     j.proxy_host = s.proxy_host;
     j.proxy_port = s.proxy_port;
+    if (s.sink) { // a redirect we follow is not for the sink: its body is thrown away
+        auto inner = s.sink;
+        const bool follow = s.follow;
+        j.sink = std::make_shared<body_sink>();
+        j.sink->on_head = [inner, follow](const response& head) {
+            return follow && is_redirect(head.status) ? body_sink::verdict::skip : inner->on_head(head);
+        };
+        j.sink->on_data = inner->on_data;
+    }
     return j;
 }
 
@@ -200,13 +238,15 @@ bool resolve_location(const request_spec& cur, std::string loc, request_spec& ne
     return true;
 }
 
+bool is_redirect(int status) { return status == 301 || status == 302 || status == 303 || status == 307 || status == 308; }
+
+async_http& engine_for(const request_spec& spec) { return spec.sink ? download_async_http() : shared_async_http(); }
+
 namespace {
 
 bool same_origin(const request_spec& a, const request_spec& b) {
     return a.scheme == b.scheme && a.host == b.host && a.port == b.port;
 }
-
-bool is_redirect(int status) { return status == 301 || status == 302 || status == 303 || status == 307 || status == 308; }
 
 std::string location_of(const response& r) {
     for (const auto& [name, value] : r.headers)
@@ -217,7 +257,7 @@ std::string location_of(const response& r) {
 } // namespace
 
 void run_chain(std::shared_ptr<request_spec> spec, std::function<void(response)> done) {
-    shared_async_http().submit(make_job(*spec), [spec, done = std::move(done)](response r) mutable {
+    engine_for(*spec).submit(make_job(*spec), [spec, done = std::move(done)](response r) mutable {
         if (!spec->follow || !is_redirect(r.status)) return done(std::move(r));
         request_spec next;
         if (!resolve_location(*spec, location_of(r), next)) return done(std::move(r)); // nothing usable: the 3xx is the answer
@@ -240,7 +280,7 @@ void run_chain(std::shared_ptr<request_spec> spec, std::function<void(response)>
 }
 
 response run_blocking(std::shared_ptr<request_spec> spec) {
-    if (shared_async_http().on_loop_thread())
+    if (engine_for(*spec).on_loop_thread())
         return failed_response(error_kind::other, "blocking call made on the network thread (inside an async callback); use the async API there");
     auto promise = std::make_shared<std::promise<response>>();
     auto future = promise->get_future();

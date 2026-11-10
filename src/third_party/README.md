@@ -1,7 +1,6 @@
 # third_party
 
-Vendored dependencies. Each is either a committed file (`cpp-httplib`,
-`indicators`, `llhttp`, `stb_inflate`, `stb_deflate`) or a git submodule built from source (`mbedtls`,
+Vendored dependencies. Each is either a committed file (`indicators`, `llhttp`, `stb_inflate`, `stb_deflate`) or a git submodule built from source (`mbedtls`,
 `liburlparser`, `asio`), never a system package.
 
 ## llhttp
@@ -11,17 +10,17 @@ HTTP/1.x parser of the async server and client. The checksums are in `llhttp/VEN
 steps; the files were also compared byte for byte with the upstream tag. It is built as its own C static target
 (`httpp_llhttp` in the top `CMakeLists.txt`) so the generated code does not get httpp's warning flags.
 
-## cpp-httplib
+## Derived from cpp-httplib (no longer vendored)
 
-`cpp-httplib/httplib.h` is the **unmodified** upstream file, version 0.54.1, MIT. Only `download.cpp` and `curl.cpp`
-use it; the server, the async client and the blocking client (ADR-0051) do not. To restore or bump it:
+httpp used to vendor `cpp-httplib` v0.54.1 for its blocking client and downloads (ADR-0003); ADR-0051 to ADR-0053 moved
+all of that onto our own engine and deleted the file. Some logic in `src/core/tls_session.cpp` (where the system trust store
+is read from: Windows ROOT and CA stores, the macOS Keychain, the usual bundle files on Unix) follows `httplib.h`, which is
+MIT licensed:
 
-```sh
-wget -O src/third_party/cpp-httplib/httplib.h \
-  https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.54.1/httplib.h
 ```
-
-It is to be retired once the synchronous client is also ours.
+cpp-httplib, Copyright (c) 2026 Yuji Hirose. MIT License.
+https://github.com/yhirose/cpp-httplib
+```
 
 ## asio
 
