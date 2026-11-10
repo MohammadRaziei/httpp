@@ -1,6 +1,7 @@
 #pragma once
 
 #include "httpp/export.hpp"
+#include "httpp/path.hpp"
 
 #include <chrono>
 #include <future>
@@ -38,9 +39,9 @@ public:
     // dest_path can be given here (the common case: url + where to save
     // it) or filled in later via output() - e.g. when it isn't known yet
     // at construction time, or alongside other fluent options.
-    explicit HTTPP_API download(std::string url, std::string dest_path = "");
+    explicit HTTPP_API download(std::string url, const path& dest_path = path());
 
-    HTTPP_API download& output(std::string dest_path);
+    HTTPP_API download& output(const path& dest_path);
     HTTPP_API download& enable_progress(bool enable = true);
     HTTPP_API download& disable_progress();
 

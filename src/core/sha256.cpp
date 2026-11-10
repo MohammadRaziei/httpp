@@ -68,16 +68,16 @@ std::string sha256_hex(const void* data, std::size_t size) {
     return h.finish();
 }
 
-std::string sha256_file(const std::string& path) {
-    std::ifstream in(fs::native(path), std::ios::binary);
-    if (!in) throw std::runtime_error("cannot read " + path);
+std::string sha256_file(const path& file) {
+    std::ifstream in(file.native(), std::ios::binary);
+    if (!in) throw std::runtime_error("cannot read " + file.str());
     hash_op h;
     std::vector<char> buf(64 * 1024);
     while (in) {
         in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
         if (in.gcount() > 0) h.update(buf.data(), static_cast<std::size_t>(in.gcount()));
     }
-    if (!in.eof()) throw std::runtime_error("error while reading " + path);
+    if (!in.eof()) throw std::runtime_error("error while reading " + file.str());
     return h.finish();
 }
 

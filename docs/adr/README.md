@@ -60,6 +60,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0052](0052-downloads-stream-through-a-body-sink.md) | Downloads stream through a body sink on their own engine | accepted |
 | [0053](0053-cpp-httplib-removed.md) | cpp-httplib is removed | accepted |
 | [0054](0054-own-file-system-module.md) | An own file system module, `httpp::fs`, replaces std::filesystem | accepted |
+| [0055](0055-httpp-path-class.md) | `httpp::path`, a pathlib-shaped public path type | accepted |
 
 ## Not decided yet
 

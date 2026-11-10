@@ -231,7 +231,7 @@ public:
     // not belong to the certificate throws std::runtime_error naming the file. TLS 1.2 and 1.3, no client certificates, no session
     // resumption. Call it before listening; the files are not watched (set it again, or restart, after renewing a certificate).
     // One port serves either TLS or plain HTTP, never both: a plain request to a TLS port is dropped.
-    HTTPP_API server& set_tls(const std::string& cert_file, const std::string& key_file, const std::string& key_password = "");
+    HTTPP_API server& set_tls(const path& cert_file, const path& key_file, const std::string& key_password = "");
     // Middleware (ADR-0037): a before and an after hook that sit next to the application's own, so any number
     // can be added (see httpp/middleware.hpp for the ready-made ones). Either may be empty. Before hooks run in
     // the order of the use() calls, then the application's before(); the first that returns true answers and

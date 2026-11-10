@@ -23,7 +23,7 @@ cdef class Server:
         """Serve Swagger UI at `docs_path` from the files compiled into libhttpp, entirely in C++ (no GIL)."""
         mount_swagger_ui(self._srv[0], docs_path.encode("utf-8"), openapi_url.encode("utf-8"), title.encode("utf-8"))
 
-    def mount_file_browser(self, str base, str root, *, str title="Files", str theme="auto", str accent="", bint search=True,
+    def mount_file_browser(self, str base, root, *, str title="Files", str theme="auto", str accent="", bint search=True,
                            bint show_hidden=False, max_entries=5000, str view="list", str sort="name"):
         """Serve a read-only file browser for the folder `root` under `base` (see include/httpp/file_browser.hpp), entirely in C++ (no GIL).
         Raises ValueError for a bad `base`, a `root` that is not a folder (or is the file system root) or a bad option."""
@@ -38,7 +38,7 @@ cdef class Server:
         o.max_entries = <size_t>max_entries
         o.view = view.encode("utf-8")
         o.sort = sort.encode("utf-8")
-        mount_file_browser(self._srv[0], base.encode("utf-8"), root.encode("utf-8"), o)
+        mount_file_browser(self._srv[0], base.encode("utf-8"), _fs(root), o)
 
     def _add_cors(self, origins, str origin_regex, methods, headers, bint credentials, expose, int max_age):
         """Install the C++ CORS middleware (include/httpp/middleware.hpp); use Server.add_middleware(CORSMiddleware, ...)."""
@@ -58,13 +58,13 @@ cdef class Server:
         o.trust_forwarded_proto = trust_forwarded_proto
         add_https_redirect(self._srv[0], o)
 
-    def set_tls(self, str cert_file, str key_file, password=None):
+    def set_tls(self, cert_file, key_file, password=None):
         """Serve https and wss: a certificate chain (PEM, leaf first) and its private key (PEM; `password` when encrypted).
         The files are read now; ValueError names the file for a missing or unreadable file, bad PEM, a wrong password or a
         key that does not belong to the certificate. Before listening. One port serves TLS or plain HTTP, not both."""
         cdef string pw = b"" if password is None else (<str>password).encode("utf-8")
         try:
-            self._srv.set_tls(cert_file.encode("utf-8"), key_file.encode("utf-8"), pw)
+            self._srv.set_tls(_fs(cert_file), _fs(key_file), pw)
         except RuntimeError as e:
             raise ValueError(str(e)) from None
         return self
@@ -79,7 +79,7 @@ cdef class Server:
     def add_route(self, str method, str path, handler):
         """Low-level: register `handler` for `method` + `path` ("/users/:id").
         `handler(method, path, body, headers, query, path_params)` returns (status, body, headers):
-        body is bytes, or a str = path of a file to stream (trusted, never from user input), or a
+        body is bytes, or a str / pathlib.Path = path of a file to stream (trusted, never from user input), or a
         callable returning the next bytes piece / None when done (chunked). headers: list of pairs.
         Use the decorators on httpp.Server (see httpp/server.py) instead.
         Must be called before listen()."""

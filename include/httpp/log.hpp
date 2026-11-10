@@ -7,6 +7,7 @@
 // the lines to your own logger with set_log_callback().
 
 #include "httpp/export.hpp"
+#include "httpp/path.hpp"
 
 #include <functional>
 #include <string>
@@ -20,7 +21,7 @@ HTTPP_API void set_log_level(log_level level);
 
 // Writes the log to this file (truncated) instead of stderr; "" goes back to stderr.
 // Returns false (and keeps the previous output) if the file cannot be opened.
-HTTPP_API bool set_log_file(const std::string& path);
+HTTPP_API bool set_log_file(const path& file);
 
 // Sends every message that passes the level to `fn(level, where, message)`, replacing stderr/file
 // output. `where` is the function that logged. `fn` may be called from any library thread, one call

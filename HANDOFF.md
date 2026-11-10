@@ -1,6 +1,8 @@
 # httpp hand-off (consolidated, 2026-11-05; updates 2026-11-06 and 2026-11-07 below)
 
-> **Update 2026-11-10 (later): the owner said "no filesystem, write our own": `httpp::fs` (`src/core/internal/fs.{hpp,cpp}`, ADR-0054) replaces std::filesystem and five private copies of file operations (download, file_browser, server, CLI, logging); `fs.cpp` is also compiled into the CLI and the test program. The Windows half was written without Windows and the macOS build was not run: both are for CI. Next free ADR number: 0055.
+> **Update 2026-11-11: `httpp::path` (ADR-0055, public header `httpp/path.hpp`) is the pathlib-shaped path type of the public API; Python takes `pathlib.Path` everywhere (`_fs()` in `cy/client.pxi`). Next free ADR number: 0056.
+>
+> **Update 2026-11-10 (later): the owner said "no filesystem, write our own": `httpp::fs` (`src/core/internal/fs.{hpp,cpp}`, ADR-0054) replaces std::filesystem and five private copies of file operations (download, file_browser, server, CLI, logging); `fs.cpp` is also compiled into the CLI and the test program. The Windows half was written without Windows and the macOS build was not run: both are for CI. Next free ADR number: 0056 (see the newer update).
 >
 > **Update 2026-11-10 (earlier): macOS CI fix.** The previous CI run failed on macOS (`std::filesystem::path` in `internal/logging.hpp`, unavailable below 10.15): `file_handler` takes a UTF-8 string now. Guard test `tests/python/test_portability_sources.py`. Python log bridge: `Py_IsInitialized()` check in the trampoline and an atexit unhook (from libstb's bridge fix). libstb diff since the port: core logging files unchanged since 2026-11-05; NOT ported (waiting for the owner): the OS handlers (`logging_os`: syslog, logcat, os_log, OutputDebugString, Event Log). Linux: C++ 480/480, Python 851 passed, 1 skipped. macOS/Windows not run here.
 >

@@ -585,12 +585,12 @@ struct server::impl {
         }
 
         if (!res.file.empty()) {
-            const long long size = file_size(res.file);
+            const long long size = file_size(res.file.str());
             if (size < 0) return failure(404, "Not Found");
             if (offset > size) offset = size;
             const long long len = length < 0 ? size - offset : std::min(length, size - offset);
             w.length = len;
-            auto in = std::make_shared<std::ifstream>(fs::native(res.file), std::ios::binary);
+            auto in = std::make_shared<std::ifstream>(res.file.native(), std::ios::binary);
             w.next = [in, pos = offset, end = offset + len](std::string& piece) mutable {
                 if (pos >= end) return false;
                 const std::size_t n = static_cast<std::size_t>(std::min<long long>(128 * 1024, end - pos));
@@ -1295,9 +1295,9 @@ server& server::set_write_timeout(int seconds) { impl_->configure([seconds](deta
 server& server::set_keep_alive_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_keep_alive_timeout(seconds); }); return *this; }
 server& server::set_keep_alive_max(std::size_t requests) { impl_->configure([requests](detail::async_server& e) { e.set_keep_alive_max(requests); }); return *this; }
 server& server::set_max_body(std::size_t bytes) { impl_->configure([bytes](detail::async_server& e) { e.set_max_body(bytes); }); return *this; }
-server& server::set_tls(const std::string& cert_file, const std::string& key_file, const std::string& key_password) {
+server& server::set_tls(const path& cert_file, const path& key_file, const std::string& key_password) {
     std::string error;
-    auto ctx = detail::make_tls_server_context(cert_file, key_file, key_password, error);
+    auto ctx = detail::make_tls_server_context(cert_file.str(), key_file.str(), key_password, error);
     if (!ctx) throw std::runtime_error("set_tls: " + error);
     impl_->configure([ctx](detail::async_server& e) { e.set_tls(ctx); });
     impl_->tls_on = true;

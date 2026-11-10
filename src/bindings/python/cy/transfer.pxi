@@ -52,15 +52,15 @@ cdef class Download:
     """
     cdef cpp_download* _dl
 
-    def __init__(self, str url, str dest_path=""):
-        self._dl = new cpp_download(url.encode("utf-8"), dest_path.encode("utf-8"))
+    def __init__(self, str url, dest_path=""):
+        self._dl = new cpp_download(url.encode("utf-8"), _fs(dest_path))
 
     def __dealloc__(self):
         if self._dl is not NULL:
             del self._dl
 
-    def output(self, str dest_path):
-        self._dl.output(dest_path.encode("utf-8"))
+    def output(self, dest_path):
+        self._dl.output(_fs(dest_path))
         return self
 
     def enable_progress(self, cbool enable=True):
@@ -144,8 +144,7 @@ def sha256_hex(data):
 def sha256_file(path):
     """SHA-256 of a whole file, read in chunks. RuntimeError if it cannot be opened or read
     (C++: httpp::sha256_file)."""
-    import os
-    cdef string p = os.fspath(path).encode("utf-8")
+    cdef string p = _fs(path)
     cdef string res
     with nogil:
         res = cpp_sha256_file(p)
@@ -358,9 +357,9 @@ cdef class Request:
         self._req.verify(enable)
         return self
 
-    def ca_file(self, str path):
+    def ca_file(self, path):
         """https: trust this CA bundle instead of the system's."""
-        self._req.ca_file(path.encode("utf-8"))
+        self._req.ca_file(_fs(path))
         return self
 
     def proxy(self, str host, int port):
@@ -458,7 +457,7 @@ cdef class _AsyncClientCore:
         self._cli = NULL
 
     def __init__(self, str base_url, size_t max_connections=8, *, headers=None, timeout=None,
-                 cbool follow_redirects=False, auth=None, token=None, cbool verify=True, str ca_file=None,
+                 cbool follow_redirects=False, auth=None, token=None, cbool verify=True, ca_file=None,
                  proxy=None):
         self._cli = new cpp_async_client(base_url.encode("utf-8"), max_connections)
         _apply_client_options(self._cli, headers, timeout, follow_redirects, auth, token, verify, ca_file, proxy)

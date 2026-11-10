@@ -7,6 +7,10 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Added
+
+- **`httpp::path`** (ADR-0055, `httpp/path.hpp`): a pathlib-shaped path type for C++ (`/`, `name`, `stem`, `suffix`, `parent`, `exists`, `open`, `read_text`, `path::cwd()`, `as_uri`, ...). The public API that names a file takes it (strings still convert): `download`, `sha256_file`, `set_log_file`, `set_ca_file`, `set_tls`, `mount_file_browser`, `response::file`. In Python every path argument now also takes a `pathlib.Path`.
+
 ### Fixed
 
 - **No more `std::filesystem` anywhere in the library or the CLI** (ADR-0054): an internal `httpp::fs` module (POSIX calls, the wide Win32 API on Windows, UTF-8 paths) is used by downloads, the file browser, static files, the logging module, TLS certificate loading, `sha256_file` and the CLI. This removes the macOS 10.13 build break and five private copies of the same operations. On Windows, non-ASCII file names now work in all of them.

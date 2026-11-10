@@ -29,6 +29,6 @@ struct file_browser_options {
 // symlinks that lead out of it are refused, and a missing, hidden or outside path gets the same 404. Names that are not valid UTF-8 are left out of
 // the listing. The `before` hook of the server runs first, so it is the place for authentication (this browser has none of its own).
 // Throws std::invalid_argument for a bad `base` (must start with '/'), an `root` that is not a folder, the root of the file system, or a bad option.
-HTTPP_API void mount_file_browser(server& s, const std::string& base, const std::string& root, const file_browser_options& options = {});
+HTTPP_API void mount_file_browser(server& s, const std::string& base, const path& root, const file_browser_options& options = {});
 
 } // namespace httpp

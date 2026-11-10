@@ -189,7 +189,8 @@ response json_error(int status, const char* text) {
 
 } // namespace
 
-void mount_file_browser(server& s, const std::string& base, const std::string& root, const file_browser_options& o) {
+void mount_file_browser(server& s, const std::string& base, const path& root_dir, const file_browser_options& o) {
+    const std::string& root = root_dir.str();
     std::string prefix = base;
     while (!prefix.empty() && prefix.back() == '/') prefix.pop_back(); // "/" -> "" (the root of the server)
     if (base.empty() || base[0] != '/') throw std::invalid_argument("mount_file_browser: base must start with '/'");

@@ -451,11 +451,11 @@ download_result execute(const job& j) {
 
 } // namespace
 
-download::download(std::string url, std::string dest_path)
-    : url_(std::move(url)), dest_path_(std::move(dest_path)) {}
+download::download(std::string url, const path& dest_path)
+    : url_(std::move(url)), dest_path_(dest_path.str()) {}
 
-download& download::output(std::string dest_path) {
-    dest_path_ = std::move(dest_path);
+download& download::output(const path& dest_path) {
+    dest_path_ = dest_path.str();
     return *this;
 }
 

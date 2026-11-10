@@ -1,6 +1,7 @@
 #pragma once
 
 #include "httpp/export.hpp"
+#include "httpp/path.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -42,7 +43,8 @@ struct response {
     // --- Server side only (what a route handler fills in) ---
     // If set, the body is streamed from this file, with a known Content-Length. Set Content-Type
     // yourself if it matters. The path is trusted: never build it from user input.
-    std::string file;
+    //   res.file = httpp::path("public") / "index.html";
+    path file;
     // If set, the body is produced piece by piece with chunked transfer encoding. It is called
     // repeatedly with the number of bytes sent so far: put the next piece in `chunk` and return
     // true, or return false when the body is complete (a non-empty `chunk` returned together with
@@ -160,7 +162,7 @@ public:
     HTTPP_API client& set_bearer_token(const std::string& token);
     HTTPP_API client& set_proxy(const std::string& host, int port);
     HTTPP_API client& set_verify(bool enable); // https: verify the server certificate (default true)
-    HTTPP_API client& set_ca_file(const std::string& path); // https: trust this CA bundle instead of the system's
+    HTTPP_API client& set_ca_file(const path& file); // https: trust this CA bundle instead of the system's
     HTTPP_API client& set_keep_alive(bool enable); // default true
 
     // Parse `full_url` (via httpp::url) and GET it in one call - handles
@@ -221,7 +223,7 @@ public:
         // https: verify the server certificate (default true), or trust this CA bundle instead of
         // the system's. And an HTTP proxy.
         HTTPP_API request& verify(bool enable);
-        HTTPP_API request& ca_file(std::string path);
+        HTTPP_API request& ca_file(const path& file);
         HTTPP_API request& proxy(std::string host, int port);
 
         // Upper bound, in bytes, on the response body this request will
@@ -292,7 +294,7 @@ public:
     HTTPP_API async_client& set_basic_auth(const std::string& user, const std::string& password);
     HTTPP_API async_client& set_bearer_token(const std::string& token);
     HTTPP_API async_client& set_verify(bool enable);
-    HTTPP_API async_client& set_ca_file(const std::string& path);
+    HTTPP_API async_client& set_ca_file(const path& file);
     HTTPP_API async_client& set_proxy(const std::string& host, int port);
 
 private:

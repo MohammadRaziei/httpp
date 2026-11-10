@@ -124,8 +124,8 @@ client& client::set_verify(bool enable) {
     impl_->settings.update([&](session_settings& s) { s.verify = enable; });
     return *this;
 }
-client& client::set_ca_file(const std::string& path) {
-    impl_->settings.update([&](session_settings& s) { s.ca_file = path; });
+client& client::set_ca_file(const path& file) {
+    impl_->settings.update([&](session_settings& s) { s.ca_file = file.str(); });
     return *this;
 }
 client& client::set_keep_alive(bool enable) {
@@ -217,7 +217,7 @@ client::request& client::request::cookie(std::string name, std::string value) {
 client::request& client::request::timeout(long seconds) { impl_->settings.timeout = seconds; return *this; }
 client::request& client::request::follow_redirects(bool enable) { impl_->settings.follow = enable; return *this; }
 client::request& client::request::verify(bool enable) { impl_->settings.verify = enable; return *this; }
-client::request& client::request::ca_file(std::string path) { impl_->settings.ca_file = std::move(path); return *this; }
+client::request& client::request::ca_file(const path& file) { impl_->settings.ca_file = file.str(); return *this; }
 client::request& client::request::proxy(std::string host, int port) {
     impl_->settings.proxy_host = std::move(host);
     impl_->settings.proxy_port = port;
@@ -357,6 +357,6 @@ async_client& async_client::set_proxy(const std::string& host, int port) {
     return *this;
 }
 async_client& async_client::set_verify(bool enable) { impl_->settings.verify = enable; return *this; }
-async_client& async_client::set_ca_file(const std::string& path) { impl_->settings.ca_file = path; return *this; }
+async_client& async_client::set_ca_file(const path& file) { impl_->settings.ca_file = file.str(); return *this; }
 
 } // namespace httpp

@@ -169,6 +169,11 @@ ctypedef fused _cpp_http_client:
     cpp_async_client
 
 
+cdef bytes _fs(object p):
+    """A path argument (str, bytes or any os.PathLike such as pathlib.Path) as the bytes C++ httpp::path takes (ADR-0055)."""
+    return os.fsencode(p)
+
+
 cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, cbool follow_redirects, auth, token,
                                 cbool verify, ca_file, proxy) except *:
     """The options httpp.Client and httpp.AsyncClient share (the C++ client and async_client have the same setters)."""
@@ -186,7 +191,7 @@ cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, cbool f
     if not verify:
         cli.set_verify(False)
     if ca_file is not None:
-        cli.set_ca_file((<str>ca_file).encode("utf-8"))
+        cli.set_ca_file(_fs(ca_file))
     if proxy is not None:
         cli.set_proxy((<str>proxy[0]).encode("utf-8"), <int>proxy[1])
 
@@ -206,7 +211,7 @@ cdef class Client:
     cdef cpp_client* _cli
 
     def __init__(self, str host_or_url, port=None, cbool ssl=False, *, headers=None, timeout=None,
-                 cbool follow_redirects=False, auth=None, token=None, cbool verify=True, str ca_file=None,
+                 cbool follow_redirects=False, auth=None, token=None, cbool verify=True, ca_file=None,
                  proxy=None, cbool keep_alive=True):
         if port is None:
             self._cli = new cpp_client(host_or_url.encode("utf-8"))

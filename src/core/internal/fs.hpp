@@ -32,6 +32,9 @@ info lstat(const std::string& path);
 // The absolute path with every link resolved ("" when it does not exist), as the same kind of string stat takes.
 std::string real(const std::string& path);
 
+// The current working directory ("" when it cannot be read), with "/" separators.
+std::string cwd();
+
 // `path` and `root` both come from real(): is `path` the root itself or something below it? Never true for a
 // sibling that merely starts with the same letters ("/data2" is not inside "/data").
 bool is_inside(const std::string& path, const std::string& root);

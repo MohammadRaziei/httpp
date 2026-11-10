@@ -90,6 +90,18 @@ info stat(const std::string& path) {
 
 info lstat(const std::string& path) { return stat(path); }
 
+std::string cwd() {
+    const DWORD n = GetCurrentDirectoryW(0, nullptr);
+    if (n == 0) return std::string();
+    std::wstring wide(n, L'\0');
+    const DWORD got = GetCurrentDirectoryW(n, &wide[0]);
+    if (got == 0 || got >= n) return std::string();
+    wide.resize(got);
+    std::string out = narrow(wide);
+    for (auto& c : out) if (c == '\\') c = '/';
+    return out;
+}
+
 std::string real(const std::string& path) {
     const HANDLE h = CreateFileW(native(path.empty() ? "." : path).c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                  nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
@@ -171,6 +183,16 @@ info lstat(const std::string& path) {
     out.link = S_ISLNK(st.st_mode);
     if (out.link) out.type = kind::other; // what the link is, is stat()'s answer
     return out;
+}
+
+std::string cwd() {
+    std::string buf(4096, '\0');
+    while (!::getcwd(&buf[0], buf.size())) {
+        if (errno != ERANGE || buf.size() > (1u << 20)) return std::string();
+        buf.resize(buf.size() * 2);
+    }
+    buf.resize(buf.find('\0'));
+    return buf;
 }
 
 std::string real(const std::string& path) {

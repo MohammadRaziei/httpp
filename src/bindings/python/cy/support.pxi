@@ -111,7 +111,7 @@ def set_log_level(level):
 
 def set_log_file(path):
     """Write the library's log to `path` (truncated) instead of stderr; "" goes back to stderr."""
-    cdef string p = os.fsencode(path) if path else b""
+    cdef string p = _fs(path) if path else b""
     cdef cbool ok
     with nogil:
         ok = cpp_set_log_file(p)

@@ -59,7 +59,8 @@ state& st() {
 
 void set_log_level(log_level level) { st().level = static_cast<int>(level); }
 
-bool set_log_file(const std::string& path) {
+bool set_log_file(const path& file) {
+    const std::string& path = file.str();
     auto& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
     if (path.empty()) {

@@ -155,13 +155,13 @@ cdef void _fill_response(response& res, int status, object body, object headers)
     # body: bytes (as is) | str (path of a file to stream, trusted) | callable (stream provider).
     if isinstance(body, bytes):
         res.body = <bytes>body
-    elif isinstance(body, str):
-        res.file = os.fsencode(body)
+    elif isinstance(body, (str, os.PathLike)):
+        res.file = _fs(body)
     elif callable(body):
         Py_INCREF(body)  # owned by the C++ side now, dropped by _stream_release
         set_stream(res, _stream_next, _stream_release, <void*>body)
     else:
-        raise TypeError("response body must be bytes, a file path (str) or a stream provider")
+        raise TypeError("response body must be bytes, a file path (str or pathlib.Path) or a stream provider")
     res.status = status
     _push_headers(res, headers)
     if type(headers) is not list:  # a list subclass (httpp.server._AfterHeaders) carries the after_send job

@@ -58,6 +58,7 @@ TARGETS = {
     ("router.hpp", "router"): httpp.APIRouter,
     ("server.hpp", "request"): httpp.ServerRequest,  # httpp::request: the handler's request object
     ("url.hpp", "url"): httpp.URL,
+    ("path.hpp", "path"): None,  # pathlib.Path is the Python side of httpp::path: every path argument takes one (ADR-0055)
     ("log.hpp", ""): httpp,
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("server.hpp", ""): httpp.utils,  # mime_type_for, the same way
