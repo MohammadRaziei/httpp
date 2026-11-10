@@ -9,6 +9,8 @@ such changes are listed under **Changed**).
 
 ### Added
 
+- **`httpp/logging.hpp` is public** (ADR-0057): the Python-shaped logging module httpp logs through (`get_logger`, `logger`, `formatter`, `stream/file/callback/null_handler`, your own `handler` subclass) is installed and exported. The "httpp" logger can take extra handlers. Python keeps using its standard `logging`.
+- **`set_log_system`** (ADR-0056, C++ and Python): send the library log to the operating system's log: syslog, logcat, Apple unified logging, Windows debugger output or the Event Log (`"native"` picks the platform's usual one). Ported from libstb.
 - **`httpp::path`** (ADR-0055, `httpp/path.hpp`): a pathlib-shaped path type for C++ (`/`, `name`, `stem`, `suffix`, `parent`, `exists`, `open`, `read_text`, `path::cwd()`, `as_uri`, ...). The public API that names a file takes it (strings still convert): `download`, `sha256_file`, `set_log_file`, `set_ca_file`, `set_tls`, `mount_file_browser`, `response::file`. In Python every path argument now also takes a `pathlib.Path`.
 
 ### Fixed

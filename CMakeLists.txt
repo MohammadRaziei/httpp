@@ -225,6 +225,12 @@ if(WIN32)
     target_compile_definitions(httpp_core PRIVATE _WIN32_WINNT=0x0A00)
     target_link_libraries(httpp_core PRIVATE ws2_32 mswsock crypt32)
 endif()
+# The operating system log handlers (src/core/logging_os.cpp, ADR-0056): the Event Log lives in advapi32, logcat in liblog.
+if(WIN32)
+    target_link_libraries(httpp_core PRIVATE advapi32)
+elseif(ANDROID)
+    target_link_libraries(httpp_core PRIVATE log)
+endif()
 if(MSVC)
     # Asio's templates produce very large object files.
     set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")

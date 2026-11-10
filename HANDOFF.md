@@ -1,6 +1,10 @@
 # httpp hand-off (consolidated, 2026-11-05; updates 2026-11-06 and 2026-11-07 below)
 
-> **Update 2026-11-11: `httpp::path` (ADR-0055, public header `httpp/path.hpp`) is the pathlib-shaped path type of the public API; Python takes `pathlib.Path` everywhere (`_fs()` in `cy/client.pxi`). Next free ADR number: 0056.
+> **Update 2026-11-11 (latest): the logging module is public (`include/httpp/logging.hpp`, ADR-0057, amends 0050); `logging.cpp` is no longer compiled into the test program. Next free ADR number: 0058.
+>
+> **Update 2026-11-11 (later): `set_log_system` (ADR-0056) sends the log to the OS log (ported from libstb: `src/core/logging_os.cpp`); only syslog was run (Linux), the Android, Apple and Windows handlers were not compiled. Next free ADR number: 0057.
+>
+> **Update 2026-11-11: `httpp::path` (ADR-0055, public header `httpp/path.hpp`) is the pathlib-shaped path type of the public API; Python takes `pathlib.Path` everywhere (`_fs()` in `cy/client.pxi`). Next free ADR number: 0056 (see the newer update).
 >
 > **Update 2026-11-10 (later): the owner said "no filesystem, write our own": `httpp::fs` (`src/core/internal/fs.{hpp,cpp}`, ADR-0054) replaces std::filesystem and five private copies of file operations (download, file_browser, server, CLI, logging); `fs.cpp` is also compiled into the CLI and the test program. The Windows half was written without Windows and the macOS build was not run: both are for CI. Next free ADR number: 0056 (see the newer update).
 >

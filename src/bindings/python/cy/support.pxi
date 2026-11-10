@@ -16,6 +16,14 @@ cdef extern from "httpp/log.hpp" namespace "httpp":
         off
     void cpp_set_log_level "httpp::set_log_level"(log_level) except + nogil
     cbool cpp_set_log_file "httpp::set_log_file"(const string&) except + nogil
+    cdef enum class log_system:
+        native
+        syslog
+        android
+        unified
+        debug_string
+        event_log
+    cbool cpp_set_log_system "httpp::set_log_system"(log_system, const string&) except + nogil
 
 cdef extern from *:
     """
@@ -117,6 +125,27 @@ def set_log_file(path):
         ok = cpp_set_log_file(p)
     if not ok:
         raise OSError("cannot open log file %r" % (path,))
+
+
+_LOG_SYSTEMS = ("native", "syslog", "android", "unified", "debug_string", "event_log")  # the order of httpp::log_system
+
+
+def set_log_system(which="native", name="httpp"):
+    """Send the library's log to the operating system's log instead of stderr: "syslog" (journalctl), "android"
+    (logcat), "unified" (Apple's Console), "debug_string" (Windows debugger output), "event_log" (Windows Event
+    Viewer), or "native" for the usual one of this platform. `name` is what the system files the lines under
+    (syslog ident, unified subsystem, event source). ValueError for an unknown `which`; OSError (the previous output
+    is kept) when this platform does not have it or it cannot be opened."""
+    if which not in _LOG_SYSTEMS:
+        raise ValueError("which must be one of %s, not %r" % (", ".join(_LOG_SYSTEMS), which))
+    cdef int idx = _LOG_SYSTEMS.index(which)
+    cdef log_system sys = <log_system>idx
+    cdef string n = name.encode("utf-8")
+    cdef cbool ok
+    with nogil:
+        ok = cpp_set_log_system(sys, n)
+    if not ok:
+        raise OSError("the %s log is not available here" % which)
 
 
 cdef extern from "Python.h":

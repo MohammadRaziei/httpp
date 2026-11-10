@@ -61,6 +61,8 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0053](0053-cpp-httplib-removed.md) | cpp-httplib is removed | accepted |
 | [0054](0054-own-file-system-module.md) | An own file system module, `httpp::fs`, replaces std::filesystem | accepted |
 | [0055](0055-httpp-path-class.md) | `httpp::path`, a pathlib-shaped public path type | accepted |
+| [0056](0056-operating-system-log-handlers.md) | The operating system log handlers of libstb, behind `set_log_system` | accepted |
+| [0057](0057-public-logging-module.md) | The logging module is public: `httpp/logging.hpp` | accepted, amends 0050 |
 
 ## Not decided yet
 

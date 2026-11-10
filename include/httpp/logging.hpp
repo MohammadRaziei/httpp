@@ -1,8 +1,10 @@
 #pragma once
 
-// Internal logging module (ADR-0050), modelled on Python's `logging`: a tree of dotted logger names, handlers
-// (stream, file, callback, null, or your own class), a formatter with %(field)s patterns, levels with the same
-// numbers as Python (plus trace = 5). Ported from libstb; it replaces the vendored AixLog.
+// The logging module (ADR-0050, made public by ADR-0057), modelled on Python's `logging`: a tree of dotted logger
+// names, handlers (stream, file, callback, null, or your own class), a formatter with %(field)s patterns, levels
+// with the same numbers as Python (plus trace = 5). Ported from libstb; it replaces the vendored AixLog.
+// Python has the original: there it is the standard `logging` module, and the library's own "httpp" logger is
+// already bridged to it (httpp/_log.py). This C++ module is for C++ programs, and it is what httpp itself logs through.
 //
 //   auto& lg = httpp::logging::get_logger("httpp");
 //   lg.warning("backend %s is not available", name);        // printf style
@@ -10,7 +12,11 @@
 //
 // When no handler exists anywhere up the tree, warnings and worse still go to stderr ("last resort", as in Python).
 // Threads: every call is thread safe, a handler writes one record at a time, and logging never throws.
-// Applications do not use this directly: httpp::set_log_level / set_log_file / set_log_callback (httpp/log.hpp) drive it.
+// httpp's own lines go to the logger "httpp", which does not propagate to the root (the application's setup is
+// never touched); httpp::set_log_level / set_log_file / set_log_system / set_log_callback (httpp/log.hpp) drive it.
+
+#include "httpp/export.hpp"
+#include "httpp/path.hpp"
 
 #include <chrono>
 #include <cstdarg>
@@ -27,6 +33,11 @@
 #include <utility>
 #include <vector>
 
+
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4251) // the std members of the exported classes are private and never touched by a caller
+#endif
 
 namespace httpp::logging {
 
@@ -48,11 +59,11 @@ namespace httpp::logging {
 enum class level : int { notset = 0, trace = 5, debug = 10, info = 20, warning = 30, error = 40, critical = 50 };
 
 // "DEBUG", "INFO", ... ; "Level 15" for a number in between (as Python does).
-std::string level_name(level lv);
+HTTPP_API std::string level_name(level lv);
 
 // "debug", "WARNING", "warn", "fatal" (case does not matter) or a whole number: 25 is a level between
 // info and warning. Anything else gives nullopt.
-std::optional<level> level_from_string(std::string_view text);
+HTTPP_API std::optional<level> level_from_string(std::string_view text);
 
 // ---------------------------------------------------------------------------------------- records
 
@@ -72,7 +83,7 @@ struct record {
 // alignment, "%(levelname)-8s", and %(created) a precision, "%(created).3f". asctime is local time:
 // "2026-11-04 10:38:12,345", or, when `datefmt` is given, strftime(datefmt) (no milliseconds). A pattern
 // that is malformed or names an unknown field throws std::invalid_argument. Cheap to copy.
-class formatter {
+class HTTPP_API formatter {
 public:
     static constexpr const char* default_pattern = "%(asctime)s [%(levelname)s] %(name)s: %(message)s";
 
@@ -98,7 +109,7 @@ using filter_fn = std::function<bool(const record&)>;  // return false to drop t
 //
 // emit() is called with the handler's lock held, only for a record that passed the level and the filters,
 // so it needs no locking of its own. A handler can be moved but not copied.
-class handler {
+class HTTPP_API handler {
 public:
     handler();
     virtual ~handler();
@@ -127,7 +138,7 @@ private:
 
 // Discards everything. Python's NullHandler: put one on a library's logger to say "no output unless the
 // application configures it".
-class null_handler : public handler {
+class HTTPP_API null_handler : public handler {
 protected:
     void emit(const record&) override {}
 };
@@ -137,7 +148,7 @@ enum class color_mode { automatic, always, never };
 // One line per record on a C stream (stderr by default), flushed after every record. With
 // color_mode::automatic the line is colored by level when the stream is a terminal and NO_COLOR is not
 // set (never on Windows, where ANSI sequences need the console set up by the program: use always).
-class stream_handler : public handler {
+class HTTPP_API stream_handler : public handler {
 public:
     explicit stream_handler(std::FILE* file = stderr, color_mode color = color_mode::automatic);
 
@@ -151,11 +162,10 @@ private:
 };
 
 // One line per record appended to a file (append = false truncates it first), flushed after every record.
-// `path` is UTF-8 (converted to UTF-16 on Windows). Throws std::runtime_error when the file cannot be opened.
-// A string, not a std::filesystem::path: httpp uses no <filesystem> (ADR-0054).
-class file_handler : public handler {
+// Throws std::runtime_error when the file cannot be opened. (httpp::path, not std::filesystem::path: ADR-0054, 0055.)
+class HTTPP_API file_handler : public handler {
 public:
-    explicit file_handler(const std::string& path, bool append = true);
+    explicit file_handler(const httpp::path& file, bool append = true);
 
 protected:
     void emit(const record& r) override;
@@ -167,7 +177,7 @@ private:
 
 // Calls a function with each record (not formatted; format it with a formatter if you want a line). This
 // is how the Python binding hands records to Python's logging.
-class callback_handler : public handler {
+class HTTPP_API callback_handler : public handler {
 public:
     explicit callback_handler(std::function<void(const record&)> fn);
 
@@ -185,7 +195,7 @@ struct manager;
 }
 
 // Get loggers with get_logger(); they live until the program ends, so a reference stays valid.
-class logger {
+class HTTPP_API logger {
 public:
     ~logger();
     logger(const logger&) = delete;
@@ -248,11 +258,11 @@ private:
 // logging.getLogger(name). The same name gives the same logger. "" (or "root") is the root logger. Dotted
 // names form the tree: "httpp.server" is a child of "httpp", which is a child of the root. The root's level
 // is warning.
-logger& get_logger(std::string_view name = {});
+HTTPP_API logger& get_logger(std::string_view name = {});
 
 // logging.basicConfig: when the root logger has no handler, adds a stream_handler on stderr with the default
 // formatter; then sets the root level.
-void basic_config(level lv = level::warning);
+HTTPP_API void basic_config(level lv = level::warning);
 
 // printf for std::string, used by the logger and the formatter.
 namespace detail {
@@ -318,3 +328,7 @@ inline void sformat_to(std::string& out, HTTPP_FORMAT_STRING const char* fmt, ..
 }
 
 }  // namespace httpp::logging
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

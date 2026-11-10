@@ -27,7 +27,7 @@ if _sys.platform == "win32" and hasattr(_os, "add_dll_directory"):
 
 # Import the compiled Cython module
 from .httpp_cy import Client, download, Download, DownloadResult, Request, Response, URL
-from .httpp_cy import set_log_file, set_log_callback
+from .httpp_cy import set_log_file, set_log_system, set_log_callback
 from . import _log
 from ._log import set_log_level
 from . import progress, utils
@@ -74,5 +74,5 @@ __all__ = [
     "StreamingResponse", "FileResponse", "responses", "status", "middleware", "CORSMiddleware", "TrustedHostMiddleware", "GZipMiddleware", "HTTPSRedirectMiddleware",
     "Error", "HTTPError", "RequestError", "Timeout", "TLSError", "TooManyRedirects", "InvalidURL",
     "get_include_dir", "get_lib_dir", "get_cmake_dir",
-    "set_log_level", "set_log_file", "set_log_callback",
+    "set_log_level", "set_log_file", "set_log_system", "set_log_callback",
 ]

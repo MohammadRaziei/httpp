@@ -1,6 +1,6 @@
 # ADR-0050: An internal logging module, ported from libstb, replaces AixLog
 
-- **Status:** accepted (supersedes the logging back end chosen in ADR-0003)
+- **Status:** accepted (supersedes the logging back end chosen in ADR-0003); the module was made public by ADR-0057
 - **Source:** `src/core/internal/logging.hpp`, `src/core/logging.cpp`, `src/core/log.cpp`, `tests/cpp/test_log.cpp`
 
 ## Context

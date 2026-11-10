@@ -1,4 +1,4 @@
-#include "internal/logging.hpp"
+#include "httpp/logging.hpp"
 
 #include "internal/fs.hpp"
 
@@ -330,9 +330,9 @@ void stream_handler::do_flush() {
     if (file_) std::fflush(file_);
 }
 
-file_handler::file_handler(const std::string& path, bool append)
-    : out_(fs::native(path), append ? (std::ios::out | std::ios::app) : (std::ios::out | std::ios::trunc)) {
-    if (!out_) throw std::runtime_error("cannot open the log file " + path);
+file_handler::file_handler(const httpp::path& file, bool append)
+    : out_(file.native(), append ? (std::ios::out | std::ios::app) : (std::ios::out | std::ios::trunc)) {
+    if (!out_) throw std::runtime_error("cannot open the log file " + file.str());
 }
 
 void file_handler::emit(const record& r) {

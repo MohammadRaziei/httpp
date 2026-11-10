@@ -5,6 +5,10 @@
 // httplib symbols compiled into the .so out of the dynamic symbol table).
 // Public httpp classes/functions are marked HTTPP_API to opt back in.
 //
+// A class that callers derive from (httpp::logging::handler) is the exception: it is marked HTTPP_API as a whole,
+// because a derived class in another module needs its vtable and type information, which stay hidden otherwise;
+// that header silences MSVC's C4251 for it.
+//
 // Convention: HTTPP_API goes on individual out-of-line member functions
 // (constructors, destructors, methods implemented in src/core/*.cpp), never
 // on the class/struct itself. Marking a whole class dllexport on MSVC

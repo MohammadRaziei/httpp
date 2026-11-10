@@ -109,3 +109,15 @@ def test_bad_arguments_are_rejected():
         httpp.set_log_callback("not callable")
     with pytest.raises(OSError):
         httpp.set_log_file("/no/such/dir/x.log")
+
+
+def test_set_log_system_picks_the_operating_system_log_or_refuses():
+    import sys
+
+    with pytest.raises(ValueError):
+        httpp.set_log_system("nope")
+    if sys.platform != "win32":
+        with pytest.raises(OSError):
+            httpp.set_log_system("event_log")  # Windows only; the output stays as it was
+        assert httpp.set_log_system("native", "httpp-test") is None  # syslog on Linux, unified on macOS
+        httpp.set_log_file("")  # back to stderr
