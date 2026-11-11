@@ -81,8 +81,8 @@ def test_every_kind_of_route_answers_correctly_with_several_io_threads():
 def test_loops_follow_the_io_threads_only_without_a_gil():
     with running(make_app(4)) as base:
         names = set()
-        for _ in range(40):  # a new connection each time: spread over the I/O threads
-            names.add(Client(base).get("/loop").text)
+        for _ in range(40):  # a new connection each time (no keep-alive: clients share one pooled engine, ADR-0051): spread over the I/O threads
+            names.add(Client(base, keep_alive=False).get("/loop").text)
     lanes = {"httpp-asyncio", "httpp-asyncio-1", "httpp-asyncio-2", "httpp-asyncio-3"}  # make_app(4): one loop per I/O thread, no more
     assert names <= lanes
     if GIL_FREE:
