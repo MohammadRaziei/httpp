@@ -19,7 +19,7 @@ target_compile_definitions(test_httpp_cpp PRIVATE HTTPP_EXPECT_EMBED_GZIP=$<BOOL
 
 # The engine tests (test_async_*.cpp) drive internal classes directly. Those are not
 # exported from the shared library (hidden visibility), so compile them in.
-target_sources(test_httpp_cpp PRIVATE ${PROJECT_SOURCE_DIR}/src/core/fs.cpp ${PROJECT_SOURCE_DIR}/src/core/logging_os.cpp ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/tls_session.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp ${PROJECT_SOURCE_DIR}/src/core/websocket.cpp
+target_sources(test_httpp_cpp PRIVATE ${PROJECT_SOURCE_DIR}/src/core/logging_os.cpp ${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/tls_session.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp ${PROJECT_SOURCE_DIR}/src/core/websocket.cpp
     ${PROJECT_SOURCE_DIR}/src/core/mbedtls_threading.cpp  # registers the alt threading layer for the copy of Mbed TLS in this binary
     ${PROJECT_SOURCE_DIR}/src/core/inflate.cpp            # internal too (vendored stb inflate and deflate), so compiled in as well
     ${PROJECT_SOURCE_DIR}/src/core/deflate.cpp

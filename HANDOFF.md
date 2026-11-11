@@ -1,5 +1,7 @@
 # httpp hand-off (consolidated, 2026-11-05; updates 2026-11-06 and 2026-11-07 below)
 
+> **Update 2026-11-11 (newest): `httpp::fs` was merged into `httpp::path` (ADR-0058): no `fs.hpp`/`fs.cpp`, the CLI and the tests link `httpp_core`. Next free ADR number: 0059.
+>
 > **Update 2026-11-11 (latest): the logging module is public (`include/httpp/logging.hpp`, ADR-0057, amends 0050); `logging.cpp` is no longer compiled into the test program. Next free ADR number: 0058.
 >
 > **Update 2026-11-11 (later): `set_log_system` (ADR-0056) sends the log to the OS log (ported from libstb: `src/core/logging_os.cpp`); only syslog was run (Linux), the Android, Apple and Windows handlers were not compiled. Next free ADR number: 0057.

@@ -19,7 +19,7 @@ patch and its include path are gone. Nothing of the module is public, so the dua
 
 ## Amendment 2026-11-10
 
-`file_handler` takes a UTF-8 `std::string` (opened through `httpp::fs::native`, ADR-0054), not `std::filesystem::path`: the macOS wheels target 10.13 and the macOS CI build failed on it. libstb's core logging files have not changed since the port
+`file_handler` takes a UTF-8 `std::string` (opened through `httpp::path::native`, ADR-0054, 0058), not `std::filesystem::path`: the macOS wheels target 10.13 and the macOS CI build failed on it. libstb's core logging files have not changed since the port
 (2026-11-05); what libstb added since is the operating-system handlers (`logging_os`) and the Python bridge hardening, of which httpp took the shutdown part.
 
 ## Consequences

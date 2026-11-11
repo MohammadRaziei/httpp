@@ -4,7 +4,6 @@
 // static files, hooks and response building live here; the engine only moves bytes.
 
 #include "internal/async_server.hpp"
-#include "internal/fs.hpp"
 #include "internal/log.hpp"
 #include "internal/response_compression.hpp"
 #include "internal/urlencoded.hpp"
@@ -92,17 +91,18 @@ const char* mime_for(const std::string& path) {
 }
 
 // Size of a readable regular file, or -1. (A file that exists but cannot be opened is -1 too.)
-long long file_size(const std::string& path) {
-    const fs::info i = fs::stat(path);
-    if (i.type != fs::kind::file) return -1;
-    if (!std::ifstream(fs::native(path), std::ios::binary)) return -1;
+long long file_size(const std::string& file) {
+    const httpp::path p(file);
+    const httpp::path::status i = p.stat();
+    if (i.type != httpp::path::kind::file) return -1;
+    if (!std::ifstream(p.native(), std::ios::binary)) return -1;
     return i.size;
 }
 
 // ---- validators of a file answer (ADR-0045)
 
 // Strong validator from the size and the modification time (nanoseconds where known): it changes whenever either does.
-std::string make_etag(long long size, const fs::info& st) {
+std::string make_etag(long long size, const httpp::path::status& st) {
     char buf[80];
     std::snprintf(buf, sizeof buf, "\"%llx-%llx-%lx\"", static_cast<unsigned long long>(size), static_cast<unsigned long long>(st.mtime),
                   static_cast<unsigned long>(st.mtime_nsec));
@@ -824,10 +824,10 @@ struct server::impl {
     // True when `file` (symlinks resolved) is still inside `dir` (resolved too). A file that does not
     // exist counts as inside: the caller's file_size() answers that case.
     static bool inside_dir(const std::string& file, const std::string& dir) {
-        const std::string real = fs::real(file);
+        const httpp::path real = httpp::path(file).resolve();
         if (real.empty()) return true;
-        const std::string root = fs::real(dir.empty() ? "." : dir);
-        return !root.empty() && (fs::is_root(root) || fs::is_inside(real, root));
+        const httpp::path root = httpp::path(dir.empty() ? "." : dir).resolve();
+        return !root.empty() && (root.is_root() || real.is_relative_to(root));
     }
 
     // A file shown inline must not be able to run code in the page's origin: only types that cannot are shown, the rest is a download.
@@ -878,8 +878,8 @@ struct server::impl {
     // The answer for one existing file: validators, conditional requests (ADR-0045), then the whole file or a range.
     bool answer_file(const request& req, const send_fn& send, const std::string& full, long long size, const server::directory_options& options) {
         {
-            const fs::info stamp = fs::stat(full);
-            const bool stamped = stamp.type == fs::kind::file;
+            const httpp::path::status stamp = httpp::path(full).stat();
+            const bool stamped = stamp.type == httpp::path::kind::file;
             const std::string etag = stamped ? make_etag(size, stamp) : std::string();
             const std::string modified = stamped ? format_http_date(stamp.mtime) : std::string();
             bool honour_range = true;

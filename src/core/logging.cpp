@@ -1,6 +1,5 @@
 #include "httpp/logging.hpp"
 
-#include "internal/fs.hpp"
 
 #include <algorithm>
 #include <atomic>

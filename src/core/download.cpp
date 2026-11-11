@@ -3,7 +3,6 @@
 #include "httpp/progress.hpp"
 #include "httpp/sha256.hpp"
 
-#include "internal/fs.hpp"
 #include "internal/http_exchange.hpp"
 
 #include <algorithm>
@@ -30,9 +29,9 @@ namespace httpp {
 namespace {
 
 // The size of a regular file, or -1 (missing, a directory, ...).
-long long file_size_or_negative(const std::string& path) {
-    const fs::info i = fs::stat(path);
-    return i.type == fs::kind::file ? i.size : -1;
+long long file_size_or_negative(const std::string& file) {
+    const httpp::path::status i = httpp::path(file).stat();
+    return i.type == httpp::path::kind::file ? i.size : -1;
 }
 
 // ---- one transfer: a request whose body streams into a file ----------------------------------------------------
@@ -76,7 +75,7 @@ private:
         status_ = head.status;
         if (!accepts(status_)) return detail::body_sink::verdict::skip; // an error page, or a redirect we do not follow
         if (status_ != 206) offset_ = 0;                                 // the server ignored the Range: start over
-        out_.open(fs::native(path_), std::ios::binary | (offset_ > 0 ? std::ios::app : std::ios::trunc));
+        out_.open(httpp::path(path_).native(), std::ios::binary | (offset_ > 0 ? std::ios::app : std::ios::trunc));
         if (!out_) {
             error_ = "could not open destination file: " + path_;
             return detail::body_sink::verdict::abort;
@@ -176,7 +175,7 @@ download_result run_plain(const std::string& url_str, const std::string& dest_pa
     const transfer_result t = transfer(url_str, follow_redirects, timeout_seconds, 0, target);
     // A failed download must not leave a 0-byte (or half-written) file at dest_path: callers reasonably treat
     // "the file exists" as "it worked".
-    if (!t.ok) fs::remove_file(dest_path);
+    if (!t.ok) httpp::path(dest_path).unlink();
     return to_result(t);
 }
 
@@ -209,7 +208,7 @@ download_result run_resumable(const std::string& url_str, const std::string& des
     } else if (offset >= total_size) {
         // .part already holds the full file (a previous run finished writing but was interrupted before the
         // rename); nothing is left to transfer.
-        if (fs::replace(part_path, dest_path)) {
+        if (httpp::path(part_path).rename(dest_path)) {
             result.ok = true;
             result.status = 200;
             return result;
@@ -221,17 +220,17 @@ download_result run_resumable(const std::string& url_str, const std::string& des
     const transfer_result t = transfer(url_str, follow_redirects, timeout_seconds, offset, target);
     result = to_result(t);
     if (t.ok) {
-        result.ok = fs::replace(part_path, dest_path);
+        result.ok = httpp::path(part_path).rename(dest_path);
         if (!result.ok) result.error = "downloaded but could not rename " + part_path + " to " + dest_path;
     } else if (!t.real_content) {
-        fs::remove_file(part_path); // never got real content (an error page, no connection): .part is not valid
+        httpp::path(part_path).unlink(); // never got real content (an error page, no connection): .part is not valid
     }
     return result;
 }
 
 // The checksum file is one short line; anything longer is read only as far as parse_sha256_checksum needs to reject it.
-std::string read_prefix(const std::string& path, std::size_t limit) {
-    std::ifstream in(fs::native(path), std::ios::binary);
+std::string read_prefix(const std::string& file, std::size_t limit) {
+    std::ifstream in(httpp::path(file).native(), std::ios::binary);
     std::string text(limit, '\0');
     in.read(&text[0], static_cast<std::streamsize>(limit));
     text.resize(static_cast<std::size_t>(in.gcount()));
@@ -239,7 +238,7 @@ std::string read_prefix(const std::string& path, std::size_t limit) {
 }
 
 // ---- the cross-process lock (download::lock) -------------------------------------------------------------------
-// Creating a directory is atomic everywhere, so whoever creates "<dest>.lock" owns it (fs::make_dir). Liveness is
+// Creating a directory is atomic everywhere, so whoever creates "<dest>.lock" owns it (path::mkdir). Liveness is
 // judged by the waiter's own clock from whether `alive` *changes*, not from file times, so clock skew and coarse mtimes
 // do not matter.
 
@@ -264,22 +263,22 @@ public:
         auto last_change = clock::now();
         bool first = true;
         for (;;) {
-            const fs::made made = fs::make_dir(path_);
-            if (made == fs::made::created) {
+            const httpp::path dir(path_);
+            if (dir.mkdir()) {
                 owned_ = true;
                 break;
             }
-            if (made == fs::made::failed) break; // cannot create it (read-only directory?): go on without a lock
+            if (!dir.is_dir()) break; // cannot create it (read-only directory?): go on without a lock
             waited_ = true;
-            const std::string seen = read_prefix(fs::join(path_, "alive"), 64);
+            const std::string seen = read_prefix((httpp::path(path_) / "alive").str(), 64);
             const auto now = clock::now();
             if (first || seen != last_seen) { // the owner is alive (or this is the first look)
                 last_seen = seen;
                 last_change = now;
                 first = false;
             } else if (now - last_change > stale_after) { // no sign of life for the whole timeout: its owner died
-                fs::remove_file(fs::join(path_, "alive"));
-                fs::remove_dir(path_);
+                (httpp::path(path_) / "alive").unlink();
+                httpp::path(path_).rmdir();
                 first = true;
                 continue;
             }
@@ -300,8 +299,8 @@ public:
         }
         wake_.notify_all();
         if (heart_.joinable()) heart_.join();
-        fs::remove_file(fs::join(path_, "alive"));
-        fs::remove_dir(path_);
+        (httpp::path(path_) / "alive").unlink();
+        httpp::path(path_).rmdir();
     }
 
     dir_lock(const dir_lock&) = delete;
@@ -312,7 +311,7 @@ public:
 
 private:
     void beat(unsigned long long n) const {
-        std::ofstream out(fs::native(fs::join(path_, "alive")), std::ios::binary | std::ios::trunc);
+        std::ofstream out((httpp::path(path_) / "alive").native(), std::ios::binary | std::ios::trunc);
         out << current_pid() << ' ' << n << '\n';
     }
 
@@ -372,12 +371,12 @@ bool expected_digest(const job& j, std::string& digest, std::string& error) {
         const std::string tmp = j.dest + ".sha256.part";
         const download_result got = run_plain(sum_url, tmp, false, j.follow, j.timeout_seconds);
         if (!got.ok) {
-            fs::remove_file(tmp);
+            httpp::path(tmp).unlink();
             error = "could not download the checksum file " + sum_url + ": " + got.error;
             return false;
         }
         const std::string text = read_prefix(tmp, 1025);
-        fs::remove_file(tmp);
+        httpp::path(tmp).unlink();
         try {
             digest = parse_sha256_checksum(text, file_name_of(j.url));
         } catch (const std::exception& e) {
@@ -437,7 +436,7 @@ download_result execute(const job& j) {
         r.sha256 = actual;
         if (actual == expected) return r;
 
-        fs::remove_file(j.dest);  // never leave a file that failed its check
+        httpp::path(j.dest).unlink();  // never leave a file that failed its check
         if (j.resume && !force && attempt == 0) {
             force = true;  // a stale or corrupt file / .part was trusted: once more, from byte 0
             continue;

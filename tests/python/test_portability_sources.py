@@ -1,6 +1,6 @@
 """httpp does not use std::filesystem (ADR-0054). The macOS wheels target 10.13, where <filesystem> is marked
 unavailable (it needs 10.15), so one use fails the macOS build and nothing else: Linux CI cannot see it. The file
-system goes through src/core/internal/fs.hpp. (The C++ test programs may use it: they never ship.)"""
+system goes through httpp::path (include/httpp/path.hpp). (The C++ test programs may use it: they never ship.)"""
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -18,4 +18,4 @@ def test_the_library_and_the_cli_do_not_use_std_filesystem():
                 code = line.split("//", 1)[0]
                 if "<filesystem>" in code or "std::filesystem" in code:
                     offenders.append("%s:%d" % (path.relative_to(ROOT), number))
-    assert not offenders, "std::filesystem breaks the macOS 10.13 build, use httpp::fs: " + ", ".join(offenders)
+    assert not offenders, "std::filesystem breaks the macOS 10.13 build, use httpp::path: " + ", ".join(offenders)

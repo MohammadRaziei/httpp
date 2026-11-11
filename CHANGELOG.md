@@ -9,13 +9,14 @@ such changes are listed under **Changed**).
 
 ### Added
 
+- The file system module is part of `httpp::path` (ADR-0058): `stat`, `lstat`, `resolve`, `is_relative_to`, `iterdir`, `rmdir`, `is_executable` are members next to `exists`, `mkdir`, `unlink`, `rename`; there is no separate `httpp::fs` any more. `mkdir()` is now true only when this call created the directory.
 - **`httpp/logging.hpp` is public** (ADR-0057): the Python-shaped logging module httpp logs through (`get_logger`, `logger`, `formatter`, `stream/file/callback/null_handler`, your own `handler` subclass) is installed and exported. The "httpp" logger can take extra handlers. Python keeps using its standard `logging`.
 - **`set_log_system`** (ADR-0056, C++ and Python): send the library log to the operating system's log: syslog, logcat, Apple unified logging, Windows debugger output or the Event Log (`"native"` picks the platform's usual one). Ported from libstb.
 - **`httpp::path`** (ADR-0055, `httpp/path.hpp`): a pathlib-shaped path type for C++ (`/`, `name`, `stem`, `suffix`, `parent`, `exists`, `open`, `read_text`, `path::cwd()`, `as_uri`, ...). The public API that names a file takes it (strings still convert): `download`, `sha256_file`, `set_log_file`, `set_ca_file`, `set_tls`, `mount_file_browser`, `response::file`. In Python every path argument now also takes a `pathlib.Path`.
 
 ### Fixed
 
-- **No more `std::filesystem` anywhere in the library or the CLI** (ADR-0054): an internal `httpp::fs` module (POSIX calls, the wide Win32 API on Windows, UTF-8 paths) is used by downloads, the file browser, static files, the logging module, TLS certificate loading, `sha256_file` and the CLI. This removes the macOS 10.13 build break and five private copies of the same operations. On Windows, non-ASCII file names now work in all of them.
+- **No more `std::filesystem` anywhere in the library or the CLI** (ADR-0054): an internal `httpp::fs` module (merged into `httpp::path` by ADR-0058) (POSIX calls, the wide Win32 API on Windows, UTF-8 paths) is used by downloads, the file browser, static files, the logging module, TLS certificate loading, `sha256_file` and the CLI. This removes the macOS 10.13 build break and five private copies of the same operations. On Windows, non-ASCII file names now work in all of them.
 - **macOS wheel build:** the internal logging module's `file_handler` took a `std::filesystem::path`, which the macOS 10.13 target does not have (CI failed in `log.cpp`). It takes a UTF-8 `std::string` now (converted to UTF-16 on Windows, so a non-ASCII log path works there too), and `tests/python/test_portability_sources.py` fails on any `std::filesystem` outside an `_WIN32` block.
 - **Python log bridge at interpreter exit:** the C++ trampoline checks `Py_IsInitialized()` before taking the GIL and an `atexit` hook hands the log back to stderr, so a library thread that logs late cannot reach a dying interpreter (the same fix libstb made for its bridge).
 

@@ -1,6 +1,6 @@
 # ADR-0054: An own file system module, `httpp::fs`, replaces std::filesystem
 
-- **Status:** accepted
+- **Status:** accepted; the module was merged into `httpp::path` by ADR-0058 (the design below holds, the names changed: `fs::stat(p)` is `path(p).stat()`, `make_dir` is `mkdir`, `list` is `iterdir`, `real` is `resolve`, `replace` is `rename`)
 - **Decided by:** the project owner ("do not use filesystem; write our own")
 - **Source:** `src/core/internal/fs.hpp`, `src/core/fs.cpp`, `tests/cpp/test_fs.cpp`, `tests/python/test_portability_sources.py`
 

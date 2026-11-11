@@ -63,6 +63,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0055](0055-httpp-path-class.md) | `httpp::path`, a pathlib-shaped public path type | accepted |
 | [0056](0056-operating-system-log-handlers.md) | The operating system log handlers of libstb, behind `set_log_system` | accepted |
 | [0057](0057-public-logging-module.md) | The logging module is public: `httpp/logging.hpp` | accepted, amends 0050 |
+| [0058](0058-fs-merged-into-path.md) | The file system module is merged into `httpp::path` | accepted, amends 0054 and 0055 |
 
 ## Not decided yet
 

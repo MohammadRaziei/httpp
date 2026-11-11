@@ -259,8 +259,7 @@ apply_optimization_flags(httpp_core)
 # because the macOS 10.13 target does not have it.
 option(HTTPP_BUILD_CLI "Build the httpp command line" ON)
 if(HTTPP_BUILD_CLI)
-    # fs.cpp is compiled in here too: httpp_core hides its internals, and the CLI uses the same file system module (ADR-0054).
-    add_executable(httpp_cli ${PROJECT_SOURCE_DIR}/src/cli/httpp_cli.cpp ${PROJECT_SOURCE_DIR}/src/core/fs.cpp)
+    add_executable(httpp_cli ${PROJECT_SOURCE_DIR}/src/cli/httpp_cli.cpp)
     set_target_properties(httpp_cli PROPERTIES
         OUTPUT_NAME httpp
         CXX_VISIBILITY_PRESET hidden

@@ -1,7 +1,6 @@
 #include "httpp/file_browser.hpp"
 
 #include "httpp_file_browser_data.hpp" // generated at configure time, see CMakeLists.txt
-#include "internal/fs.hpp"
 #include "internal/inflate.hpp"
 
 #include <algorithm>
@@ -95,22 +94,22 @@ bool is_hex_colour(const std::string& s) {
     return true;
 }
 
-// ---- the file system (httpp::fs, ADR-0054) ----
-// `root` is always a real() path: links resolved, no trailing '/' (except the file system root itself).
+// ---- the file system (httpp::path, ADR-0054, 0058) ----
+// `root` is always a resolve() result: links resolved, no trailing '/' (except the file system root itself).
 
 bool resolve_dir(const std::string& root, const std::string& rel, std::string& full) { // full: the folder, links resolved; false when it is missing, not a folder or outside
-    const std::string real = fs::real(rel == "/" ? root : root + rel);
-    if (real.empty() || !fs::is_inside(real, root)) return false;
-    if (fs::stat(real).type != fs::kind::directory) return false;
-    full = real;
+    const httpp::path real = httpp::path(rel == "/" ? root : root + rel).resolve();
+    if (real.empty() || !real.is_relative_to(root)) return false;
+    if (real.stat().type != httpp::path::kind::directory) return false;
+    full = real.str();
     return true;
 }
 
 std::string canonical_root(const std::string& root, bool& is_fs_root) {
-    const std::string real = fs::real(root);
-    if (real.empty() || fs::stat(real).type != fs::kind::directory) return "";
-    is_fs_root = fs::is_root(real);
-    return real;
+    const httpp::path real = httpp::path(root).resolve();
+    if (real.empty() || real.stat().type != httpp::path::kind::directory) return "";
+    is_fs_root = real.is_root();
+    return real.str();
 }
 
 #ifdef _WIN32
@@ -128,23 +127,23 @@ bool segment_ok(const std::string&) { return true; }
 
 // Reads `dir`, keeps what is visible and inside `root`, stops after `limit` + 1 kept items.
 bool read_dir(const std::string& root, const std::string& dir, bool show_hidden, std::size_t limit, std::vector<item>& out) {
-    std::vector<std::string> names;
-    if (!fs::list(dir, names)) return false;
-    for (const std::string& name : names) {
+    std::vector<httpp::path> entries;
+    if (!httpp::path(dir).iterdir(entries)) return false;
+    for (const httpp::path& entry : entries) {
+        const std::string name = entry.name().str();
         if (!show_hidden && name[0] == '.') continue;
         if (!valid_utf8(name)) continue;
-        const std::string path = fs::join(dir, name);
-        fs::info st = fs::lstat(path);
-        if (st.type == fs::kind::missing && !st.link) continue;
+        httpp::path::status st = entry.lstat();
+        if (st.type == httpp::path::kind::missing && !st.link) continue;
         if (st.link) { // a link counts only when it stays inside the root
-            const std::string real = fs::real(path);
-            if (real.empty() || !fs::is_inside(real, root)) continue;
-            st = fs::stat(path);
+            const httpp::path real = entry.resolve();
+            if (real.empty() || !real.is_relative_to(root)) continue;
+            st = entry.stat();
         }
         item i;
         i.name = name;
-        if (st.type == fs::kind::directory) i.dir = true;
-        else if (st.type == fs::kind::file) i.size = st.size;
+        if (st.type == httpp::path::kind::directory) i.dir = true;
+        else if (st.type == httpp::path::kind::file) i.size = st.size;
         else continue; // sockets, pipes and devices are not files to browse
         i.mtime = st.mtime;
         out.push_back(std::move(i));

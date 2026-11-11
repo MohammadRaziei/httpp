@@ -1,5 +1,5 @@
 #include "internal/tls_session.hpp"
-#include "internal/fs.hpp"
+#include "httpp/path.hpp"
 
 #include <mbedtls/error.h>
 #include <mbedtls/pk.h>
@@ -129,8 +129,8 @@ std::shared_ptr<const tls_context> make_tls_context(bool verify, const std::stri
 }
 
 namespace {
-bool read_file(const std::string& path, std::string& out) {
-    std::ifstream in(fs::native(path), std::ios::binary);
+bool read_file(const std::string& file, std::string& out) {
+    std::ifstream in(httpp::path(file).native(), std::ios::binary);
     if (!in) return false;
     char buf[4096];
     while (in.read(buf, sizeof buf) || in.gcount() > 0) out.append(buf, static_cast<std::size_t>(in.gcount()));

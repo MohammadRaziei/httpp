@@ -12,7 +12,7 @@ ADR-0054 gave the library an internal file system module on UTF-8 strings. Every
 
 - `httpp::path` is a public, installed header (`httpp/path.hpp`, exported). It is a UTF-8 string with '/' as separator, cleaned on construction like pathlib (repeated and trailing separators go). `std::string` and `const char*` convert to it implicitly, so every call that passed a string still compiles.
 - pathlib-shaped members: `name`, `stem`, `suffix`, `parent`, `with_name`, `with_suffix`, `is_absolute`, `operator/`, `as_posix`, `as_uri`, `path::cwd()`, `absolute`, `exists`, `is_file`, `is_dir`, `size`, `mkdir`, `unlink`, `rename`, and `open(mode)` (a `std::fstream`, opened through the wide API on Windows), plus `read_text` / `write_text`. Not covered: iterating the parts, `relative_to`, `glob`, `resolve`.
-- The disk members call `httpp::fs` (ADR-0054), which stays the internal low-level layer: no second implementation.
+- The disk members call `httpp::fs` (ADR-0054), which stays the internal low-level layer: no second implementation. (Superseded by ADR-0058: `fs` was merged into `path`.)
 - Public API that names a file takes `const path&`: `download` (constructor and `output`), `sha256_file`, `set_log_file`, `set_ca_file` (client, async_client, `request::ca_file`), `server::set_tls`, `mount_file_browser` (root), and `response::file`, so a route serves a file with `res.file = dir / "page.html"`.
 - Python does not get a path class of its own. Every path argument takes `str`, `bytes` or any `os.PathLike` (`os.fsencode` at the Cython boundary), and `file()` / `FileResponse` already did. A route cannot return a bare `Path` (a `str` is text; use `httpp.file(path)`).
 
