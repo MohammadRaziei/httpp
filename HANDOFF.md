@@ -114,7 +114,7 @@ Request paths:
 - `perf` on his machine: his `perf report --symbol-filter=...` did NOT filter (all outputs were identical); use `--sort dso,symbol` plus `grep`, or `-S` with the mangled name.
 
 ## 5. State after the last session (2026-11-05)
-Nothing is committed or pushed (the owner commits). Version in the tree is 0.8.0; `CHANGELOG.md` has the pending items under `[Unreleased]` (next version 0.8.1).
+Nothing is committed or pushed (the owner commits). Version in the tree is 0.8.1 (bumped 2026-11-11; the owner commits and tags it); `CHANGELOG.md` has the 0.8.1 section, `[Unreleased]` is empty.
 
 ### Verified
 - C++ suite 407 tests pass in Release, and are clean under AddressSanitizer (no memory errors) and ThreadSanitizer (no warnings).

@@ -7,6 +7,8 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-11
+
 ### Added
 
 - The file system module is part of `httpp::path` (ADR-0058): `stat`, `lstat`, `resolve`, `is_relative_to`, `iterdir`, `rmdir`, `is_executable` are members next to `exists`, `mkdir`, `unlink`, `rename`; there is no separate `httpp::fs` any more. `mkdir()` is now true only when this call created the directory.
@@ -458,7 +460,8 @@ First release.
 - Single umbrella header `include/httpp.h` that carries the version, and `version.py` for tagging and releases.
 - CMake and wheels workflows in CI.
 
-[Unreleased]: https://github.com/MohammadRaziei/httpp/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/MohammadRaziei/httpp/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/MohammadRaziei/httpp/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/MohammadRaziei/httpp/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MohammadRaziei/httpp/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/MohammadRaziei/httpp/compare/v0.6.0...v0.6.1

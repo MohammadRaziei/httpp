@@ -467,18 +467,40 @@ def test_ctrl_c_at_any_moment_never_wedges_listen():
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
         app = Server()
-        sender = threading.Timer(rnd.uniform(0.0, 0.12), _thread.interrupt_main)
+        delay = rnd.uniform(0.0, 0.12)
+        armed = []  # plain lists as flags: the test must not use a lock an interrupt could break (see the docstring)
+        sent = []
+
+        def interrupt_when_armed():
+            while not armed:
+                time.sleep(0.001)
+            time.sleep(delay)
+            sent.append(True)
+            _thread.interrupt_main()
+
+        # Threads are started while the interrupt cannot fire yet: Thread.start() waits on an Event, and an interrupt
+        # landing there is outside the try below and escapes into pytest (this test's own race, seen on macOS).
+        sender = threading.Thread(target=interrupt_when_armed, daemon=True)
         watchdog = threading.Timer(8, app.stop)  # a wedged listen() would never see this either: the test then times out
         sender.start()
         watchdog.start()
         started = time.time()
         try:
+            armed.append(True)  # from here on every interrupt lands inside the try
             app.listen("127.0.0.1", port)
         except KeyboardInterrupt:
             pass  # the interrupt landed before listen() was ready for it; the next one must not wedge anything
         finally:
             watchdog.cancel()
-            sender.join()
+            while not sent:  # listen() returned first (it cannot, short of a bind failure): take the late interrupt here
+                try:
+                    time.sleep(0.001)
+                except KeyboardInterrupt:
+                    pass
+            try:
+                time.sleep(0.01)  # let a pending interrupt be delivered
+            except KeyboardInterrupt:
+                pass
         assert time.time() - started < 6
 
 
