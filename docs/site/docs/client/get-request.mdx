@@ -1,0 +1,38 @@
+---
+id: get-request
+title: Send a GET request
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+The client talks to any HTTP server. This example asks the server from [Answer a GET request](../server/get-route.mdx), so start that one first.
+
+<Lang name="client_get" />
+
+## What the code does
+
+You make a client for a host and a port, and call `get` with a path. For a one-off request, `fetch` takes a full URL and needs no client object.
+
+A response that arrives is a response, whatever its status: a `404` is not an error. Check the status, or the `ok` flag, which is true for any `2xx`.
+
+<Only lang="python">
+
+`res.body` is a `str`. `res.header("content-type")` looks a header up without regard to case and returns `None` when it is missing. `res.headers` is the list of all `(name, value)` pairs.
+
+</Only>
+
+<Only lang="cpp">
+
+Network failures never throw. They come back as a response with status `0` and `res.error` set, so check `res.failed()` before you trust the status. `res.ok()` is true for `2xx`. `res.header(name)` returns an empty string when the header is missing. A malformed base URL passed to the constructor is a programming error and throws `std::invalid_argument`.
+
+</Only>
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Client type | `httpp.Client` | `httpp::client` |
+| One call with a URL | `Client.fetch(url)` | `httpp::client::fetch(url)` |
+| Success flag | `res.ok` | `res.ok()` |
+| Missing header | `None` | empty string |

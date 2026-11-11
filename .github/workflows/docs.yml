@@ -1,0 +1,43 @@
+name: docs
+
+# Builds the documentation site in docs/site (ADR-0060). Independent of the orchestrator: it runs only when the site changes,
+# or by hand. It does not publish anything.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "docs/site/**"
+      - ".github/workflows/docs.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/site/**"
+      - ".github/workflows/docs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs/site
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+    - uses: actions/setup-node@v6
+      with:
+        node-version: "22"
+        cache: npm
+        cache-dependency-path: docs/site/package-lock.json
+    - name: Both languages have every snippet
+      run: python3 scripts/prepare.py all
+    - name: Install
+      run: npm ci
+    - name: Type check
+      run: npm run typecheck
+    - name: Build
+      run: npm run build

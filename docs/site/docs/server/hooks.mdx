@@ -1,0 +1,46 @@
+---
+id: hooks
+title: Run code around every request
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+A hook is a function the server calls for every request, before the route and after it. Use one to check a key, to add a header or to log.
+
+<Lang name="hooks" />
+
+```bash
+curl -i http://127.0.0.1:8000/
+# HTTP/1.1 403 Forbidden
+curl -i http://127.0.0.1:8000/ -H "X-Key: secret"
+# HTTP/1.1 200 OK
+# X-Served-By: httpp
+```
+
+## What the code does
+
+The first hook runs before the route. It can answer the request itself, and then the route is never called. The second runs after the route has produced its response and may change the status and the headers. The body is not passed to it, because it may be a large file or a stream. Both run for every request, static files and unknown paths included.
+
+<Only lang="python">
+
+`before_request` returns `None` to carry on, or anything a route may return to answer on the spot. You can register several hooks of each kind and they run in the order you registered them. A hook that raises answers `500`.
+
+`after_request` receives a `ResponseHead` with `status`, `headers` and the methods `header()`, `set_header()` and `add_header()`.
+
+</Only>
+
+<Only lang="cpp">
+
+`server::before` takes a function that returns `true` when it has answered the request. The response it receives starts empty with status `0`, which is sent as `200` unless you set it. `server::after` takes a function that changes the response on its way out. It also runs for asynchronous responses, when they are sent.
+
+</Only>
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Before the route | `@app.before_request`, return a response to answer | `app.before(fn)`, return `true` to answer |
+| After the route | `@app.after_request` | `app.after(fn)` |
+| Shape the server's own errors (404, 405) | `@app.error_handler(404)` | `app.set_error_handler(fn)` |
+| A route threw | `@app.exception_handler(ValueError)` | `app.set_exception_handler(fn)` |

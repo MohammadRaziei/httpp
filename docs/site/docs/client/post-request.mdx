@@ -1,0 +1,47 @@
+---
+id: post-request
+title: Send a request with a body
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+For anything beyond a plain GET, build the request step by step: method, headers, content type and body. Every step is optional. This example posts to the server from [Read the request](../server/request-data.mdx).
+
+<Lang name="client_post" />
+
+The server answers with what it received:
+
+```text
+POST /inspect
+page=2
+token=abc
+body={"a": 1}
+```
+
+## What the code does
+
+The builder starts from a full URL and each call returns the builder, so the calls chain. `run()` sends the request and returns the response.
+
+Without `content_type`, a body is sent as `application/x-www-form-urlencoded`, like `curl -d`.
+
+<Only lang="python">
+
+The builder is `httpp.Request`.
+
+</Only>
+
+<Only lang="cpp">
+
+The builder is `httpp::client::request`, nested in `client` because `httpp::request` is the incoming request of a server handler. If you never call `method`, the request is a `GET`, or a `POST` when you set a body, like curl. Besides `run()` there are `run_async()` variants that return a `std::future` or call a function when the response arrives.
+
+</Only>
+
+If you already have a client object, its `post`, `put`, `patch` and `del` methods take the path, the body and an optional content type.
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Builder | `httpp.Request(url)` | `httpp::client::request(url)` |
+| Send | `.run()` | `.run()`, `.run_async()` |

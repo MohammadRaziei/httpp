@@ -1,0 +1,46 @@
+/* httpp has no docs identity yet: flat grounds, one blue, ink for the active state, 4px radius.
+   Brand blue is used as text only where it passes 4.5:1 on its ground (see the dark block). */
+:root {
+  --httpp-ink: #14171c;
+  --httpp-on-ink: #f4f6f8;
+  --ifm-color-primary: #0a6c8f;
+  --ifm-color-primary-dark: #096281;
+  --ifm-color-primary-darker: #095d7a;
+  --ifm-color-primary-darkest: #074c64;
+  --ifm-color-primary-light: #0b7a9f;
+  --ifm-color-primary-lighter: #0c80a6;
+  --ifm-color-primary-lightest: #0e95c3;
+  --ifm-background-color: #f7f8fa;
+  --ifm-global-radius: 4px;
+  --ifm-font-family-base: 'Public Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --ifm-code-font-size: 92%;
+  --docusaurus-highlighted-code-line-bg: rgba(10, 108, 143, 0.12);
+}
+
+[data-theme='dark'] {
+  --httpp-ink: #5cc3e8;
+  --httpp-on-ink: #0d1014;
+  --ifm-color-primary: #5cc3e8;
+  --ifm-color-primary-dark: #3fb8e3;
+  --ifm-color-primary-darker: #31b2e1;
+  --ifm-color-primary-darkest: #1a98c6;
+  --ifm-color-primary-light: #79cdeb;
+  --ifm-color-primary-lighter: #87d2ed;
+  --ifm-color-primary-lightest: #b0e1f3;
+  --ifm-background-color: #0d1014;
+  --docusaurus-highlighted-code-line-bg: rgba(92, 195, 232, 0.16);
+}
+
+.navbar {
+  box-shadow: none;
+  border-bottom: 1px solid var(--ifm-color-emphasis-300);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

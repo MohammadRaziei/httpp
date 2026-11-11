@@ -1,0 +1,44 @@
+---
+id: get-route
+title: Answer a GET request
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+A route ties a path to a function. When a `GET` request matches the path, the function runs and its result is sent back.
+
+<Lang name="get_route" />
+
+Run it, then ask for the route:
+
+```bash
+curl http://127.0.0.1:8000/hello/world
+# hello world
+```
+
+## What the code does
+
+The path `/hello/` followed by a name matches any value in that position and hands it to your function as `name`.
+
+<Only lang="python">
+
+The name is written `{name}` (`<name>` means the same). It arrives as an argument with that name. The function returns a `str`, which is sent as `200` with `text/plain; charset=utf-8`. Annotate the argument as `int` or `float` and httpp converts it for you.
+
+</Only>
+
+<Only lang="cpp">
+
+The name is written `:name`. The handler gets a `const httpp::request&` and fills in an `httpp::response&`. Read the value with `req.path_param("name")`, which returns a `std::string`. Setting `res.body` is enough: a response whose status was never set is sent as `200`.
+
+</Only>
+
+`listen` blocks until the server is stopped.
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Server type | `httpp.Server` | `httpp::server` |
+| Path parameter | `{name}` or `<name>`, an argument of the function | `:name`, read with `req.path_param("name")` |
+| Reply | the return value | fill in `res` |

@@ -1,0 +1,46 @@
+---
+id: request-data
+title: Read the request
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+A handler can look at the method, the path, the query string, the headers and the body of the request it answers.
+
+<Lang name="request_info" />
+
+Send it a request:
+
+```bash
+curl "http://127.0.0.1:8000/inspect?page=2" -H "X-Token: abc" -d "hello"
+# POST /inspect
+# page=2
+# token=abc
+# body=hello
+```
+
+## What the code does
+
+<Only lang="python">
+
+The handler asks for `request` by name and gets an object with these attributes: `method`, `path`, `query`, `headers`, `cookies`, `path_params`, and the body as `body` (bytes), `text` (decoded) or `json()`. Header names in `headers` are lower-case, so you write `request.headers.get("x-token")`. For repeated headers or query names the first value wins.
+
+</Only>
+
+<Only lang="cpp">
+
+The handler receives a `const httpp::request&`. `method`, `path` and `body` are plain `std::string` members. For the rest use the accessors: `query_param(name)`, `header(name)`, `path_param(name)` and `cookie(name)`. Each returns an empty string when the value is absent, and `header` ignores the case of the name. The raw lists are there too: `query`, `headers` and `path_params` hold name and value pairs in the order they arrived.
+
+</Only>
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Get the request | add an argument named `request` | the first argument of the handler |
+| Query value | `request.query.get("page")` | `req.query_param("page")` |
+| Header | `request.headers.get("x-token")`, lower-case names | `req.header("X-Token")`, any case |
+| Missing value | `None` from `.get` | empty string |
+| Body | `request.body`, `request.text`, `request.json()` | `req.body`; parse JSON with a library of your choice |
+| Forms and uploads | covered in the README | `req.form()`, see `include/httpp/server.hpp` |

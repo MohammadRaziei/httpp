@@ -1,0 +1,55 @@
+---
+id: responses
+title: Shape the response
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+Set the status, the headers and the body. The example creates an item and answers `201` with a `Location` header, and answers `404` for an item that does not exist.
+
+<Lang name="responses" />
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/items
+# HTTP/1.1 201 Created
+# Location: /items/1
+curl -i http://127.0.0.1:8000/items/2
+# HTTP/1.1 404 Not Found
+```
+
+## What the code does
+
+<Only lang="python">
+
+A handler answers with its return value. The shape of the value picks the response:
+
+| Return value | Response |
+|---|---|
+| `str` | `200`, `text/plain; charset=utf-8` |
+| `bytes` | `200`, `application/octet-stream` |
+| `dict` or `list` | `200`, `application/json` |
+| `None` | `200`, empty body |
+| `(body, status)` | the same, with your status code |
+| `(body, status, headers)` | the same, with extra headers as a dict, or as a list of `(name, value)` pairs when a name repeats |
+
+A response header whose name or value contains a line break is refused with a `500` and never sent.
+
+</Only>
+
+<Only lang="cpp">
+
+A handler fills in the `httpp::response&` it is given. Set `res.body` for the body and `res.status` for the status. A status that was never set is sent as `200`. Add headers with `res.headers.emplace_back(name, value)`.
+
+`res.json(text)` sets the body and `Content-Type: application/json`. It does not serialize anything: you pass a document you already built. `res.redirect(location, code)` and `res.set_cookie(name, value)` cover those two common cases. To send a file or a stream, set `res.file` or `res.stream`; both are described in `include/httpp/client.hpp`.
+
+</Only>
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Send JSON | return a `dict` or `list` | `res.json(serialized_text)` |
+| Status | second item of the returned tuple | `res.status`, default `200` |
+| Extra headers | third item of the returned tuple | `res.headers.emplace_back(...)` |
+| Redirect, cookie | headers in the tuple | `res.redirect(...)`, `res.set_cookie(...)` |

@@ -1,0 +1,4 @@
+[
+  { "id": "python", "label": "Python", "prism": "python", "ext": "py" },
+  { "id": "cpp", "label": "C++", "prism": "cpp", "ext": "cpp" }
+]
