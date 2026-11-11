@@ -156,7 +156,7 @@ def test_the_default_pool_starts_small_and_may_still_grow_large(monkeypatch):
     (args, kwargs), = calls
     assert args[0] == (2 if GIL_FREE else 1)
     assert args[1] == 16 * 4
-    assert kwargs.get("grow_after_ms", 0.5) == (0.5 if GIL_FREE else 10)
+    assert kwargs.get("grow_after_ms", 0.5) == (2 if GIL_FREE else 10)
 
 
 def test_blocking_handlers_still_run_together_with_the_small_default_pool():

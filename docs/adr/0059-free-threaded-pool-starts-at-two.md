@@ -1,6 +1,6 @@
 # ADR-0059: The worker pool of a free-threaded Python starts at two threads
 
-- **Status:** proposed until the owner's re-run of the default row (see Verification); amends ADR-0025
+- **Status:** accepted (measured in the final configuration, with caveats under Verification); amends ADR-0025
 - **Decided by:** Claude, on the owner's "continue" (performance and architecture are delegated)
 - **Source:** `src/bindings/python/httpp/server.py` (`Server.__init__`), `tests/python/test_io_threads.py`, `benchmarks/suite.py`
 
@@ -18,15 +18,29 @@ ADR-0025 addendum 4 saw a pool starting at 2 beat it at one I/O thread (76.4k ag
 
 Pools of 4 and 8 equal the default; only the small start wins. Two I/O threads was not measured for pool 2 (the suite runs the fixed pools at the first and at four I/O threads only).
 
+## Second measurement: the ceiling and the growth wait (same machine, Release, 3.14.7t, 3 rounds, a download was running, so sd is up to 5 percent)
+
+The first default (pool 2, ceiling 64, grow after 0.5 ms) gave no gain at all (59.5k and 65.4k req/s): under load the pool grew to many threads again. The rows of ADR-0025 had a ceiling of 8. Grid:
+
+| pool 2 with | 1 I/O thread | 4 I/O threads | p99 ms (1 / 4) |
+|---|---|---|---|
+| old default (16 threads from the start) | 57.4k | 62.4k | 2.49 / 3.33 |
+| ceiling 8, grow 0.5 ms | 66.2k | 62.6k | 2.12 / 3.53 |
+| ceiling 16, grow 0.5 ms | 56.0k | 60.2k | 2.54 / 3.25 |
+| ceiling 64, grow 10 ms | 26.4k | 25.7k | 3.30 / 3.34 |
+| **ceiling 64, grow 2 ms** | **68.8k** (63.9 to 69.7) | **63.2k** (60.7 to 68.3) | **1.33 / 1.44** |
+
+A growth wait of 10 ms is rejected: the pool stays at two threads and CPU-bound `def` falls to the level of `async def`. A wait of 0.5 ms with any ceiling above 8 grows the pool back to the slow size.
+
 ## Decision
 
-On a free-threaded Python the default pool is `set_thread_pool(2, max(8, CPUs) * 4)` with the usual 0.5 ms growth wait. The ceiling is the old default's, not the 4 x 2 of the measured rows, so blocked handlers still get their threads. `threads=` given by the caller is unchanged. Builds with a GIL are unchanged.
+On a free-threaded Python the default pool is `set_thread_pool(2, max(8, CPUs) * 4, grow_after_ms=2)`: two threads at the start, the C++ default's ceiling, growth after a 2 ms wait. `threads=` given by the caller is unchanged. Builds with a GIL are unchanged.
 
 ## Consequences
 
-- A handler that blocks (sleep, I/O) on a free-threaded build now waits up to 0.5 ms per extra thread to get one instead of finding it idle. Test `test_blocking_handlers_still_run_together_with_the_small_default_pool` (24 handlers of 0.2 s in under 0.6 s) now runs on free-threaded builds too and passes.
-- Server CPU per request rose in the measured rows (98.7 against 87.6 us at one I/O thread) while throughput rose; not explained, a hypothesis is that the larger pool's threads waste cycles when they compete.
+- A handler that blocks (sleep, I/O) on a free-threaded build now waits up to 2 ms before the pool adds threads (four per step of the wait, ADR-0025) instead of finding them idle. Test `test_blocking_handlers_still_run_together_with_the_small_default_pool` (24 handlers of 0.2 s in under 0.6 s) now runs on free-threaded builds too and passes.
+- Server CPU per request fell as well (80 against 96 us at four I/O threads, one round pair) and p99 halved; the cause is not investigated (hypothesis: fewer threads compete for the same queue).
 
 ## Verification
 
-Python suite on 3.14t: 855 passed, 4 skipped (sandbox, 2 cores). The measured rows used a ceiling of 8; the new default's ceiling is 64 on that machine. Not verified: that the larger ceiling keeps the gain. The "default" rows of `benchmarks/suite.py --only cpu` on the owner's machine now run the new default and must be compared with the pool=2 rows above (68.2k and 66.1k). If they fall back to 58k and 64k, the ceiling is the cause and the decision must be revisited. Not measured: two and eight I/O threads, blocking handlers on the owner's machine, Python 3.13t/3.15t.
+Python suite on 3.14t in the sandbox (2 cores). Throughput numbers from the owner's machine with a download running in the background (sd 0.5 to 6.9 percent). Not verified: two and eight I/O threads, blocking handlers on the owner's machine (only the sandbox test), Python 3.13t and 3.15t, a run without background load.

@@ -84,7 +84,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 - [ ] Official interleaved bench on the current tree (needs the owner's `uv` to reach PyPI; try a proxy or VPN, `UV_HTTP_TIMEOUT=600`)
 - [ ] A ten-round A/B script (medians, min, max) for httpp against Drogon, and the `performance` governor
 - [ ] Fewer `shared_ptr` copies per request (about 14 releases; ceiling about 2 percent; needs ASan, TSan and the outlive tests)
-- [x] 3.14t `def` pool starts at 2 (ADR-0059, +17 percent at 1 I/O thread; re-run the default row with the new ceiling to confirm). Still open: `def JSON` plateau on 3.14t, non-monotone inline on 3.14t
+- [x] 3.14t `def` pool starts at 2 (ADR-0059: starts at 2, grows after 2 ms; +20 percent and half the p99 at 1 I/O thread). Still open: `def JSON` plateau on 3.14t, non-monotone inline on 3.14t
 - [ ] Competitors: uWebSockets, libhv, Crow, oat++, RESTinio, Boost.Beast, granian, Robyn (Drogon and uvicorn are done)
 - [ ] Optional: take conntrack out of the loopback path for fair benchmarking (about 5 percent of cycles for both servers)
 
