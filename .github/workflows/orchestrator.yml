@@ -63,6 +63,12 @@ jobs:
     permissions:
       contents: write
 
+  # Runs after the cmake job, so the docs are built only against a library that built and passed its tests. Informational:
+  # release-wheels does not wait for it, a broken docs build must not block publishing the wheels (ADR-0060).
+  docs:
+    uses: ./.github/workflows/docs.yml
+    needs: [init, cmake]
+
   release-wheels:
     needs: [wheel, init]
     runs-on: ubuntu-latest

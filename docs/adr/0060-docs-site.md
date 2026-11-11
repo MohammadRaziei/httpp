@@ -22,7 +22,7 @@ The user documentation is one long `README.md`, with Python first. The two APIs 
 
 ## Consequences
 
-- Node joins the toolchain for the docs only. `.github/workflows/docs.yml` builds the site when `docs/site/` changes; nobody needs Node to build the library. The workflow does not publish.
+- Node joins the toolchain for the docs only. `.github/workflows/docs.yml` builds the site: the orchestrator calls it on every push to master and on tags, after the `cmake` job has passed (informational, like autobahn: `release-wheels` does not wait for it), and pull requests run it when `docs/site/` changes. Nobody needs Node to build the library. The workflow does not publish.
 - Not verified: the site build, the type check, the dark theme, keyboard use, and that any C++ snippet compiles or any Python snippet runs. The Docusaurus 3.5.2 and React 18.3.1 versions exist (the lock file resolved), but nothing was built with them.
 - Every C++ claim on a page was read from `include/httpp/*.hpp` and `tests/`; every Python claim from the README and `examples/python/`. The C++ columns of the "Where the two differ" tables are the part to review first.
 - The snippets are not yet built or run by ctest. Upgrade path: a ctest target that links `httpp::httpp_core` for the C++ ones and runs the Python ones against the built package.

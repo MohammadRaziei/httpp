@@ -1,15 +1,12 @@
 name: docs
 
-# Builds the documentation site in docs/site (ADR-0060). Independent of the orchestrator: it runs only when the site changes,
-# or by hand. It does not publish anything.
+# Builds the documentation site in docs/site (ADR-0060). The orchestrator calls it on every push to master and on tags; it is
+# informational there (release-wheels does not wait for it). On pull requests it runs only when the site changes. Publishes nothing.
 on:
   workflow_dispatch:
+  workflow_call:
   pull_request:
-    paths:
-      - "docs/site/**"
-      - ".github/workflows/docs.yml"
-  push:
-    branches: [main]
+    branches: [ master ]
     paths:
       - "docs/site/**"
       - ".github/workflows/docs.yml"
