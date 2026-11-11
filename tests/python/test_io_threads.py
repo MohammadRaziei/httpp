@@ -146,7 +146,19 @@ def test_defaults_follow_the_machine(monkeypatch):
     assert Server(openapi_url=None, inline_async=False)._inline_async is False
 
 
-@pytest.mark.skipif(GIL_FREE, reason="the small starting pool is only for builds with a GIL")
+def test_the_default_pool_starts_small_and_may_still_grow_large(monkeypatch):
+    """ADR-0059: one thread under a GIL, two without one; the ceiling stays what the C++ default would have been."""
+    calls = []
+    real = Server.set_thread_pool
+    monkeypatch.setattr(Server, "set_thread_pool", lambda self, *a, **k: (calls.append((a, k)), real(self, *a, **k))[1])
+    monkeypatch.setattr("os.sched_getaffinity", lambda _pid: set(range(16)), raising=False)
+    Server(openapi_url=None)
+    (args, kwargs), = calls
+    assert args[0] == (2 if GIL_FREE else 1)
+    assert args[1] == 16 * 4
+    assert kwargs.get("grow_after_ms", 0.5) == (0.5 if GIL_FREE else 10)
+
+
 def test_blocking_handlers_still_run_together_with_the_small_default_pool():
     app = Server(openapi_url=None, io_threads=1)
 

@@ -7,6 +7,10 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Changed
+
+- On a free-threaded Python the default worker pool starts at 2 threads instead of `max(8, CPUs)` and still grows to the old ceiling (ADR-0059): CPU-bound `def` handlers measured 68.2k against 58.2k req/s at one I/O thread (3.14t, 16 threads). Builds with a GIL are unchanged.
+
 ## [0.8.1] - 2026-11-11
 
 ### Added

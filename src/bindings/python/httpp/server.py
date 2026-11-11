@@ -1081,6 +1081,12 @@ class Server(_Server):
                 # only when a job has waited 10 ms for a free one (a blocked handler makes that certain, CPU-bound
                 # work at saturation rarely waits that long), up to what the C++ default would have been.
                 self.set_thread_pool(1, max(8, cpus) * 4, grow_after_ms=10)
+            else:
+                # Without a GIL workers do run in parallel, but a large pool from the start costs: on a CPU-bound handler
+                # a pool starting at 2 gave 68.2k req/s against 58.2k for one of max(8, CPUs) at one I/O thread, and 66.1k
+                # against 64.0k at four (3.14t, 16 threads, ADR-0059). The ceiling is the C++ default's, so blocked
+                # handlers still get their threads after the usual 0.5 ms wait.
+                self.set_thread_pool(2, max(8, cpus) * 4)
         else:
             self.set_thread_pool(threads, max_threads or 0)
         for value, setter in ((read_timeout, self.set_read_timeout),

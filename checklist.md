@@ -84,7 +84,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 - [ ] Official interleaved bench on the current tree (needs the owner's `uv` to reach PyPI; try a proxy or VPN, `UV_HTTP_TIMEOUT=600`)
 - [ ] A ten-round A/B script (medians, min, max) for httpp against Drogon, and the `performance` governor
 - [ ] Fewer `shared_ptr` copies per request (about 14 releases; ceiling about 2 percent; needs ASan, TSan and the outlive tests)
-- [ ] 3.14t `def` pool should start at 2 (+17 percent at 1 I/O thread, slower first burst), `def JSON` plateau on 3.14t, non-monotone inline on 3.14t
+- [x] 3.14t `def` pool starts at 2 (ADR-0059, +17 percent at 1 I/O thread; re-run the default row with the new ceiling to confirm). Still open: `def JSON` plateau on 3.14t, non-monotone inline on 3.14t
 - [ ] Competitors: uWebSockets, libhv, Crow, oat++, RESTinio, Boost.Beast, granian, Robyn (Drogon and uvicorn are done)
 - [ ] Optional: take conntrack out of the loopback path for fair benchmarking (about 5 percent of cycles for both servers)
 
@@ -95,7 +95,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 - [ ] Python 3.15t locally (CI only so far)
 - [ ] README gaps: when to use `def` against `async def`, `HTTPException`, response classes, `httpp.status`, 405; the GZip section
 - [ ] An ADR and a benchmark for server gzip (`set_compression`)
-- [ ] Commit, `python version.py tag create` (version 0.8.1), push: owner's step; the CHANGELOG `[Unreleased]` section is ready
+- [x] 0.8.1 committed, tagged and released by the owner (2026-11-11)
 
 ## 5. Binding policy (ADR-0017), unchanged
 Python binds only what `include/` exports; a public C++ function is bound only when necessary; `tests/python/test_cpp_python_parity.py` forces every public C++ name to be bound or listed in `NOT_EXPOSED` with a reason. Not exposed on purpose: `route_io`, `route_shared`, `route_ws`, `find_swagger_ui_asset`. The new `mount_file_browser` is bound (as `Server.mount_file_browser`).
