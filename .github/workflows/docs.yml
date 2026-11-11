@@ -22,6 +22,8 @@ jobs:
         working-directory: docs/site
     steps:
     - uses: actions/checkout@v6
+      with:
+        submodules: recursive
     - uses: actions/setup-python@v6
       with:
         python-version: "3.12"
@@ -32,6 +34,11 @@ jobs:
         cache-dependency-path: docs/site/package-lock.json
     - name: Both languages have every snippet
       run: python3 scripts/prepare.py all
+    - name: Build and install httpp
+      working-directory: .
+      run: pip install .
+    - name: Snippets build, run and do what their pages say
+      run: python3 scripts/test_snippets.py
     - name: Install
       run: npm ci
     - name: Type check

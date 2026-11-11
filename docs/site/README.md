@@ -13,9 +13,18 @@ npm run build      # static site in build/
 
 `scripts/prepare.py` needs only the Python standard library. It builds `src/generated/snippets.json` from the files in `snippets/` and fails when a snippet exists in one language only.
 
+## Test the snippets
+
+```bash
+pip install .                               # from the repository root
+python3 docs/site/scripts/test_snippets.py  # python, cpp, or both (default)
+```
+
+It runs every snippet on a free port and compares the result with what its page says; the C++ ones are built with the CMake recipe of `docs/install.mdx`. A new snippet needs a check in that script: a server snippet in `SERVERS`, a client snippet in `CLIENTS`.
+
 ## Add a lesson
 
-1. Add `snippets/python/<name>.py` and `snippets/cpp/<name>.cpp`. Same name, same job.
+1. Add `snippets/python/<name>.py` and `snippets/cpp/<name>.cpp`. Same name, same job, listening on port 8000, plus a check in `scripts/test_snippets.py`.
 2. Add `docs/<area>/<page>.mdx`, use `<Lang name="<name>" />` for the code and `<Only lang="cpp">...</Only>` for text that applies to one language.
 3. Add the page id to `sidebars.ts`.
 
@@ -25,6 +34,5 @@ One line in `languages.json` and one folder in `snippets/`.
 
 ## Not done yet
 
-- The snippets are not compiled or run by ctest. Today they are only checked for presence in both languages.
 - No `ApiLink`, because there is no Doxygen or Sphinx reference to link into.
 - No benchmark component, because no benchmark JSON is committed.

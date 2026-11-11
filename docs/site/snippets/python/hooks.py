@@ -1,6 +1,6 @@
-from httpp import Server
+import httpp
 
-app = Server()
+app = httpp.Server()
 
 
 @app.before_request
@@ -19,4 +19,5 @@ def index():
     return "hello"
 
 
-app.listen("127.0.0.1", 8000)
+if __name__ == "__main__":
+    app.listen("127.0.0.1", 8000)

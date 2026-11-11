@@ -9,7 +9,7 @@ const config: Config = {
   url: 'https://example.invalid',
   baseUrl: '/',
   onBrokenLinks: 'throw',
-  markdown: {hooks: {onBrokenMarkdownLinks: 'warn'}},
+  onBrokenMarkdownLinks: 'warn',
   i18n: {defaultLocale: 'en', locales: ['en']},
   stylesheets: [
     'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Public+Sans:wght@400;500;700&display=swap',

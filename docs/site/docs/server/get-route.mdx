@@ -25,6 +25,8 @@ The path `/hello/` followed by a name matches any value in that position and han
 
 The name is written `{name}` (`<name>` means the same). It arrives as an argument with that name. The function returns a `str`, which is sent as `200` with `text/plain; charset=utf-8`. Annotate the argument as `int` or `float` and httpp converts it for you.
 
+`listen` sits under `if __name__ == "__main__":` so the file works both ways: `python get_route.py` serves on the host and port you wrote, and `httpp py run get_route:app` imports the file and picks host, port and workers itself. Without the guard `httpp py run` still works, but it skips your `listen` call and prints a warning.
+
 </Only>
 
 <Only lang="cpp">

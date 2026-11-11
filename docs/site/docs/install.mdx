@@ -25,7 +25,7 @@ The C++ library comes with the Python wheel, or you can build it from source. Sw
 
 There are two ways to get the C++ library.
 
-**From the wheel.** `pip install httpp`, then ask the package where its CMake config lives:
+**From the wheel.** `pip install httpp`, then ask the package where its CMake config lives. `python -m httpp py path --cmake-dir` prints that directory, and the recipe below runs it for you:
 
 ```cmake
 cmake_minimum_required(VERSION 3.15)
@@ -34,7 +34,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 execute_process(
-    COMMAND ${Python3_EXECUTABLE} -c "import httpp; print(httpp.get_cmake_dir())"
+    COMMAND ${Python3_EXECUTABLE} -m httpp py path --cmake-dir
     OUTPUT_VARIABLE httpp_DIR
     OUTPUT_STRIP_TRAILING_WHITESPACE
     COMMAND_ERROR_IS_FATAL ANY
@@ -45,7 +45,7 @@ add_executable(app main.cpp)
 target_link_libraries(app PRIVATE httpp::httpp_core)
 ```
 
-This is the setup the project's own install test uses (`tests/cmake/consumer_project`). In your code, `#include <httpp.h>` is the only header you need.
+The project's own install test (`tests/cmake/consumer_project`) uses the same pattern, with `httpp.get_cmake_dir()` called from Python. In your code, `#include <httpp.h>` is the only header you need.
 
 **From source.** You need CMake 3.21 or newer and a C++17 compiler. Clone with the submodules:
 
