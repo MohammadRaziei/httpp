@@ -168,7 +168,7 @@ def build_variants(args):
                 if what in args.only:
                     v.append(Variant(f"{what} (py {label})", "FastAPI + uvicorn", path, fa))
         for n in args.io_threads:
-            ht = lambda: [py, "-m", "httpp", "run", "suite_app:app", "--port", "{port}", "--log-level", "error", "--io-threads", str(n)]
+            ht = lambda: [py, "-m", "httpp", "py", "run", "suite_app:app", "--port", "{port}", "--log-level", "error", "--io-threads", str(n)]
             for path, name, what in (("/sync", "httpp def", "hello"), ("/async", "httpp async def", "hello"),
                                      ("/await", "httpp async + await", "hello"), ("/item/42", "httpp def JSON", "json"),
                                      ("/aitem/42", "httpp async def JSON", "json"), ("/cpu", "httpp def CPU-bound", "cpu"),
@@ -185,7 +185,7 @@ def build_variants(args):
                 v.append(Variant(f"hello (py {label})", f"httpp async def INLINE, io_threads={n}", "/async", ht(), {"BENCH_INLINE": "1"}))
     if "latency" in args.only and args.pys:
         label, py = args.pys[0]
-        ht = lambda: [py, "-m", "httpp", "run", "suite_app:app", "--port", "{port}", "--log-level", "error", "--io-threads", "1"]
+        ht = lambda: [py, "-m", "httpp", "py", "run", "suite_app:app", "--port", "{port}", "--log-level", "error", "--io-threads", "1"]
         g = f"latency, 1 connection (py {label}, io_threads=1)"
         v.append(Variant(g, "httpp def", "/sync", ht(), conc=1))
         v.append(Variant(g, "httpp async def", "/async", ht(), conc=1))
@@ -259,7 +259,7 @@ def uvicorn_cmd(py):
 
 
 def httpp_cmd(py, n):
-    return [py, "-m", "httpp", "run", "suite_app:app", "--port", "{port}", "--log-level", "error", "--io-threads", str(n)]
+    return [py, "-m", "httpp", "py", "run", "suite_app:app", "--port", "{port}", "--log-level", "error", "--io-threads", str(n)]
 
 
 def ticks(pid):

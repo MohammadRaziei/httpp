@@ -4,7 +4,7 @@ def port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0)); return s.getsockname()[1]
 p = port()
-proc = subprocess.Popen([sys.executable, "-m", "httpp", "run", "cpu_app:app", "--port", str(p), "--log-level", "error"],
+proc = subprocess.Popen([sys.executable, "-m", "httpp", "py", "run", "cpu_app:app", "--port", str(p), "--log-level", "error"],
                         cwd=S, env=dict(os.environ, PYTHONPATH=S), stderr=subprocess.PIPE)
 for _ in range(100):
     try: socket.create_connection(("127.0.0.1", p), .1).close(); break

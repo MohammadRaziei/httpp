@@ -38,7 +38,7 @@ def start(target, port, workers):
         cmd = [sys.executable, "-m", "uvicorn", "asgi_app:app" if target == "uvicorn" else "fastapi_app:app", "--port", str(port), "--log-level", "error",
                "--no-access-log", "--loop", "uvloop", "--http", "httptools", "--workers", str(workers)]
     else:
-        cmd = [sys.executable, "-m", "httpp", "run", "httpp_app:app", "--port", str(port), "--log-level", "error",
+        cmd = [sys.executable, "-m", "httpp", "py", "run", "httpp_app:app", "--port", str(port), "--log-level", "error",
                "--workers", str(workers)]
     proc = subprocess.Popen(cmd, env=env, cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     for _ in range(100):

@@ -25,7 +25,7 @@ def port():
 def serve(kind, p):
     env = dict(os.environ, PYTHONPATH=HERE)
     cmd = ([sys.executable, "-m", "uvicorn", "io_app:asgi", "--port", str(p), "--log-level", "error", "--no-access-log"]
-           if kind == "uvicorn" else [sys.executable, "-m", "httpp", "run", "io_app:app", "--port", str(p), "--log-level", "error"])
+           if kind == "uvicorn" else [sys.executable, "-m", "httpp", "py", "run", "io_app:app", "--port", str(p), "--log-level", "error"])
     proc = subprocess.Popen(cmd, env=env, cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(100):
         try:
