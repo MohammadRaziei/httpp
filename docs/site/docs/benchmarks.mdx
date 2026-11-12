@@ -44,5 +44,5 @@ async libraries one session and one task per connection.
 benchmarks/run.sh full
 ```
 
-The run writes `benchmarks/results/<time>.json`, with the hardware of the machine in it (CPU, cores, memory, OS). Commit that file and the next build of this site shows it (`scripts/prepare.py bench`
-reads every file there that is marked `"purpose": "published"`). See `benchmarks/README.md` for every setting.
+The run writes `benchmarks/results/full/`: `system.json` (the hardware: CPU, cores, memory, OS; the date and the settings) and one file per runtime (`cpp.json`, `py314.json`, `py314t.json`). Commit that file and the next build of this site shows it (`scripts/prepare.py bench`
+reads that directory; a new run overwrites the files, the date is inside and git keeps the history). See `benchmarks/README.md` for every setting.

@@ -533,7 +533,7 @@ def run_idle(args, server_cpus, load_cpus):
             print(f"  FAILED idle {var.name}: {e}", flush=True)
             continue
         per = (after - before) / max(connected, 1)
-        data.append({"server": var.name, "connected": connected, "failed": bad, "rss_before_kib": before, "rss_after_kib": after, "kib_per_connection": per})
+        data.append({"runtime": describe(var)["runtime"], "server": var.name, "connected": connected, "failed": bad, "rss_before_kib": before, "rss_after_kib": after, "kib_per_connection": per})
         lines.append(f"  {var.name:<42}{connected:>10,}{bad:>8}{before / 1024:>16.1f}{after / 1024:>15.1f}{per:>18.2f}")
         print(f"idle {var.name:<40} {connected:,} connected, RSS {before / 1024:.1f} -> {after / 1024:.1f} MiB ({per:.2f} KiB each)", flush=True)
     lines.append("")
@@ -577,6 +577,42 @@ def result_rows(variants, failed):
     return rows
 
 
+def write_results(directory, meta, rows, rated, idle):
+    """The JSON files of a run, one directory per kind (full, quick), fixed names:
+
+        system.json   the machine, the date, the settings and the list of the runtimes below
+        cpp.json      the C++ servers
+        py314.json    the Python 3.14 servers and clients, with the version of the interpreter and of every library
+        py314t.json   the same for the free-threaded build (one file per interpreter given with --pys)
+
+    docs/site/scripts/prepare.py puts them back together for the docs page."""
+    def runtime_id(label):
+        return "py" + label.replace(".", "")
+    pythons = {runtime_id(p["label"]): p for p in meta["pythons"]}
+    ids = (["cpp"] if any(x["runtime"] == "cpp" for x in rows + rated + idle) else []) + list(pythons)
+    lost = {x["runtime"] for x in rows + rated + idle} - set(ids)
+    if lost:
+        print(f"warning: rows of runtime {sorted(lost)} have no file", file=sys.stderr)
+    system = {k: v for k, v in meta.items() if k != "pythons"}
+    system["schema"] = 1
+    system["runtimes"] = [{"id": i, "label": "C++" if i == "cpp" else "Python " + pythons[i]["label"], "file": i + ".json"} for i in ids]
+    files = {"system.json": system}
+    for i in ids:
+        doc = {"schema": 1, "runtime": i, "results": [x for x in rows if x["runtime"] == i], "rated": [x for x in rated if x["runtime"] == i],
+               "idle": [x for x in idle if x["runtime"] == i]}
+        if i in pythons:
+            doc = {"schema": 1, "runtime": i, "python": pythons[i], **{k: v for k, v in doc.items() if k not in ("schema", "runtime")}}
+        files[i + ".json"] = doc
+    for stale in glob.glob(os.path.join(directory, "*.json")):  # a runtime of an earlier run that this one did not measure
+        if os.path.basename(stale) not in files:
+            os.remove(stale)
+    for name, doc in files.items():
+        with open(os.path.join(directory, name), "w") as f:
+            json.dump(doc, f, indent=1)
+            f.write("\n")
+        print(f"written to {os.path.join(directory, name)}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pys", required=True, help="label=python,label=python (each with httpp and uvicorn installed)")
@@ -587,7 +623,7 @@ def main():
     ap.add_argument("--note", default="", help="free text for the header (what was built)")
     ap.add_argument("--ws-size", type=int, default=64, help="bytes per WebSocket message")
     ap.add_argument("--idle-conns", type=int, default=10000, help="idle WebSocket connections for the memory table")
-    ap.add_argument("--out-dir", default="", help="write <out-dir>/<timestamp>.txt (instead of --out)")
+    ap.add_argument("--out-dir", default="", help="write <out-dir>/<full or quick>/report.txt and the JSON files next to it (instead of --out)")
     ap.add_argument("--seconds", type=int, default=5)
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--conc", type=int, default=64)
@@ -616,8 +652,10 @@ def main():
     print(head, flush=True)
     if args.out_dir and not args.out:
         os.makedirs(args.out_dir, exist_ok=True)
-        stem = time.strftime("%Y%m%d-%H%M%S")
-        args.out = os.path.join(args.out_dir, ("smoke-" if args.purpose == "smoke" else "") + stem + ".txt")
+        # fixed names, so that the docs site can load them: a run overwrites the previous one of its kind (the date is inside, git has the history)
+        kind = "quick" if args.purpose == "smoke" else "full"
+        os.makedirs(os.path.join(args.out_dir, kind), exist_ok=True)
+        args.out = os.path.join(args.out_dir, kind, "report.txt")
     variants = build_variants(args)
     failed = {}
     for r in range(args.rounds):
@@ -683,14 +721,8 @@ def main():
             f.write(head + "\n" + text + "\n")
         print(f"written to {args.out}")
         meta["idle_conns_measured"] = idle_data[0]["connected"] if idle_data else 0
-        doc = {"schema": 1, "meta": meta, "results": result_rows(variants, failed),
-               "rated": [dict(describe(var), target_rps=target, p50_ms=res[2], p99_ms=res[3], p999_ms=res[5], errors=res[4]) for var, target, res in rated],
-               "idle": idle_data}
-        json_path = os.path.splitext(args.out)[0] + ".json"
-        with open(json_path, "w") as f:
-            json.dump(doc, f, indent=1)
-            f.write("\n")
-        print(f"written to {json_path}")
+        write_results(os.path.dirname(os.path.abspath(args.out)), meta, result_rows(variants, failed),
+                      [dict(describe(var), target_rps=target, p50_ms=res[2], p99_ms=res[3], p999_ms=res[5], errors=res[4]) for var, target, res in rated], idle_data)
 
 
 if __name__ == "__main__":

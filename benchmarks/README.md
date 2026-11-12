@@ -5,7 +5,7 @@ One command for the whole comparison (CMake 3.28 or newer, a C++ compiler, Pytho
     cmake -S benchmarks -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=Release
     cmake --build build-bench --target bench          # about 25 minutes; --target bench_quick is about 5
 
-It builds what it needs, runs everything and writes `benchmarks/results/<time>.json` (and a `.txt` of the same run). `benchmarks/run.sh quick` or `full` does the configure and the build in one go. Plug the charger in and
+It builds what it needs, runs everything and writes the JSON files of `benchmarks/results/full/` (`quick/` for a quick run) and a `report.txt` of the same run. `benchmarks/run.sh quick` or `full` does the configure and the build in one go. Plug the charger in and
 close heavy programs first.
 
 | target | what it does |
@@ -25,9 +25,17 @@ Settings are cache variables, set at configure time: `-DBENCH_SECONDS=10 -DBENCH
 `bench_setup.py` makes the virtualenvs and checks the machine. `bench.py`, `io_bench.py`, `cpu_bench.py` are the older single-purpose scripts.
 Numbers are only comparable inside one result file.
 
-**JSON and the docs page** (ADR-0063). Every run writes `benchmarks/results/<time>.json` next to the `.txt`: the hardware (CPU, cores, memory, OS, laptop or not), the software, every variant with
-its rounds, the fixed-rate latency and the idle memory. `docs/site` reads the committed `.json` files marked `"purpose": "published"` (`python3 docs/site/scripts/prepare.py bench`
-does it, `npm start` and `npm run build` too) and draws them on the Benchmarks page. A run for testing the machinery uses `-DBENCH_PURPOSE=smoke`: its file is named `smoke-...`, git ignores it and the site skips it.
+**JSON and the docs page** (ADR-0063). A run writes a directory of JSON files with fixed names (a run overwrites the previous one of its kind, the date is
+inside, git keeps the history): `benchmarks/results/full/` for `run.sh full`, `benchmarks/results/quick/` for `run.sh quick`.
+
+| file | what is in it |
+|---|---|
+| `system.json` | date, hardware (CPU, cores, memory, OS, laptop or not), CPU pinning, compiler, settings, the list of the runtimes below |
+| `cpp.json` | the C++ servers (httpp, Drogon): every variant with its rounds, fixed-rate latency, idle memory |
+| `py314.json`, `py314t.json` | the same for each Python given in `BENCH_PYS`, plus its version, the GIL state and the version of every library; the HTTP client rows of that Python are here too |
+
+`docs/site` reads `full/` (`python3 docs/site/scripts/prepare.py bench` does it, `npm start` and `npm run build` too), puts the files together and draws them on the
+Benchmarks page. `quick/` (`-DBENCH_PURPOSE=smoke`) is git-ignored and the site skips it, unless `HTTPP_BENCH_SMOKE=1` is set to preview the page with it.
 
 Servers and clients in the suite: uvicorn (bare ASGI), FastAPI + uvicorn, aiohttp, httpp (`def`, `async def`, C++), Drogon; and, as HTTP clients, httpp `Client` / `AsyncClient`, requests,
 httpx (sync and async) and aiohttp (`BENCH_ONLY=client`, `BENCH_CLIENT_CONC=32`). Runtimes: the C++ binaries, Python 3.14 and 3.14t (`BENCH_PYS`). A library with no wheel for an interpreter

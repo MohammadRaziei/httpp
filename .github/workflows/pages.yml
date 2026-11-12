@@ -11,7 +11,7 @@ on:
     branches: [ master ]
     paths:
       - "docs/site/**"
-      - "benchmarks/results/*.json"
+      - "benchmarks/results/full/*.json"
       - ".github/workflows/pages.yml"
 
 permissions:

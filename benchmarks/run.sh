@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the benchmark suite through CMake and writes benchmarks/results/<time>.json (ADR-0063).
+# Runs the benchmark suite through CMake and writes benchmarks/results/full/*.json (quick: results/quick/) (ADR-0063).
 #
 #   benchmarks/run.sh quick   about 5 minutes, marked "smoke": the docs site ignores the result
 #   benchmarks/run.sh full    about 25 minutes, marked "published": commit the .json to show it on the docs site
@@ -14,8 +14,8 @@ mode="${1:-}"
 extra=("$@")
 
 case "$mode" in
-    quick) target=bench_quick; purpose=smoke ;;
-    full)  target=bench;       purpose=published ;;
+    quick) target=bench_quick; purpose=smoke; kind=quick ;;
+    full)  target=bench;       purpose=published; kind=full ;;
     *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
 
@@ -35,5 +35,5 @@ cmake "${args[@]}" "${extra[@]}"
 cmake --build "$build" --target "$target"
 
 echo
-echo "results in $root/benchmarks/results:"
-ls -t "$root/benchmarks/results"/*.json 2>/dev/null | head -3
+echo "results in $root/benchmarks/results/$kind:"
+ls "$root/benchmarks/results/$kind"

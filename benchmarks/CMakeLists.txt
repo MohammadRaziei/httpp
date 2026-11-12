@@ -3,7 +3,7 @@
 #   cmake -S benchmarks -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=Release
 #   cmake --build build-bench --target bench          # about 25 minutes; `--target bench_quick` is about 5
 #
-# It writes benchmarks/results/<time>.json (the docs site reads it, see docs/site/scripts/prepare.py) and a .txt of the same run. Targets:
+# It writes benchmarks/results/full/*.json (results/quick/ for bench_quick; the docs site reads full/, see docs/site/scripts/prepare.py) and a .txt of the same run. Targets:
 #   bench_env    Python 3.14 (GIL) and 3.14t (free-threaded) virtualenvs with this httpp, uvicorn, websockets..., and the load generator `oha` (needs network)
 #   cpp_bench    the httpp C++ server of the suite (HTTP routes and a WebSocket echo)
 #   ws_load      the WebSocket load generator (oha does not speak WebSocket)

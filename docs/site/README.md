@@ -40,7 +40,7 @@ Set Settings, Pages, Source: "GitHub Actions" once, or the address keeps answeri
 ## The Benchmarks page
 
 `docs/benchmarks.mdx` draws the JSON that `benchmarks/suite.py` writes (ADR-0063) with `src/components/Bench.tsx` (chart.js). `scripts/prepare.py bench` copies the committed
-`benchmarks/results/*.json` marked `"purpose": "published"` into `src/generated/bench.json`; with none, the page says there are no results yet.
+`benchmarks/results/full/` (`system.json` and one file per runtime) into one `src/generated/bench.json`; with none, the page says there are no results yet.
 
 ## Not done yet
 
