@@ -43,4 +43,6 @@ On a free-threaded Python the default pool is `set_thread_pool(2, max(8, CPUs) *
 
 ## Verification
 
-Python suite on 3.14t in the sandbox (2 cores). Throughput numbers from the owner's machine with a download running in the background (sd 0.5 to 6.9 percent). Not verified: two and eight I/O threads, blocking handlers on the owner's machine (only the sandbox test), Python 3.13t and 3.15t, a run without background load.
+Python suite on 3.14t in the sandbox (2 cores). Third run on the owner's machine, with the default itself (background load not controlled; sd 1.5 to 3.8 percent for the default rows): one I/O thread 69.3k req/s (67.5 to 69.9), p99 1.27 ms; four I/O threads 65.8k (61.9 to 67.9), p99 1.45 ms; against 57.4k to 58.2k and 62.4k to 64.0k with p99 2.4 and 3.3 ms before. Growth after 10 ms measured again at 24.5k to 26.2k (rejected); ceiling 16 with 0.5 ms at 53.7k and 61.4k (no gain).
+A sandbox run on two cores (server and load generator on one core each) could not tell the pool configurations apart (12.2k to 12.8k, within noise), so it neither confirms nor contradicts the choice; the effect needs cores to spare.
+Not verified: two and eight I/O threads, blocking handlers on the owner's machine (only the sandbox test passes), Python 3.13t and 3.15t.

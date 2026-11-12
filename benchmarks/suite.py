@@ -181,10 +181,6 @@ def build_variants(args):
                 # one the question is how fast the default pool reaches the size the machine can use (ADR-0025, addendum 4).
                 for t in ((1, 4, 16) if not _gil_free(py) else (2, 4, 8)):
                     v.append(Variant(f"cpu (py {label})", f"httpp def CPU-bound, pool={t}, io_threads={n}", "/cpu", ht(), {"BENCH_THREADS": str(t)}))
-                if _gil_free(py):  # ADR-0059: the pool starts at 2; which ceiling and growth wait keep the gain of a ceiling of 8?
-                    for mx, gr in ((64, 10), (64, 2), (16, 0.5)):
-                        v.append(Variant(f"cpu (py {label})", f"httpp def CPU-bound, pool=2 max={mx} grow={gr}ms, io_threads={n}", "/cpu", ht(),
-                                         {"BENCH_THREADS": "2", "BENCH_MAX": str(mx), "BENCH_GROW_MS": str(gr)}))
             if "hello" in args.only:
                 v.append(Variant(f"hello (py {label})", f"httpp async def INLINE, io_threads={n}", "/async", ht(), {"BENCH_INLINE": "1"}))
     if "latency" in args.only and args.pys:

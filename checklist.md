@@ -94,7 +94,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 - [x] The 18 KB exit leak of `async_http` exchanges (a reference cycle, fixed, ADR-0047); still open: the `worker_pool*` read in ADR-0035
 - [ ] Python 3.15t locally (CI only so far)
 - [ ] README gaps: when to use `def` against `async def`, `HTTPException`, response classes, `httpp.status`, 405; the GZip section
-- [ ] An ADR and a benchmark for server gzip (`set_compression`)
+- [x] An ADR and a benchmark for server gzip (`set_compression`): [ADR-0061](docs/adr/0061-server-gzip-defaults.md), `benchmarks/gzip_bench.py`
 - [x] 0.8.1 committed, tagged and released by the owner (2026-11-11)
 
 ## 5. Binding policy (ADR-0017), unchanged

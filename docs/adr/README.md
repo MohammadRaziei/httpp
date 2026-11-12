@@ -65,6 +65,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0057](0057-public-logging-module.md) | The logging module is public: `httpp/logging.hpp` | accepted, amends 0050 |
 | [0058](0058-fs-merged-into-path.md) | The file system module is merged into `httpp::path` | accepted, amends 0054 and 0055 |
 | [0059](0059-free-threaded-pool-starts-at-two.md) | The worker pool of a free-threaded Python starts at two threads | accepted, amends 0025 |
+| [0061](0061-server-gzip-defaults.md) | Server gzip stays off by default, level 1, and its cost is documented | accepted |
 
 ## Not decided yet
 
