@@ -1,0 +1,61 @@
+name: pages
+
+# Publishes the documentation site (docs/site, ADR-0064) to GitHub Pages: https://mohammadraziei.github.io/httpp/
+# docs.yml checks the site (snippets, type check, build) and publishes nothing; this workflow builds it again and deploys it.
+# It is a workflow of its own, not a job of docs.yml: the orchestrator calls docs.yml, and a called workflow cannot ask for
+# more permissions than its caller gives.
+# One-time setup: Settings -> Pages -> Source: "GitHub Actions".
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - "docs/site/**"
+      - "benchmarks/results/*.json"
+      - ".github/workflows/pages.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs/site
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+    - uses: actions/setup-node@v6
+      with:
+        node-version: "22"
+        cache: npm
+        cache-dependency-path: docs/site/package-lock.json
+    - name: Snippets and benchmark data
+      run: python3 scripts/prepare.py all
+    - name: Install
+      run: npm ci
+    - name: Build
+      run: npm run build
+    - uses: actions/upload-pages-artifact@v3
+      with:
+        path: docs/site/build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - id: deployment
+      uses: actions/deploy-pages@v4

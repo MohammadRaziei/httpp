@@ -5,9 +5,11 @@ const config: Config = {
   title: 'httpp',
   tagline: 'HTTP client and server for Python and C++',
   favicon: 'img/favicon.svg',
-  // Set these two for the real host before publishing.
-  url: 'https://example.invalid',
-  baseUrl: '/',
+  // GitHub Pages of the repository (.github/workflows/pages.yml, ADR-0064).
+  url: 'https://mohammadraziei.github.io',
+  baseUrl: '/httpp/',
+  organizationName: 'mohammadraziei',
+  projectName: 'httpp',
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
   i18n: {defaultLocale: 'en', locales: ['en']},

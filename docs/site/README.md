@@ -32,6 +32,11 @@ It runs every snippet on a free port and compares the result with what its page 
 
 One line in `languages.json` and one folder in `snippets/`.
 
+## Publishing
+
+`.github/workflows/pages.yml` deploys the site to https://mohammadraziei.github.io/httpp/ (ADR-0064) on a push to master that touches `docs/site/` or the benchmark JSON.
+Set Settings, Pages, Source: "GitHub Actions" once, or the address keeps answering 404. Locally the site is at http://localhost:3000/httpp/.
+
 ## The Benchmarks page
 
 `docs/benchmarks.mdx` draws the JSON that `benchmarks/suite.py` writes (ADR-0063) with `src/components/Bench.tsx` (chart.js). `scripts/prepare.py bench` copies the committed
