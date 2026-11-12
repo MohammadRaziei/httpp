@@ -135,3 +135,5 @@ Thumbs.db
 
 # Build directory
 *build*/
+# local benchmark build tree (benchmarks/CMakeLists.txt, ADR-0030)
+build-bench/

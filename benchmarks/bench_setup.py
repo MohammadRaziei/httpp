@@ -51,7 +51,12 @@ def make_venv(uv, root, venvs, version):
         run([uv, "venv", "--python", version if want_nogil else version + "+gil", d])
     print(f"== installing httpp (built from this tree) and the servers to compare into {d}", flush=True)
     env = dict(os.environ, UV_LINK_MODE="copy")  # the project may sit on another filesystem than the uv cache
+    # ponytail: one install per package, so that a package without a wheel for this interpreter (aiohttp on a free-threaded build, say) is
+    # skipped with a note and the suite leaves it out, instead of failing the whole environment.
     run([uv, "pip", "install", "--python", py, "--reinstall", root, "uvicorn", "httptools", "fastapi", "websockets"], env=env)
+    for extra in ("aiohttp", "httpx", "requests"):
+        if subprocess.run([uv, "pip", "install", "--python", py, extra], env=env).returncode != 0:
+            print(f"(no {extra} for {version}: it is left out of the comparison there)")
     if subprocess.run([uv, "pip", "install", "--python", py, "uvloop"], env=env).returncode != 0:
         print(f"(no uvloop for {version}: uvicorn and websockets use asyncio there)")
 

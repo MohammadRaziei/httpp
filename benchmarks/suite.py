@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The benchmark suite: uvicorn, httpp (def / async def / await) on several Pythons and I/O thread counts, and
-the C++ API, Drogon, and WebSocket echo servers, all measured the same way. One command (the CMake target `bench`, see CMakeLists.txt), one output file to send back.
+aiohttp, the C++ API, Drogon, and WebSocket echo servers, plus the HTTP clients (httpp, requests, httpx, aiohttp), all measured the same way. One command (the CMake target `bench`, see CMakeLists.txt), one output file to send back.
 
 Method: variants run interleaved (round 1 of every variant, then round 2, ...), so a slow minute of the machine
 hits all of them alike. The server and the load generator (`oha`) are pinned to separate CPUs. Server CPU time per
@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import resource
 import shutil
 import socket
@@ -119,7 +120,7 @@ def sysinfo(args, server_cpus, load_cpus):
                               capture_output=True, text=True).stdout.strip()
         lines.append(f"python {label:<7} {info}")
         libs = subprocess.run([py, "-c", "from importlib.metadata import version as v\n"
-                               "for n in ('uvicorn','uvloop','httptools','fastapi','starlette','websockets','wsproto'):\n"
+                               "for n in ('uvicorn','uvloop','httptools','fastapi','starlette','aiohttp','httpx','requests','websockets','wsproto'):\n"
                                "    try: print(n, v(n), end='  ')\n"
                                "    except Exception: print(n, '-', end='  ')"], capture_output=True, text=True).stdout.strip()
         lines.append(f"       {'':<7} {libs}")
@@ -137,11 +138,40 @@ def sysinfo(args, server_cpus, load_cpus):
     return "\n".join(lines)
 
 
+def meta_info(args, server_cpus, load_cpus):
+    """The machine and the software of this run, for the JSON file (the docs site shows it next to every chart)."""
+    cpu = next((l.split(":", 1)[1].strip() for l in read("/proc/cpuinfo").splitlines() if l.startswith("model name")), "?")
+    gov = {read(f"/sys/devices/system/cpu/cpu{c}/cpufreq/scaling_governor") for c in server_cpus}
+    cxx = shutil.which(os.environ.get("CXX", "g++"))
+    pythons = []
+    probe = ("import sys, json\nfrom importlib.metadata import version as v\nout = {'version': sys.version.split()[0],"
+             "'gil': bool(getattr(sys, '_is_gil_enabled', lambda: True)()), 'libs': {}, 'gil_after_import': {}}\n"
+             "for n in %r:\n    try: out['libs'][n] = v(n)\n    except Exception: pass\nprint(json.dumps(out))")
+    names = ("httpp", "uvicorn", "uvloop", "httptools", "fastapi", "starlette", "aiohttp", "httpx", "requests", "websockets")
+    for label, py in args.pys:
+        info = json.loads(subprocess.run([py, "-c", probe % (names,)], capture_output=True, text=True).stdout or "{}")
+        for mod in ("httpp", "uvloop", "uvicorn", "aiohttp", "httpx", "requests"):  # a C extension without free-threading support turns the GIL back on
+            out = subprocess.run([py, "-c", f"import sys, {mod}; print(bool(sys._is_gil_enabled()))"], capture_output=True, text=True).stdout.strip()
+            if out:
+                info.setdefault("gil_after_import", {})[mod] = out == "True"
+        pythons.append(dict(info, label=label))
+    return {"date": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "machine": args.machine, "purpose": args.purpose, "kernel": platform.release(),
+            "cpu": cpu, "logical_cpus": os.cpu_count(), "server_cpus": cpu_ranges(server_cpus), "load_cpus": cpu_ranges(load_cpus),
+            "governor": ",".join(sorted(g for g in gov if g)) or "?", "turbo_disabled": read("/sys/devices/system/cpu/intel_pstate/no_turbo", "?"),
+            "tree": tree_id(), "compiler": subprocess.run([cxx, "--version"], capture_output=True, text=True).stdout.splitlines()[0] if cxx else "",
+            "drogon": bool(args.drogon), "note": args.note, "pythons": pythons,
+            "settings": {"conc": args.conc, "seconds": args.seconds, "rounds": args.rounds, "ws_size": args.ws_size, "idle_conns": args.idle_conns,
+                         "client_conc": args.client_conc, "io_threads": args.io_threads, "only": args.only}}
+
+
 class Variant:
     def __init__(self, group, name, path, cmd, env=None, conc=None, rate=False, kind="http"):
         self.group, self.name, self.path, self.cmd, self.env, self.conc, self.rate = group, name, path, cmd, env or {}, conc, rate
         self.kind = kind  # "http" (oha), "ws" (ws_load echo) or "idle" (memory with idle WebSocket connections)
-        self.runs = []  # (req/s, us/req, p50 ms, p99 ms, errors)
+        self.runs = []  # (req/s, us/req, p50 ms, p99 ms, errors, p99.9 ms)
+        self.target = None  # kind "client": the Variant of the server the client talks to
+        self.lib = ""  # kind "client": the library under test
+        self.py = ""  # kind "client": the interpreter
 
 
 def _gil_free(py):
@@ -167,6 +197,11 @@ def build_variants(args):
             for path, what in (("/", "hello"), ("/item/42", "json")):
                 if what in args.only:
                     v.append(Variant(f"{what} (py {label})", "FastAPI + uvicorn", path, fa))
+        if subprocess.run([py, "-c", "import aiohttp"], capture_output=True).returncode == 0:
+            loop = "uvloop" if import_ok else "asyncio"
+            for path, what in (("/", "hello"), ("/cpu", "cpu"), ("/item/42", "json")):
+                if what in args.only:
+                    v.append(Variant(f"{what} (py {label})", f"aiohttp ({loop})", path, [py, "suite_aiohttp.py", "{port}"]))
         for n in args.io_threads:
             ht = lambda: [py, "-m", "httpp", "py", "run", "suite_app:app", "--port", "{port}", "--log-level", "error", "--io-threads", str(n)]
             for path, name, what in (("/sync", "httpp def", "hello"), ("/async", "httpp async def", "hello"),
@@ -207,6 +242,28 @@ def build_variants(args):
                     v.append(Variant(f"{what} (C++)", f"Drogon, io_threads={n}", path, [args.drogon, "{port}", str(n)],
                                      rate=(what == "hello" and n in (1, args.io_threads[-1]))))
     v += ws_variants(args)
+    v += client_variants(args)
+    return v
+
+
+def client_variants(args):
+    """The HTTP clients, each against the same server (the C++ one when it is built: the fastest, so that it is the client that is measured)."""
+    from client_worker import LIBS
+    v = []
+    if "client" not in args.only:
+        return v
+    if args.cpp and os.path.exists(args.cpp):
+        target = Variant("client target", "httpp C++ route_io, io_threads=2", "/io", [args.cpp, "{port}", "2"])
+    else:
+        py = args.pys[0][1]
+        target = Variant("client target", "uvicorn bare ASGI", "/", uvicorn_cmd(py) + ["--port", "{port}"])
+    for label, py in args.pys:
+        for lib, (mod, mode) in LIBS.items():
+            if subprocess.run([py, "-c", f"import {mod}"], capture_output=True).returncode != 0:
+                continue
+            var = Variant(f"client GET, {args.client_conc} {'threads' if mode == 'sync' else 'tasks'} (py {label})", lib, target.path, [], kind="client")
+            var.target, var.lib, var.py = target, lib, py
+            v.append(var)
     return v
 
 
@@ -229,6 +286,8 @@ def ws_variants(args):
         g = f"{what} (py {label})"
         v.append(Variant(g, "uvicorn bare ASGI", "/ws", uvicorn_cmd(py) + ["--port", "{port}"], kind="ws"))
         v.append(Variant(g, "websockets library", "/ws", [py, "ws_websockets.py", "{port}"], kind="ws"))
+        if subprocess.run([py, "-c", "import aiohttp"], capture_output=True).returncode == 0:
+            v.append(Variant(g, "aiohttp", "/ws", [py, "suite_aiohttp.py", "{port}"], kind="ws"))
         for n in ws_threads(args):
             v.append(Variant(g, f"httpp async def, io_threads={n}", "/ws", httpp_cmd(py, n), kind="ws"))
     return v
@@ -248,6 +307,8 @@ def idle_variants(args):
         v.append(Variant(g, f"httpp async def (py {label})", "/ws", httpp_cmd(py, 1), kind="idle"))
         v.append(Variant(g, f"uvicorn bare ASGI (py {label})", "/ws", uvicorn_cmd(py) + ["--port", "{port}"], kind="idle"))
         v.append(Variant(g, f"websockets library (py {label})", "/ws", [py, "ws_websockets.py", "{port}"], kind="idle"))
+        if subprocess.run([py, "-c", "import aiohttp"], capture_output=True).returncode == 0:
+            v.append(Variant(g, f"aiohttp (py {label})", "/ws", [py, "suite_aiohttp.py", "{port}"], kind="idle"))
     return v
 
 
@@ -311,9 +372,24 @@ class started:
             self.proc.kill()
 
 
+def measure_client(var, args, server_cpus, load_cpus):
+    """One client run: the server is started, the client library makes requests for the measuring window in a process of its own."""
+    with started(var.target, args, server_cpus) as srv:
+        cmd = ["taskset", "-c", cpu_ranges(load_cpus)] if shutil.which("taskset") else []
+        cmd += [var.py, "client_worker.py", "--lib", var.lib, "--port", str(srv.port), "--path", var.path, "--seconds", str(args.seconds),
+                "--warmup", "1", "--conc", str(args.client_conc)]
+        done = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True, timeout=args.seconds + 60)
+        if done.returncode or not done.stdout.strip():
+            raise RuntimeError((done.stderr.strip().splitlines() or ["client_worker failed"])[-1])
+        d = json.loads(done.stdout.strip().splitlines()[-1])
+        return (d["rps"], d["cpu_us_per_req"], d["p50_ms"], d["p99_ms"], d["errors"], d["p999_ms"])
+
+
 def measure(var, args, server_cpus, load_cpus, rate=None):
     if var.kind == "ws":
         return measure_ws(var, args, server_cpus, load_cpus)
+    if var.kind == "client":
+        return measure_client(var, args, server_cpus, load_cpus)
     with started(var, args, server_cpus) as srv:
         proc, port = srv.proc, srv.port
         url = f"http://127.0.0.1:{port}{var.path}"
@@ -398,9 +474,11 @@ def measure_idle(var, args, server_cpus, load_cpus, conns):
 
 
 def run_idle(args, server_cpus, load_cpus):
+    """(text lines, [dict per server]) for the idle WebSocket memory table."""
     idle = idle_variants(args)
+    data = []
     if not idle:
-        return []
+        return [], data
     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     cap = (1 << 20) if hard == resource.RLIM_INFINITY else hard
     conns = max(100, min(args.idle_conns, cap - 300))
@@ -415,10 +493,48 @@ def run_idle(args, server_cpus, load_cpus):
             print(f"  FAILED idle {var.name}: {e}", flush=True)
             continue
         per = (after - before) / max(connected, 1)
+        data.append({"server": var.name, "connected": connected, "failed": bad, "rss_before_kib": before, "rss_after_kib": after, "kib_per_connection": per})
         lines.append(f"  {var.name:<42}{connected:>10,}{bad:>8}{before / 1024:>16.1f}{after / 1024:>15.1f}{per:>18.2f}")
         print(f"idle {var.name:<40} {connected:,} connected, RSS {before / 1024:.1f} -> {after / 1024:.1f} MiB ({per:.2f} KiB each)", flush=True)
     lines.append("")
-    return lines
+    return lines, data
+
+
+def describe(var):
+    """The structured form of a variant for the JSON file: suite, runtime, server family, I/O threads."""
+    g = var.group
+    suite = "ws" if g.startswith("websocket") else "latency" if g.startswith("latency") else "client" if g.startswith("client") else g.split(" (")[0]
+    m = re.search(r"\(py ([^,)]+)", g)
+    runtime = ("py" + m.group(1).replace(".", "")) if m else "cpp" if "(C++)" in g else ""
+    if var.kind == "idle":
+        m = re.search(r"\(py ([^,)]+)", var.name)
+        runtime = ("py" + m.group(1).replace(".", "")) if m else "cpp"
+    name = var.lib or var.name
+    family = next((f for k, f in (("FastAPI", "fastapi"), ("uvicorn", "uvicorn"), ("aiohttp", "aiohttp"), ("Drogon", "drogon"), ("websockets library", "websockets"),
+                                  ("httpp", "httpp")) if k in name), name)
+    m = re.search(r"io_threads=(\d+)", name)
+    return {"suite": suite, "runtime": runtime, "server": family, "variant": re.sub(r",? ?io_threads=\d+", "", name).strip(), "io_threads": int(m.group(1)) if m else None,
+            "group": g}
+
+
+def result_rows(variants, failed):
+    rows = []
+    for var in variants:
+        row = describe(var)
+        row["unit"] = "msg/s" if var.kind == "ws" else "req/s"
+        if id(var) in failed:
+            row["failed"] = failed[id(var)][0]
+        elif var.runs:
+            rps = [x[0] for x in var.runs]
+            row.update({"rps": statistics.median(rps), "rps_sd_pct": (statistics.pstdev(rps) / statistics.mean(rps) * 100) if len(rps) > 1 and statistics.mean(rps) else 0.0,
+                        "rps_min": min(rps), "rps_max": max(rps), "us_per_req": statistics.median(x[1] for x in var.runs),
+                        "p50_ms": statistics.median(x[2] for x in var.runs), "p99_ms": statistics.median(x[3] for x in var.runs),
+                        "p999_ms": statistics.median(x[5] for x in var.runs), "errors": sum(x[4] for x in var.runs),
+                        "rounds": [{"rps": x[0], "us_per_req": x[1], "p50_ms": x[2], "p99_ms": x[3], "p999_ms": x[5], "errors": x[4]} for x in var.runs]})
+        else:
+            continue
+        rows.append(row)
+    return rows
 
 
 def main():
@@ -437,12 +553,16 @@ def main():
     ap.add_argument("--conc", type=int, default=64)
     ap.add_argument("--io-threads", default="1,2,4,8", help="I/O thread counts for httpp")
     ap.add_argument("--cpp-extra", default="", help="extra I/O thread counts only for the C++ server")
-    ap.add_argument("--only", default="hello,json,cpu,latency,ws,idle",
-                    help="hello, json, cpu, latency (one connection), ws (WebSocket echo), idle (memory with idle WebSockets)")
+    ap.add_argument("--only", default="hello,json,cpu,latency,ws,idle,client",
+                    help="hello, json, cpu, latency (one connection), ws (WebSocket echo), idle (memory with idle WebSockets), client (HTTP client libraries)")
     ap.add_argument("--server-cpus", default="", help="e.g. 0-7 (default: derived from the topology)")
     ap.add_argument("--load-cpus", default="", help="e.g. 8-11")
     ap.add_argument("--rate", action="store_true", help="also run the fixed-rate latency phase (needs hello in --only)")
     ap.add_argument("--out", default="")
+    ap.add_argument("--client-conc", type=int, default=32, help="threads (sync clients) or tasks (async clients) of the client part")
+    ap.add_argument("--purpose", default="published", choices=("published", "smoke"),
+                    help="smoke: a test of the machinery; the docs site ignores it (and benchmarks/results/.gitignore keeps it out of git)")
+    ap.add_argument("--machine", default="", help="a name for this machine, shown on the docs page (default: none)")
     args = ap.parse_args()
     args.pys = [tuple(x.split("=", 1)) for x in args.pys.split(",") if x]
     args.io_threads = [int(x) for x in args.io_threads.split(",") if x]
@@ -453,10 +573,12 @@ def main():
     load_cpus = parse_cpus(args.load_cpus) or lc
 
     head = sysinfo(args, server_cpus, load_cpus)
+    meta = meta_info(args, server_cpus, load_cpus)
     print(head, flush=True)
     if args.out_dir and not args.out:
         os.makedirs(args.out_dir, exist_ok=True)
-        args.out = os.path.join(args.out_dir, time.strftime("%Y%m%d-%H%M%S") + ".txt")
+        stem = time.strftime("%Y%m%d-%H%M%S") + (f"-{re.sub('[^A-Za-z0-9]+', '-', args.machine).strip('-')}" if args.machine else "")
+        args.out = os.path.join(args.out_dir, ("smoke-" if args.purpose == "smoke" else "") + stem + ".txt")
     variants = build_variants(args)
     failed = {}
     for r in range(args.rounds):
@@ -512,7 +634,7 @@ def main():
         for var, target, res in rated:
             lines.append(f"  {var.group + ' / ' + var.name:<52}{target:>13,.0f}{res[2]:>9.2f}{res[3]:>9.2f}{res[5]:>10.2f}{res[4]:>8}")
         lines.append("")
-    idle_lines = run_idle(args, server_cpus, load_cpus)
+    idle_lines, idle_data = run_idle(args, server_cpus, load_cpus)
     if idle_lines:
         lines += idle_lines
     text = "\n".join(lines)
@@ -521,7 +643,15 @@ def main():
         with open(args.out, "w") as f:
             f.write(head + "\n" + text + "\n")
         print(f"written to {args.out}")
-        print(f"Send me this file: {args.out}")
+        meta["idle_conns_measured"] = idle_data[0]["connected"] if idle_data else 0
+        doc = {"schema": 1, "meta": meta, "results": result_rows(variants, failed),
+               "rated": [dict(describe(var), target_rps=target, p50_ms=res[2], p99_ms=res[3], p999_ms=res[5], errors=res[4]) for var, target, res in rated],
+               "idle": idle_data}
+        json_path = os.path.splitext(args.out)[0] + ".json"
+        with open(json_path, "w") as f:
+            json.dump(doc, f, indent=1)
+            f.write("\n")
+        print(f"written to {json_path}")
 
 
 if __name__ == "__main__":

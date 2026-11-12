@@ -66,6 +66,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0058](0058-fs-merged-into-path.md) | The file system module is merged into `httpp::path` | accepted, amends 0054 and 0055 |
 | [0059](0059-free-threaded-pool-starts-at-two.md) | The worker pool of a free-threaded Python starts at two threads | accepted, amends 0025 |
 | [0061](0061-server-gzip-defaults.md) | Server gzip stays off by default, level 1, and its cost is documented | accepted |
+| [0063](0063-benchmark-json-and-docs-page.md) | The benchmark suite writes JSON; the docs site draws the charts | proposed |
 
 ## Not decided yet
 

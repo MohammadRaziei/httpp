@@ -32,7 +32,11 @@ It runs every snippet on a free port and compares the result with what its page 
 
 One line in `languages.json` and one folder in `snippets/`.
 
+## The Benchmarks page
+
+`docs/benchmarks.mdx` draws the JSON that `benchmarks/suite.py` writes (ADR-0063) with `src/components/Bench.tsx` (chart.js). `scripts/prepare.py bench` copies the committed
+`benchmarks/results/*.json` marked `"purpose": "published"` into `src/generated/bench.json`; with none, the page says there are no results yet.
+
 ## Not done yet
 
 - No `ApiLink`, because there is no Doxygen or Sphinx reference to link into.
-- No benchmark component, because no benchmark JSON is committed.

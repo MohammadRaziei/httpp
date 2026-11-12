@@ -1,0 +1,49 @@
+---
+id: benchmarks
+title: Benchmarks
+---
+
+import {BenchProvider, BenchMeta, BenchChart, BenchIdle} from '@site/src/components/Bench';
+
+httpp's servers and its HTTP client, measured next to the libraries people use today. Every number comes from one run of the suite in
+`benchmarks/`, on the machine described below; numbers from different runs or machines are not comparable.
+
+<BenchProvider>
+
+## The run
+
+<BenchMeta />
+
+## Servers
+
+All servers answer the same requests with the same work: a constant string, a path parameter turned into a JSON object, and about 60 µs of
+CPU-bound work. The load generator is [oha](https://github.com/hatoo/oha), pinned to other CPUs than the server.
+
+<BenchChart suite="hello" title="Hello: a constant answer" />
+<BenchChart suite="json" title="JSON: a path parameter and a JSON object back" />
+<BenchChart suite="cpu" title="CPU-bound: about 60 µs of work per request" what="Python handlers hold the GIL while they work. On a free-threaded build the worker threads can run in parallel." />
+<BenchChart suite="latency" title="Latency with one connection" metric="p50_ms" />
+
+## WebSocket
+
+<BenchChart suite="ws" title="Echo of a text message" what="A closed loop: every connection sends the next message when the echo arrives." />
+<BenchIdle />
+
+## HTTP clients
+
+Each library makes GET requests in a loop against the same server, in a process of its own. Sync libraries get one thread and one session each,
+async libraries one session and one task per connection.
+
+<BenchChart suite="client" title="Client: GET requests per second" />
+
+</BenchProvider>
+
+## Run it yourself
+
+```bash
+cmake -S benchmarks -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=Release -DBENCH_MACHINE="my laptop"
+cmake --build build-bench --target bench
+```
+
+The run writes `benchmarks/results/<time>.json`. Commit that file and the next build of this site shows it (`scripts/prepare.py bench`
+reads every file there that is marked `"purpose": "published"`). See `benchmarks/README.md` for every setting.

@@ -3,7 +3,7 @@
 #   cmake -S benchmarks -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=Release
 #   cmake --build build-bench --target bench          # about 25 minutes; `--target bench_quick` is about 5
 #
-# Then send back the file it prints at the end (build-bench/results/*.txt). Targets:
+# It writes benchmarks/results/<time>.json (the docs site reads it, see docs/site/scripts/prepare.py) and a .txt of the same run. Targets:
 #   bench_env    Python 3.14 (GIL) and 3.14t (free-threaded) virtualenvs with this httpp, uvicorn, websockets..., and the load generator `oha` (needs network)
 #   cpp_bench    the httpp C++ server of the suite (HTTP routes and a WebSocket echo)
 #   ws_load      the WebSocket load generator (oha does not speak WebSocket)
@@ -31,7 +31,11 @@ set(BENCH_SECONDS 5 CACHE STRING "seconds per measurement")
 set(BENCH_ROUNDS 3 CACHE STRING "interleaved rounds")
 set(BENCH_CONC 64 CACHE STRING "connections of the load generators")
 set(BENCH_IO_THREADS "1,2,4,8" CACHE STRING "I/O thread counts")
-set(BENCH_ONLY "hello,json,cpu,latency,ws,idle" CACHE STRING "which parts: hello json cpu latency ws (WebSocket echo) idle (memory with many idle WebSockets)")
+set(BENCH_ONLY "hello,json,cpu,latency,ws,idle,client" CACHE STRING "which parts: hello json cpu latency ws (WebSocket echo) idle (memory with many idle WebSockets) client (HTTP client libraries)")
+set(BENCH_CLIENT_CONC 32 CACHE STRING "threads (sync clients) or tasks (async clients) of the client part")
+set(BENCH_MACHINE "" CACHE STRING "a name for this machine, shown on the docs page")
+set(BENCH_PURPOSE "published" CACHE STRING "published, or smoke (a test of the machinery: the docs site ignores it)")
+set(BENCH_RESULTS_DIR "${CMAKE_CURRENT_LIST_DIR}/results" CACHE PATH "where the .json (read by docs/site) and .txt files go")
 set(BENCH_WS_SIZE 64 CACHE STRING "bytes per WebSocket message")
 set(BENCH_IDLE_CONNS 10000 CACHE STRING "idle WebSocket connections for the memory table (cut to what the open-file limit allows)")
 set(BENCH_SERVER_CPUS "" CACHE STRING "e.g. 0-7 (empty: derived from the CPU topology)")
@@ -142,7 +146,11 @@ function(add_bench_target name seconds rounds io_threads)
     set(_cmd ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/suite.py
         --pys "${BENCH_PY_ARG}" --cpp $<TARGET_FILE:cpp_bench> --ws-load $<TARGET_FILE:ws_load> --oha ${BENCH_OHA}
         --seconds ${seconds} --rounds ${rounds} --conc ${BENCH_CONC} --io-threads ${io_threads} --rate --only ${BENCH_ONLY}
-        --ws-size ${BENCH_WS_SIZE} --idle-conns ${BENCH_IDLE_CONNS} --out-dir ${BENCH_DIR}/results)
+        --ws-size ${BENCH_WS_SIZE} --idle-conns ${BENCH_IDLE_CONNS} --client-conc ${BENCH_CLIENT_CONC} --purpose ${BENCH_PURPOSE}
+        --out-dir ${BENCH_RESULTS_DIR})
+    if(BENCH_MACHINE)
+        list(APPEND _cmd --machine ${BENCH_MACHINE})
+    endif()
     if(BENCH_SERVER_CPUS)  # an empty value would be dropped from the command and eat the next option
         list(APPEND _cmd --server-cpus ${BENCH_SERVER_CPUS})
     endif()
