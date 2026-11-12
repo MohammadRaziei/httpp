@@ -45,7 +45,7 @@ struct form_data {
 };
 
 // Minimal per-request info handed to a route handler.
-struct request {
+struct server_request {
     std::string method;
     std::string path;
     std::string body;
@@ -98,7 +98,7 @@ struct request {
     }
 };
 
-using handler = std::function<void(const request&, response&)>;
+using handler = std::function<void(const server_request&, response&)>;
 
 // Asynchronous ("deferred") responses. An async handler gets a `responder`
 // instead of a response to fill in. It may return immediately: the worker
@@ -124,7 +124,7 @@ private:
     std::shared_ptr<impl> impl_;
 };
 
-using async_handler = std::function<void(const request&, responder)>;
+using async_handler = std::function<void(const server_request&, responder)>;
 
 // Handlers that get their request by shared pointer, so they can keep it (hand it to another
 // thread, queue it) without copying it.
@@ -134,8 +134,8 @@ using async_handler = std::function<void(const request&, responder)>;
 //    a lock someone may hold for long, never wait for a thread that could be waiting for the I/O
 //    thread. It exists to hand the request to an event loop that lives elsewhere (the Python
 //    asyncio loop is one), skipping the extra thread hop an async_handler costs.
-using shared_handler = std::function<void(std::shared_ptr<const request>, response&)>;
-using io_handler = std::function<void(std::shared_ptr<const request>, responder)>;
+using shared_handler = std::function<void(std::shared_ptr<const server_request>, response&)>;
+using io_handler = std::function<void(std::shared_ptr<const server_request>, responder)>;
 
 // httpp::server is what replaces "spin up libcurl/httplib yourself" for the
 // server side: register routes or serve a directory (the httpp CLI's
@@ -218,10 +218,10 @@ public:
     //   and changes to it are ignored). It also runs for async responses, when they are sent.
     // error handler: fill in the body for a 4xx/5xx the server produced itself (404, 405, ...).
     // exception handler: called when a route handler throws; the response starts as a 500.
-    using before_hook = std::function<bool(const request&, response&)>;
-    using after_hook = std::function<void(const request&, response&)>;
-    using error_hook = std::function<void(const request&, response&)>;
-    using exception_hook = std::function<void(const request&, response&, std::exception_ptr)>;
+    using before_hook = std::function<bool(const server_request&, response&)>;
+    using after_hook = std::function<void(const server_request&, response&)>;
+    using error_hook = std::function<void(const server_request&, response&)>;
+    using exception_hook = std::function<void(const server_request&, response&, std::exception_ptr)>;
     HTTPP_API server& before(before_hook hook);
     HTTPP_API server& after(after_hook hook);
     HTTPP_API server& set_error_handler(error_hook hook);

@@ -44,8 +44,8 @@ const cert_files& files() { static cert_files f; return f; }
 
 void tls_site(httpp::server& s) {
     s.set_tls(files().cert, files().key);
-    s.get("/who", [](const httpp::request& r, httpp::response& res) { res.body = r.secure ? "secure " + r.scheme() : "plain " + r.scheme(); });
-    s.post("/echo", [](const httpp::request& r, httpp::response& res) { res.body = r.body; });
+    s.get("/who", [](const httpp::server_request& r, httpp::response& res) { res.body = r.secure ? "secure " + r.scheme() : "plain " + r.scheme(); });
+    s.post("/echo", [](const httpp::server_request& r, httpp::response& res) { res.body = r.body; });
 }
 
 std::string https(const local_server& s, const std::string& path = "") { return "https://127.0.0.1:" + std::to_string(s.port) + path; }
@@ -196,7 +196,7 @@ UTEST(httpp_server_tls, shutdown_lets_an_in_flight_tls_request_finish) {
     std::atomic<bool> started{false};
     local_server srv([&](httpp::server& s) {
         s.set_tls(files().cert, files().key);
-        s.get("/slow", [&](const httpp::request&, httpp::response& res) {
+        s.get("/slow", [&](const httpp::server_request&, httpp::response& res) {
             started = true;
             std::this_thread::sleep_for(milliseconds(300));
             res.body = "done";
@@ -229,7 +229,7 @@ UTEST(httpp_server_tls, set_tls_reports_a_missing_file_a_garbage_file_and_a_key_
 
 UTEST(httpp_server_tls, the_https_redirect_sends_plain_requests_to_https_and_lets_secure_ones_through) {
     local_server plain([](httpp::server& s) {
-        s.get("/x", [](const httpp::request&, httpp::response& res) { res.body = "x"; });
+        s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "x"; });
         httpp::add_https_redirect(s, {false});
     });
     auto r = httpp::client("http://127.0.0.1:" + std::to_string(plain.port)).get("/x?a=1");
@@ -237,14 +237,14 @@ UTEST(httpp_server_tls, the_https_redirect_sends_plain_requests_to_https_and_let
     ASSERT_TRUE(contains(r.header("Location"), "https://127.0.0.1:" + std::to_string(plain.port) + "/x?a=1"));
 
     local_server proxied([](httpp::server& s) {
-        s.get("/x", [](const httpp::request&, httpp::response& res) { res.body = "x"; });
+        s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "x"; });
         httpp::add_https_redirect(s, {true}); // behind a proxy that terminates TLS and says so
     });
     httpp::client c("http://127.0.0.1:" + std::to_string(proxied.port));
     ASSERT_EQ(200, c.get("/x", {{"X-Forwarded-Proto", "https"}}).status);
     ASSERT_EQ(307, c.get("/x", {{"X-Forwarded-Proto", "http"}}).status);
     local_server untrusted([](httpp::server& s) {
-        s.get("/x", [](const httpp::request&, httpp::response& res) { res.body = "x"; });
+        s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "x"; });
         httpp::add_https_redirect(s, {false}); // the header means nothing unless the owner trusts the proxy
     });
     ASSERT_EQ(307, httpp::client("http://127.0.0.1:" + std::to_string(untrusted.port)).get("/x", {{"X-Forwarded-Proto", "https"}}).status);

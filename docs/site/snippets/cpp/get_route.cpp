@@ -3,7 +3,7 @@
 int main() {
     httpp::server app;
 
-    app.get("/hello/:name", [](const httpp::request& req, httpp::response& res) {
+    app.get("/hello/:name", [](const httpp::server_request& req, httpp::response& res) {
         res.body = "hello " + req.path_param("name");
     });
 

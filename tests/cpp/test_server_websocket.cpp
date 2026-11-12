@@ -241,7 +241,7 @@ UTEST(httpp_server_ws, header_values_are_matched_as_tokens_without_regard_to_cas
 
 UTEST(httpp_server_ws, other_methods_and_unknown_paths_are_the_usual_errors) {
     local_server srv([](httpp::server& s) { s.route_ws("/ws", echo()); });
-    ASSERT_EQ(405, httpp::client::request(srv.url("/ws")).method("POST").data("x").run().status);
+    ASSERT_EQ(405, httpp::request(srv.url("/ws")).method("POST").data("x").run().status);
     ws_client c(srv.port);
     c.send_raw(ws_client::upgrade_request("/nope"));
     ASSERT_EQ(404, head_status(c.read_head()));
@@ -250,7 +250,7 @@ UTEST(httpp_server_ws, other_methods_and_unknown_paths_are_the_usual_errors) {
 UTEST(httpp_server_ws, on_handshake_can_reject_and_the_rejection_is_what_the_client_sees) {
     local_server srv([](httpp::server& s) {
         auto h = echo();
-        h.on_handshake = [](std::shared_ptr<const httpp::request> req, httpp::ws_acceptor acceptor) {
+        h.on_handshake = [](std::shared_ptr<const httpp::server_request> req, httpp::ws_acceptor acceptor) {
             if (req->header("Origin") == "https://good.example") acceptor.accept();
             else acceptor.reject();
         };
@@ -267,7 +267,7 @@ UTEST(httpp_server_ws, on_handshake_can_reject_and_the_rejection_is_what_the_cli
 UTEST(httpp_server_ws, on_handshake_can_choose_a_subprotocol_but_only_an_offered_one) {
     local_server srv([](httpp::server& s) {
         auto h = echo();
-        h.on_handshake = [](std::shared_ptr<const httpp::request> req, httpp::ws_acceptor acceptor) {
+        h.on_handshake = [](std::shared_ptr<const httpp::server_request> req, httpp::ws_acceptor acceptor) {
             try {
                 acceptor.accept({{"Sec-WebSocket-Protocol", req->query_param("pick")}});
             } catch (const std::invalid_argument&) {  // not offered: the client has been answered with a 500
@@ -310,7 +310,7 @@ UTEST(httpp_server_ws, the_upgrade_request_is_visible_to_the_handlers) {
 UTEST(httpp_server_ws, a_before_hook_that_refuses_stops_the_upgrade) {
     local_server srv([](httpp::server& s) {
         s.route_ws("/ws", echo());
-        s.before([](const httpp::request& r, httpp::response& res) {
+        s.before([](const httpp::server_request& r, httpp::response& res) {
             if (r.header("Authorization").empty()) { res.status = 401; return true; }
             return false;
         });
@@ -328,7 +328,7 @@ UTEST(httpp_server_ws, a_before_hook_that_refuses_stops_the_upgrade) {
 UTEST(httpp_server_ws, normal_routes_keep_working_next_to_a_websocket_route) {
     local_server srv([](httpp::server& s) {
         s.route_ws("/ws", echo());
-        s.get("/hello", [](const httpp::request&, httpp::response& res) { res.body = "hi"; });
+        s.get("/hello", [](const httpp::server_request&, httpp::response& res) { res.body = "hi"; });
     });
     ws_client c(srv.port);
     ASSERT_EQ(101, head_status(c.handshake("/ws")));
@@ -569,7 +569,7 @@ UTEST(httpp_server_ws, the_acceptor_can_answer_later_from_another_thread) {
     local_server srv([&](httpp::server& s) {
         auto h = echo();
         watch(h, st);
-        h.on_handshake = [&](std::shared_ptr<const httpp::request>, httpp::ws_acceptor acceptor) {
+        h.on_handshake = [&](std::shared_ptr<const httpp::server_request>, httpp::ws_acceptor acceptor) {
             std::lock_guard<std::mutex> lk(mu);
             pending = acceptor;
             have = true;
@@ -598,7 +598,7 @@ UTEST(httpp_server_ws, the_acceptor_can_reject_later_with_its_own_response) {
     std::atomic<bool> have{false};
     local_server srv([&](httpp::server& s) {
         auto h = echo();
-        h.on_handshake = [&](std::shared_ptr<const httpp::request>, httpp::ws_acceptor acceptor) {
+        h.on_handshake = [&](std::shared_ptr<const httpp::server_request>, httpp::ws_acceptor acceptor) {
             std::lock_guard<std::mutex> lk(mu);
             pending = acceptor;
             have = true;
@@ -624,7 +624,7 @@ UTEST(httpp_server_ws, the_acceptor_can_reject_later_with_its_own_response) {
 UTEST(httpp_server_ws, an_acceptor_that_is_dropped_closes_the_connection_without_an_answer) {
     local_server srv([](httpp::server& s) {
         auto h = echo();
-        h.on_handshake = [](std::shared_ptr<const httpp::request>, httpp::ws_acceptor) {};  // forgets it
+        h.on_handshake = [](std::shared_ptr<const httpp::server_request>, httpp::ws_acceptor) {};  // forgets it
         s.route_ws("/ws", h);
     });
     ws_client c(srv.port);
@@ -638,7 +638,7 @@ UTEST(httpp_server_ws, an_acceptor_that_is_never_answered_gets_the_async_timeout
     local_server srv([&](httpp::server& s) {
         s.set_async_timeout(1);
         auto h = echo();
-        h.on_handshake = [&](std::shared_ptr<const httpp::request>, httpp::ws_acceptor a) { std::lock_guard<std::mutex> lk(mu); keep = a; };
+        h.on_handshake = [&](std::shared_ptr<const httpp::server_request>, httpp::ws_acceptor a) { std::lock_guard<std::mutex> lk(mu); keep = a; };
         s.route_ws("/ws", h);
     });
     ws_client c(srv.port);
@@ -651,7 +651,7 @@ UTEST(httpp_server_ws, an_acceptor_that_is_never_answered_gets_the_async_timeout
 UTEST(httpp_server_ws, a_handler_that_throws_in_on_handshake_gets_a_500) {
     local_server srv([](httpp::server& s) {
         auto h = echo();
-        h.on_handshake = [](std::shared_ptr<const httpp::request>, httpp::ws_acceptor) { throw std::runtime_error("no"); };
+        h.on_handshake = [](std::shared_ptr<const httpp::server_request>, httpp::ws_acceptor) { throw std::runtime_error("no"); };
         s.route_ws("/ws", h);
     });
     ws_client c(srv.port);
@@ -664,7 +664,7 @@ UTEST(httpp_server_ws, the_user_pointer_given_to_accept_reaches_every_callback) 
     std::string seen;
     local_server srv([&](httpp::server& s) {
         httpp::ws_handler h;
-        h.on_handshake = [](std::shared_ptr<const httpp::request> req, httpp::ws_acceptor acceptor) {
+        h.on_handshake = [](std::shared_ptr<const httpp::server_request> req, httpp::ws_acceptor acceptor) {
             acceptor.accept({}, std::make_shared<std::string>("conn-for-" + req->query_param("who")));
         };
         h.on_message = [&](const httpp::websocket& ws, std::string_view m, bool) {
@@ -692,7 +692,7 @@ UTEST(httpp_server_ws, a_client_that_left_before_the_acceptor_answered_still_get
     local_server srv([&](httpp::server& s) {
         auto h = echo();
         watch(h, st);
-        h.on_handshake = [&](std::shared_ptr<const httpp::request>, httpp::ws_acceptor a) { std::lock_guard<std::mutex> lk(mu); pending = a; have = true; };
+        h.on_handshake = [&](std::shared_ptr<const httpp::server_request>, httpp::ws_acceptor a) { std::lock_guard<std::mutex> lk(mu); pending = a; have = true; };
         s.route_ws("/ws", h);
     });
     {

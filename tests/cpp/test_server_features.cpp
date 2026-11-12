@@ -21,7 +21,7 @@
 using testutil::local_server;
 
 UTEST(httpp_server_request, helpers_find_headers_query_path_params_and_cookies) {
-    httpp::request req;
+    httpp::server_request req;
     req.headers = {{"X-Token", "abc"}, {"Cookie", "a=1; session=xyz; b=2"}};
     req.query = {{"page", "2"}};
     req.path_params = {{"id", "42"}};
@@ -36,12 +36,12 @@ UTEST(httpp_server_request, helpers_find_headers_query_path_params_and_cookies) 
 
 UTEST(httpp_server_response, redirect_cookie_and_json_helpers) {
     local_server srv([](httpp::server& s) {
-        s.get("/go", [](const httpp::request&, httpp::response& res) { res.redirect("/there", 301); });
-        s.get("/c", [](const httpp::request&, httpp::response& res) {
+        s.get("/go", [](const httpp::server_request&, httpp::response& res) { res.redirect("/there", 301); });
+        s.get("/c", [](const httpp::server_request&, httpp::response& res) {
             res.set_cookie("a", "1").set_cookie("b", "2", "Path=/api");
             res.body = "ok";
         });
-        s.get("/j", [](const httpp::request&, httpp::response& res) { res.json("{\"a\":1}"); });
+        s.get("/j", [](const httpp::server_request&, httpp::response& res) { res.json("{\"a\":1}"); });
     });
     auto go = httpp::client::fetch(srv.url("/go"));
     ASSERT_EQ(301, go.status);
@@ -58,13 +58,13 @@ UTEST(httpp_server_async, an_unanswered_route_gets_a_504_and_a_late_send_is_igno
     std::atomic<bool> stored{false};
     local_server srv([&](httpp::server& s) {
         s.set_async_timeout(1);
-        s.get_async("/never", [&](const httpp::request&, httpp::responder r) {
+        s.get_async("/never", [&](const httpp::server_request&, httpp::responder r) {
             *stash = r;
             stored = true;
         });
     });
     auto t0 = std::chrono::steady_clock::now();
-    auto res = httpp::client::request(srv.url("/never")).timeout(10).run();
+    auto res = httpp::request(srv.url("/never")).timeout(10).run();
     double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     ASSERT_EQ(504, res.status);
     ASSERT_GE(seconds, 0.9);
@@ -78,7 +78,7 @@ UTEST(httpp_server_async, an_unanswered_route_gets_a_504_and_a_late_send_is_igno
 UTEST(httpp_server_async, an_answer_in_time_cancels_nothing_and_shorthands_register_the_right_method) {
     local_server srv([](httpp::server& s) {
         s.set_async_timeout(30);
-        auto echo = [](const httpp::request& req, httpp::responder r) {
+        auto echo = [](const httpp::server_request& req, httpp::responder r) {
             httpp::response res;
             res.status = 200;
             res.body = req.method;
@@ -91,7 +91,7 @@ UTEST(httpp_server_async, an_answer_in_time_cancels_nothing_and_shorthands_regis
         s.del_async("/m", echo);
     });
     for (const char* method : {"GET", "POST", "PUT", "PATCH", "DELETE"}) {
-        auto res = httpp::client::request(srv.url("/m")).method(method).run();
+        auto res = httpp::request(srv.url("/m")).method(method).run();
         ASSERT_EQ(200, res.status);
         ASSERT_STREQ(method, res.body.c_str());
     }
@@ -99,7 +99,7 @@ UTEST(httpp_server_async, an_answer_in_time_cancels_nothing_and_shorthands_regis
 
 UTEST(httpp_server_hooks, before_can_reject_and_after_adds_headers_to_sync_and_async_responses) {
     local_server srv([](httpp::server& s) {
-        s.before([](const httpp::request& req, httpp::response& res) {
+        s.before([](const httpp::server_request& req, httpp::response& res) {
             if (req.header("X-Key") != "secret" && req.path != "/open") {
                 res.status = 401;
                 res.body = "denied";
@@ -107,15 +107,15 @@ UTEST(httpp_server_hooks, before_can_reject_and_after_adds_headers_to_sync_and_a
             }
             return false;
         });
-        s.after([](const httpp::request&, httpp::response& res) { res.headers.emplace_back("X-After", "yes"); });
-        s.get("/sync", [](const httpp::request&, httpp::response& res) { res.body = "s"; });
-        s.get_async("/async", [](const httpp::request&, httpp::responder r) {
+        s.after([](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-After", "yes"); });
+        s.get("/sync", [](const httpp::server_request&, httpp::response& res) { res.body = "s"; });
+        s.get_async("/async", [](const httpp::server_request&, httpp::responder r) {
             httpp::response res;
             res.status = 200;
             res.body = "a";
             r.send(res);
         });
-        s.get("/open", [](const httpp::request&, httpp::response& res) { res.body = "o"; });
+        s.get("/open", [](const httpp::server_request&, httpp::response& res) { res.body = "o"; });
     });
     auto denied = httpp::client::fetch(srv.url("/sync"));
     ASSERT_EQ(401, denied.status);
@@ -123,7 +123,7 @@ UTEST(httpp_server_hooks, before_can_reject_and_after_adds_headers_to_sync_and_a
     ASSERT_STREQ("yes", denied.header("X-After").c_str()); // after-hooks see rejected requests too
 
     for (const char* path : {"/sync", "/async"}) {
-        auto res = httpp::client::request(srv.url(path)).header("X-Key", "secret").run();
+        auto res = httpp::request(srv.url(path)).header("X-Key", "secret").run();
         ASSERT_EQ(200, res.status);
         ASSERT_STREQ("yes", res.header("X-After").c_str());
     }
@@ -132,16 +132,16 @@ UTEST(httpp_server_hooks, before_can_reject_and_after_adds_headers_to_sync_and_a
 
 UTEST(httpp_server_hooks, error_and_exception_handlers_shape_the_response) {
     local_server srv([](httpp::server& s) {
-        s.set_error_handler([](const httpp::request& req, httpp::response& res) {
+        s.set_error_handler([](const httpp::server_request& req, httpp::response& res) {
             res.body = "custom " + std::to_string(res.status) + " for " + req.path;
         });
-        s.set_exception_handler([](const httpp::request&, httpp::response& res, std::exception_ptr ep) {
+        s.set_exception_handler([](const httpp::server_request&, httpp::response& res, std::exception_ptr ep) {
             try { std::rethrow_exception(ep); }
             catch (const std::runtime_error& e) { res.status = 418; res.body = std::string("teapot: ") + e.what(); }
             catch (...) {}
         });
-        s.get("/boom", [](const httpp::request&, httpp::response&) { throw std::runtime_error("sync"); });
-        s.get_async("/aboom", [](const httpp::request&, httpp::responder) { throw std::runtime_error("async"); });
+        s.get("/boom", [](const httpp::server_request&, httpp::response&) { throw std::runtime_error("sync"); });
+        s.get_async("/aboom", [](const httpp::server_request&, httpp::responder) { throw std::runtime_error("async"); });
     });
     auto nf = httpp::client::fetch(srv.url("/missing"));
     ASSERT_EQ(404, nf.status);
@@ -161,16 +161,16 @@ UTEST(httpp_server_response, a_file_is_streamed_from_disk_in_sync_and_async_rout
     content[1234567] = 'X';
     { std::ofstream(path, std::ios::binary) << content; }
     local_server srv([&](httpp::server& s) {
-        s.get("/f", [&](const httpp::request&, httpp::response& res) {
+        s.get("/f", [&](const httpp::server_request&, httpp::response& res) {
             res.file = path.string();
             res.headers.emplace_back("Content-Type", "application/octet-stream");
         });
-        s.get_async("/af", [&](const httpp::request&, httpp::responder r) {
+        s.get_async("/af", [&](const httpp::server_request&, httpp::responder r) {
             httpp::response res;
             res.file = path.string();
             r.send(res);
         });
-        s.get("/missing", [](const httpp::request&, httpp::response& res) { res.file = "/no/such/file"; });
+        s.get("/missing", [](const httpp::server_request&, httpp::response& res) { res.file = "/no/such/file"; });
     });
     for (const char* route : {"/f", "/af"}) {
         auto res = httpp::client::fetch(srv.url(route));
@@ -191,8 +191,8 @@ UTEST(httpp_server_response, a_body_can_be_streamed_in_pieces_in_sync_and_async_
         };
     };
     local_server srv([&](httpp::server& s) {
-        s.get("/s", [&](const httpp::request&, httpp::response& res) { res.stream = make_stream(); });
-        s.get_async("/as", [&](const httpp::request&, httpp::responder r) {
+        s.get("/s", [&](const httpp::server_request&, httpp::response& res) { res.stream = make_stream(); });
+        s.get_async("/as", [&](const httpp::server_request&, httpp::responder r) {
             httpp::response res;
             res.stream = make_stream();
             r.send(res);
@@ -209,7 +209,7 @@ UTEST(httpp_server_settings, thread_pool_size_caps_how_many_sync_handlers_run_at
     std::atomic<int> now{0}, peak{0};
     local_server srv([&](httpp::server& s) {
         s.set_thread_pool(2, 2);
-        s.get("/w", [&](const httpp::request&, httpp::response& res) {
+        s.get("/w", [&](const httpp::server_request&, httpp::response& res) {
             int n = ++now;
             int p = peak.load();
             while (n > p && !peak.compare_exchange_weak(p, n)) {}
@@ -219,7 +219,7 @@ UTEST(httpp_server_settings, thread_pool_size_caps_how_many_sync_handlers_run_at
         });
     });
     std::vector<std::future<httpp::response>> futures;
-    for (int i = 0; i < 6; i++) futures.push_back(httpp::client::request(srv.url("/w")).run_async());
+    for (int i = 0; i < 6; i++) futures.push_back(httpp::request(srv.url("/w")).run_async());
     for (auto& f : futures) ASSERT_EQ(200, f.get().status);
     ASSERT_LE(peak.load(), 2);
 }
@@ -227,25 +227,25 @@ UTEST(httpp_server_settings, thread_pool_size_caps_how_many_sync_handlers_run_at
 UTEST(httpp_server_settings, max_body_rejects_larger_requests) {
     local_server srv([](httpp::server& s) {
         s.set_max_body(1000);
-        s.post("/up", [](const httpp::request& req, httpp::response& res) { res.body = std::to_string(req.body.size()); });
+        s.post("/up", [](const httpp::server_request& req, httpp::response& res) { res.body = std::to_string(req.body.size()); });
     });
-    auto small = httpp::client::request(srv.url("/up")).data(std::string(500, 'a')).run();
+    auto small = httpp::request(srv.url("/up")).data(std::string(500, 'a')).run();
     ASSERT_EQ(200, small.status);
-    auto big = httpp::client::request(srv.url("/up")).data(std::string(50000, 'a')).timeout(5).run();
+    auto big = httpp::request(srv.url("/up")).data(std::string(50000, 'a')).timeout(5).run();
     ASSERT_TRUE(big.status == 413 || big.failed()); // refused either way, never served
 }
 
 // A path that exists for other methods is a 405 with an Allow header, not a 404.
 UTEST(httpp_server_routing, wrong_method_is_405_with_allow_and_unknown_path_is_404) {
     local_server srv([](httpp::server& s) {
-        s.get("/item/:id", [](const httpp::request&, httpp::response& res) { res.body = "g"; });
-        s.post("/item/:id", [](const httpp::request&, httpp::response& res) { res.body = "p"; });
-        s.put("/only-put", [](const httpp::request&, httpp::response& res) { res.body = "u"; });
+        s.get("/item/:id", [](const httpp::server_request&, httpp::response& res) { res.body = "g"; });
+        s.post("/item/:id", [](const httpp::server_request&, httpp::response& res) { res.body = "p"; });
+        s.put("/only-put", [](const httpp::server_request&, httpp::response& res) { res.body = "u"; });
     });
-    auto del = httpp::client::request(srv.url("/item/7")).method("DELETE").run();
+    auto del = httpp::request(srv.url("/item/7")).method("DELETE").run();
     ASSERT_EQ(405, del.status);
     ASSERT_STREQ("GET, HEAD, POST", del.header("Allow").c_str());
-    auto get = httpp::client::request(srv.url("/only-put")).run();
+    auto get = httpp::request(srv.url("/only-put")).run();
     ASSERT_EQ(405, get.status);
     ASSERT_STREQ("PUT", get.header("Allow").c_str());
     ASSERT_EQ(404, httpp::client::fetch(srv.url("/nowhere")).status);
@@ -313,7 +313,7 @@ std::string drain(asio::ip::tcp::socket& sock, int ms, bool& closed) {
 UTEST(httpp_server_limits, a_request_head_dripped_slowly_is_closed_at_the_header_timeout) {
     local_server srv([](httpp::server& s) {
         s.set_read_timeout(5).set_header_timeout(1);
-        s.get("/", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+        s.get("/", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
     });
     asio::io_context io;
     auto sock = connect_raw(io, srv.port);
@@ -338,8 +338,8 @@ UTEST(httpp_server_limits, a_request_head_dripped_slowly_is_closed_at_the_header
 UTEST(httpp_server_limits, a_request_body_dripped_slowly_is_closed_at_the_body_timeout) {
     local_server srv([](httpp::server& s) {
         s.set_read_timeout(5).set_body_timeout(1);
-        s.post("/", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
-        s.get("/", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+        s.post("/", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
+        s.get("/", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
     });
     asio::io_context io;
     auto sock = connect_raw(io, srv.port);
@@ -363,7 +363,7 @@ UTEST(httpp_server_limits, a_request_body_dripped_slowly_is_closed_at_the_body_t
 UTEST(httpp_server_limits, a_body_that_arrives_in_time_is_not_cut_by_the_body_timeout) {
     local_server srv([](httpp::server& s) {
         s.set_body_timeout(3);
-        s.post("/", [](const httpp::request& req, httpp::response& res) { res.body = std::to_string(req.body.size()); });
+        s.post("/", [](const httpp::server_request& req, httpp::response& res) { res.body = std::to_string(req.body.size()); });
     });
     asio::io_context io;
     auto sock = connect_raw(io, srv.port);
@@ -385,7 +385,7 @@ UTEST(httpp_server_limits, a_body_that_arrives_in_time_is_not_cut_by_the_body_ti
 UTEST(httpp_server_limits, connections_over_the_limit_get_503_and_a_freed_slot_is_reused) {
     local_server srv([](httpp::server& s) {
         s.set_max_connections(2);
-        s.get("/", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+        s.get("/", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
     });
     asio::io_context io;
     auto a = connect_raw(io, srv.port);

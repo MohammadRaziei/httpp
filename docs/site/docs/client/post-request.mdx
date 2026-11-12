@@ -33,7 +33,7 @@ The builder is `httpp.Request`.
 
 <Only lang="cpp">
 
-The builder is `httpp::client::request`, nested in `client` because `httpp::request` is the incoming request of a server handler. If you never call `method`, the request is a `GET`, or a `POST` when you set a body, like curl. Besides `run()` there are `run_async()` variants that return a `std::future` or call a function when the response arrives.
+The builder is `httpp::request`, the same name as Python's `httpp.Request`. The request a server handler receives is `httpp::server_request` (Python: `httpp.ServerRequest`). If you never call `method`, the request is a `GET`, or a `POST` when you set a body, like curl. Besides `run()` there are `run_async()` variants that return a `std::future` or call a function when the response arrives.
 
 </Only>
 
@@ -43,5 +43,5 @@ If you already have a client object, its `post`, `put`, `patch` and `del` method
 
 | | Python | C++ |
 |---|---|---|
-| Builder | `httpp.Request(url)` | `httpp::client::request(url)` |
+| Builder | `httpp.Request(url)` | `httpp::request(url)` |
 | Send | `.run()` | `.run()`, `.run_async()` |

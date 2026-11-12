@@ -43,7 +43,7 @@ template <class F> bool rejects(F fn) {
 bool contains(const std::string& hay, const std::string& needle) { return hay.find(needle) != std::string::npos; }
 
 void ok_route(httpp::server& s) {
-    s.get("/x", [](const httpp::request&, httpp::response& res) { res.body = "hello"; });
+    s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "hello"; });
 }
 
 } // namespace
@@ -53,11 +53,11 @@ void ok_route(httpp::server& s) {
 UTEST(httpp_middleware_use, before_hooks_run_in_order_and_the_first_to_answer_wins) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        s.use([](const httpp::request& r, httpp::response& res) {
+        s.use([](const httpp::server_request& r, httpp::response& res) {
             if (r.query_param("a") == "1") { res.status = 418; res.body = "first"; return true; }
             return false;
         });
-        s.use([](const httpp::request&, httpp::response& res) { res.status = 419; res.body = "second"; return true; });
+        s.use([](const httpp::server_request&, httpp::response& res) { res.status = 419; res.body = "second"; return true; });
     });
     auto a = httpp::client::fetch(srv.url("/x?a=1"));
     ASSERT_EQ(418, a.status);
@@ -70,10 +70,10 @@ UTEST(httpp_middleware_use, before_hooks_run_in_order_and_the_first_to_answer_wi
 UTEST(httpp_middleware_use, after_hooks_all_run_and_the_applications_own_hooks_survive) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        s.use({}, [](const httpp::request&, httpp::response& res) { res.headers.emplace_back("X-One", "1"); });
-        s.after([](const httpp::request&, httpp::response& res) { res.headers.emplace_back("X-App", "1"); });
-        s.use({}, [](const httpp::request&, httpp::response& res) { res.headers.emplace_back("X-Two", "1"); });
-        s.before([](const httpp::request& r, httpp::response& res) {
+        s.use({}, [](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-One", "1"); });
+        s.after([](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-App", "1"); });
+        s.use({}, [](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-Two", "1"); });
+        s.before([](const httpp::server_request& r, httpp::response& res) {
             if (r.query_param("stop") == "1") { res.status = 403; return true; }
             return false;
         });
@@ -136,7 +136,7 @@ UTEST(httpp_cors, a_preflight_with_a_bad_origin_method_or_header_is_a_400_with_t
 
 UTEST(httpp_cors, an_options_request_that_is_not_a_preflight_goes_to_the_router) {
     local_server srv([](httpp::server& s) {
-        s.route("OPTIONS", "/x", [](const httpp::request&, httpp::response& res) { res.status = 204; res.headers.emplace_back("Allow", "GET"); });
+        s.route("OPTIONS", "/x", [](const httpp::server_request&, httpp::response& res) { res.status = 204; res.headers.emplace_back("Allow", "GET"); });
         httpp::cors_options o;
         o.allow_origins = {"https://a.example"};
         httpp::add_cors(s, o);

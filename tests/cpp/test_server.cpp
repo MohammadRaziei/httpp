@@ -50,7 +50,7 @@ struct running_server {
 
 UTEST(httpp_server, serves_a_registered_get_route) {
     httpp::server s;
-    s.get("/ping", [](const httpp::request&, httpp::response& res) {
+    s.get("/ping", [](const httpp::server_request&, httpp::response& res) {
         res.status = 200;
         res.body = "pong";
     });
@@ -119,7 +119,7 @@ UTEST(httpp_server, reuse_port_lets_servers_share_a_port_only_when_both_ask) {
 
 UTEST(httpp_server, route_exposes_path_params_query_headers_and_sets_response_headers) {
     httpp::server s;
-    s.route("POST", "/users/:id", [](const httpp::request& req, httpp::response& res) {
+    s.route("POST", "/users/:id", [](const httpp::server_request& req, httpp::response& res) {
         auto find = [](const auto& kv, const std::string& k) {
             for (const auto& [name, value] : kv) if (name == k) return value;
             return std::string("?");
@@ -131,7 +131,7 @@ UTEST(httpp_server, route_exposes_path_params_query_headers_and_sets_response_he
     });
 
     running_server rs(std::move(s));
-    auto res = httpp::client::request("http://127.0.0.1:" + std::to_string(rs.port) + "/users/42?a=1")
+    auto res = httpp::request("http://127.0.0.1:" + std::to_string(rs.port) + "/users/42?a=1")
                    .method("POST")
                    .data("hi")
                    .run();
@@ -146,7 +146,7 @@ UTEST(httpp_server, route_rejects_unknown_methods) {
     httpp::server s;
     bool threw = false;
     try {
-        s.route("BREW", "/x", [](const httpp::request&, httpp::response&) {});
+        s.route("BREW", "/x", [](const httpp::server_request&, httpp::response&) {});
     } catch (const std::invalid_argument&) {
         threw = true;
     }
@@ -155,7 +155,7 @@ UTEST(httpp_server, route_rejects_unknown_methods) {
 
 UTEST(httpp_server, method_shorthands_register_the_matching_method) {
     httpp::server s;
-    auto echo_method = [](const httpp::request& req, httpp::response& res) { res.body = req.method; };
+    auto echo_method = [](const httpp::server_request& req, httpp::response& res) { res.body = req.method; };
     s.get("/m", echo_method);
     s.post("/m", echo_method);
     s.put("/m", echo_method);
@@ -165,7 +165,7 @@ UTEST(httpp_server, method_shorthands_register_the_matching_method) {
     running_server rs(std::move(s));
     const std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/m";
     for (const char* method : {"GET", "POST", "PUT", "PATCH", "DELETE"}) {
-        auto res = httpp::client::request(url).method(method).run();
+        auto res = httpp::request(url).method(method).run();
         ASSERT_EQ(200, res.status);
         ASSERT_STREQ(method, res.body.c_str());
     }
@@ -177,7 +177,7 @@ UTEST(httpp_server, route_async_answers_later_from_another_thread) {
     httpp::server s;
     Joiner workers_guard;
     auto& workers = workers_guard.v;
-    s.route_async("POST", "/later/:id", [&](const httpp::request& req, httpp::responder r) {
+    s.route_async("POST", "/later/:id", [&](const httpp::server_request& req, httpp::responder r) {
         std::string id = req.path_params.at(0).second;
         workers.emplace_back([r, id] {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -192,7 +192,7 @@ UTEST(httpp_server, route_async_answers_later_from_another_thread) {
 
     {
         running_server rs(std::move(s));
-        auto res = httpp::client::request("http://127.0.0.1:" + std::to_string(rs.port) + "/later/7")
+        auto res = httpp::request("http://127.0.0.1:" + std::to_string(rs.port) + "/later/7")
                        .method("POST").data("x").run();
         ASSERT_EQ(201, res.status);
         ASSERT_STREQ("later 7", res.body.c_str());
@@ -204,7 +204,7 @@ UTEST(httpp_server, route_async_answers_later_from_another_thread) {
 
 UTEST(httpp_server, route_async_may_answer_before_the_handler_returns) {
     httpp::server s;
-    s.route_async("GET", "/now", [](const httpp::request&, httpp::responder r) {
+    s.route_async("GET", "/now", [](const httpp::server_request&, httpp::responder r) {
         httpp::response res;
         res.status = 200;
         res.body = "already";
@@ -219,7 +219,7 @@ UTEST(httpp_server, route_async_may_answer_before_the_handler_returns) {
 
 UTEST(httpp_server, route_async_handler_exception_becomes_500) {
     httpp::server s;
-    s.route_async("GET", "/boom", [](const httpp::request&, httpp::responder) {
+    s.route_async("GET", "/boom", [](const httpp::server_request&, httpp::responder) {
         throw std::runtime_error("secret");
     });
     running_server rs(std::move(s));
@@ -238,7 +238,7 @@ UTEST(httpp_server, route_async_does_not_hold_a_worker_thread_while_waiting) {
     std::mutex m;
     Joiner timers_guard;
     auto& timers = timers_guard.v;
-    s.route_async("GET", "/wait", [&](const httpp::request&, httpp::responder r) {
+    s.route_async("GET", "/wait", [&](const httpp::server_request&, httpp::responder r) {
         std::lock_guard<std::mutex> lock(m);
         timers.emplace_back([r] {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -270,7 +270,7 @@ UTEST(httpp_server, destroying_the_server_with_a_pending_async_response_is_safe)
     auto srv = std::make_unique<httpp::server>();
     httpp::responder stash;
     std::atomic<bool> got_it{false};
-    srv->route_async("GET", "/hang", [&](const httpp::request&, httpp::responder r) {
+    srv->route_async("GET", "/hang", [&](const httpp::server_request&, httpp::responder r) {
         stash = r;
         got_it = true;
     });
@@ -349,7 +349,7 @@ UTEST(httpp_server, idle_connections_do_not_occupy_worker_threads) {
     ::setrlimit(RLIMIT_NOFILE, &rl);
 
     httpp::server s;
-    s.get("/k", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+    s.get("/k", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
     running_server rs(std::move(s));
 
     // 300 connections that never send a byte. One worker thread each would exhaust the
@@ -369,10 +369,10 @@ UTEST(httpp_server, idle_connections_do_not_occupy_worker_threads) {
 
 UTEST(httpp_server, keep_alive_serves_several_requests_on_one_connection) {
     httpp::server s;
-    s.get("/k", [](const httpp::request&, httpp::response& res) { res.body = "sync"; });
+    s.get("/k", [](const httpp::server_request&, httpp::response& res) { res.body = "sync"; });
     Joiner workers_guard;
     auto& workers = workers_guard.v;
-    s.route_async("GET", "/ka", [&](const httpp::request&, httpp::responder r) {
+    s.route_async("GET", "/ka", [&](const httpp::server_request&, httpp::responder r) {
         workers.emplace_back([r] {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             httpp::response res;
@@ -401,7 +401,7 @@ UTEST(httpp_server, keep_alive_serves_several_requests_on_one_connection) {
 
 UTEST(httpp_server, connection_close_request_header_is_honoured) {
     httpp::server s;
-    s.get("/k", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+    s.get("/k", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
     running_server rs(std::move(s));
     int fd = connect_raw(rs.port);
     const char* req = "GET /k HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n";
@@ -414,7 +414,7 @@ UTEST(httpp_server, connection_close_request_header_is_honoured) {
 UTEST(httpp_server, idle_connection_is_closed_after_the_keep_alive_timeout) {
     httpp::server s;
     s.set_keep_alive_timeout(1);
-    s.get("/k", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+    s.get("/k", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
     running_server rs(std::move(s));
     int fd = connect_raw(rs.port);
     ::send(fd, kGet, std::strlen(kGet), 0);
@@ -426,7 +426,7 @@ UTEST(httpp_server, idle_connection_is_closed_after_the_keep_alive_timeout) {
 
 UTEST(httpp_server, a_request_split_across_packets_is_still_served) {
     httpp::server s;
-    s.get("/k", [](const httpp::request&, httpp::response& res) { res.body = "ok"; });
+    s.get("/k", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
     running_server rs(std::move(s));
     int fd = connect_raw(rs.port);
     ::send(fd, "GET /k HT", 9, 0);
@@ -489,7 +489,7 @@ std::size_t count_of(const std::string& hay, const std::string& needle) {
 
 UTEST(httpp_server, one_content_type_in_the_middle_is_sent_once_and_last) {
     httpp::server s;
-    s.get("/x", [](const httpp::request&, httpp::response& res) {
+    s.get("/x", [](const httpp::server_request&, httpp::response& res) {
         res.headers.emplace_back("X-A", "1");
         res.headers.emplace_back("Content-Type", "text/html");
         res.headers.emplace_back("X-B", "2");
@@ -505,7 +505,7 @@ UTEST(httpp_server, one_content_type_in_the_middle_is_sent_once_and_last) {
 
 UTEST(httpp_server, the_last_of_several_content_types_wins_and_the_others_are_dropped) {
     httpp::server s;
-    s.get("/x", [](const httpp::request&, httpp::response& res) {
+    s.get("/x", [](const httpp::server_request&, httpp::response& res) {
         res.headers.emplace_back("Content-Type", "text/html");
         res.headers.emplace_back("X-A", "1");
         res.headers.emplace_back("content-type", "application/json");
@@ -521,7 +521,7 @@ UTEST(httpp_server, the_last_of_several_content_types_wins_and_the_others_are_dr
 
 UTEST(httpp_server, no_content_type_means_text_plain) {
     httpp::server s;
-    s.get("/x", [](const httpp::request&, httpp::response& res) { res.body = "b"; });
+    s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "b"; });
     running_server rs(std::move(s));
     const std::string head = raw_head(rs.port, "/x");
     ASSERT_EQ(1u, count_of(head, "Content-Type: text/plain"));

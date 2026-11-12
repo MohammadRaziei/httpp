@@ -37,7 +37,7 @@ struct site {
 
 httpp::response get(const local_server& srv, const std::string& path, std::vector<std::pair<std::string, std::string>> headers = {},
                     const char* method = "GET") {
-    httpp::client::request r(srv.url(path));
+    httpp::request r(srv.url(path));
     r.method(method);
     for (auto& h : headers) r.header(h.first, h.second);
     return r.run();

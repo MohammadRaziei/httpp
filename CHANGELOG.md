@@ -9,6 +9,7 @@ such changes are listed under **Changed**).
 
 ### Changed
 
+- **C++ names now match Python's (ADR-0062, breaking for C++ code).** `httpp::request` is the client builder, as `httpp.Request` is, and the request a server handler receives is `httpp::server_request`, as `httpp.ServerRequest` is. Before, the handler's request was `httpp::request` and the builder was `httpp::client::request` (removed, no alias). Rename `const httpp::request&` to `const httpp::server_request&` in your handlers and `httpp::client::request` to `httpp::request`. Python code is unchanged.
 - On a free-threaded Python the default worker pool starts at 2 threads instead of `max(8, CPUs)`, grows after a 2 ms wait and still reaches the old ceiling (ADR-0059): CPU-bound `def` handlers measured 68.2k against 58.2k req/s at one I/O thread (3.14t, 16 threads). Builds with a GIL are unchanged.
 
 ## [0.8.1] - 2026-11-11

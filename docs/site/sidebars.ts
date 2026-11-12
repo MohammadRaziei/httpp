@@ -12,7 +12,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Client',
-      items: ['client/get-request', 'client/post-request'],
+      items: ['client/get-request', 'client/post-request', 'client/download'],
     },
   ],
 };

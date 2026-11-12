@@ -38,7 +38,7 @@ std::string read_file(const std::string& path) {
 
 UTEST(httpp_download, downloads_body_to_a_file) {
     httpp::server s;
-    s.get("/data", [](const httpp::request&, httpp::response& res) {
+    s.get("/data", [](const httpp::server_request&, httpp::response& res) {
         res.status = 200;
         res.body = "the quick brown fox";
     });
@@ -75,7 +75,7 @@ UTEST(httpp_download, reports_failure_for_404) {
 
 UTEST(httpp_download, builder_form_works_with_chained_calls) {
     httpp::server s;
-    s.get("/f", [](const httpp::request&, httpp::response& res) {
+    s.get("/f", [](const httpp::server_request&, httpp::response& res) {
         res.status = 200;
         res.body = "builder";
     });
@@ -98,7 +98,7 @@ UTEST(httpp_download, builder_form_works_with_chained_calls) {
 
 UTEST(httpp_download, run_async_returns_a_future) {
     httpp::server s;
-    s.get("/f", [](const httpp::request&, httpp::response& res) {
+    s.get("/f", [](const httpp::server_request&, httpp::response& res) {
         res.status = 200;
         res.body = "async";
     });
@@ -129,8 +129,8 @@ const std::string body_digest = httpp::sha256_hex(body_text.data(), body_text.si
 
 httpp::server file_server(const std::string& checksum_body, int checksum_status = 200) {
     httpp::server s;
-    s.get("/f.bin", [](const httpp::request&, httpp::response& res) { res.status = 200; res.body = body_text; });
-    s.get("/f.bin.sha256", [=](const httpp::request&, httpp::response& res) {
+    s.get("/f.bin", [](const httpp::server_request&, httpp::response& res) { res.status = 200; res.body = body_text; });
+    s.get("/f.bin.sha256", [=](const httpp::server_request&, httpp::response& res) {
         res.status = checksum_status;
         res.body = checksum_body;
     });
@@ -377,7 +377,7 @@ UTEST(httpp_download_lock, a_lock_that_keeps_being_updated_is_waited_for_however
 UTEST(httpp_download_lock, a_waiter_uses_the_file_the_owner_finished_without_a_request) {
     std::atomic<int> requests{0};
     httpp::server s;
-    s.get("/f.bin", [&](const httpp::request&, httpp::response& res) { ++requests; res.status = 200; res.body = body_text; });
+    s.get("/f.bin", [&](const httpp::server_request&, httpp::response& res) { ++requests; res.status = 200; res.body = body_text; });
     running_server rs(std::move(s));
     const std::string dest = "test_dl_lock_shared.bin";
     std::remove(dest.c_str());
@@ -397,7 +397,7 @@ UTEST(httpp_download_lock, a_waiter_uses_the_file_the_owner_finished_without_a_r
 
 UTEST(httpp_download_lock, two_downloads_of_one_file_fetch_it_once) {
     httpp::server s;
-    s.get("/f.bin", [](const httpp::request&, httpp::response& res) {
+    s.get("/f.bin", [](const httpp::server_request&, httpp::response& res) {
         std::this_thread::sleep_for(std::chrono::milliseconds(300));  // long enough for the two to overlap
         res.status = 200;
         res.body = body_text;
@@ -419,7 +419,7 @@ UTEST(httpp_download_lock, two_downloads_of_one_file_fetch_it_once) {
 
 UTEST(httpp_download_timeout, set_timeout_also_limits_the_network) {
     httpp::server s;
-    s.get("/slow", [](const httpp::request&, httpp::response& res) {
+    s.get("/slow", [](const httpp::server_request&, httpp::response& res) {
         std::this_thread::sleep_for(std::chrono::seconds(3));
         res.status = 200;
         res.body = "late";
@@ -437,7 +437,7 @@ UTEST(httpp_download_timeout, set_timeout_also_limits_the_network) {
 UTEST(httpp_download, a_gzip_body_is_saved_as_sent_not_decoded_and_not_refused) {
     const std::string packed = httpp::detail::deflate("hello hello hello", 17, httpp::detail::inflate_format::gzip, 6);
     httpp::server s;
-    s.get("/f", [packed](const httpp::request&, httpp::response& res) {
+    s.get("/f", [packed](const httpp::server_request&, httpp::response& res) {
         res.status = 200;
         res.body = packed;
         res.headers.emplace_back("Content-Encoding", "gzip");

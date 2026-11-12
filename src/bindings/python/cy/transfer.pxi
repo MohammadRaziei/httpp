@@ -415,7 +415,7 @@ cdef extern from *:
     #include <functional>
     #include "httpp/client.hpp"
     typedef void (*httpp_py_done_fn)(void*, httpp::response*);
-    static void httpp_py_run_request(const httpp::client::request& r, void* ctx, httpp_py_done_fn fn) {
+    static void httpp_py_run_request(const httpp::request& r, void* ctx, httpp_py_done_fn fn) {
         r.run_async([ctx, fn](httpp::response res) { fn(ctx, &res); });
     }
     static void httpp_py_client_send(httpp::async_client& c, const std::string& method, const std::string& path,

@@ -51,7 +51,7 @@ int main() {
 
     // 2) httpp::server + httpp::client, live over a real socket
     httpp::server srv;
-    srv.get("/hello", [](const httpp::request&, httpp::response& res) {
+    srv.get("/hello", [](const httpp::server_request&, httpp::response& res) {
         res.status = 200;
         res.body = "world";
     });
@@ -72,17 +72,17 @@ int main() {
         check(res.ok() && res.body == "world", "httpp::client::fetch parses a full URL and gets it");
     }
 
-    // 3) httpp::client::request (fluent builder)
+    // 3) httpp::request (fluent builder)
     {
-        httpp::response res = httpp::client::request(base + "/hello")
+        httpp::response res = httpp::request(base + "/hello")
                                    .method("GET")
                                    .header("X-Test", "abc")
                                    .run();
-        check(res.ok() && res.body == "world", "httpp::client::request GETs with a custom header");
+        check(res.ok() && res.body == "world", "httpp::request GETs with a custom header");
     }
     {
-        httpp::response res = httpp::client::request(base + "/missing").method("DELETE").run();
-        check(res.status == 404, "httpp::client::request sends a custom DELETE method");
+        httpp::response res = httpp::request(base + "/missing").method("DELETE").run();
+        check(res.status == 404, "httpp::request sends a custom DELETE method");
     }
 
     // 4) httpp/curl_compat.h (libcurl-style C API)

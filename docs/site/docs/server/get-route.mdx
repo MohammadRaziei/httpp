@@ -31,7 +31,7 @@ The name is written `{name}` (`<name>` means the same). It arrives as an argumen
 
 <Only lang="cpp">
 
-The name is written `:name`. The handler gets a `const httpp::request&` and fills in an `httpp::response&`. Read the value with `req.path_param("name")`, which returns a `std::string`. Setting `res.body` is enough: a response whose status was never set is sent as `200`.
+The name is written `:name`. The handler gets a `const httpp::server_request&` and fills in an `httpp::response&`. Read the value with `req.path_param("name")`, which returns a `std::string`. Setting `res.body` is enough: a response whose status was never set is sent as `200`.
 
 </Only>
 

@@ -103,14 +103,36 @@ def check_hooks(base):
     expect(h.get("X-Served-By") == "httpp", f"X-Served-By {h.get('X-Served-By')!r}")
 
 
-def check_client_get(out):
+def check_client_get(out, cwd):
     expect(out.splitlines() == ["200 hello world", "200"], f"output {out!r}")
 
 
-def check_client_post(out):
+def check_client_post(out, cwd):
     lines = out.splitlines()
     expect(lines[:1] == ["200"], f"output {out!r}")
     expect("\n".join(lines[1:]) == 'POST /inspect\npage=2\ntoken=abc\nbody={"a": 1}', f"output {out!r}")
+
+
+HELLO_SHA = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"  # sha256 of b"hello world"
+
+
+def saved_hello(cwd):
+    expect((cwd / "hello.txt").read_text() == "hello world", f"hello.txt holds {(cwd / 'hello.txt').read_text()!r}")
+
+
+def check_download_file(out, cwd):
+    expect(out.strip() == "200", f"output {out!r}")
+    saved_hello(cwd)
+
+
+def check_download_verified(out, cwd):
+    expect(out.strip() == HELLO_SHA, f"output {out!r}")
+    saved_hello(cwd)
+
+
+def check_download_async(out, cwd):
+    expect(out.strip() == "200", f"output {out!r}")
+    saved_hello(cwd)
 
 
 SERVERS = {
@@ -123,6 +145,9 @@ SERVERS = {
 CLIENTS = {
     "client_get": ("get_route", check_client_get),
     "client_post": ("request_info", check_client_post),
+    "download_file": ("get_route", check_download_file),
+    "download_verified": ("get_route", check_download_verified),
+    "download_async": ("get_route", check_download_async),
 }
 
 
@@ -175,10 +200,12 @@ def run_client(lang, name, port, check, work):
         command = [sys.executable, str(dest)]
     else:
         command = [str(work / "cpp" / "build" / name)]
-    r = subprocess.run(command, capture_output=True, text=True, timeout=30)
+    cwd = work / lang / f"{name}.cwd"  # a snippet that saves a file saves it here
+    cwd.mkdir(exist_ok=True)
+    r = subprocess.run(command, capture_output=True, text=True, timeout=60, cwd=cwd)
     try:
         expect(r.returncode == 0, f"exited with {r.returncode}:\n{r.stdout}{r.stderr}")
-        check(r.stdout)
+        check(r.stdout, cwd)
     except AssertionError as e:
         raise AssertionError(f"client snippet {name}: {e}") from None
     print(f"  ok  {lang:6} {name}")
@@ -187,7 +214,7 @@ def run_client(lang, name, port, check, work):
 def build_cpp(work, ports):
     names = list(SERVERS) + list(CLIENTS)
     folder = work / "cpp"
-    folder.mkdir()
+    folder.mkdir(exist_ok=True)  # main() already made it
     for name in SERVERS:
         patched("cpp", name, ports[name], folder / f"{name}.cpp")
     for name, (server, _) in CLIENTS.items():

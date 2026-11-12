@@ -124,7 +124,7 @@ class client {
 public:
     using headers_t = std::vector<std::pair<std::string, std::string>>;
 
-    // use_ssl selects https (mbedtls-backed) or plain http; fetch()/client::request take either
+    // use_ssl selects https (mbedtls-backed) or plain http; fetch()/httpp::request take either
     // kind of URL without the caller ever thinking about this.
     explicit HTTPP_API client(const std::string& host, int port, bool use_ssl = false);
     // "http://host[:port][/base/path]" or "https://...". A base path is prepended to every
@@ -170,85 +170,82 @@ public:
     // (e.g. the CLI's `download` command).
     static HTTPP_API response fetch(const std::string& full_url);
 
-    // A small, curl-flavored fluent request builder for the less common
-    // cases (custom method, headers, a body) that get()/fetch() don't
-    // cover. Also what httpp/curl_compat.h's `curl_easy_*` C API is built on
-    // (see src/core/curl_compat.cpp) - one implementation of "run an HTTP
-    // request" in httpp, not two.
-    //
-    // Nested under `client` (not a free `httpp::request`) because
-    // `httpp::request` is already the incoming-request struct passed to
-    // server route handlers (see httpp/server.hpp) - naming this
-    // `client::request` avoids that collision and reads naturally next to
-    // the class it's built on: httpp::client::request(url)....run()
-    class request {
-    public:
-        explicit HTTPP_API request(std::string url);
-        HTTPP_API ~request();
+private:
+    struct impl;
+    std::unique_ptr<impl> impl_;
+};
 
-        HTTPP_API request(request&&) noexcept;
-        HTTPP_API request& operator=(request&&) noexcept;
-        request(const request&) = delete;
-        request& operator=(const request&) = delete;
+// A small, curl-flavored fluent request builder for the less common
+// cases (custom method, headers, a body) that get()/fetch() don't
+// cover. Also what httpp/curl_compat.h's `curl_easy_*` C API is built on
+// (see src/core/curl_compat.cpp) - one implementation of "run an HTTP
+// request" in httpp, not two.
+//
+// Named like Python's httpp.Request. The request a server handler receives is httpp::server_request (Python:
+// httpp.ServerRequest), so the two names say which side they belong to: httpp::server_request(url)....run()
+class request {
+public:
+    explicit HTTPP_API request(std::string url);
+    HTTPP_API ~request();
 
-        // -X METHOD (GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS). If never
-        // called, defaults to GET, unless a body was set, in which case
-        // it defaults to POST - matching curl's own behavior.
-        HTTPP_API request& method(std::string m);
+    HTTPP_API request(request&&) noexcept;
+    HTTPP_API request& operator=(request&&) noexcept;
+    request(const request&) = delete;
+    request& operator=(const request&) = delete;
 
-        // -H "Name: value"
-        HTTPP_API request& header(std::string name, std::string value);
+    // -X METHOD (GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS). If never
+    // called, defaults to GET, unless a body was set, in which case
+    // it defaults to POST - matching curl's own behavior.
+    HTTPP_API request& method(std::string m);
 
-        // Query parameter, percent-encoded and appended to the URL's own query (repeatable).
-        HTTPP_API request& param(std::string name, std::string value);
+    // -H "Name: value"
+    HTTPP_API request& header(std::string name, std::string value);
 
-        // -d "body" (sets Content-Type to
-        // application/x-www-form-urlencoded unless content_type() overrides it)
-        HTTPP_API request& data(std::string body);
-        // A JSON document you serialized yourself: sets the body and Content-Type: application/json.
-        HTTPP_API request& json(std::string document);
-        // An urlencoded form body from these fields.
-        HTTPP_API request& form(const std::vector<std::pair<std::string, std::string>>& fields);
+    // Query parameter, percent-encoded and appended to the URL's own query (repeatable).
+    HTTPP_API request& param(std::string name, std::string value);
 
-        HTTPP_API request& content_type(std::string type);
+    // -d "body" (sets Content-Type to
+    // application/x-www-form-urlencoded unless content_type() overrides it)
+    HTTPP_API request& data(std::string body);
+    // A JSON document you serialized yourself: sets the body and Content-Type: application/json.
+    HTTPP_API request& json(std::string document);
+    // An urlencoded form body from these fields.
+    HTTPP_API request& form(const std::vector<std::pair<std::string, std::string>>& fields);
 
-        HTTPP_API request& basic_auth(const std::string& user, const std::string& password);
-        HTTPP_API request& bearer(const std::string& token);
-        HTTPP_API request& cookie(std::string name, std::string value); // repeatable
+    HTTPP_API request& content_type(std::string type);
 
-        // -m/--max-time (seconds), -L/--location
-        HTTPP_API request& timeout(long seconds);
-        HTTPP_API request& follow_redirects(bool enable = true);
+    HTTPP_API request& basic_auth(const std::string& user, const std::string& password);
+    HTTPP_API request& bearer(const std::string& token);
+    HTTPP_API request& cookie(std::string name, std::string value); // repeatable
 
-        // https: verify the server certificate (default true), or trust this CA bundle instead of
-        // the system's. And an HTTP proxy.
-        HTTPP_API request& verify(bool enable);
-        HTTPP_API request& ca_file(const path& file);
-        HTTPP_API request& proxy(std::string host, int port);
+    // -m/--max-time (seconds), -L/--location
+    HTTPP_API request& timeout(long seconds);
+    HTTPP_API request& follow_redirects(bool enable = true);
 
-        // Upper bound, in bytes, on the response body this request will
-        // buffer into response::body. 0 (the default) means no limit, which
-        // matches curl/wget: run() hands you the whole body as a string, so
-        // httpp does not second-guess how big that is. Set a non-zero value
-        // to guard against a hostile or runaway server; exceeding it yields
-        // response::status == 413 (Payload Too Large) with error too_large.
-        HTTPP_API request& max_response_size(std::size_t bytes);
+    // https: verify the server certificate (default true), or trust this CA bundle instead of
+    // the system's. And an HTTP proxy.
+    HTTPP_API request& verify(bool enable);
+    HTTPP_API request& ca_file(const path& file);
+    HTTPP_API request& proxy(std::string host, int port);
 
-        HTTPP_API response run() const;
-        // Starts the request on the library's non-blocking network thread and returns at once. No
-        // thread is used per request, so thousands can be in flight. Connections are kept alive and
-        // reused across requests to the same place; redirects (if enabled), TLS and the proxy all run
-        // on that thread too.
-        HTTPP_API std::future<response> run_async() const;
-        // Same, but instead of a future `done` is called with the response, on the library's network
-        // thread: it must be quick and must not block (hand real work to your own thread or loop).
-        // A request that cannot even start (bad URL, unknown method) calls it at once, on this thread.
-        HTTPP_API void run_async(std::function<void(response)> done) const;
+    // Upper bound, in bytes, on the response body this request will
+    // buffer into response::body. 0 (the default) means no limit, which
+    // matches curl/wget: run() hands you the whole body as a string, so
+    // httpp does not second-guess how big that is. Set a non-zero value
+    // to guard against a hostile or runaway server; exceeding it yields
+    // response::status == 413 (Payload Too Large) with error too_large.
+    HTTPP_API request& max_response_size(std::size_t bytes);
 
-    private:
-        struct impl;
-        std::unique_ptr<impl> impl_;
-    };
+    HTTPP_API response run() const;
+    // Starts the request on the library's non-blocking network thread and returns at once. No
+    // thread is used per request, so thousands can be in flight. Connections are kept alive and
+    // reused across requests to the same place; redirects (if enabled), TLS and the proxy all run
+    // on that thread too.
+    HTTPP_API std::future<response> run_async() const;
+    // Same, but instead of a future `done` is called with the response, on the library's network
+    // thread: it must be quick and must not block (hand real work to your own thread or loop).
+    // A request that cannot even start (bad URL, unknown method) calls it at once, on this thread.
+    HTTPP_API void run_async(std::function<void(response)> done) const;
 
 private:
     struct impl;

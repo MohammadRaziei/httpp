@@ -155,7 +155,7 @@ class ServerRequest:
     def text(self):
         return self.body.decode("utf-8", errors="replace")
 
-    # The lookups the C++ `httpp::request` has under the same names. The default is "" like in C++ (pass None to tell
+    # The lookups the C++ `httpp::server_request` has under the same names. The default is "" like in C++ (pass None to tell
     # "absent" from "empty"); a repeated name gives its first value.
     def header(self, name, default=""):
         """A header by name, case-insensitive."""

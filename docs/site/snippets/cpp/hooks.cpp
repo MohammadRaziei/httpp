@@ -3,7 +3,7 @@
 int main() {
     httpp::server app;
 
-    app.before([](const httpp::request& req, httpp::response& res) {
+    app.before([](const httpp::server_request& req, httpp::response& res) {
         if (req.header("X-Key") != "secret") {
             res.status = 403;
             res.json("{\"error\":\"forbidden\"}");
@@ -12,11 +12,11 @@ int main() {
         return false;
     });
 
-    app.after([](const httpp::request&, httpp::response& res) {
+    app.after([](const httpp::server_request&, httpp::response& res) {
         res.headers.emplace_back("X-Served-By", "httpp");  // status and headers only
     });
 
-    app.get("/", [](const httpp::request&, httpp::response& res) { res.body = "hello"; });
+    app.get("/", [](const httpp::server_request&, httpp::response& res) { res.body = "hello"; });
 
     app.listen("127.0.0.1", 8000);
 }

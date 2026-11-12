@@ -58,7 +58,7 @@ struct cors_policy {
     bool vary_origin() const { return !(any_origin && !credentials); }
 };
 
-bool is_preflight(const request& r) {
+bool is_preflight(const server_request& r) {
     return r.method == "OPTIONS" && !r.header("Origin").empty() && !r.header("Access-Control-Request-Method").empty();
 }
 
@@ -146,7 +146,7 @@ void add_cors(server& s, const cors_options& o) {
     p->expose = join(o.expose_headers);
     p->max_age = std::to_string(o.max_age);
 
-    auto before = [p](const request& req, response& res) {
+    auto before = [p](const server_request& req, response& res) {
         if (!is_preflight(req)) return false;
         const std::string origin = req.header("Origin");
         std::string failures;
@@ -179,7 +179,7 @@ void add_cors(server& s, const cors_options& o) {
         if (p->vary_origin()) res.headers.emplace_back("Vary", "Origin");
         return true;
     };
-    auto after = [p](const request& req, response& res) {
+    auto after = [p](const server_request& req, response& res) {
         if (is_preflight(req)) return; // answered (or refused) by the before hook
         const std::string origin = req.header("Origin");
         if (origin.empty()) return;
@@ -204,7 +204,7 @@ void add_trusted_host(server& s, const trusted_host_options& o) {
             throw std::invalid_argument("add_trusted_host: '" + raw + "' is not a host name, \"*\" or \"*.domain\"");
         else p->exact.push_back(h);
     }
-    s.use([p](const request& req, response& res) {
+    s.use([p](const server_request& req, response& res) {
         const std::string header = req.header("Host");
         const std::string host = host_name(header);
         if (p->allowed(host)) return false;
@@ -228,7 +228,7 @@ void add_trusted_host(server& s, const trusted_host_options& o) {
 
 void add_https_redirect(server& s, const https_redirect_options& o) {
     const bool trust = o.trust_forwarded_proto;
-    s.use([trust](const request& req, response& res) {
+    s.use([trust](const server_request& req, response& res) {
         if (req.secure) return false;
         if (trust && lower(trim(req.header("X-Forwarded-Proto"))) == "https") return false;
         std::string host = trim(req.header("Host"));

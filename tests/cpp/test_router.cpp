@@ -14,7 +14,7 @@ using testutil::local_server;
 
 namespace {
 httpp::handler say(const std::string& text) {
-    return [text](const httpp::request&, httpp::response& res) { res.body = text; };
+    return [text](const httpp::server_request&, httpp::response& res) { res.body = text; };
 }
 int status_of(const local_server& s, const std::string& path) { return httpp::client::fetch(s.url(path)).status; }
 std::string body_of(const local_server& s, const std::string& path) { return httpp::client::fetch(s.url(path)).body; }
@@ -23,7 +23,7 @@ std::string body_of(const local_server& s, const std::string& path) { return htt
 UTEST(httpp_router, a_prefix_is_put_in_front_of_every_path) {
     local_server srv([](httpp::server& s) {
         httpp::router r("/users");
-        r.get("/", say("list")).get("/:id", [](const httpp::request& req, httpp::response& res) { res.body = "user " + req.path_param("id"); });
+        r.get("/", say("list")).get("/:id", [](const httpp::server_request& req, httpp::response& res) { res.body = "user " + req.path_param("id"); });
         r.post("/new", say("created"));
         s.include(r);
     });
@@ -68,7 +68,7 @@ UTEST(httpp_router, a_router_can_be_included_twice_and_changed_or_dropped_afterw
 UTEST(httpp_router, async_routes_work_through_a_router_too) {
     local_server srv([](httpp::server& s) {
         httpp::router r("/a");
-        r.get_async("/x", [](const httpp::request&, httpp::responder rp) {
+        r.get_async("/x", [](const httpp::server_request&, httpp::responder rp) {
             httpp::response res;
             res.body = "async";
             rp.send(res);

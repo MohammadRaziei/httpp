@@ -80,7 +80,7 @@ cdef extern from *:
     };
     // ctx + req + rsp: a request. ws without wake: a WebSocket upgrade (ctx, req). ws with wake: news for a waiting handler.
     struct httpp_py_item {
-        void* ctx; std::shared_ptr<const httpp::request> req; httpp::responder rsp;
+        void* ctx; std::shared_ptr<const httpp::server_request> req; httpp::responder rsp;
         std::shared_ptr<httpp_py_wsconn> ws; bool wake = false;
     };
     struct httpp_py_inbox {
@@ -115,7 +115,7 @@ cdef extern from *:
             if (!full) { std::lock_guard<std::mutex> lock(b.mu); b.armed = false; }
         }
     }
-    static void httpp_py_inbox_push(int lane, void* ctx, std::shared_ptr<const httpp::request> q, const httpp::responder& r) {
+    static void httpp_py_inbox_push(int lane, void* ctx, std::shared_ptr<const httpp::server_request> q, const httpp::responder& r) {
         httpp_py_inbox_push_item(lane, httpp_py_item{ctx, std::move(q), r});
     }
     // Moves up to `max` queued items into `out` under ONE lock. Returns 0 (and disarms, atomically with the
@@ -146,7 +146,7 @@ cdef extern from *:
                                                       int ping_interval, std::size_t high) {
         httpp::ws_handler h;
         h.max_message = max_message; h.max_buffered = max_buffered; h.ping_interval = ping_interval;
-        h.on_handshake = [ctx, high](std::shared_ptr<const httpp::request> req, httpp::ws_acceptor acc) {
+        h.on_handshake = [ctx, high](std::shared_ptr<const httpp::server_request> req, httpp::ws_acceptor acc) {
             auto c = std::make_shared<httpp_py_wsconn>();
             c->lane = httpp_py_my_lane();
             c->high = high;

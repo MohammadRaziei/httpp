@@ -18,7 +18,7 @@ struct TestServer {
     int port = 0;
 
     TestServer() {
-        srv.get("/hello", [](const httpp::request&, httpp::response& res) {
+        srv.get("/hello", [](const httpp::server_request&, httpp::response& res) {
             res.status = 200;
             res.body = "world";
         });

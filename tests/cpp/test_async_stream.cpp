@@ -20,15 +20,15 @@ namespace {
 constexpr std::size_t big = 6 * 1024 * 1024;
 
 void add_routes(httpp::server& s) {
-    s.get("/big", [](const httpp::request&, httpp::response& r) {
+    s.get("/big", [](const httpp::server_request&, httpp::response& r) {
         r.status = 200;
         r.body.assign(big, 'q');
     });
-    s.get("/missing", [](const httpp::request&, httpp::response& r) {
+    s.get("/missing", [](const httpp::server_request&, httpp::response& r) {
         r.status = 404;
         r.body = "not here";
     });
-    s.get("/gz", [](const httpp::request&, httpp::response& r) {
+    s.get("/gz", [](const httpp::server_request&, httpp::response& r) {
         r.status = 200;
         r.headers.emplace_back("Content-Encoding", "gzip");
         r.body = "these bytes are not gzip, and must reach the sink untouched";

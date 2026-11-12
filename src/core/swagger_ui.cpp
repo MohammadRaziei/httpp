@@ -113,7 +113,7 @@ void mount_swagger_ui(server& s, const std::string& docs_path, const std::string
 
     // The page answers both "/docs" and "/docs/": people type either.
     for (const std::string& path : {base, base + "/"}) {
-        s.get(path, [page](const request&, response& res) {
+        s.get(path, [page](const server_request&, response& res) {
             res.status = 200;
             res.headers.emplace_back("Content-Type", "text/html; charset=utf-8");
             res.body = page;
@@ -124,7 +124,7 @@ void mount_swagger_ui(server& s, const std::string& docs_path, const std::string
         // bundle, 1.5 MB when stored as they are). Fine for a page opened by hand; the upgrade is a string_view body in
         // response, which the engine would send as is. A client that does not take gzip gets the file inflated on
         // every request, nothing is cached: that is old tools (curl without --compressed), not a browser.
-        s.get(base + "/" + std::string(a.name), [&a](const request& req, response& res) {
+        s.get(base + "/" + std::string(a.name), [&a](const server_request& req, response& res) {
             res.status = 200;
             res.headers.emplace_back("Content-Type", std::string(a.content_type));
             res.headers.emplace_back("Cache-Control", "public, max-age=86400");

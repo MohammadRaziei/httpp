@@ -213,7 +213,7 @@ void mount_file_browser(server& s, const std::string& base, const path& root_dir
     replace_all(html, "__CONFIG__", config);
     replace_all(html, "__TITLE__", html_escape(o.title));
 
-    auto page = [html](const request&, response& res) {
+    auto page = [html](const server_request&, response& res) {
         res.status = 200;
         res.headers.emplace_back("Content-Type", "text/html; charset=utf-8");
         res.headers.emplace_back("Content-Security-Policy",
@@ -228,7 +228,7 @@ void mount_file_browser(server& s, const std::string& base, const path& root_dir
 
     const bool show_hidden = o.show_hidden;
     const std::size_t limit = o.max_entries;
-    s.get(prefix + "/api/list", [real_root, show_hidden, limit](const request& req, response& res) {
+    s.get(prefix + "/api/list", [real_root, show_hidden, limit](const server_request& req, response& res) {
         std::string rel, dir;
         const path_result pr = clean_path(req.query_param("path"), show_hidden, rel);
         if (pr == path_result::bad) { res = json_error(400, "bad path"); return; }

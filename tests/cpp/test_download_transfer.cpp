@@ -51,7 +51,7 @@ void forget(const std::string& p) {
 
 // honours "Range: bytes=N-" when `ranges` is true
 void routes(httpp::server& s, seen& st, bool ranges) {
-    s.get("/file", [&st, ranges](const httpp::request& q, httpp::response& r) {
+    s.get("/file", [&st, ranges](const httpp::server_request& q, httpp::response& r) {
         const std::string range = q.header("Range");
         {
             std::lock_guard<std::mutex> lock(st.mu);
@@ -69,12 +69,12 @@ void routes(httpp::server& s, seen& st, bool ranges) {
         r.status = 200;
         r.body = payload();
     });
-    s.get("/old", [](const httpp::request&, httpp::response& r) {
+    s.get("/old", [](const httpp::server_request&, httpp::response& r) {
         r.status = 302;
         r.headers.emplace_back("Location", "/file");
         r.body = "moved, do not save this page";
     });
-    s.get("/gone", [](const httpp::request&, httpp::response& r) {
+    s.get("/gone", [](const httpp::server_request&, httpp::response& r) {
         r.status = 404;
         r.body = "<html>not found</html>";
     });
@@ -159,7 +159,7 @@ UTEST(download_transfer, a_complete_file_is_skipped_without_a_get) {
 
 UTEST(download_transfer, a_large_body_is_saved_intact) {
     testutil::local_server srv([](httpp::server& s) {
-        s.get("/big", [](const httpp::request&, httpp::response& r) {
+        s.get("/big", [](const httpp::server_request&, httpp::response& r) {
             r.status = 200;
             r.body.assign(24u * 1024 * 1024, 'x');
         });

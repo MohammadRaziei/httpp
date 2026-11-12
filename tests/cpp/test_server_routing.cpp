@@ -44,7 +44,7 @@ httpp::response fetch(const local_server& srv, const std::string& path, const st
 
 // A route answers "<its id>|<name=value;...>".
 void add(httpp::server& s, const std::string& method, const std::string& path, int id) {
-    s.route(method, path, [id](const httpp::request& req, httpp::response& res) {
+    s.route(method, path, [id](const httpp::server_request& req, httpp::response& res) {
         std::string out = std::to_string(id) + "|";
         for (const auto& p : req.path_params) out += p.first + "=" + p.second + ";";
         res.body = out;

@@ -81,7 +81,7 @@ void response_compression::configure(std::size_t min_size, int level) {
     level_ = level;
 }
 
-void response_compression::apply(const request& req, response& res) const {
+void response_compression::apply(const server_request& req, response& res) const {
     if (!enabled() || res.body.size() < min_size_ || !res.file.empty() || res.stream) return;
     if (res.status < 200 || res.status == 204 || res.status == 206 || res.status == 304) return;
     if (find_header(res, "Content-Encoding") || find_header(res, "Content-Range")) return;

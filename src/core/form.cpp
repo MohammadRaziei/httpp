@@ -185,7 +185,7 @@ form_data parse_multipart(const std::string& body, const std::string& boundary) 
 
 }  // namespace
 
-form_data request::form() const {
+form_data server_request::form() const {
     std::string type = header("Content-Type");
     const std::string media = lower(trim(type.substr(0, type.find(';'))));
     if (media == "application/x-www-form-urlencoded") {

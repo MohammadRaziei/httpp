@@ -29,12 +29,12 @@ int main(int argc, char** argv) {
     httpp::server srv;
     srv.set_io_threads(io_threads);
     if (argc > 3) srv.set_keep_alive_max(static_cast<std::size_t>(std::atoll(argv[3])));  // for A/B runs of the default
-    srv.route("GET", "/sync", [](const httpp::request&, httpp::response& r) { hello(r); });
-    srv.route("GET", "/cpu", [](const httpp::request&, httpp::response& r) {
+    srv.route("GET", "/sync", [](const httpp::server_request&, httpp::response& r) { hello(r); });
+    srv.route("GET", "/cpu", [](const httpp::server_request&, httpp::response& r) {
         volatile long long s = work();
         r.body = std::to_string(s);
     });
-    srv.route_io("GET", "/io", [](std::shared_ptr<const httpp::request>, httpp::responder rs) {
+    srv.route_io("GET", "/io", [](std::shared_ptr<const httpp::server_request>, httpp::responder rs) {
         httpp::response r;
         hello(r);
         rs.send(std::move(r));

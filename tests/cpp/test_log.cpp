@@ -44,7 +44,7 @@ void install(captured& c) {
 // A route that throws, with no exception handler: the library logs it and answers 500.
 void trigger_warning() {
     testutil::local_server srv([](httpp::server& s) {
-        s.get("/boom", [](const httpp::request&, httpp::response&) { throw std::runtime_error("kaboom"); });
+        s.get("/boom", [](const httpp::server_request&, httpp::response&) { throw std::runtime_error("kaboom"); });
     });
     auto r = httpp::client::fetch(srv.url("/boom"));
     (void)r;
@@ -152,7 +152,7 @@ UTEST(log, std_clog_is_left_alone) {
 namespace {
 void fetch_ok_and_missing() {
     testutil::local_server srv([](httpp::server& s) {
-        s.get("/ok", [](const httpp::request&, httpp::response& res) { res.status = 200; res.body = "hi"; });
+        s.get("/ok", [](const httpp::server_request&, httpp::response& res) { res.status = 200; res.body = "hi"; });
     });
     (void)httpp::client::fetch(srv.url("/ok?x=1"));
     (void)httpp::client::fetch(srv.url("/nope"));

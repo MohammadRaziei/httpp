@@ -17,7 +17,7 @@
 // members and even for the std::unique_ptr<impl> of the pimpl pattern
 // itself. Exporting only the specific symbols that are actually implemented
 // in the DLL avoids this entirely: purely inline types (simple data structs
-// like httpp::response, httpp::request, httpp::download_result) need no
+// like httpp::response, httpp::server_request, httpp::download_result) need no
 // HTTPP_API at all, since nothing about them is compiled into the DLL.
 #if defined(_WIN32)
 #  if defined(HTTPP_BUILDING_DLL)

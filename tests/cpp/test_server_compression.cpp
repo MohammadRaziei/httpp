@@ -20,16 +20,16 @@ std::string text(std::size_t n) {
 const std::string big = text(20000);
 
 void routes(httpp::server& s) {
-    s.get("/text", [](const httpp::request&, httpp::response& r) { r.headers.emplace_back("Content-Type", "text/plain"); r.body = big; });
-    s.get("/json", [](const httpp::request&, httpp::response& r) { r.headers.emplace_back("Content-Type", "application/json; charset=utf-8"); r.body = big; });
-    s.get("/small", [](const httpp::request&, httpp::response& r) { r.headers.emplace_back("Content-Type", "text/plain"); r.body = "tiny"; });
-    s.get("/png", [](const httpp::request&, httpp::response& r) { r.headers.emplace_back("Content-Type", "image/png"); r.body = big; });
-    s.get("/already", [](const httpp::request&, httpp::response& r) {
+    s.get("/text", [](const httpp::server_request&, httpp::response& r) { r.headers.emplace_back("Content-Type", "text/plain"); r.body = big; });
+    s.get("/json", [](const httpp::server_request&, httpp::response& r) { r.headers.emplace_back("Content-Type", "application/json; charset=utf-8"); r.body = big; });
+    s.get("/small", [](const httpp::server_request&, httpp::response& r) { r.headers.emplace_back("Content-Type", "text/plain"); r.body = "tiny"; });
+    s.get("/png", [](const httpp::server_request&, httpp::response& r) { r.headers.emplace_back("Content-Type", "image/png"); r.body = big; });
+    s.get("/already", [](const httpp::server_request&, httpp::response& r) {
         r.headers.emplace_back("Content-Type", "text/plain");
         r.headers.emplace_back("Content-Encoding", "identity");
         r.body = big;
     });
-    s.get_async("/async", [](const httpp::request&, httpp::responder rp) {
+    s.get_async("/async", [](const httpp::server_request&, httpp::responder rp) {
         httpp::response r;
         r.headers.emplace_back("Content-Type", "text/html");
         r.body = big;

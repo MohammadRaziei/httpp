@@ -21,7 +21,7 @@ public:
 
     // Call with the final status, headers and body. May replace the body with its gzip form and add
     // Content-Encoding and Vary. Never touches a file, a stream or a body that is already encoded.
-    void apply(const request& req, response& res) const;
+    void apply(const server_request& req, response& res) const;
 
 private:
     std::size_t min_size_ = 0;

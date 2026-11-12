@@ -41,7 +41,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         vector[pair[string, string]] fields
         vector[cpp_upload_file] files
 
-    cdef cppclass cpp_request "httpp::request":
+    cdef cppclass cpp_request "httpp::server_request":
         string method
         string path
         string body
@@ -110,9 +110,9 @@ cdef extern from *:
     #include "httpp/server.hpp"
     #include <memory>
     #include <stdexcept>
-    typedef bool (*httpp_py_before_trampoline)(void*, const httpp::request&, httpp::response&);
+    typedef bool (*httpp_py_before_trampoline)(void*, const httpp::server_request&, httpp::response&);
     static httpp::server::before_hook httpp_py_make_before(httpp_py_before_trampoline fn, void* ctx) {
-        return [fn, ctx](const httpp::request& q, httpp::response& r) { return fn(ctx, q, r); };
+        return [fn, ctx](const httpp::server_request& q, httpp::response& r) { return fn(ctx, q, r); };
     }
     // Body pulled piece by piece from Python. `ctx` is an owned reference: the shared_ptr (copied along
     // with the std::function) releases it once the last copy is gone, wherever that happens.
@@ -147,21 +147,21 @@ cdef extern from *:
         PyGILState_Ensure();
         PyEval_SaveThread();
     }
-    typedef void (*httpp_py_trampoline)(void*, const httpp::request&, httpp::response&);
+    typedef void (*httpp_py_trampoline)(void*, const httpp::server_request&, httpp::response&);
     static httpp::handler httpp_py_make_handler(httpp_py_trampoline fn, void* ctx) {
-        return [fn, ctx](const httpp::request& q, httpp::response& r) { fn(ctx, q, r); };
+        return [fn, ctx](const httpp::server_request& q, httpp::response& r) { fn(ctx, q, r); };
     }
-    typedef void (*httpp_py_async_trampoline)(void*, const httpp::request&, const httpp::responder&);
+    typedef void (*httpp_py_async_trampoline)(void*, const httpp::server_request&, const httpp::responder&);
     static httpp::async_handler httpp_py_make_async_handler(httpp_py_async_trampoline fn, void* ctx) {
-        return [fn, ctx](const httpp::request& q, httpp::responder r) { fn(ctx, q, r); };
+        return [fn, ctx](const httpp::server_request& q, httpp::responder r) { fn(ctx, q, r); };
     }
-    typedef void (*httpp_py_shared_trampoline)(void*, std::shared_ptr<const httpp::request>, httpp::response&);
+    typedef void (*httpp_py_shared_trampoline)(void*, std::shared_ptr<const httpp::server_request>, httpp::response&);
     static httpp::shared_handler httpp_py_make_shared_handler(httpp_py_shared_trampoline fn, void* ctx) {
-        return [fn, ctx](std::shared_ptr<const httpp::request> q, httpp::response& r) { fn(ctx, std::move(q), r); };
+        return [fn, ctx](std::shared_ptr<const httpp::server_request> q, httpp::response& r) { fn(ctx, std::move(q), r); };
     }
-    typedef void (*httpp_py_io_trampoline)(void*, std::shared_ptr<const httpp::request>, const httpp::responder&);
+    typedef void (*httpp_py_io_trampoline)(void*, std::shared_ptr<const httpp::server_request>, const httpp::responder&);
     static httpp::io_handler httpp_py_make_io_handler(httpp_py_io_trampoline fn, void* ctx) {
-        return [fn, ctx](std::shared_ptr<const httpp::request> q, httpp::responder r) { fn(ctx, std::move(q), r); };
+        return [fn, ctx](std::shared_ptr<const httpp::server_request> q, httpp::responder r) { fn(ctx, std::move(q), r); };
     }
     """
     void httpp_py_pin_thread() noexcept nogil
@@ -321,7 +321,7 @@ cdef extern from "httpp/url.hpp" namespace "httpp":
 
 
 cdef extern from "httpp/client.hpp" namespace "httpp::client":
-    cdef cppclass cpp_curl_request "httpp::client::request":
+    cdef cppclass cpp_curl_request "httpp::request":
         cpp_curl_request(string url) except +
         cpp_curl_request& method(string m) except +
         cpp_curl_request& header(string name, string value) except +

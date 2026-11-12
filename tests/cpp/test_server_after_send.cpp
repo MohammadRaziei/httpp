@@ -27,7 +27,7 @@ bool wait_for(const std::atomic<int>& n, int want, int ms = 3000) {
 UTEST(httpp_server_after_send, the_client_gets_the_answer_before_the_background_job_finishes) {
     auto started = std::make_shared<std::atomic<int>>(0), finished = std::make_shared<std::atomic<int>>(0);
     local_server srv([&](httpp::server& s) {
-        s.get("/", [=](const httpp::request&, httpp::response& res) {
+        s.get("/", [=](const httpp::server_request&, httpp::response& res) {
             res.body = "ok";
             res.after_send = [=] {
                 started->fetch_add(1);
@@ -47,17 +47,17 @@ UTEST(httpp_server_after_send, the_client_gets_the_answer_before_the_background_
 UTEST(httpp_server_after_send, it_runs_exactly_once_for_sync_async_and_streamed_answers) {
     auto n = std::make_shared<std::atomic<int>>(0);
     local_server srv([&](httpp::server& s) {
-        s.get("/sync", [=](const httpp::request&, httpp::response& res) {
+        s.get("/sync", [=](const httpp::server_request&, httpp::response& res) {
             res.body = "s";
             res.after_send = [=] { n->fetch_add(1); };
         });
-        s.get_async("/async", [=](const httpp::request&, httpp::responder rp) {
+        s.get_async("/async", [=](const httpp::server_request&, httpp::responder rp) {
             httpp::response res;
             res.body = "a";
             res.after_send = [=] { n->fetch_add(1); };
             rp.send(res);
         });
-        s.get("/stream", [=](const httpp::request&, httpp::response& res) {
+        s.get("/stream", [=](const httpp::server_request&, httpp::response& res) {
             res.stream = [i = 0](std::size_t, std::string& piece) mutable { piece = "x"; return ++i < 3; };
             res.after_send = [=] { n->fetch_add(1); };
         });
@@ -73,7 +73,7 @@ UTEST(httpp_server_after_send, it_runs_exactly_once_for_sync_async_and_streamed_
 UTEST(httpp_server_after_send, a_job_that_throws_does_not_hurt_the_server) {
     auto n = std::make_shared<std::atomic<int>>(0);
     local_server srv([&](httpp::server& s) {
-        s.get("/", [=](const httpp::request&, httpp::response& res) {
+        s.get("/", [=](const httpp::server_request&, httpp::response& res) {
             res.body = "ok";
             res.after_send = [=] { n->fetch_add(1); throw std::runtime_error("boom"); };
         });
@@ -85,7 +85,7 @@ UTEST(httpp_server_after_send, a_job_that_throws_does_not_hurt_the_server) {
 UTEST(httpp_server_after_send, a_job_waits_for_its_own_answer_only_and_many_requests_each_run_theirs) {
     auto n = std::make_shared<std::atomic<int>>(0);
     local_server srv([&](httpp::server& s) {
-        s.get("/", [=](const httpp::request&, httpp::response& res) {
+        s.get("/", [=](const httpp::server_request&, httpp::response& res) {
             res.body = "ok";
             res.after_send = [=] { n->fetch_add(1); };
         });

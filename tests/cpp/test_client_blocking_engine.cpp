@@ -1,4 +1,4 @@
-// The blocking client (client, client::request::run, client::fetch) runs on the same non-blocking
+// The blocking client (client, httpp::request::run, client::fetch) runs on the same non-blocking
 // engine and the same policy code as the async client (ADR-0051). These tests pin what that changes.
 #include "utest/utest.h"
 #include "httpp/client.hpp"
@@ -16,15 +16,15 @@ using namespace std::chrono_literals;
 namespace {
 
 void add_routes(httpp::server& s) {
-    s.get("/echo", [](const httpp::request& q, httpp::response& r) {
+    s.get("/echo", [](const httpp::server_request& q, httpp::response& r) {
         r.status = 200;
         r.body = "x=" + q.header("X-Test") + "\nauth=" + q.header("Authorization") + "\nq=" + q.query_param("n") + "\n";
     });
-    s.get("/hop", [](const httpp::request&, httpp::response& r) {
+    s.get("/hop", [](const httpp::server_request&, httpp::response& r) {
         r.status = 302;
         r.headers.emplace_back("Location", "/echo?n=hopped");
     });
-    s.get("/big", [](const httpp::request&, httpp::response& r) {
+    s.get("/big", [](const httpp::server_request&, httpp::response& r) {
         r.status = 200;
         r.body = std::string(4096, 'z');
     });
@@ -40,8 +40,8 @@ UTEST(client_blocking, call_from_the_network_thread_fails_instead_of_deadlocking
     testutil::local_server srv(add_routes);
     auto inner = std::make_shared<std::promise<httpp::response>>();
     auto inner_future = inner->get_future();
-    auto outer = httpp::client::request(srv.url("/echo")).run_async();
-    httpp::client::request(srv.url("/echo")).run_async([inner, url = srv.url("/echo")](httpp::response) {
+    auto outer = httpp::request(srv.url("/echo")).run_async();
+    httpp::request(srv.url("/echo")).run_async([inner, url = srv.url("/echo")](httpp::response) {
         inner->set_value(httpp::client::fetch(url)); // on the network thread
     });
     ASSERT_TRUE(inner_future.wait_for(10s) == std::future_status::ready);
@@ -96,10 +96,10 @@ UTEST(client_blocking, redirects_are_followed_only_when_asked) {
 
 UTEST(client_blocking, request_run_honours_max_response_size) {
     testutil::local_server srv(add_routes);
-    auto r = httpp::client::request(srv.url("/big")).max_response_size(100).run();
+    auto r = httpp::request(srv.url("/big")).max_response_size(100).run();
     ASSERT_EQ(413, r.status);
     ASSERT_TRUE(r.error == httpp::error_kind::too_large);
-    ASSERT_EQ(200, httpp::client::request(srv.url("/big")).max_response_size(10000).run().status);
+    ASSERT_EQ(200, httpp::request(srv.url("/big")).max_response_size(10000).run().status);
 }
 
 UTEST(client_blocking, unsupported_method_is_reported_before_any_network_use) {

@@ -25,7 +25,7 @@ struct running_server {
 
 UTEST(httpp_curl, plain_get_like_client) {
     httpp::server s;
-    s.get("/hello", [](const httpp::request&, httpp::response& res) {
+    s.get("/hello", [](const httpp::server_request&, httpp::response& res) {
         res.status = 200;
         res.body = "world";
     });
@@ -41,10 +41,10 @@ UTEST(httpp_curl, plain_get_like_client) {
 UTEST(httpp_curl, sends_custom_headers) {
     httpp::server s;
     std::string seen_header;
-    s.get("/echo-header", [&seen_header](const httpp::request& req, httpp::response& res) {
+    s.get("/echo-header", [&seen_header](const httpp::server_request& req, httpp::response& res) {
         (void)req;
         res.status = 200;
-        // httpp::request doesn't expose headers yet - this test only
+        // httpp::server_request doesn't expose headers yet - this test only
         // checks the call succeeds; header content is checked at the
         // curl::request builder level in the next test.
         res.body = "ok";
@@ -62,7 +62,7 @@ UTEST(httpp_curl, sends_custom_headers) {
 UTEST(httpp_curl, data_defaults_method_to_post) {
     httpp::server s;
     std::string received_body;
-    s.get("/should-not-hit", [](const httpp::request&, httpp::response& res) {
+    s.get("/should-not-hit", [](const httpp::server_request&, httpp::response& res) {
         res.status = 500; // if GET is used instead of POST, this fails
         res.body = "wrong method";
     });
@@ -94,7 +94,7 @@ UTEST(httpp_curl, explicit_method_overrides_data_default) {
 
 UTEST(httpp_curl, timeout_and_follow_redirects_are_chainable_and_dont_break_a_request) {
     httpp::server s;
-    s.get("/ok", [](const httpp::request&, httpp::response& res) {
+    s.get("/ok", [](const httpp::server_request&, httpp::response& res) {
         res.status = 200;
         res.body = "fine";
     });

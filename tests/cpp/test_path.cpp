@@ -118,8 +118,8 @@ UTEST(path, a_path_is_what_a_route_serves_as_a_file) {
     const path f = dir / "page.txt";
     f.write_text("served from a path");
     testutil::local_server srv([&](httpp::server& s) {
-        s.get("/page", [&](const httpp::request&, httpp::response& res) { res.file = f; });
-        s.get("/copy", [&](const httpp::request&, httpp::response& res) {
+        s.get("/page", [&](const httpp::server_request&, httpp::response& res) { res.file = f; });
+        s.get("/copy", [&](const httpp::server_request&, httpp::response& res) {
             auto in = f.open();
             res.body.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
         });

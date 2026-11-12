@@ -13,7 +13,7 @@
 
 namespace httpp {
 
-struct request;   // server.hpp
+struct server_request;   // server.hpp
 struct response;  // client.hpp
 
 namespace detail { class ws_shared; struct ws_upgrade; }
@@ -31,7 +31,7 @@ public:
 
     websocket() = default;
     // Made by the server; not for callers.
-    websocket(std::shared_ptr<detail::ws_shared> shared, std::shared_ptr<const request> upgrade)
+    websocket(std::shared_ptr<detail::ws_shared> shared, std::shared_ptr<const server_request> upgrade)
         : shared_(std::move(shared)), upgrade_(std::move(upgrade)) {}
 
     HTTPP_API status send_text(std::string_view text) const;      // must be UTF-8 (the peer closes with 1007 otherwise)
@@ -49,7 +49,7 @@ public:
     HTTPP_API bool is_open() const;                // false once closing starts, from either side
     HTTPP_API std::size_t buffered_amount() const; // bytes queued for sending and not yet written to the socket
     // The upgrade request (path, query, path parameters, headers, cookies).
-    const request& handshake() const { return *upgrade_; }
+    const server_request& handshake() const { return *upgrade_; }
     explicit operator bool() const { return static_cast<bool>(shared_); }
     // What accept() was given as `user`, or null. For the callbacks, which run on the I/O thread: it is the way to find per-connection state
     // from a callback (the handle itself holds it, so it lives as long as any copy of the handle).
@@ -57,7 +57,7 @@ public:
 
 private:
     std::shared_ptr<detail::ws_shared> shared_;
-    std::shared_ptr<const request> upgrade_;
+    std::shared_ptr<const server_request> upgrade_;
 };
 
 // The answer to a WebSocket upgrade request that was accepted by the protocol rules (see ws_handler::on_handshake). Copyable and thread-safe;
@@ -88,7 +88,7 @@ struct ws_handler {
     // Optional; without it every valid upgrade is accepted. Runs on the I/O thread for an upgrade request that passed the protocol checks, and
     // must return at once, but the answer may come later, from any thread (look something up, ask a Python coroutine): call accept() or
     // reject() on the acceptor. This is where a browser app must check the Origin header (cross-site WebSocket hijacking).
-    std::function<void(std::shared_ptr<const request>, ws_acceptor)> on_handshake;
+    std::function<void(std::shared_ptr<const server_request>, ws_acceptor)> on_handshake;
     // Runs when the connection is open, before any message. Not called when the connection ended before it could open.
     std::function<void(const websocket&)> on_open;
     // The view is valid during the call only. `binary` is false for a text message (already checked to be UTF-8).

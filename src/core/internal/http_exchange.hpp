@@ -1,7 +1,7 @@
 #pragma once
 
 // Internal, NOT installed. The client-side policy layer, shared by every public client class
-// (httpp::client, httpp::client::request, httpp::async_client) and, later, by downloads (ADR-0051).
+// (httpp::client, httpp::request, httpp::async_client) and, later, by downloads (ADR-0051).
 //
 //   session_settings  what a caller configures once (headers, timeout, auth, proxy, TLS, redirects)
 //   request_spec      one logical request, built from settings (Builder: session_settings::make_spec)

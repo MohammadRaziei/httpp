@@ -9,8 +9,8 @@
 // The real CURL struct definition (opaque to callers via the forward
 // declaration in curl_compat.h). It only ACCUMULATES options set via
 // curl_easy_setopt(); the actual request is built and run through
-// httpp::client::request inside curl_easy_perform(), which is the same
-// class the plain C++ API (httpp::client::request) already uses - reusing
+// httpp::request inside curl_easy_perform(), which is the same
+// class the plain C++ API (httpp::request) already uses - reusing
 // it here means there's exactly one implementation of "run an HTTP
 // request", not two.
 struct CURL {
@@ -133,7 +133,7 @@ CURLcode curl_easy_perform(CURL* curl) {
     if (!curl) return CURLE_BAD_FUNCTION_ARGUMENT;
     if (curl->url.empty()) return CURLE_UNSUPPORTED_PROTOCOL;
 
-    httpp::client::request req(curl->url);
+    httpp::request req(curl->url);
     if (!curl->method.empty()) req.method(curl->method);
     if (curl->has_post_fields) req.data(curl->post_fields);
     if (!curl->user_agent.empty()) req.header("User-Agent", curl->user_agent);

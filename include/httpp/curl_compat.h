@@ -9,7 +9,7 @@
  *
  * This is NOT a full libcurl replacement: only the commonly used easy-API
  * subset below is implemented, and every curl_easy_setopt() call is
- * forwarded to (and reuses the exact same code as) httpp::client::request
+ * forwarded to (and reuses the exact same code as) httpp::request
  * (see include/httpp/client.hpp, src/core/curl_compat.cpp) - there is no
  * separate/duplicated HTTP implementation here.
  *

@@ -45,27 +45,27 @@ UTEST(httpp_server_io_threads, unanswered_io_requests_get_a_504_on_every_io_thre
     local_server srv([&](httpp::server& s) {
         s.set_io_threads(3);
         s.set_async_timeout(1);
-        s.route_io("GET", "/hold", [&](std::shared_ptr<const httpp::request>, httpp::responder r) {
+        s.route_io("GET", "/hold", [&](std::shared_ptr<const httpp::server_request>, httpp::responder r) {
             std::lock_guard<std::mutex> lock(mu);
             kept.push_back(r);
         });
-        s.route_io("GET", "/quick", [](std::shared_ptr<const httpp::request>, httpp::responder r) { answer(r, 200, "q"); });
+        s.route_io("GET", "/quick", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "q"); });
     });
     constexpr int n = 12;  // enough connections that every I/O thread gets some
     std::vector<std::thread> clients;
     std::vector<int> status(n, 0);
     for (int i = 0; i < n; ++i)
-        clients.emplace_back([&, i] { status[i] = httpp::client::request(srv.url("/hold")).timeout(10).run().status; });
-    for (int i = 0; i < 30; ++i) ASSERT_EQ(200, httpp::client::request(srv.url("/quick")).timeout(10).run().status);
+        clients.emplace_back([&, i] { status[i] = httpp::request(srv.url("/hold")).timeout(10).run().status; });
+    for (int i = 0; i < 30; ++i) ASSERT_EQ(200, httpp::request(srv.url("/quick")).timeout(10).run().status);
     for (auto& c : clients) c.join();
     for (int i = 0; i < n; ++i) ASSERT_EQ(504, status[i]);
-    ASSERT_EQ(200, httpp::client::request(srv.url("/quick")).timeout(10).run().status);
+    ASSERT_EQ(200, httpp::request(srv.url("/quick")).timeout(10).run().status);
 }
 
 UTEST(httpp_server_io_threads, connections_spread_over_the_io_threads_and_each_stays_on_its_thread) {
     local_server srv([](httpp::server& s) {
         s.set_io_threads(4);
-        s.route_io("GET", "/who", [](std::shared_ptr<const httpp::request>, httpp::responder r) { answer(r, 200, thread_text()); });
+        s.route_io("GET", "/who", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, thread_text()); });
     });
     std::mutex mu;
     std::set<std::string> seen;
@@ -112,8 +112,8 @@ UTEST(httpp_server_io_threads, connections_spread_over_the_io_threads_and_each_s
 UTEST(httpp_server_io_threads, an_io_route_runs_on_an_io_thread_not_on_a_worker_and_the_pool_still_works) {
     local_server srv([](httpp::server& s) {
         s.set_io_threads(3);
-        s.route_io("GET", "/io", [](std::shared_ptr<const httpp::request>, httpp::responder r) { answer(r, 200, "io"); });
-        s.get("/pool", [](const httpp::request&, httpp::response& res) { res.body = "pool"; });
+        s.route_io("GET", "/io", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "io"); });
+        s.get("/pool", [](const httpp::server_request&, httpp::response& res) { res.body = "pool"; });
     });
     for (int i = 0; i < 20; ++i) {
         ASSERT_STREQ("io", httpp::client::fetch(srv.url("/io")).body.c_str());
@@ -126,9 +126,9 @@ UTEST(httpp_server_io_threads, the_after_hook_and_an_unanswered_route_work_with_
     local_server srv([&](httpp::server& s) {
         s.set_io_threads(3);
         s.set_async_timeout(1);
-        s.after([&](const httpp::request&, httpp::response&) { ++after_calls; });
-        s.route_io("GET", "/ok", [](std::shared_ptr<const httpp::request>, httpp::responder r) { answer(r, 200, "ok"); });
-        s.route_io("GET", "/never", [](std::shared_ptr<const httpp::request>, httpp::responder) { /* kept by nobody */ });
+        s.after([&](const httpp::server_request&, httpp::response&) { ++after_calls; });
+        s.route_io("GET", "/ok", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "ok"); });
+        s.route_io("GET", "/never", [](std::shared_ptr<const httpp::server_request>, httpp::responder) { /* kept by nobody */ });
     });
     for (int i = 0; i < 12; ++i) ASSERT_STREQ("ok", httpp::client::fetch(srv.url("/ok")).body.c_str());
     ASSERT_TRUE(after_calls.load() >= 12);
@@ -139,11 +139,11 @@ UTEST(httpp_server_io_threads, a_setting_reaches_every_io_thread) {
     local_server srv([](httpp::server& s) {
         s.set_io_threads(4);
         s.set_max_body(8);
-        s.route_io("POST", "/in", [](std::shared_ptr<const httpp::request>, httpp::responder r) { answer(r, 200, "in"); });
+        s.route_io("POST", "/in", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "in"); });
     });
     int too_big = 0;
     for (int i = 0; i < 24; ++i) { // new connection each time: spread over the acceptors
-        auto res = httpp::client::request(srv.url("/in")).method("POST").data("0123456789abcdef").run();
+        auto res = httpp::request(srv.url("/in")).method("POST").data("0123456789abcdef").run();
         if (res.status == 413) ++too_big;
     }
     ASSERT_EQ(24, too_big);
@@ -152,7 +152,7 @@ UTEST(httpp_server_io_threads, a_setting_reaches_every_io_thread) {
 UTEST(httpp_server_io_threads, the_server_stops_and_listens_again_with_several_io_threads) {
     httpp::server s;
     s.set_io_threads(3);
-    s.route_io("GET", "/x", [](std::shared_ptr<const httpp::request>, httpp::responder r) { answer(r, 200, "x"); });
+    s.route_io("GET", "/x", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "x"); });
     for (int round = 0; round < 2; ++round) {
         const int port = s.bind_to_any_port("127.0.0.1");
         ASSERT_TRUE(port > 0);
@@ -170,7 +170,7 @@ UTEST(httpp_server_io_threads, the_date_header_is_well_formed_when_every_io_thre
     for (int round = 0; round < 20; ++round) {
         local_server srv([](httpp::server& s) {
             s.set_io_threads(4);
-            s.route_io("GET", "/d", [](std::shared_ptr<const httpp::request>, httpp::responder r) { answer(r, 200, "x"); });
+            s.route_io("GET", "/d", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "x"); });
         });
         std::atomic<int> bad{0};
         std::vector<std::thread> users;

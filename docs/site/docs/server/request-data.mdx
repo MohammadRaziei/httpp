@@ -30,7 +30,7 @@ The handler asks for `request` by name and gets an object with these attributes:
 
 <Only lang="cpp">
 
-The handler receives a `const httpp::request&`. `method`, `path` and `body` are plain `std::string` members. For the rest use the accessors: `query_param(name)`, `header(name)`, `path_param(name)` and `cookie(name)`. Each returns an empty string when the value is absent, and `header` ignores the case of the name. The raw lists are there too: `query`, `headers` and `path_params` hold name and value pairs in the order they arrived.
+The handler receives a `const httpp::server_request&`. `method`, `path` and `body` are plain `std::string` members. For the rest use the accessors: `query_param(name)`, `header(name)`, `path_param(name)` and `cookie(name)`. Each returns an empty string when the value is absent, and `header` ignores the case of the name. The raw lists are there too: `query`, `headers` and `path_params` hold name and value pairs in the order they arrived.
 
 </Only>
 
@@ -38,6 +38,7 @@ The handler receives a `const httpp::request&`. `method`, `path` and `body` are 
 
 | | Python | C++ |
 |---|---|---|
+| Type of the request | `httpp.ServerRequest` | `httpp::server_request` |
 | Get the request | add an argument named `request` | the first argument of the handler |
 | Query value | `request.query.get("page")` | `req.query_param("page")` |
 | Header | `request.headers.get("x-token")`, lower-case names | `req.header("X-Token")`, any case |

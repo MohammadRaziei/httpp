@@ -15,7 +15,7 @@ namespace httpp {
 // route costs the same with or without a router.
 //
 //   httpp::router users("/users");
-//   users.get("/:id", [](const request& req, response& res) { ... });
+//   users.get("/:id", [](const server_request& req, response& res) { ... });
 //   httpp::router api("/api");
 //   api.include(users);          // GET /api/users/:id
 //   srv.include(api, "/v1");     // GET /v1/api/users/:id

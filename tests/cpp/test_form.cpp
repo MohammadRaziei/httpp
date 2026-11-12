@@ -10,8 +10,8 @@
 using testutil::local_server;
 
 namespace {
-httpp::request multipart_request(const std::string& body, const std::string& content_type) {
-    httpp::request r;
+httpp::server_request multipart_request(const std::string& body, const std::string& content_type) {
+    httpp::server_request r;
     r.method = "POST";
     r.path = "/";
     r.body = body;
@@ -83,7 +83,7 @@ UTEST(httpp_form, other_content_types_give_an_empty_form) {
     const auto form = multipart_request("{\"a\":1}", "application/json").form();
     ASSERT_TRUE(form.fields.empty());
     ASSERT_TRUE(form.files.empty());
-    httpp::request none;
+    httpp::server_request none;
     none.body = "a=1";
     ASSERT_TRUE(none.form().fields.empty());
 }
@@ -104,7 +104,7 @@ UTEST(httpp_form, malformed_multipart_throws_invalid_argument) {
 
 UTEST(httpp_form, a_handler_reads_an_upload_from_a_real_request) {
     local_server srv([](httpp::server& s) {
-        s.post("/up", [](const httpp::request& req, httpp::response& res) {
+        s.post("/up", [](const httpp::server_request& req, httpp::response& res) {
             try {
                 const auto form = req.form();
                 const auto* f = form.file("doc");

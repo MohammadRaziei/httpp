@@ -257,13 +257,13 @@ UTEST(httpp_file_browser, raw_serves_ranges_and_head_like_a_static_directory) {
     EXPECT_STR_EQ("hello world", all.body);
     EXPECT_TRUE(contains(all.header("Content-Type"), "text/plain"));
     EXPECT_STR_EQ("bytes", all.header("Accept-Ranges"));
-    auto part = httpp::client::request(srv.url("/files/raw/a.txt")).header("Range", "bytes=6-10").run();
+    auto part = httpp::request(srv.url("/files/raw/a.txt")).header("Range", "bytes=6-10").run();
     ASSERT_EQ(206, part.status);
     EXPECT_STR_EQ("world", part.body);
     EXPECT_STR_EQ("bytes 6-10/11", part.header("Content-Range"));
-    auto bad = httpp::client::request(srv.url("/files/raw/a.txt")).header("Range", "bytes=50-60").run();
+    auto bad = httpp::request(srv.url("/files/raw/a.txt")).header("Range", "bytes=50-60").run();
     EXPECT_EQ(416, bad.status);
-    auto head = httpp::client::request(srv.url("/files/raw/a.txt")).method("HEAD").run();
+    auto head = httpp::request(srv.url("/files/raw/a.txt")).method("HEAD").run();
     EXPECT_EQ(200, head.status);
     EXPECT_TRUE(head.body.empty());
     EXPECT_STR_EQ("11", head.header("Content-Length"));

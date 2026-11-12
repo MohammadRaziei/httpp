@@ -33,7 +33,7 @@ size_t write_to_string(char* ptr, size_t size, size_t nmemb, void* userdata) {
 
 UTEST(httpp_curl_compat, plain_get_like_real_libcurl_code) {
     httpp::server s;
-    s.get("/hello", [](const httpp::request&, httpp::response& res) {
+    s.get("/hello", [](const httpp::server_request&, httpp::response& res) {
         res.status = 200;
         res.body = "world";
     });

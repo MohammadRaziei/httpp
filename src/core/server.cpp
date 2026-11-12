@@ -189,7 +189,7 @@ enum class precondition { proceed, not_modified, failed };
 
 // RFC 9110 section 13.2.2 for a GET or HEAD of a file, in the order the RFC gives. `honour_range` is false when an If-Range
 // says the client's copy is not this file: the Range header is then ignored and the whole file is sent.
-precondition evaluate_preconditions(const request& req, const std::string& etag, long long mtime, bool& honour_range) {
+precondition evaluate_preconditions(const server_request& req, const std::string& etag, long long mtime, bool& honour_range) {
     honour_range = true;
     long long when = 0;
     const std::string if_match = req.header("If-Match");
@@ -251,7 +251,7 @@ struct route_entry {
 
 // A request that is parsed (and maybe already matched to a route), on its way to be run.
 struct prepared {
-    std::shared_ptr<request> req;
+    std::shared_ptr<server_request> req;
     std::string raw_path;                // the path as sent, still percent-encoded
     const route_entry* route = nullptr;  // valid when `matched`; null = no route fits
     bool matched = false;
@@ -336,7 +336,7 @@ namespace detail {
 
 struct ws_upgrade {
     std::shared_ptr<responder::impl> state;  // the request that waits for its answer
-    std::shared_ptr<request> req;
+    std::shared_ptr<server_request> req;
     std::shared_ptr<const ws_handler> handler;
     std::string key, offered;                // Sec-WebSocket-Key, and every Sec-WebSocket-Protocol the client sent
 
@@ -461,7 +461,7 @@ struct server::impl {
         detail::async_server* eng = nullptr; // the engine whose loop runs the sweep timer of this list
         struct entry {
             std::weak_ptr<responder::impl> state;
-            std::shared_ptr<const request> req; // for the log line only; dropped when answered
+            std::shared_ptr<const server_request> req; // for the log line only; dropped when answered
             std::chrono::steady_clock::time_point deadline;
             int timeout_s;
         };
@@ -532,7 +532,7 @@ struct server::impl {
 
     // ---- request ----
     // Takes the method, body and headers out of `hr` (it is the engine's copy, nobody needs it after).
-    static bool make_request(detail::http_request& hr, request& req, std::string& raw_path) {
+    static bool make_request(detail::http_request& hr, server_request& req, std::string& raw_path) {
         req.method = std::move(hr.method);
         req.body = std::move(hr.body);
         req.secure = hr.secure;
@@ -627,7 +627,7 @@ struct server::impl {
     }
 
     // The way out for every response: error handler, after hook, then the engine.
-    send_fn make_sender(const std::shared_ptr<request>& req, detail::async_server::answer_fn answer) {
+    send_fn make_sender(const std::shared_ptr<server_request>& req, detail::async_server::answer_fn answer) {
         if (!cfg->error && !cfg->after && !cfg->compression.enabled()) {
             // ponytail: the config is read-only once listening, so with no hook and no compression an answer needs nothing from it.
             // This sender holds no weak_ptr<config>: no atomic count on the one control block that every I/O thread would share, per request.
@@ -655,7 +655,7 @@ struct server::impl {
         };
     }
 
-    static void answer_with_hooks(const std::shared_ptr<config>& c, const std::shared_ptr<request>& req, const detail::async_server::answer_fn& answer,
+    static void answer_with_hooks(const std::shared_ptr<config>& c, const std::shared_ptr<server_request>& req, const detail::async_server::answer_fn& answer,
                                   response&& res, long long offset, long long length, std::shared_ptr<void> keep, bool on_io_thread) {
         if ((c->error || c->after || c->compression.worth_a_thread(res)) && on_io_thread) {
             // A route_io handler answered on the spot. The hooks may block (Python code waits for
@@ -704,7 +704,7 @@ struct server::impl {
         answer(std::move(w));
     }
 
-    void on_exception(const std::shared_ptr<request>& req, const send_fn& send, std::exception_ptr ep) {
+    void on_exception(const std::shared_ptr<server_request>& req, const send_fn& send, std::exception_ptr ep) {
         response out;
         out.status = 500;
         out.body = "Internal Server Error";
@@ -815,7 +815,7 @@ struct server::impl {
         return p.compare(0, prefix.size(), prefix) == 0 && (p.size() == prefix.size() || p[prefix.size()] == '/'); // "/filesX" is not under "/files"
     }
     // A GET/HEAD for this path might be answered from a mounted directory (which means reading the disk).
-    bool may_be_static(const request& req) const {
+    bool may_be_static(const server_request& req) const {
         if (std::string_view(req.method) != "GET" && std::string_view(req.method) != "HEAD") return false;
         for (const auto& m : mounts) if (under_prefix(req.path, m.prefix)) return true;
         return false;
@@ -831,7 +831,7 @@ struct server::impl {
     }
 
     // A file shown inline must not be able to run code in the page's origin: only types that cannot are shown, the rest is a download.
-    static void add_download_headers(const request& req, const std::string& full, response& res) {
+    static void add_download_headers(const server_request& req, const std::string& full, response& res) {
         const std::string type = mime_for(full);
         const bool plain = type == "text/plain" || type == "application/json" || type == "text/csv" || type == "text/markdown" || type == "application/pdf" ||
                            (type.compare(0, 6, "image/") == 0 && type != "image/svg+xml") || type.compare(0, 6, "audio/") == 0 || type.compare(0, 6, "video/") == 0;
@@ -849,7 +849,7 @@ struct server::impl {
         res.headers.emplace_back("Content-Disposition", "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + encoded);
     }
 
-    bool serve_static(const request& req, const send_fn& send) {
+    bool serve_static(const server_request& req, const send_fn& send) {
         for (const auto& m : mounts) {
             const std::string& p = req.path;
             if (!under_prefix(p, m.prefix)) continue;
@@ -876,7 +876,7 @@ struct server::impl {
     }
 
     // The answer for one existing file: validators, conditional requests (ADR-0045), then the whole file or a range.
-    bool answer_file(const request& req, const send_fn& send, const std::string& full, long long size, const server::directory_options& options) {
+    bool answer_file(const server_request& req, const send_fn& send, const std::string& full, long long size, const server::directory_options& options) {
         {
             const httpp::path::status stamp = httpp::path(full).stat();
             const bool stamped = stamp.type == httpp::path::kind::file;
@@ -930,7 +930,7 @@ struct server::impl {
 
     // ---- the 504 backstop ----
 
-    void track(const std::shared_ptr<responder::impl>& state, const std::shared_ptr<request>& req, int timeout_s) {
+    void track(const std::shared_ptr<responder::impl>& state, const std::shared_ptr<server_request>& req, int timeout_s) {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_s);
         std::uint64_t id;
         bool arm = false;
@@ -1006,7 +1006,7 @@ struct server::impl {
             });
         }
         prepared pr;
-        pr.req = std::make_shared<request>();
+        pr.req = std::make_shared<server_request>();
         if (!make_request(hr, *pr.req, pr.raw_path)) {
             HTTPP_LOG(debug) << "bad request target: " << hr.target.substr(0, 100);
             answer(failure(400, "Bad Request"));
@@ -1029,7 +1029,7 @@ struct server::impl {
     // Runs on a pool thread: nothing is parsed yet.
     void handle(detail::http_request hr, detail::async_server::answer_fn answer) {
         prepared pr;
-        pr.req = std::make_shared<request>();
+        pr.req = std::make_shared<server_request>();
         if (!make_request(hr, *pr.req, pr.raw_path)) {
             HTTPP_LOG(debug) << "bad request target: " << hr.target.substr(0, 100);
             return answer(failure(400, "Bad Request"));
@@ -1041,7 +1041,7 @@ struct server::impl {
     // that on_request() ran straight on the I/O thread: that has no before hook and no file to read.
     // (If such a handler answers on the spot, make_sender moves the after/error hooks to a worker.)
     void run(prepared pr, detail::async_server::answer_fn answer) {
-        const std::shared_ptr<request>& req = pr.req;
+        const std::shared_ptr<server_request>& req = pr.req;
         send_fn send = make_sender(req, answer);
 
         bool handled = false;
@@ -1134,7 +1134,7 @@ struct server::impl {
     // ---- WebSocket handshake (RFC 6455 section 4.2.1), then the connection belongs to a ws_session ----
     // The protocol checks happen here, on the I/O thread. The decision to accept is the handler's (ws_handler::on_handshake), possibly later
     // and from another thread: the request waits like a route_async request (same 504 timeout, same fate when every acceptor copy is dropped).
-    void run_ws(const std::shared_ptr<request>& req, const send_fn& send, detail::async_server::answer_fn answer,
+    void run_ws(const std::shared_ptr<server_request>& req, const send_fn& send, detail::async_server::answer_fn answer,
                 const std::shared_ptr<const ws_handler>& h) {
         auto refuse = [&](int status, const char* text, std::vector<std::pair<std::string, std::string>> headers = {}) {
             response res;
@@ -1259,12 +1259,12 @@ void server::del_async(const std::string& path, async_handler h) { route_async("
 // nothing is registered (the engine's fast path checks for an empty hook). Upgrade path: none needed.
 static void rebuild_hooks(config& c) {
     if (c.mw_before.empty()) c.before = c.app_before;
-    else c.before = [mws = c.mw_before, app = c.app_before](const request& req, response& res) {
+    else c.before = [mws = c.mw_before, app = c.app_before](const server_request& req, response& res) {
         for (const auto& h : mws) if (h(req, res)) return true;
         return app ? app(req, res) : false;
     };
     if (c.mw_after.empty()) c.after = c.app_after;
-    else c.after = [mws = c.mw_after, app = c.app_after](const request& req, response& res) {
+    else c.after = [mws = c.mw_after, app = c.app_after](const server_request& req, response& res) {
         if (app) app(req, res);
         for (auto it = mws.rbegin(); it != mws.rend(); ++it) (*it)(req, res);
     };

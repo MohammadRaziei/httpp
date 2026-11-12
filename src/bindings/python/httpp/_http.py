@@ -1,7 +1,7 @@
 """One-call helpers (httpp.get(...), httpp.post(...), ...) and AsyncClient.
 
 Both are thin layers over the compiled Client / Request; every capability here exists in the C++
-API too (httpp::client::request, httpp::client, httpp::async_client).
+API too (httpp::request, httpp::client, httpp::async_client).
 """
 
 import asyncio

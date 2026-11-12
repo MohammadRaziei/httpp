@@ -91,7 +91,7 @@ struct raw_server {
 
 UTEST(async_http, gets_a_body) {
     testutil::local_server server([](httpp::server& s) {
-        s.get("/hello", [](const httpp::request&, httpp::response& r) { r.status = 200; r.body = "world"; });
+        s.get("/hello", [](const httpp::server_request&, httpp::response& r) { r.status = 200; r.body = "world"; });
     });
     async_http eng;
     auto f = run(eng, job_for(server.port, "/hello"));
@@ -114,7 +114,7 @@ UTEST(async_http, non_2xx_is_a_response_not_an_error) {
 
 UTEST(async_http, posts_a_body_and_reads_headers) {
     testutil::local_server server([](httpp::server& s) {
-        s.post("/echo", [](const httpp::request& q, httpp::response& r) {
+        s.post("/echo", [](const httpp::server_request& q, httpp::response& r) {
             r.status = 201;
             r.body = q.body;
             r.headers.emplace_back("X-Seen", q.header("X-Token"));
@@ -134,7 +134,7 @@ UTEST(async_http, posts_a_body_and_reads_headers) {
 
 UTEST(async_http, decodes_a_chunked_response) {
     testutil::local_server server([](httpp::server& s) {
-        s.get("/stream", [](const httpp::request&, httpp::response& r) {
+        s.get("/stream", [](const httpp::server_request&, httpp::response& r) {
             r.status = 200;
             r.stream = [](std::size_t off, std::string& chunk) {
                 if (off >= 3000) return false;
@@ -153,7 +153,7 @@ UTEST(async_http, decodes_a_chunked_response) {
 
 UTEST(async_http, head_has_no_body_but_keeps_headers) {
     testutil::local_server server([](httpp::server& s) {
-        s.get("/h", [](const httpp::request&, httpp::response& r) { r.status = 200; r.body = "0123456789"; });
+        s.get("/h", [](const httpp::server_request&, httpp::response& r) { r.status = 200; r.body = "0123456789"; });
     });
     async_http eng;
     auto f = run(eng, job_for(server.port, "/h", "HEAD"));
@@ -166,7 +166,7 @@ UTEST(async_http, head_has_no_body_but_keeps_headers) {
 
 UTEST(async_http, many_requests_in_flight_on_one_thread) {
     testutil::local_server server([](httpp::server& s) {
-        s.get("/n", [](const httpp::request& q, httpp::response& r) { r.status = 200; r.body = q.query_param("i"); });
+        s.get("/n", [](const httpp::server_request& q, httpp::response& r) { r.status = 200; r.body = q.query_param("i"); });
     });
     async_http eng;
     constexpr int N = 300;
@@ -220,7 +220,7 @@ UTEST(async_http, times_out_on_a_silent_server) {
 
 UTEST(async_http, max_response_size_gives_413_too_large) {
     testutil::local_server server([](httpp::server& s) {
-        s.get("/big", [](const httpp::request&, httpp::response& r) { r.status = 200; r.body = std::string(50000, 'x'); });
+        s.get("/big", [](const httpp::server_request&, httpp::response& r) { r.status = 200; r.body = std::string(50000, 'x'); });
     });
     async_http eng;
     auto j = job_for(server.port, "/big");

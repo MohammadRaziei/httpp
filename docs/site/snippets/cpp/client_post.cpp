@@ -3,7 +3,7 @@
 #include <iostream>
 
 int main() {
-    httpp::response res = httpp::client::request("http://127.0.0.1:8000/inspect?page=2")
+    httpp::response res = httpp::request("http://127.0.0.1:8000/inspect?page=2")
                               .method("POST")
                               .header("X-Token", "abc")
                               .content_type("application/json")

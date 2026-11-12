@@ -158,7 +158,7 @@ int cmd_download(const std::string& url, const std::string& output, bool quiet) 
 
 int cmd_curl(const std::string& url, const std::string& method, const std::vector<std::string>& headers, const std::string& data,
              bool has_data, const std::string& output) {
-    httpp::client::request req(url);
+    httpp::request req(url);
     if (!method.empty()) req.method(method);
     for (const std::string& h : headers) {
         std::size_t colon = h.find(':');

@@ -5,9 +5,9 @@
 
 namespace httpp::curl {
 
-// A curl-flavoured face on httpp::client::request: same engine, same policy, nothing of its own.
+// A curl-flavoured face on httpp::request: same engine, same policy, nothing of its own.
 struct request::impl {
-    client::request req;
+    httpp::request req;
     explicit impl(std::string url) : req(std::move(url)) {}
 };
 

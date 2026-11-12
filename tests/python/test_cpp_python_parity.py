@@ -56,7 +56,7 @@ TARGETS = {
     ("progress.hpp", "bar"): httpp.progress.bar,
     ("server.hpp", "server"): httpp.Server,
     ("router.hpp", "router"): httpp.APIRouter,
-    ("server.hpp", "request"): httpp.ServerRequest,  # httpp::request: the handler's request object
+    ("server.hpp", "server_request"): httpp.ServerRequest,  # httpp::server_request: the handler's request object
     ("url.hpp", "url"): httpp.URL,
     ("logging.hpp", ""): None,  # the C++ module imitates Python's own `logging`, which is the Python side (ADR-0057)
     ("path.hpp", "path"): None,  # pathlib.Path is the Python side of httpp::path: every path argument takes one (ADR-0055)

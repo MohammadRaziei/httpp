@@ -86,7 +86,7 @@ bool contains(const std::string& hay, const std::string& needle) { return hay.fi
 UTEST(httpp_shutdown, an_in_flight_request_finishes_and_is_told_to_close) {
     std::atomic<bool> started{false};
     run_server srv([&](httpp::server& s) {
-        s.get("/slow", [&](const httpp::request&, httpp::response& res) {
+        s.get("/slow", [&](const httpp::server_request&, httpp::response& res) {
             started = true;
             std::this_thread::sleep_for(milliseconds(400));
             res.body = "done";
@@ -106,7 +106,7 @@ UTEST(httpp_shutdown, an_in_flight_request_finishes_and_is_told_to_close) {
 UTEST(httpp_shutdown, an_idle_keep_alive_connection_is_closed_at_once_and_new_ones_are_refused) {
     run_server srv([](httpp::server& s) {
         s.set_keep_alive_timeout(30);
-        s.get("/x", [](const httpp::request&, httpp::response& res) { res.body = "x"; });
+        s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "x"; });
     });
     raw_conn c(srv.port);
     c.send("GET /x HTTP/1.1\r\nHost: x\r\n\r\n");
@@ -124,7 +124,7 @@ UTEST(httpp_shutdown, after_the_grace_period_an_unanswered_request_is_cut) {
     std::atomic<bool> got{false};
     run_server srv([&](httpp::server& s) {
         s.set_async_timeout(0); // never answer on its own
-        s.get_async("/hang", [&](const httpp::request&, httpp::responder r) { *stash = r; got = true; });
+        s.get_async("/hang", [&](const httpp::server_request&, httpp::responder r) { *stash = r; got = true; });
     });
     std::promise<int> status;
     std::thread client([&] { status.set_value(httpp::client::fetch(srv.url("/hang")).status); });
@@ -143,7 +143,7 @@ UTEST(httpp_shutdown, works_with_several_io_threads_and_a_late_answer_inside_the
     auto stash = std::make_shared<httpp::responder>();
     std::atomic<bool> got{false};
     run_server srv([&](httpp::server& s) {
-        s.get_async("/later", [&](const httpp::request&, httpp::responder r) { *stash = r; got = true; });
+        s.get_async("/later", [&](const httpp::server_request&, httpp::responder r) { *stash = r; got = true; });
     }, 4); // four loops, one connection: most engines have nothing to drain and finish first
     std::promise<httpp::response> reply;
     std::thread client([&] { reply.set_value(httpp::client::fetch(srv.url("/later"))); });
@@ -165,8 +165,8 @@ UTEST(httpp_shutdown, works_with_several_io_threads_and_a_late_answer_inside_the
 UTEST(httpp_shutdown, a_server_that_is_not_listening_ignores_it_and_stop_still_works_after) {
     httpp::server s;
     s.shutdown(seconds(1)); // no-op
-    s.get("/x", [](const httpp::request&, httpp::response& res) { res.body = "x"; });
-    run_server srv([](httpp::server& t) { t.get("/x", [](const httpp::request&, httpp::response& res) { res.body = "x"; }); });
+    s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "x"; });
+    run_server srv([](httpp::server& t) { t.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "x"; }); });
     srv.srv.shutdown(seconds(1));
     srv.srv.stop(); // a hard stop during or after a drain is harmless
     ASSERT_TRUE(srv.wait_returned(seconds(2)));

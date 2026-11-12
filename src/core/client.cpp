@@ -146,7 +146,7 @@ response client::fetch(const std::string& full_url) {
 
 // --- request (fluent builder; also what curl_compat.cpp is built on) ---
 
-struct client::request::impl {
+struct request::impl {
     std::string url;
     std::string method;       // empty until set explicitly or via a body
     std::string body;
@@ -173,73 +173,73 @@ struct client::request::impl {
     }
 };
 
-client::request::request(std::string url) : impl_(std::make_unique<impl>(std::move(url))) {}
-client::request::~request() = default;
-client::request::request(client::request&&) noexcept = default;
-client::request& client::request::operator=(client::request&&) noexcept = default;
+request::request(std::string url) : impl_(std::make_unique<impl>(std::move(url))) {}
+request::~request() = default;
+request::request(request&&) noexcept = default;
+request& request::operator=(request&&) noexcept = default;
 
-client::request& client::request::method(std::string m) { impl_->method = std::move(m); return *this; }
-client::request& client::request::header(std::string name, std::string value) {
+request& request::method(std::string m) { impl_->method = std::move(m); return *this; }
+request& request::header(std::string name, std::string value) {
     impl_->headers.emplace_back(std::move(name), std::move(value));
     return *this;
 }
-client::request& client::request::param(std::string name, std::string value) {
+request& request::param(std::string name, std::string value) {
     impl_->params.emplace_back(std::move(name), std::move(value));
     return *this;
 }
-client::request& client::request::data(std::string body) {
+request& request::data(std::string body) {
     impl_->body = std::move(body);
     if (impl_->method.empty()) impl_->method = "POST";
     return *this;
 }
-client::request& client::request::json(std::string document) {
+request& request::json(std::string document) {
     impl_->body = std::move(document);
     impl_->content_type = "application/json";
     if (impl_->method.empty()) impl_->method = "POST";
     return *this;
 }
-client::request& client::request::form(const std::vector<std::pair<std::string, std::string>>& fields) {
+request& request::form(const std::vector<std::pair<std::string, std::string>>& fields) {
     impl_->body = url::build_query(fields);
     impl_->content_type = "application/x-www-form-urlencoded";
     if (impl_->method.empty()) impl_->method = "POST";
     return *this;
 }
-client::request& client::request::content_type(std::string type) { impl_->content_type = std::move(type); return *this; }
-client::request& client::request::basic_auth(const std::string& user, const std::string& password) {
+request& request::content_type(std::string type) { impl_->content_type = std::move(type); return *this; }
+request& request::basic_auth(const std::string& user, const std::string& password) {
     impl_->settings.set_basic(user, password);
     return *this;
 }
-client::request& client::request::bearer(const std::string& token) { impl_->settings.set_bearer(token); return *this; }
-client::request& client::request::cookie(std::string name, std::string value) {
+request& request::bearer(const std::string& token) { impl_->settings.set_bearer(token); return *this; }
+request& request::cookie(std::string name, std::string value) {
     impl_->cookies.emplace_back(std::move(name), std::move(value));
     return *this;
 }
-client::request& client::request::timeout(long seconds) { impl_->settings.timeout = seconds; return *this; }
-client::request& client::request::follow_redirects(bool enable) { impl_->settings.follow = enable; return *this; }
-client::request& client::request::verify(bool enable) { impl_->settings.verify = enable; return *this; }
-client::request& client::request::ca_file(const path& file) { impl_->settings.ca_file = file.str(); return *this; }
-client::request& client::request::proxy(std::string host, int port) {
+request& request::timeout(long seconds) { impl_->settings.timeout = seconds; return *this; }
+request& request::follow_redirects(bool enable) { impl_->settings.follow = enable; return *this; }
+request& request::verify(bool enable) { impl_->settings.verify = enable; return *this; }
+request& request::ca_file(const path& file) { impl_->settings.ca_file = file.str(); return *this; }
+request& request::proxy(std::string host, int port) {
     impl_->settings.proxy_host = std::move(host);
     impl_->settings.proxy_port = port;
     return *this;
 }
-client::request& client::request::max_response_size(std::size_t bytes) { impl_->settings.max_response_size = bytes; return *this; }
+request& request::max_response_size(std::size_t bytes) { impl_->settings.max_response_size = bytes; return *this; }
 
-response client::request::run() const {
+response request::run() const {
     request_spec spec;
     response error;
     if (!impl_->make_spec(spec, error)) return error;
     return detail::run_blocking(std::make_shared<request_spec>(std::move(spec)));
 }
 
-std::future<response> client::request::run_async() const {
+std::future<response> request::run_async() const {
     auto promise = std::make_shared<std::promise<response>>();
     auto future = promise->get_future();
     run_async([promise](response out) { promise->set_value(std::move(out)); });
     return future;
 }
 
-void client::request::run_async(std::function<void(response)> done) const {
+void request::run_async(std::function<void(response)> done) const {
     auto spec = std::make_shared<request_spec>();
     response error;
     if (!impl_->make_spec(*spec, error)) {

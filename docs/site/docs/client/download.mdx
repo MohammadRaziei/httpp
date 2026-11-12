@@ -1,0 +1,87 @@
+---
+id: download
+title: Download a file
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+A download fetches a URL and saves the body to a file. It follows redirects, so a link to a release asset or a CDN lands on the real file, and it draws a progress bar on stderr, which keeps piped output clean. This example saves the answer of the server from [Answer a GET request](../server/get-route.mdx), so start that one first.
+
+<Lang name="download_file" />
+
+`run()` waits until the file is complete and returns a result with `ok`, `status`, `error` and `skipped`. A download that fails does not throw: look at `ok`, and at `error` for the reason.
+
+<Only lang="python">
+
+For a one-off download there is a shorthand, `httpp.download(url, path)`, which returns the same result. Pass `show_progress=False` to hide the bar.
+
+</Only>
+
+## Check the file
+
+`sha256` checks the finished file against a digest before `run()` reports success. On a mismatch the file is deleted and the result is not `ok`, with the digest it got in `error`. A digest that is not 64 hex digits fails at once, before any request.
+
+<Lang name="download_verified" />
+
+If the checksum is published next to the file, `sha256_url()` reads it for you: it fetches `<download url>.sha256` (or the URL you pass) before the file, and fails without downloading anything when that file is missing or is not a `sha256sum` line.
+
+## Continue an interrupted download
+
+`resume()` makes a download behave like `wget -c`:
+
+<Only lang="python">
+
+```python
+httpp.Download(url, "f.zip").resume().run()
+```
+
+</Only>
+
+<Only lang="cpp">
+
+```cpp
+httpp::download(url, "f.zip").resume().run();
+```
+
+</Only>
+
+- A complete `f.zip` that the server confirms with a `HEAD` request is left alone: no transfer happens and the result has `skipped` set.
+- Otherwise the bytes go into `f.zip.part` and the file is renamed only when the download is complete, so `f.zip` is never left half written. A `.part` from an earlier attempt continues with a `Range` request.
+- A server that does not answer `HEAD` and `Range` quietly gets a fresh download. `force()` ignores existing files and starts from the first byte.
+
+## Do other work meanwhile
+
+<Lang name="download_async" />
+
+<Only lang="python">
+
+`run_async()` returns an awaitable, so the event loop keeps running. The transfer itself runs on the loop's default thread pool.
+
+</Only>
+
+<Only lang="cpp">
+
+`run_async()` returns a `std::future<httpp::download_result>`. `get()` waits for it.
+
+</Only>
+
+## Several workers, one file
+
+Only one process or thread at a time downloads a given file; the others wait for it, so several workers that want the same file do not fetch it several times. The lock is a directory named `f.zip.lock` next to the file. The lock saves work and does not make overlapping writers safe, so use `sha256` when a damaged file would matter.
+
+## From the command line
+
+```bash
+httpp download https://example.com/f.zip -o f.zip
+```
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Builder | `httpp.Download(url, path)` | `httpp::download(url, path)` |
+| Result | `httpp.DownloadResult` | `httpp::download_result` |
+| How long a stale lock is waited for | `set_max_wait(seconds)` | `set_max_wait(std::chrono::milliseconds)` |
+| Without blocking | `await ....run_async()` | `std::future` from `run_async()` |
+| One call | `httpp.download(url, path)` | `httpp::download(url, path).run()` |
