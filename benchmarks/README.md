@@ -5,7 +5,7 @@ One command for the whole comparison (CMake 3.28 or newer, a C++ compiler, Pytho
     cmake -S benchmarks -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=Release
     cmake --build build-bench --target bench          # about 25 minutes; --target bench_quick is about 5
 
-It builds what it needs, runs everything and prints the path of one result file (`build-bench/results/<time>.txt`). Plug the charger in and
+It builds what it needs, runs everything and writes `benchmarks/results/<time>.json` (and a `.txt` of the same run). `benchmarks/run.sh quick` or `full` does the configure and the build in one go. Plug the charger in and
 close heavy programs first.
 
 | target | what it does |
@@ -25,10 +25,9 @@ Settings are cache variables, set at configure time: `-DBENCH_SECONDS=10 -DBENCH
 `bench_setup.py` makes the virtualenvs and checks the machine. `bench.py`, `io_bench.py`, `cpu_bench.py` are the older single-purpose scripts.
 Numbers are only comparable inside one result file.
 
-**JSON and the docs page** (ADR-0063). Every run writes `benchmarks/results/<time>[-<machine>].json` next to the `.txt`: the machine, the software, every variant with
+**JSON and the docs page** (ADR-0063). Every run writes `benchmarks/results/<time>.json` next to the `.txt`: the hardware (CPU, cores, memory, OS, laptop or not), the software, every variant with
 its rounds, the fixed-rate latency and the idle memory. `docs/site` reads the committed `.json` files marked `"purpose": "published"` (`python3 docs/site/scripts/prepare.py bench`
 does it, `npm start` and `npm run build` too) and draws them on the Benchmarks page. A run for testing the machinery uses `-DBENCH_PURPOSE=smoke`: its file is named `smoke-...`, git ignores it and the site skips it.
-`-DBENCH_MACHINE="my laptop"` puts a name on the page.
 
 Servers and clients in the suite: uvicorn (bare ASGI), FastAPI + uvicorn, aiohttp, httpp (`def`, `async def`, C++), Drogon; and, as HTTP clients, httpp `Client` / `AsyncClient`, requests,
 httpx (sync and async) and aiohttp (`BENCH_ONLY=client`, `BENCH_CLIENT_CONC=32`). Runtimes: the C++ binaries, Python 3.14 and 3.14t (`BENCH_PYS`). A library with no wheel for an interpreter

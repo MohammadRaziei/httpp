@@ -41,9 +41,8 @@ async libraries one session and one task per connection.
 ## Run it yourself
 
 ```bash
-cmake -S benchmarks -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=Release -DBENCH_MACHINE="my laptop"
-cmake --build build-bench --target bench
+benchmarks/run.sh full
 ```
 
-The run writes `benchmarks/results/<time>.json`. Commit that file and the next build of this site shows it (`scripts/prepare.py bench`
+The run writes `benchmarks/results/<time>.json`, with the hardware of the machine in it (CPU, cores, memory, OS). Commit that file and the next build of this site shows it (`scripts/prepare.py bench`
 reads every file there that is marked `"purpose": "published"`). See `benchmarks/README.md` for every setting.

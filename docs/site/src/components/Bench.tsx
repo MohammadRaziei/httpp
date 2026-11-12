@@ -42,15 +42,32 @@ type Python = {
   gil_after_import?: Record<string, boolean>;
 };
 type Idle = {server: string; connected: number; failed: number; rss_before_kib: number; rss_after_kib: number; kib_per_connection: number};
+type Hardware = {
+  cpu?: string;
+  vendor?: string;
+  arch?: string;
+  sockets?: number;
+  physical_cores?: number;
+  logical_cpus?: number;
+  max_mhz?: number;
+  l2_cache?: string;
+  l3_cache?: string;
+  memory_gib?: number;
+  swap_gib?: number;
+  os?: string;
+  kernel?: string;
+  wsl?: boolean;
+  hypervisor?: string;
+  model?: string;
+  is_laptop?: boolean;
+  on_battery?: boolean;
+};
 type Run = {
   id: string;
   meta: {
     date: string;
     purpose: string;
-    machine: string;
-    kernel: string;
-    cpu: string;
-    logical_cpus: number;
+    hardware?: Hardware;
     server_cpus: string;
     load_cpus: string;
     governor: string;
@@ -115,7 +132,7 @@ export function BenchProvider({children}: {children: React.ReactNode}) {
           <select className={styles.select} value={run.id} onChange={(e) => setId(e.target.value)}>
             {runs.map((r) => (
               <option key={r.id} value={r.id}>
-                {r.meta.date.slice(0, 10)} {r.meta.machine || r.meta.cpu}{r.meta.purpose === 'smoke' ? ' (smoke test)' : ''}
+                {r.meta.date.slice(0, 10)} {r.meta.hardware?.cpu ?? ''}{r.meta.purpose === 'smoke' ? ' (smoke test)' : ''}
               </option>
             ))}
           </select>
@@ -135,18 +152,35 @@ export function BenchMeta() {
   const run = useRun();
   if (!run) return null;
   const m = run.meta;
+  const hw = m.hardware ?? {};
   const reenabled = m.pythons.flatMap((p) =>
     p.gil ? [] : Object.entries(p.gil_after_import ?? {}).filter(([, on]) => on).map(([lib]) => `${lib} (Python ${p.label})`),
   );
   return (
     <>
+      {hw.on_battery && <p className={styles.warn}>The machine was running on battery: expect low and noisy numbers.</p>}
       {m.purpose === 'smoke' && <p className={styles.warn}>This is a smoke test of the benchmark machinery, not a measurement. Do not read the numbers.</p>}
       <table className={styles.meta}>
         <tbody>
           <tr><th>Date</th><td>{m.date.slice(0, 16).replace('T', ' ')}</td></tr>
-          {m.machine && <tr><th>Machine</th><td>{m.machine}</td></tr>}
-          <tr><th>CPU</th><td>{m.cpu}, {m.logical_cpus} logical CPUs (server on {m.server_cpus}, load generator on {m.load_cpus})</td></tr>
-          <tr><th>System</th><td>Linux {m.kernel}, governor {m.governor}</td></tr>
+          {hw.model && <tr><th>Machine</th><td>{hw.model}{hw.is_laptop ? ' (laptop)' : ''}</td></tr>}
+          <tr>
+            <th>CPU</th>
+            <td>
+              {hw.cpu ?? 'unknown'}
+              {hw.physical_cores ? `, ${hw.physical_cores} cores / ${hw.logical_cpus} threads` : hw.logical_cpus ? `, ${hw.logical_cpus} threads` : ''}
+              {hw.max_mhz ? `, up to ${nf.format(hw.max_mhz / 1000)} GHz` : ''}
+              {hw.l3_cache ? `, L3 ${hw.l3_cache}` : ''}
+            </td>
+          </tr>
+          {hw.memory_gib !== undefined && <tr><th>Memory</th><td>{nf.format(hw.memory_gib)} GiB</td></tr>}
+          <tr>
+            <th>System</th>
+            <td>
+              {hw.os ?? 'Linux'}, kernel {hw.kernel ?? '?'}{hw.wsl ? ', WSL' : ''}{hw.hypervisor ? `, virtual machine (${hw.hypervisor})` : ''}, governor {m.governor}
+            </td>
+          </tr>
+          <tr><th>Pinning</th><td>server on CPUs {m.server_cpus}, load generator on CPUs {m.load_cpus}</td></tr>
           {m.compiler && <tr><th>C++</th><td>{m.compiler}</td></tr>}
           {m.pythons.map((p) => (
             <tr key={p.label}>

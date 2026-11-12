@@ -33,7 +33,6 @@ set(BENCH_CONC 64 CACHE STRING "connections of the load generators")
 set(BENCH_IO_THREADS "1,2,4,8" CACHE STRING "I/O thread counts")
 set(BENCH_ONLY "hello,json,cpu,latency,ws,idle,client" CACHE STRING "which parts: hello json cpu latency ws (WebSocket echo) idle (memory with many idle WebSockets) client (HTTP client libraries)")
 set(BENCH_CLIENT_CONC 32 CACHE STRING "threads (sync clients) or tasks (async clients) of the client part")
-set(BENCH_MACHINE "" CACHE STRING "a name for this machine, shown on the docs page")
 set(BENCH_PURPOSE "published" CACHE STRING "published, or smoke (a test of the machinery: the docs site ignores it)")
 set(BENCH_RESULTS_DIR "${CMAKE_CURRENT_LIST_DIR}/results" CACHE PATH "where the .json (read by docs/site) and .txt files go")
 set(BENCH_WS_SIZE 64 CACHE STRING "bytes per WebSocket message")
@@ -148,9 +147,6 @@ function(add_bench_target name seconds rounds io_threads)
         --seconds ${seconds} --rounds ${rounds} --conc ${BENCH_CONC} --io-threads ${io_threads} --rate --only ${BENCH_ONLY}
         --ws-size ${BENCH_WS_SIZE} --idle-conns ${BENCH_IDLE_CONNS} --client-conc ${BENCH_CLIENT_CONC} --purpose ${BENCH_PURPOSE}
         --out-dir ${BENCH_RESULTS_DIR})
-    if(BENCH_MACHINE)
-        list(APPEND _cmd --machine ${BENCH_MACHINE})
-    endif()
     if(BENCH_SERVER_CPUS)  # an empty value would be dropped from the command and eat the next option
         list(APPEND _cmd --server-cpus ${BENCH_SERVER_CPUS})
     endif()

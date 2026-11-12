@@ -9,6 +9,7 @@ request comes from /proc (all threads). Numbers are only comparable with each ot
     python suite.py --pys 3.13=.venvs/py313/bin/python,3.14t=.venvs/py314t/bin/python --cpp bin/cpp_bench
 """
 import argparse
+import glob
 import hashlib
 import json
 import os
@@ -138,9 +139,48 @@ def sysinfo(args, server_cpus, load_cpus):
     return "\n".join(lines)
 
 
+def hardware_info():
+    """What the machine is, for the JSON file: CPU, memory, OS, laptop or not. No serial numbers and no host name."""
+    lscpu = {}
+    if shutil.which("lscpu"):
+        for line in subprocess.run(["lscpu"], capture_output=True, text=True, env=dict(os.environ, LC_ALL="C")).stdout.splitlines():
+            k, _, v = line.partition(":")
+            lscpu[k.strip()] = v.strip()
+    cpuinfo = read("/proc/cpuinfo")
+    model = next((l.partition(":")[2].strip() for l in cpuinfo.splitlines() if l.startswith("model name")), "") or lscpu.get("Model name", "")
+    pairs, phys = set(), ""
+    for line in cpuinfo.splitlines():
+        k, _, v = line.partition(":")
+        if k.strip() == "physical id":
+            phys = v.strip()
+        elif k.strip() == "core id":
+            pairs.add((phys, v.strip()))
+    try:
+        cores = int(lscpu["Socket(s)"]) * int(lscpu["Core(s) per socket"])
+    except (KeyError, ValueError):
+        cores = len(pairs) or None
+    mem = {}
+    for line in read("/proc/meminfo").splitlines():
+        k, _, v = line.partition(":")
+        if v.split():
+            mem[k] = int(v.split()[0])  # kB
+    osr = dict(l.split("=", 1) for l in read("/etc/os-release").splitlines() if "=" in l)
+    fmax = read("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
+    mhz = int(fmax) // 1000 if fmax.isdigit() else int(float(lscpu["CPU max MHz"])) if lscpu.get("CPU max MHz") else None
+    power = glob.glob("/sys/class/power_supply/*")
+    ac = [read(p + "/online") for p in power if os.path.basename(p).startswith(("AC", "ADP"))]
+    vendor, product = read("/sys/class/dmi/id/sys_vendor"), read("/sys/class/dmi/id/product_name")
+    info = {"cpu": model, "vendor": lscpu.get("Vendor ID", ""), "arch": platform.machine(), "sockets": int(lscpu["Socket(s)"]) if lscpu.get("Socket(s)", "").isdigit() else None,
+            "physical_cores": cores, "logical_cpus": os.cpu_count(), "max_mhz": mhz, "l2_cache": lscpu.get("L2 cache", ""), "l3_cache": lscpu.get("L3 cache", ""),
+            "memory_gib": round(mem["MemTotal"] / 1048576, 1) if "MemTotal" in mem else None, "swap_gib": round(mem.get("SwapTotal", 0) / 1048576, 1),
+            "os": osr.get("PRETTY_NAME", "").strip('"'), "kernel": platform.release(), "wsl": "microsoft" in read("/proc/version").lower(),
+            "hypervisor": lscpu.get("Hypervisor vendor", ""), "model": " ".join(x for x in (vendor, product) if x),
+            "is_laptop": any(os.path.basename(p).startswith("BAT") for p in power), "on_battery": "0" in ac}
+    return {k: v for k, v in info.items() if v not in ("", None)}
+
+
 def meta_info(args, server_cpus, load_cpus):
     """The machine and the software of this run, for the JSON file (the docs site shows it next to every chart)."""
-    cpu = next((l.split(":", 1)[1].strip() for l in read("/proc/cpuinfo").splitlines() if l.startswith("model name")), "?")
     gov = {read(f"/sys/devices/system/cpu/cpu{c}/cpufreq/scaling_governor") for c in server_cpus}
     cxx = shutil.which(os.environ.get("CXX", "g++"))
     pythons = []
@@ -155,8 +195,8 @@ def meta_info(args, server_cpus, load_cpus):
             if out:
                 info.setdefault("gil_after_import", {})[mod] = out == "True"
         pythons.append(dict(info, label=label))
-    return {"date": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "machine": args.machine, "purpose": args.purpose, "kernel": platform.release(),
-            "cpu": cpu, "logical_cpus": os.cpu_count(), "server_cpus": cpu_ranges(server_cpus), "load_cpus": cpu_ranges(load_cpus),
+    return {"date": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "purpose": args.purpose, "hardware": hardware_info(),
+            "server_cpus": cpu_ranges(server_cpus), "load_cpus": cpu_ranges(load_cpus),
             "governor": ",".join(sorted(g for g in gov if g)) or "?", "turbo_disabled": read("/sys/devices/system/cpu/intel_pstate/no_turbo", "?"),
             "tree": tree_id(), "compiler": subprocess.run([cxx, "--version"], capture_output=True, text=True).stdout.splitlines()[0] if cxx else "",
             "drogon": bool(args.drogon), "note": args.note, "pythons": pythons,
@@ -562,7 +602,6 @@ def main():
     ap.add_argument("--client-conc", type=int, default=32, help="threads (sync clients) or tasks (async clients) of the client part")
     ap.add_argument("--purpose", default="published", choices=("published", "smoke"),
                     help="smoke: a test of the machinery; the docs site ignores it (and benchmarks/results/.gitignore keeps it out of git)")
-    ap.add_argument("--machine", default="", help="a name for this machine, shown on the docs page (default: none)")
     args = ap.parse_args()
     args.pys = [tuple(x.split("=", 1)) for x in args.pys.split(",") if x]
     args.io_threads = [int(x) for x in args.io_threads.split(",") if x]
@@ -577,7 +616,7 @@ def main():
     print(head, flush=True)
     if args.out_dir and not args.out:
         os.makedirs(args.out_dir, exist_ok=True)
-        stem = time.strftime("%Y%m%d-%H%M%S") + (f"-{re.sub('[^A-Za-z0-9]+', '-', args.machine).strip('-')}" if args.machine else "")
+        stem = time.strftime("%Y%m%d-%H%M%S")
         args.out = os.path.join(args.out_dir, ("smoke-" if args.purpose == "smoke" else "") + stem + ".txt")
     variants = build_variants(args)
     failed = {}
