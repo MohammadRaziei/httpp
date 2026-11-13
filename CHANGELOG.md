@@ -17,6 +17,10 @@ such changes are listed under **Changed**).
 - **Client address and reverse proxies (ADR-0069).** `server_request::client_ip` / `request.client_ip` (the address of the connection, `""` when unknown). `httpp::forwarded_headers` / `ProxyHeadersMiddleware`: when the connection comes from a trusted proxy (`set_trusted_proxies`, default loopback; addresses, CIDR ranges or `*`), `client_ip` comes from `X-Forwarded-For` (first untrusted address from the right), `secure` from `X-Forwarded-Proto`, and `Host` from `X-Forwarded-Host` with `set_trust_forwarded_host(true)`.
 - On a free-threaded Python the default worker pool starts at 2 threads instead of `max(8, CPUs)`, grows after a 2 ms wait and still reaches the old ceiling (ADR-0059): CPU-bound `def` handlers measured 68.2k against 58.2k req/s at one I/O thread (3.14t, 16 threads). Builds with a GIL are unchanged.
 
+### Fixed
+
+- **`AsyncClient` and `Request.run_async` on free-threaded Python.** The completion callback ran on the C++ network thread without pinning a thread state, so every request created and destroyed one (`PyGILState_Ensure`/`Release`), which is very slow on 3.14t. Measured on 3.14t, 32 tasks, local server: about 1.0k req/s and 990 us CPU per request before, about 17.5k req/s and 53 us after (the same fix the server trampolines already had).
+
 ## [0.8.1] - 2026-11-11
 
 ### Added

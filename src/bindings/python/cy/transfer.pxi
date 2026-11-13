@@ -444,6 +444,10 @@ def _resolve(fut, value):
 
 
 cdef void _done_trampoline(void* ctx, response* res) noexcept nogil:
+    # Runs on the C++ network thread, which is not a Python thread. Without the pin, `with gil` creates a
+    # thread state on every call and destroys it again; on free-threaded CPython that costs hundreds of
+    # microseconds per request (3.14t AsyncClient fell from ~34k to ~2.4k req/s).
+    httpp_py_pin_thread()
     with gil:
         holder = <object>ctx
         Py_DECREF(holder)  # balances the Py_INCREF made when the request was started
