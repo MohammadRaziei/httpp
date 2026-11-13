@@ -55,6 +55,7 @@ struct http_request {
     std::vector<std::pair<std::string, std::string>> headers; // wire order
     std::string body;     // whole body, de-chunked
     bool secure = false;  // the connection is TLS
+    std::string peer;     // address of the other end of the connection as text ("203.0.113.5", "2001:db8::1"), "" when unknown
 };
 
 // What the engine writes back. It adds Content-Length / Transfer-Encoding, Connection and Date.

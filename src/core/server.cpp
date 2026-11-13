@@ -226,6 +226,7 @@ std::string describe(std::exception_ptr ep) {
 // ---------------------------------------------------------------- the server
 
 struct config { // read-only once listening; shared with answers that may outlive the server
+    std::function<void(server_request&)> rewrite; // forwarded_headers: edits a request right after it is parsed
     server::before_hook before;  // what the engine calls: the middleware and the application's hook, composed by rebuild_hooks()
     server::after_hook after;
     server::before_hook app_before; // the application's own hooks (server::before / server::after)
@@ -538,6 +539,7 @@ struct server::impl {
         req.method = std::move(hr.method);
         req.body = std::move(hr.body);
         req.secure = hr.secure;
+        req.client_ip = std::move(hr.peer);
         req.headers = std::move(hr.headers);
         std::string target = std::move(hr.target);  // put back below when the target is refused (the caller logs it)
         const std::size_t hash = target.find('#');
@@ -1014,6 +1016,7 @@ struct server::impl {
             answer(failure(400, "Bad Request"));
             return true;
         }
+        if (cfg->rewrite) cfg->rewrite(*pr.req);
         if (!may_be_static(*pr.req)) { // else the worker looks at the disk first, then matches
             const std::string method = std::string_view(pr.req->method) == "HEAD" ? "GET" : pr.req->method; // HEAD runs the GET route
             pr.route = match(method, pr.raw_path, pr.req->path_params);
@@ -1036,6 +1039,7 @@ struct server::impl {
             HTTPP_LOG(debug) << "bad request target: " << hr.target.substr(0, 100);
             return answer(failure(400, "Bad Request"));
         }
+        if (cfg->rewrite) cfg->rewrite(*pr.req);
         run(std::move(pr), std::move(answer));
     }
 
@@ -1281,6 +1285,7 @@ server& server::use(before_hook before, after_hook after) {
     rebuild_hooks(c);
     return *this;
 }
+void server::set_request_rewrite(std::function<void(server_request&)> rewrite) { impl_->cfg->rewrite = std::move(rewrite); }
 server& server::set_error_handler(error_hook hook) { impl_->cfg->error = std::move(hook); return *this; }
 server& server::set_exception_handler(exception_hook hook) { impl_->cfg->exception = std::move(hook); return *this; }
 

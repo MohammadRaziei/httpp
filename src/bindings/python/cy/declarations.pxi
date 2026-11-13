@@ -49,6 +49,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         vector[pair[string, string]] query
         vector[pair[string, string]] path_params
         cbool secure
+        string client_ip
         cpp_form_data form() except +  # std::invalid_argument -> ValueError
 
     cdef cppclass cpp_handler "httpp::handler":

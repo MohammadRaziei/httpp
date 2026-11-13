@@ -95,3 +95,22 @@ class HTTPSRedirectMiddleware:
 
     def install(self, app) -> None:
         app._add_https_redirect(self.trust_forwarded_proto)
+
+
+class ProxyHeadersMiddleware:
+    """Behind a reverse proxy, take the real client from the headers the proxy adds (ADR-0069).
+
+    When the connection comes from one of `trusted_proxies`, request.client_ip becomes the first address of X-Forwarded-For, from the right,
+    that is not itself a trusted proxy; X-Forwarded-Proto sets request.secure / scheme; X-Forwarded-Host replaces the Host header only with
+    trust_forwarded_host=True. Any other connection is left alone, whatever headers it sends.
+
+    An entry is an IPv4 or IPv6 address, a CIDR range ("10.0.0.0/8") or "*" (every connection: only when the port is reachable through the
+    proxy alone). Default: 127.0.0.1 and ::1. add_middleware raises ValueError for anything else. One per server; a second replaces the first.
+    """
+
+    def __init__(self, trusted_proxies=("127.0.0.1", "::1"), trust_forwarded_host: bool = False):
+        self.trusted_proxies = _strings("trusted_proxies", trusted_proxies)
+        self.trust_forwarded_host = bool(trust_forwarded_host)
+
+    def install(self, app) -> None:
+        app._add_forwarded_headers(self.trusted_proxies, self.trust_forwarded_host)

@@ -56,6 +56,9 @@ struct server_request {
     std::vector<std::pair<std::string, std::string>> path_params;  // "/users/:id"
     bool secure = false;  // the connection is TLS (https, wss): the server was given set_tls()
     std::string scheme() const { return secure ? "https" : "http"; }
+    // The address of the client as text, "" when unknown. It is the address of the connection, unless a forwarded_headers
+    // middleware (httpp/middleware.hpp) trusts the connection's address and takes the client's from X-Forwarded-For (ADR-0069).
+    std::string client_ip;
 
     // First match, "" if absent. Header names are case-insensitive.
     std::string header(const std::string& name) const {
@@ -144,6 +147,7 @@ using io_handler = std::function<void(std::shared_ptr<const server_request>, res
 // wrapper around this class). It runs on our own Asio + llhttp engine (see
 // src/core/server.cpp); that engine never appears in this public header.
 class directory;
+class forwarded_headers;
 
 class server {
 public:
@@ -273,6 +277,9 @@ public:
 
 private:
     friend class directory;
+    friend class forwarded_headers;
+    // Runs on every request right after it is parsed and before any hook, on the thread that parses it; one per server (a second replaces it).
+    void set_request_rewrite(std::function<void(server_request&)> rewrite);
     struct impl;
     std::unique_ptr<impl> impl_;
 };

@@ -31,6 +31,13 @@ cdef class Server:
         c.set_max_age(max_age)
         c.install(self._srv[0])
 
+    def _add_forwarded_headers(self, trusted_proxies, bint trust_forwarded_host):
+        """Install the C++ forwarded-headers rewrite; use Server.add_middleware(ProxyHeadersMiddleware, ...)."""
+        cdef cpp_forwarded_headers f
+        f.set_trusted_proxies([x.encode("utf-8") for x in trusted_proxies])
+        f.set_trust_forwarded_host(trust_forwarded_host)
+        f.install(self._srv[0])
+
     def _add_https_redirect(self, bint trust_forwarded_proto):
         """Install the C++ HTTPS redirect middleware; use Server.add_middleware(HTTPSRedirectMiddleware, ...)."""
         cdef cpp_https_redirect r

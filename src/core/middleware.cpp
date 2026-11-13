@@ -1,6 +1,11 @@
 #include "httpp/middleware.hpp"
 
+#include <asio/ip/address.hpp>
+#include <asio/ip/address_v4.hpp>
+#include <asio/ip/address_v6.hpp>
+
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <memory>
 #include <regex>
@@ -113,7 +118,132 @@ std::string encode(const std::string& s, bool keep_slash) {
     return out;
 }
 
+// ---------------------------------------------------------------- forwarded headers
+
+// An address as 16 bytes: IPv4 is kept as an IPv4-mapped IPv6 one, so one comparison covers both families.
+using ip16 = std::array<unsigned char, 16>;
+
+bool to_ip16(const std::string& text, ip16& out) {
+    std::error_code ec;
+    const auto a = asio::ip::make_address(text, ec);
+    if (ec) return false;
+    out = a.is_v4() ? asio::ip::make_address_v6(asio::ip::v4_mapped, a.to_v4()).to_bytes() : a.to_v6().to_bytes();
+    return true;
+}
+
+struct network {
+    ip16 base{};
+    int bits = 128; // prefix length in the 16-byte form
+    bool any = false;
+    bool contains(const ip16& a) const {
+        if (any) return true;
+        for (int i = 0; i < 16 && bits > 0; ++i) {
+            const int take = std::min(8, bits - i * 8);
+            if (take <= 0) break;
+            const unsigned char mask = static_cast<unsigned char>(0xFF << (8 - take));
+            if ((a[i] & mask) != (base[i] & mask)) return false;
+        }
+        return true;
+    }
+};
+
+bool parse_network(const std::string& raw, network& out) {
+    const std::string s = trim(raw);
+    if (s == "*") { out = network(); out.any = true; return true; }
+    const auto slash = s.find('/');
+    const std::string addr = s.substr(0, slash);
+    ip16 b;
+    if (!to_ip16(addr, b)) return false;
+    std::error_code ec;
+    const bool v4 = asio::ip::make_address(addr, ec).is_v4();
+    int max_bits = v4 ? 32 : 128;
+    int bits = max_bits;
+    if (slash != std::string::npos) {
+        const std::string len = s.substr(slash + 1);
+        if (len.empty() || len.size() > 3 || !std::all_of(len.begin(), len.end(), [](unsigned char c) { return std::isdigit(c) != 0; })) return false;
+        bits = std::stoi(len);
+        if (bits > max_bits) return false;
+    }
+    out = network();
+    out.base = b;
+    out.bits = v4 ? bits + 96 : bits;
+    return true;
+}
+
+struct forwarded_policy {
+    std::vector<network> proxies;
+    bool trust_host = false;
+    bool trusted(const std::string& ip) const {
+        ip16 a;
+        if (!to_ip16(ip, a)) return false;
+        for (const auto& n : proxies) if (n.contains(a)) return true;
+        return false;
+    }
+};
+
+std::vector<std::string> split_list(const std::string& v) {
+    std::vector<std::string> out;
+    std::size_t pos = 0;
+    while (pos <= v.size()) {
+        std::size_t end = v.find(',', pos);
+        if (end == std::string::npos) end = v.size();
+        out.push_back(trim(v.substr(pos, end - pos)));
+        pos = end + 1;
+    }
+    return out;
+}
+
 } // namespace
+
+forwarded_headers::forwarded_headers() : proxies_{"127.0.0.1", "::1"} {}
+
+forwarded_headers& forwarded_headers::set_trusted_proxies(std::vector<std::string> proxies) {
+    for (const auto& p : proxies) {
+        network n;
+        if (!parse_network(p, n))
+            throw std::invalid_argument("forwarded_headers: '" + p + "' is not an IP address, a CIDR range or \"*\"");
+    }
+    proxies_ = std::move(proxies);
+    return *this;
+}
+
+forwarded_headers& forwarded_headers::set_trust_forwarded_host(bool trust) { host_ = trust; return *this; }
+
+void forwarded_headers::install(server& s) const {
+    auto p = std::make_shared<forwarded_policy>();
+    p->trust_host = host_;
+    for (const auto& raw : proxies_) { network n; parse_network(raw, n); p->proxies.push_back(n); }
+    s.set_request_rewrite([p](server_request& req) {
+        if (!p->trusted(req.client_ip)) return;
+        const std::string xff = req.header("X-Forwarded-For");
+        if (!xff.empty()) {
+            const auto list = split_list(xff);
+            std::string chosen = list.front();
+            for (auto it = list.rbegin(); it != list.rend(); ++it) {
+                chosen = *it;
+                if (!p->trusted(*it)) break;
+            }
+            ip16 check;
+            if (to_ip16(chosen, check)) req.client_ip = chosen;
+        }
+        const std::string proto = req.header("X-Forwarded-Proto");
+        if (!proto.empty()) {
+            const std::string last = lower(split_list(proto).back());
+            if (last == "https") req.secure = true;
+            else if (last == "http") req.secure = false;
+        }
+        if (p->trust_host) {
+            const std::string host = req.header("X-Forwarded-Host");
+            if (!host.empty()) {
+                const std::string last = split_list(host).back();
+                bool replaced = false;
+                for (auto& [k, v] : req.headers)
+                    if (lower(k) == "host") { v = last; replaced = true; break; }
+                if (!replaced) req.headers.emplace_back("Host", last);
+            }
+        }
+    });
+}
 
 cors::cors() : methods_{"GET"} {}
 

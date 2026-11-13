@@ -70,6 +70,7 @@ TARGETS = {
     ("middleware.hpp", "cors"): httpp.middleware.CORSMiddleware,
     ("middleware.hpp", "trusted_host"): httpp.middleware.TrustedHostMiddleware,
     ("middleware.hpp", "https_redirect"): httpp.middleware.HTTPSRedirectMiddleware,
+    ("middleware.hpp", "forwarded_headers"): httpp.middleware.ProxyHeadersMiddleware,
     ("server.hpp", "responder"): None,  # handed to route_async handlers; Python handlers just return or await
     ("websocket.hpp", "websocket"): None,  # Python's WebSocket is its own awaitable API over a mailbox (ADR-0027), not this handle
     ("websocket.hpp", "ws_acceptor"): None,  # Python's handler accepts through `await websocket.accept()`
@@ -118,6 +119,7 @@ CTOR_ARGS["cors"] = {
     "set_max_age": ("max_age", 5),
 }
 CTOR_ARGS["trusted_host"] = {"set_allowed_hosts": ("allowed_hosts", ["example.com"]), "set_www_redirect": ("www_redirect", False)}
+CTOR_ARGS["forwarded_headers"] = {"set_trusted_proxies": ("trusted_proxies", ["10.0.0.0/8"]), "set_trust_forwarded_host": ("trust_forwarded_host", True)}
 CTOR_ARGS["https_redirect"] = {"set_trust_forwarded_proto": ("trust_forwarded_proto", True)}
 
 # Public C++ names that Python deliberately does not carry (ADR-0017 rule 3). An entry must still be unbound (a test
@@ -191,10 +193,11 @@ def test_aliases_point_at_real_python_names():
 def test_cpp_setters_are_accepted_as_constructor_arguments():
     for owner, cls in (("client", httpp.Client), ("async_client", httpp.AsyncClient),
                        ("cors", httpp.middleware.CORSMiddleware), ("trusted_host", httpp.middleware.TrustedHostMiddleware),
-                       ("https_redirect", httpp.middleware.HTTPSRedirectMiddleware)):
+                       ("https_redirect", httpp.middleware.HTTPSRedirectMiddleware),
+                       ("forwarded_headers", httpp.middleware.ProxyHeadersMiddleware)):
         for setter, (keyword, value) in CTOR_ARGS[owner].items():
             try:
-                args = () if owner in ("cors", "trusted_host", "https_redirect") else ("http://127.0.0.1:1",)
+                args = () if owner in ("cors", "trusted_host", "https_redirect", "forwarded_headers") else ("http://127.0.0.1:1",)
                 cls(*args, **{keyword: value})
             except TypeError as e:
                 pytest.fail(f"{owner}::{setter} should be {cls.__name__}({keyword}=...): {e}")

@@ -79,4 +79,26 @@ private:
     bool trust_ = false;
 };
 
+// Behind a reverse proxy (nginx, Caddy, a load balancer) every connection comes from the proxy. When the connection's address is one of
+// the trusted proxies, this takes the real client from the headers the proxy adds, before any hook or handler runs (ADR-0069):
+//  - X-Forwarded-For: server_request::client_ip becomes the first address from the right that is not itself a trusted proxy (the
+//    leftmost one when all are), so a client cannot name itself by sending the header; a value that is not an address is ignored.
+//  - X-Forwarded-Proto: "https" / "http" sets server_request::secure (and so scheme()), the last value in a list.
+//  - X-Forwarded-Host: replaces the Host header, only with set_trust_forwarded_host(true), the last value in a list.
+// A connection from anywhere else is left alone, whatever headers it sends. Forwarded (RFC 7239) is not read.
+// A proxy entry is an IPv4 or IPv6 address, a CIDR range ("10.0.0.0/8", "fd00::/8"), or "*" (every connection: only when the port can
+// be reached through the proxy alone). Default: 127.0.0.1 and ::1. An entry that is none of these throws std::invalid_argument and leaves
+// the object unchanged; an empty list trusts nobody. One per server: installing a second replaces the first.
+class forwarded_headers {
+public:
+    HTTPP_API forwarded_headers();
+    HTTPP_API forwarded_headers& set_trusted_proxies(std::vector<std::string> proxies);
+    HTTPP_API forwarded_headers& set_trust_forwarded_host(bool trust); // default false
+    HTTPP_API void install(server& s) const;
+
+private:
+    std::vector<std::string> proxies_;
+    bool host_ = false;
+};
+
 } // namespace httpp

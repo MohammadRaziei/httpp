@@ -111,3 +111,38 @@ def test_a_socks_url_is_a_proxy_address_not_a_place_to_fetch_from():
     assert URL("https://h/").is_http and not URL("ftp://h/").valid
     with pytest.raises(ValueError):
         Client("socks5://127.0.0.1:1080")
+
+
+def test_proxy_headers_middleware_gives_the_real_client_and_scheme():
+    import socket
+    from httpp import ProxyHeadersMiddleware
+
+    app = Server()
+
+    @app.get("/who")
+    def who(request):
+        return f"{request.client_ip}|{request.scheme}"
+
+    app.add_middleware(ProxyHeadersMiddleware, trusted_proxies=["127.0.0.1", "10.0.0.0/8"])
+    with running(app) as url:
+        port = int(url.rsplit(":", 1)[1])
+
+        def get(extra):
+            with socket.create_connection(("127.0.0.1", port)) as s:
+                s.sendall(f"GET /who HTTP/1.1\r\nHost: x\r\n{extra}Connection: close\r\n\r\n".encode())
+                data = b""
+                while chunk := s.recv(4096):
+                    data += chunk
+            return data.split(b"\r\n\r\n", 1)[1].decode()
+
+        assert get("") == "127.0.0.1|http"
+        assert get("X-Forwarded-For: 1.1.1.1, 203.0.113.9, 10.0.0.2\r\nX-Forwarded-Proto: https\r\n") == "203.0.113.9|https"
+
+
+def test_proxy_headers_middleware_refuses_bad_entries():
+    from httpp import ProxyHeadersMiddleware
+
+    with pytest.raises(ValueError):
+        Server().add_middleware(ProxyHeadersMiddleware, trusted_proxies=["localhost"])
+    with pytest.raises(TypeError):
+        ProxyHeadersMiddleware(trusted_proxies=123)

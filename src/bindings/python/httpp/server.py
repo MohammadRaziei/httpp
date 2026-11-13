@@ -82,10 +82,11 @@ class ServerRequest:
     The fields are read-only.
     """
 
-    __slots__ = ("_raw", "_method", "_path", "_body", "_headers", "_query", "_path_params", "_form", "_secure")
+    __slots__ = ("_raw", "_method", "_path", "_body", "_headers", "_query", "_path_params", "_form", "_secure", "_client_ip")
 
-    def __init__(self, method, path, body, headers, query, path_params, secure=False):
+    def __init__(self, method, path, body, headers, query, path_params, secure=False, client_ip=""):
         self._secure = secure
+        self._client_ip = client_ip
         self._raw = None
         self._form = None
         self._method = method
@@ -101,6 +102,7 @@ class ServerRequest:
         self._raw = raw
         self._method = self._path = self._body = self._headers = self._query = self._path_params = self._form = None
         self._secure = None
+        self._client_ip = None
         return self
 
     @property
@@ -109,6 +111,14 @@ class ServerRequest:
         if self._secure is None:
             self._secure = self._raw.secure
         return self._secure
+
+    @property
+    def client_ip(self):
+        """The client's address as text, "" when unknown. The address of the connection, unless a ProxyHeadersMiddleware trusts it and
+        takes the client from X-Forwarded-For (ADR-0069)."""
+        if self._client_ip is None:
+            self._client_ip = self._raw.client_ip
+        return self._client_ip
 
     @property
     def scheme(self):
@@ -1232,7 +1242,7 @@ class Server(_Server):
 
     def add_middleware(self, middleware_class, **options):
         """app.add_middleware(CORSMiddleware, allow_origins=["*"]): install a ready-made middleware from
-        httpp.middleware (CORSMiddleware, TrustedHostMiddleware, GZipMiddleware). They run in C++ without the GIL,
+        httpp.middleware (CORSMiddleware, TrustedHostMiddleware, GZipMiddleware, HTTPSRedirectMiddleware, ProxyHeadersMiddleware). They run in C++ without the GIL,
         before_request hooks run after them, and after_request hooks before them. Options are validated here."""
         if not (isinstance(middleware_class, type) and callable(getattr(middleware_class, "install", None))):
             raise TypeError("add_middleware() takes a class from httpp.middleware (arbitrary ASGI middleware is not supported)")

@@ -41,7 +41,7 @@ from .responses import (HTTPException, JSONResponse, PlainTextResponse, HTMLResp
                         StreamingResponse, FileResponse)
 from . import responses, status
 from . import middleware
-from .middleware import CORSMiddleware, TrustedHostMiddleware, GZipMiddleware, HTTPSRedirectMiddleware
+from .middleware import CORSMiddleware, TrustedHostMiddleware, GZipMiddleware, HTTPSRedirectMiddleware, ProxyHeadersMiddleware
 from ._run import run
 from ._http import AsyncClient, request, get, head, options, post, put, patch, delete
 from .errors import Error, HTTPError, RequestError, Timeout, TLSError, TooManyRedirects, InvalidURL
@@ -71,7 +71,7 @@ __all__ = [
     "patch", "delete", "Server", "FileBrowser", "Directory", "SwaggerUI", "run", "WebSocket", "WebSocketDisconnect", "ServerRequest", "ResponseHead", "file", "redirect", "set_cookie", "download", "Download", "DownloadResult", "URL", "progress", "utils",
     "Query", "Path", "Header", "Cookie", "Body", "Depends", "APIRouter", "BackgroundTasks", "Form", "File", "UploadFile", "FormData",
     "HTTPException", "JSONResponse", "PlainTextResponse", "HTMLResponse", "RedirectResponse",
-    "StreamingResponse", "FileResponse", "responses", "status", "middleware", "CORSMiddleware", "TrustedHostMiddleware", "GZipMiddleware", "HTTPSRedirectMiddleware",
+    "StreamingResponse", "FileResponse", "responses", "status", "middleware", "CORSMiddleware", "TrustedHostMiddleware", "GZipMiddleware", "HTTPSRedirectMiddleware", "ProxyHeadersMiddleware",
     "Error", "HTTPError", "RequestError", "Timeout", "TLSError", "TooManyRedirects", "InvalidURL",
     "get_include_dir", "get_lib_dir", "get_cmake_dir",
     "set_log_level", "set_log_file", "set_log_system", "set_log_callback",

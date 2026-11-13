@@ -109,6 +109,11 @@ cdef extern from "httpp/middleware.hpp" namespace "httpp":
         cpp_trusted_host(vector[string] hosts) except +
         cpp_trusted_host& set_www_redirect(cbool v) except +
         void install(cpp_server& s) except +
+    cdef cppclass cpp_forwarded_headers "httpp::forwarded_headers":
+        cpp_forwarded_headers() except +
+        cpp_forwarded_headers& set_trusted_proxies(vector[string] v) except +
+        cpp_forwarded_headers& set_trust_forwarded_host(cbool v) except +
+        void install(cpp_server& s) except +
     cdef cppclass cpp_https_redirect "httpp::https_redirect":
         cpp_https_redirect() except +
         cpp_https_redirect& set_trust_forwarded_proto(cbool v) except +

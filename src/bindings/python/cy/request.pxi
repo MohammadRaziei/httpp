@@ -23,6 +23,10 @@ cdef class RawRequest:
     def secure(self):
         return bool(self._req.get().secure)
 
+    @property
+    def client_ip(self):
+        return self._req.get().client_ip.decode("ascii", errors="replace")
+
     def headers(self):
         """[(name, value), ...] in wire order."""
         return _pairs(self._req.get().headers)

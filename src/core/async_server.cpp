@@ -687,12 +687,23 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     }
 
     // ---- reading ----
-    void start() { next_request(); }
+    std::string peer;         // text of the other end's address, read once when the connection starts
+    void start() {
+        std::error_code pec;
+        const auto ep = sock.remote_endpoint(pec);
+        if (!pec) {
+            auto a = ep.address();
+            if (a.is_v6() && a.to_v6().is_v4_mapped()) a = asio::ip::make_address_v4(asio::ip::v4_mapped, a.to_v6());
+            peer = a.to_string();
+        }
+        next_request();
+    }
 
     void next_request() {
         if (closed) return;
         req = http_request{};
         req.secure = tls != nullptr;
+        req.peer = peer;
         last_was_value = true;
         headers_done = false;
         header_bytes = 0;
