@@ -366,6 +366,17 @@ UTEST(httpp_file_browser, the_page_ships_its_own_media_player_and_no_native_cont
     EXPECT_FALSE(contains(r.body, "controls = true"));
 }
 
+UTEST(httpp_file_browser, the_preview_dialog_has_icon_buttons_with_tooltips) {
+    tree t;
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
+    auto r = httpp::client::fetch(srv.url("/files"));
+    ASSERT_EQ(200, r.status);
+    EXPECT_TRUE(contains(r.body, "data-tip=\"Download\""));
+    EXPECT_TRUE(contains(r.body, "data-tip=\"Open raw\""));
+    EXPECT_TRUE(contains(r.body, "data-tip=\"Close\""));
+    EXPECT_FALSE(contains(r.body, "class=\"actions\""));
+}
+
 UTEST(httpp_file_browser, can_be_mounted_at_the_root_of_a_server) {
     tree t;
     local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/"); });

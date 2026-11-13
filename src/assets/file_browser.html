@@ -35,14 +35,24 @@ svg { width:1.25rem; height:1.25rem; flex:none; fill:none; stroke:currentColor; 
 .grid .meta { text-align:center; font-size:.8rem; } .grid .meta.date { display:none; }
 #info { position:fixed; left:0; right:0; bottom:0; padding:.4rem 1rem; background:var(--bg); border-top:1px solid var(--border); color:var(--muted); font-size:.85rem; }
 .empty, .error { color:var(--muted); padding:2rem 0; text-align:center; } .error { color:#c0392b; }
-dialog { width:min(52rem,94vw); max-height:90vh; background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:.6rem; padding:1rem; }
-dialog::backdrop { background:rgba(0,0,0,.55); }
-dialog h2 { margin:0 0 .4rem; font-size:1rem; overflow-wrap:anywhere; } dialog .actions { display:flex; gap:.5rem; margin-top:.7rem; }
-dialog a.btn { padding:.3rem .55rem; border:1px solid var(--border); border-radius:.4rem; color:var(--accent); text-decoration:none; }
-#pv { overflow:auto; max-height:62vh; } #pv img { max-width:100%; max-height:62vh; display:block; margin:auto; }
+dialog { width:min(60rem,94vw); max-height:92vh; background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:.8rem; padding:1rem 1.1rem 1.1rem; box-shadow:0 24px 64px rgba(0,0,0,.45); }
+dialog::backdrop { background:rgba(0,0,0,.55); backdrop-filter:blur(2px); }
+dialog[open] { animation:dlg-in .2s cubic-bezier(.2,.8,.2,1); } dialog[open]::backdrop { animation:bd-in .2s ease; }
+dialog.out { animation:dlg-out .16s ease forwards; } dialog.out::backdrop { animation:bd-out .16s ease forwards; }
+@keyframes dlg-in { from { opacity:0; transform:translateY(10px) scale(.97); } } @keyframes dlg-out { to { opacity:0; transform:translateY(10px) scale(.97); } }
+@keyframes bd-in { from { opacity:0; } } @keyframes bd-out { to { opacity:0; } }
+@media (prefers-reduced-motion: reduce) { dialog[open], dialog.out, dialog[open]::backdrop, dialog.out::backdrop { animation:none; } }
+.dh { display:flex; align-items:flex-start; gap:.8rem; margin-bottom:.8rem; } .dt { flex:1 1 auto; min-width:0; }
+dialog h2 { margin:0; font-size:1.05rem; line-height:1.3; overflow-wrap:anywhere; } .sub { color:var(--muted); font-size:.85rem; margin-top:.15rem; }
+.da { display:flex; gap:.15rem; flex:none; }
+.ib { position:relative; display:inline-flex; align-items:center; justify-content:center; width:2.1rem; height:2.1rem; padding:0; border:0; border-radius:.5rem; background:none; color:var(--muted); cursor:pointer; text-decoration:none; }
+.ib:hover, .ib:focus-visible { background:var(--row); color:var(--fg); outline:none; } .ib svg { width:1.15rem; height:1.15rem; }
+.ib::after { content:attr(data-tip); position:absolute; top:calc(100% + .35rem); right:0; padding:.2rem .5rem; border-radius:.35rem; background:var(--fg); color:var(--bg); font-size:.75rem; white-space:nowrap; pointer-events:none; opacity:0; transform:translateY(-2px); transition:opacity .12s, transform .12s; z-index:3; }
+.ib:hover::after, .ib:focus-visible::after { opacity:1; transform:none; transition-delay:.3s; }
+#pv { overflow:auto; max-height:66vh; } #pv img { max-width:100%; max-height:66vh; display:block; margin:auto; }
 .pl { position:relative; border-radius:.5rem; overflow:hidden; background:#000; outline:none; }
 .pl.audio { background:var(--row); border:1px solid var(--border); }
-.pl video { display:block; width:100%; max-height:62vh; background:#000; cursor:pointer; }
+.pl video { display:block; width:100%; max-height:66vh; background:#000; cursor:pointer; }
 .pl:fullscreen { display:flex; flex-direction:column; justify-content:center; border-radius:0; } .pl:fullscreen video { height:100%; max-height:100%; }
 .pl .bar { display:flex; align-items:center; gap:.3rem; padding:.45rem .6rem; }
 .pl.video .bar { position:absolute; left:0; right:0; bottom:0; padding-top:1.8rem; color:#fff; background:linear-gradient(transparent,rgba(0,0,0,.8)); transition:opacity .25s; }
@@ -73,7 +83,17 @@ dialog a.btn { padding:.3rem .55rem; border:1px solid var(--border); border-radi
 </header>
 <main id="main"></main>
 <div id="info"></div>
-<dialog id="dlg"><h2 id="pt"></h2><div id="pv"></div><div class="actions"><a class="btn" id="pd">Download</a><a class="btn" id="po" target="_blank" rel="noopener">Open raw</a><button id="pc" type="button">Close</button></div></dialog>
+<dialog id="dlg">
+  <div class="dh">
+    <div class="dt"><h2 id="pt"></h2><div class="sub" id="ps"></div></div>
+    <div class="da">
+      <a class="ib" id="pd" data-tip="Download" aria-label="Download"></a>
+      <a class="ib" id="po" data-tip="Open raw" aria-label="Open raw" target="_blank" rel="noopener"></a>
+      <button class="ib" id="pc" data-tip="Close" aria-label="Close" type="button"></button>
+    </div>
+  </div>
+  <div id="pv"></div>
+</dialog>
 <script>
 (function () {
 "use strict";
@@ -88,7 +108,10 @@ var ICON = {
   next: '<svg viewBox="0 0 24 24"><path d="M17.5 5v14"/><path fill="currentColor" d="M5 5v14l10-7z"/></svg>',
   vol: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 10v4h4l5 4V6L8 10z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>',
   mute: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 10v4h4l5 4V6L8 10z"/><path d="M16 9l5 6M21 9l-5 6"/></svg>',
-  fs: '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>'
+  fs: '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+  download: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>',
+  ext: '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>'
 };
 var TEXT = /\.(txt|md|json|csv|tsv|log|ini|toml|ya?ml|xml|html?|css|js|mjs|ts|py|c|h|cc|cpp|hpp|rs|go|java|sh|bat|cfg|conf|sql|tex|rst)$/i;
 var IMG = /\.(png|jpe?g|gif|webp|avif|bmp|ico)$/i, AUD = /\.(mp3|wav|ogg|m4a)$/i, VID = /\.(mp4|webm|ogv)$/i;
@@ -171,7 +194,7 @@ function render(error) {
 }
 
 function head(e, p) {
-  var url = rawUrl(p); $("pt").textContent = e.name + " (" + size(e.size) + ")";
+  var url = rawUrl(p); $("pt").textContent = e.name; $("ps").textContent = size(e.size);
   $("pd").href = url + "?download=1"; $("po").href = url;
 }
 
@@ -306,7 +329,19 @@ $("q").oninput = function () { state.filter = this.value; render(); };
 $("vlist").onclick = function () { state.view = "list"; store("view", "list"); render(); };
 $("vgrid").onclick = function () { state.view = "grid"; store("view", "grid"); render(); };
 $("theme").onclick = function () { state.theme = state.theme === "auto" ? "light" : state.theme === "light" ? "dark" : "auto"; store("theme", state.theme); applyTheme(); };
-$("pc").onclick = function () { $("dlg").close(); };
+var closing = false, downOutside = false;
+function closeDlg() {
+  var d = $("dlg"); if (closing || !d.open) return;
+  if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) { d.close(); return; }
+  closing = true; d.classList.add("out");
+  setTimeout(function () { d.classList.remove("out"); closing = false; d.close(); }, 170);
+}
+function outside(ev) { var r = $("dlg").getBoundingClientRect(); return ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom; }
+$("pd").innerHTML = ICON.download; $("po").innerHTML = ICON.ext; $("pc").innerHTML = ICON.x;
+$("pc").onclick = closeDlg;
+$("dlg").addEventListener("cancel", function (ev) { ev.preventDefault(); closeDlg(); });
+$("dlg").addEventListener("pointerdown", function (ev) { downOutside = outside(ev); });
+$("dlg").addEventListener("click", function (ev) { if (downOutside && outside(ev)) closeDlg(); downOutside = false; });
 $("dlg").addEventListener("close", function () { stop(); $("pv").textContent = ""; });
 window.addEventListener("hashchange", load);
 applyTheme(); load();
