@@ -62,7 +62,7 @@ import traceback
 
 from . import _background, _forms, _log, _params, _router, _schema
 from . import _validate as V
-from .httpp_cy import Server as _Server, mime_type_for, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, _set_lanes, parse_form as _parse_form
+from .httpp_cy import Server as _Server, SwaggerUI, mime_type_for, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, _set_lanes, parse_form as _parse_form
 from ._websocket import WebSocket, WebSocketDisconnect
 from .models import BaseModel, to_jsonable
 from .responses import HTTPException, Response as _ResponseBase
@@ -1226,7 +1226,7 @@ class Server(_Server):
             return self.openapi()
 
         if docs_url is not None:  # Swagger UI is served by C++ from files compiled into libhttpp
-            self.mount_swagger_ui(docs_url, openapi_url, self._title)
+            SwaggerUI().set_docs_path(docs_url).set_openapi_url(openapi_url).set_title(self._title).mount(self)
 
     # --- hooks (the C++ core keeps one hook of each kind; these chain any number of them) ---
 

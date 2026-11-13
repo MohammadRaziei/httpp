@@ -1,6 +1,7 @@
 #pragma once
 
 #include "httpp/export.hpp"
+#include "httpp/path.hpp"
 #include "httpp/client.hpp" // reuses httpp::response for the outgoing side too
 #include "httpp/websocket.hpp"
 
@@ -142,6 +143,8 @@ using io_handler = std::function<void(std::shared_ptr<const server_request>, res
 // `httpp server` command, analogous to `python -m http.server`, is a thin
 // wrapper around this class). It runs on our own Asio + llhttp engine (see
 // src/core/server.cpp); that engine never appears in this public header.
+class directory;
+
 class server {
 public:
     HTTPP_API server();
@@ -187,16 +190,9 @@ public:
     HTTPP_API void route_ws(const std::string& path, ws_handler h);
     // Registers every route of `r` under `prefix` + r.prefix() (see router.hpp). The router is not kept.
     HTTPP_API void include(const router& r, const std::string& prefix = "");
+    // Serve the files of `local_dir` under `mount_path` with the defaults of `directory` (see below); `directory(local_dir)...mount(s, path)`
+    // is the same call with every setting open.
     HTTPP_API void serve_directory(const std::string& mount_path, const std::string& local_dir);
-    // How a mounted directory answers. The defaults are what serve_directory(mount_path, local_dir) does.
-    struct directory_options {
-        bool index = true;           // a path that ends in '/' (or the mount itself) is answered with index.html from that folder
-        bool hidden = true;          // false: a path with a segment that starts with '.' is a 404, whatever is on disk
-        bool download_active = false; // true: send "X-Content-Type-Options: nosniff", and a file that is not plainly harmless to show
-                                      // (everything but plain text, JSON, common images, PDF, audio and video) or that is asked for with
-                                      // "?download=1" gets "Content-Disposition: attachment" with a filename and filename*=UTF-8''...
-    };
-    HTTPP_API void serve_directory(const std::string& mount_path, const std::string& local_dir, const directory_options& options);
 
     HTTPP_API int bind_to_any_port(const std::string& host);
     // Block until stop(). Return false if the socket could not be bound/listened on
@@ -276,8 +272,33 @@ public:
     HTTPP_API server& set_io_threads(std::size_t n);
 
 private:
+    friend class directory;
     struct impl;
     std::unique_ptr<impl> impl_;
+};
+
+// A folder served as static files (ADR-0066): `directory(dir).set_index(false).mount(server, "/static")`. Honours Range, If-Modified-Since,
+// ETag and HEAD, streams large files, and never leaves `dir` (".." segments and links out of it are refused). A setting is validated when
+// it is set; mount() throws std::invalid_argument when the mount path does not start with '/'. The folder is read when requests arrive,
+// so it may be created after mounting.
+class directory {
+public:
+    HTTPP_API explicit directory(path root);
+    // A path that ends in '/' (or the mount itself) is answered with index.html from that folder. Default: true.
+    HTTPP_API directory& set_index(bool on);
+    // false: a path with a segment that starts with '.' is a 404, whatever is on disk. Default: true.
+    HTTPP_API directory& set_show_hidden(bool on);
+    // true: send "X-Content-Type-Options: nosniff", and a file that is not plainly harmless to show (everything but plain text, JSON,
+    // common images, PDF, audio and video) or that is asked for with "?download=1" gets "Content-Disposition: attachment" with a
+    // filename and filename*=UTF-8''... Default: false.
+    HTTPP_API directory& set_download_active(bool on);
+    HTTPP_API void mount(server& s, const std::string& base = "/") const;
+
+private:
+    path root_;
+    bool index_ = true;
+    bool show_hidden_ = true;
+    bool download_active_ = false;
 };
 
 // The Content-Type httpp gives a file by its extension (case-insensitive, the last dot after the last slash). Mounted directories use

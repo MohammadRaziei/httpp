@@ -1,7 +1,7 @@
 import httpp
 
 app = httpp.Server()
-app.mount_file_browser("/files", "shared", title="Team files")
+httpp.FileBrowser("shared").set_title("Team files").mount(app, "/files")
 
 if __name__ == "__main__":
     app.listen("127.0.0.1", 8000)

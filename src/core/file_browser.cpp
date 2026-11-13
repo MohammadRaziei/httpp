@@ -188,30 +188,60 @@ response json_error(int status, const char* text) {
 
 } // namespace
 
-void mount_file_browser(server& s, const std::string& base, const path& root_dir, const file_browser_options& o) {
-    const std::string& root = root_dir.str();
+static const char* theme_name(file_browser::theme_mode m) {
+    switch (m) {
+        case file_browser::theme_mode::light: return "light";
+        case file_browser::theme_mode::dark: return "dark";
+        default: return "auto";
+    }
+}
+static const char* view_name(file_browser::view_mode v) { return v == file_browser::view_mode::grid ? "grid" : "list"; }
+static const char* sort_name(file_browser::sort_key k) {
+    switch (k) {
+        case file_browser::sort_key::size: return "size";
+        case file_browser::sort_key::date: return "date";
+        default: return "name";
+    }
+}
+
+file_browser::file_browser(path root) : root_(std::move(root)) {}
+
+file_browser& file_browser::set_title(std::string title) { title_ = std::move(title); return *this; }
+file_browser& file_browser::set_theme(theme_mode theme) { theme_ = theme; return *this; }
+file_browser& file_browser::set_accent(std::string colour) {
+    if (!colour.empty() && !is_hex_colour(colour)) throw std::invalid_argument("file_browser: accent must be #rrggbb");
+    accent_ = std::move(colour);
+    return *this;
+}
+file_browser& file_browser::set_search(bool on) { search_ = on; return *this; }
+file_browser& file_browser::set_show_hidden(bool on) { show_hidden_ = on; return *this; }
+file_browser& file_browser::set_max_entries(std::size_t count) {
+    if (count == 0) throw std::invalid_argument("file_browser: max_entries must be above 0");
+    max_entries_ = count;
+    return *this;
+}
+file_browser& file_browser::set_view(view_mode view) { view_ = view; return *this; }
+file_browser& file_browser::set_sort(sort_key sort) { sort_ = sort; return *this; }
+
+void file_browser::mount(server& s, const std::string& base) const {
+    const std::string& root = root_.str();
     std::string prefix = base;
     while (!prefix.empty() && prefix.back() == '/') prefix.pop_back(); // "/" -> "" (the root of the server)
-    if (base.empty() || base[0] != '/') throw std::invalid_argument("mount_file_browser: base must start with '/'");
-    if (o.theme != "auto" && o.theme != "light" && o.theme != "dark") throw std::invalid_argument("mount_file_browser: theme must be auto, light or dark");
-    if (o.view != "list" && o.view != "grid") throw std::invalid_argument("mount_file_browser: view must be list or grid");
-    if (o.sort != "name" && o.sort != "size" && o.sort != "date") throw std::invalid_argument("mount_file_browser: sort must be name, size or date");
-    if (!o.accent.empty() && !is_hex_colour(o.accent)) throw std::invalid_argument("mount_file_browser: accent must be #rrggbb");
-    if (o.max_entries == 0) throw std::invalid_argument("mount_file_browser: max_entries must be above 0");
+    if (base.empty() || base[0] != '/') throw std::invalid_argument("file_browser: base must start with '/'");
     bool is_fs_root = false;
     const std::string real_root = root.empty() ? std::string() : canonical_root(root, is_fs_root);
-    if (real_root.empty()) throw std::invalid_argument("mount_file_browser: root is not a folder");
-    if (is_fs_root) throw std::invalid_argument("mount_file_browser: the root of the file system is not served");
+    if (real_root.empty()) throw std::invalid_argument("file_browser: root is not a folder");
+    if (is_fs_root) throw std::invalid_argument("file_browser: the root of the file system is not served");
 
     // The page: the embedded HTML with the title and the options filled in (the root path on disk is never in it).
     std::string html = embedded::file_browser_html_is_gzip
         ? detail::inflate(embedded::file_browser_html, embedded::file_browser_html_size, detail::inflate_format::gzip, embedded::file_browser_html_raw_size + 1)
         : std::string(reinterpret_cast<const char*>(embedded::file_browser_html), embedded::file_browser_html_size);
-    const std::string config = "{\"base\":" + json_string(prefix) + ",\"theme\":" + json_string(o.theme) + ",\"accent\":" + json_string(o.accent) +
-                               ",\"search\":" + (o.search ? "true" : "false") + ",\"view\":" + json_string(o.view) + ",\"sort\":" + json_string(o.sort) +
-                               ",\"limit\":" + std::to_string(o.max_entries) + "}";
+    const std::string config = "{\"base\":" + json_string(prefix) + ",\"theme\":" + json_string(theme_name(theme_)) + ",\"accent\":" + json_string(accent_) +
+                               ",\"search\":" + (search_ ? "true" : "false") + ",\"view\":" + json_string(view_name(view_)) + ",\"sort\":" + json_string(sort_name(sort_)) +
+                               ",\"limit\":" + std::to_string(max_entries_) + "}";
     replace_all(html, "__CONFIG__", config);
-    replace_all(html, "__TITLE__", html_escape(o.title));
+    replace_all(html, "__TITLE__", html_escape(title_));
 
     auto page = [html](const server_request&, response& res) {
         res.status = 200;
@@ -226,8 +256,8 @@ void mount_file_browser(server& s, const std::string& base, const path& root_dir
     if (prefix.empty()) s.get("/", page);
     else { s.get(prefix, page); s.get(prefix + "/", page); }
 
-    const bool show_hidden = o.show_hidden;
-    const std::size_t limit = o.max_entries;
+    const bool show_hidden = show_hidden_;
+    const std::size_t limit = max_entries_;
     s.get(prefix + "/api/list", [real_root, show_hidden, limit](const server_request& req, response& res) {
         std::string rel, dir;
         const path_result pr = clean_path(req.query_param("path"), show_hidden, rel);
@@ -259,11 +289,7 @@ void mount_file_browser(server& s, const std::string& base, const path& root_dir
         res.body = std::move(body);
     });
 
-    server::directory_options dopt;
-    dopt.index = false;
-    dopt.hidden = show_hidden;
-    dopt.download_active = true;
-    s.serve_directory(prefix + "/raw", real_root, dopt);
+    directory(path(real_root)).set_index(false).set_show_hidden(show_hidden_).set_download_active(true).mount(s, prefix + "/raw");
 }
 
 } // namespace httpp

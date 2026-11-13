@@ -193,7 +193,9 @@ cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, cbool f
     if ca_file is not None:
         cli.set_ca_file(_fs(ca_file))
     if proxy is not None:
-        cli.set_proxy((<str>proxy[0]).encode("utf-8"), <int>proxy[1])
+        if not isinstance(proxy, str):
+            raise TypeError("proxy must be a URL string such as 'http://user:pass@127.0.0.1:3128'")
+        cli.set_proxy(proxy.encode("utf-8"))
 
 
 cdef class Client:

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "httpp/export.hpp"
+#include "httpp/path.hpp"
 #include "httpp/server.hpp"
 
 #include <cstddef>
@@ -8,19 +9,15 @@
 
 namespace httpp {
 
-// How the file browser looks and how much it lists. The defaults are a sensible, safe setup.
-struct file_browser_options {
-    std::string title = "Files";     // shown in the page header and the tab (escaped, so any text is safe)
-    std::string theme = "auto";      // "auto" (follows the system), "light" or "dark"; the viewer can still switch it
-    std::string accent;              // "#rrggbb" (any case) or empty for the default colour
-    bool search = true;              // show the filter box (it filters the folder that is open, in the browser)
-    bool show_hidden = false;        // false: names that start with '.' are not listed and answer 404 when asked for by name
-    std::size_t max_entries = 5000;  // a folder with more entries is cut at this many and flagged "truncated" (must be above 0)
-    std::string view = "list";       // first view: "list" or "grid"
-    std::string sort = "name";       // first sort: "name", "size" or "date"
-};
-
-// A read-only file browser for the folder `root`, served under `base` ("/files", or "/" for the whole server):
+// A read-only file browser for the folder `root`. Configure it with the chained setters, then mount it on a server:
+//
+//   httpp::file_browser(root)
+//       .set_title("Shared")
+//       .set_theme(httpp::file_browser::theme_mode::dark)
+//       .set_accent("#2a7de1")
+//       .mount(server, "/files");
+//
+// What `mount(server, base)` serves ("/files", or "/" for the whole server):
 //   GET base                   the page (a single self-contained HTML document, compiled into the library)
 //   GET base/api/list?path=/a  the entries of a folder as JSON: {"path","entries":[{"name","type":"dir"|"file","size","mtime"}],"truncated","limit"}
 //   GET base/raw/<path>        the file itself (Range and HEAD work); anything that could run code in the page's origin (html, svg, xml, js,
@@ -28,7 +25,39 @@ struct file_browser_options {
 // Nothing can be written, renamed or deleted: no route accepts a body. The served root is a ceiling: ".." segments, backslashes, NUL, absolute paths and
 // symlinks that lead out of it are refused, and a missing, hidden or outside path gets the same 404. Names that are not valid UTF-8 are left out of
 // the listing. The `before` hook of the server runs first, so it is the place for authentication (this browser has none of its own).
-// Throws std::invalid_argument for a bad `base` (must start with '/'), an `root` that is not a folder, the root of the file system, or a bad option.
-HTTPP_API void mount_file_browser(server& s, const std::string& base, const path& root, const file_browser_options& options = {});
+// The defaults are a sensible, safe setup. A setter throws std::invalid_argument for a value it cannot use and then leaves the browser unchanged.
+class file_browser {
+public:
+    enum class theme_mode { system, light, dark };  // system follows the viewer's system setting; the viewer can still switch it
+    enum class view_mode { list, grid };            // the first view
+    enum class sort_key { name, size, date };       // the first sort
+
+    // `root` is checked when the browser is mounted, not here.
+    HTTPP_API explicit file_browser(path root);
+
+    HTTPP_API file_browser& set_title(std::string title);          // shown in the page header and the tab (escaped, so any text is safe); default "Files"
+    HTTPP_API file_browser& set_theme(theme_mode theme);           // default system
+    HTTPP_API file_browser& set_accent(std::string colour);        // "#rrggbb" (any case) or empty for the default colour; default empty
+    HTTPP_API file_browser& set_search(bool on);                   // the filter box (it filters the folder that is open, in the browser); default true
+    HTTPP_API file_browser& set_show_hidden(bool on);              // false: names that start with '.' are not listed and answer 404 when asked for by name; default false
+    HTTPP_API file_browser& set_max_entries(std::size_t count);    // a folder with more entries is cut at this many and flagged "truncated"; must be above 0; default 5000
+    HTTPP_API file_browser& set_view(view_mode view);              // default list
+    HTTPP_API file_browser& set_sort(sort_key sort);               // default name
+
+    // Adds the routes to `s` under `base` (must start with '/'). Throws std::invalid_argument for a bad `base`, a root that is not a folder, or the root
+    // of the file system. The browser can be mounted more than once (on several servers, or under several bases).
+    HTTPP_API void mount(server& s, const std::string& base = "/") const;
+
+private:
+    path root_;
+    std::string title_ = "Files";
+    std::string accent_;
+    theme_mode theme_ = theme_mode::system;
+    view_mode view_ = view_mode::list;
+    sort_key sort_ = sort_key::name;
+    bool search_ = true;
+    bool show_hidden_ = false;
+    std::size_t max_entries_ = 5000;
+};
 
 } // namespace httpp

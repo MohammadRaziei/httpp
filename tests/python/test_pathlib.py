@@ -54,7 +54,7 @@ def test_sha256_file_takes_a_path(tmp_path):
 def test_the_file_browser_root_and_file_take_a_path(tmp_path):
     (tmp_path / "a.txt").write_text("bee")
     app = Server()
-    app.mount_file_browser("/files", tmp_path)
+    httpp.FileBrowser(tmp_path).mount(app, "/files")
 
     @app.get("/raw")
     def raw():

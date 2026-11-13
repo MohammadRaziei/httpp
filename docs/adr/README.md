@@ -68,6 +68,10 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0061](0061-server-gzip-defaults.md) | Server gzip stays off by default, level 1, and its cost is documented | accepted |
 | [0063](0063-benchmark-json-and-docs-page.md) | The benchmark suite writes JSON; the docs site draws the charts | proposed |
 | [0064](0064-docs-site-on-github-pages.md) | The docs site is published to GitHub Pages | proposed |
+| [0065](0065-file-browser-builder.md) | The file browser is a builder class with enums | accepted, amends 0032 |
+| [0066](0066-option-structs-become-builders.md) | Middleware, directory and Swagger UI become builder classes (`cors`, `trusted_host`, `https_redirect`, `directory`, `swagger_ui`) | accepted |
+| [0067](0067-urls-are-httpp-url-and-proxy-is-a-url.md) | Every URL parameter is an `httpp::url` (implicit from string); the proxy is one URL with credentials | accepted |
+| [0068](0068-socks5-proxy.md) | SOCKS5 proxies (`socks5://`, `socks5h://`) through the same proxy URL | accepted |
 
 ## Not decided yet
 

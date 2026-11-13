@@ -22,36 +22,39 @@ curl -i http://127.0.0.1:8000/static/nope.txt # 404
 
 The first argument is the path in the URL and the second is the folder on disk. Everything under the folder is reachable below the mount path. A path that ends in `/`, and the mount path itself, answer with that folder's `index.html`. The type of each file comes from its extension.
 
-By default **files whose names start with a dot are served too**: `public/.env` would answer at `/static/.env`. Keep such files out of the folder, or in C++ switch that off, as shown below.
+By default **files whose names start with a dot are served too**: `public/.env` would answer at `/static/.env`. Keep such files out of the folder, or switch that off with `set_show_hidden(false)`, as shown below.
 
 The [hooks](hooks.mdx) of the server run for these requests as well, so a `before` hook can ask for a key before any file is handed out.
 
+## Settings
+
+`serve_directory(mount, folder)` is the short form. For anything else use `Directory` (`httpp::directory` in C++), whose settings are methods that return it, so they chain:
+
 <Only lang="cpp">
 
-## Options
-
-A third argument tunes how the folder answers:
-
 ```cpp
-httpp::server::directory_options options;
-options.hidden = false;          // a path with a dot-name in it answers 404, whatever is on disk
-options.download_active = true;  // html, svg and other types that can run code in the page are downloaded, not shown
-app.serve_directory("/static", "public", options);
+httpp::directory("public")
+    .set_show_hidden(false)        // a path with a dot-name in it answers 404, whatever is on disk
+    .set_download_active(true)     // html, svg and other types that can run code in the page are downloaded, not shown
+    .mount(app, "/static");
 ```
-
-`index` (default `true`) is the switch for the `index.html` answer. `download_active` also adds `X-Content-Type-Options: nosniff`, and `?download=1` on any file asks for a download.
 
 </Only>
 
 <Only lang="python">
 
-Python takes the two arguments only, so the defaults above apply. To list a folder for people to browse, or to keep the answers read-only and safe in the browser, see the [file browser](file-browser.mdx).
+```python
+httpp.Directory("public").set_show_hidden(False).set_download_active(True).mount(app, "/static")
+# or, with keywords: httpp.Directory("public", show_hidden=False, download_active=True).mount(app, "/static")
+```
 
 </Only>
+
+`set_index(bool)` (default `true`) is the switch for the `index.html` answer. `set_download_active(true)` also adds `X-Content-Type-Options: nosniff`, and `?download=1` on any file asks for a download. `mount` raises `ValueError` (Python) or `std::invalid_argument` (C++) when the mount path does not start with `/`. To list a folder for people to browse, see the [file browser](file-browser.mdx).
 
 ## Where the two differ
 
 | | Python | C++ |
 |---|---|---|
-| Call | `app.serve_directory(mount, folder)` | `app.serve_directory(mount, folder)` |
-| Options (`index`, `hidden`, `download_active`) | not available | `httpp::server::directory_options` as a third argument |
+| Short call | `app.serve_directory(mount, folder)` | `app.serve_directory(mount, folder)` |
+| With settings | `httpp.Directory(folder).set_...().mount(app, mount)` | `httpp::directory(folder).set_...().mount(app, mount)` |

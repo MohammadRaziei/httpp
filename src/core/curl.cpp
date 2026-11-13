@@ -8,10 +8,10 @@ namespace httpp::curl {
 // A curl-flavoured face on httpp::request: same engine, same policy, nothing of its own.
 struct request::impl {
     httpp::request req;
-    explicit impl(std::string url) : req(std::move(url)) {}
+    explicit impl(const url& target) : req(target) {}
 };
 
-request::request(std::string url) : impl_(std::make_unique<impl>(std::move(url))) {}
+request::request(const url& target) : impl_(std::make_unique<impl>(target)) {}
 request::~request() = default;
 request::request(request&&) noexcept = default;
 request& request::operator=(request&&) noexcept = default;

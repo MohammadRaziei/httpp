@@ -423,3 +423,249 @@ UTEST(async_proxy, keep_alive_works_through_a_tunnel) {
     ASSERT_EQ(1, proxy.tunnels.load()); // one tunnel, three requests
     ASSERT_EQ(1, origin.handshakes_done.load());
 }
+
+// ------------------------------------------------------------------ proxy given as a URL (ADR-0067)
+
+UTEST(client_proxy_url, the_user_and_password_of_the_proxy_url_become_proxy_authorization) {
+    proxy_test_server proxy;
+    httpp::client c("http://origin.invalid:8080");
+    c.set_proxy("http://user:pass@127.0.0.1:" + std::to_string(proxy.port()));
+    auto r = c.get("/a/b?x=1");
+    ASSERT_EQ(200, r.status);
+    std::lock_guard<std::mutex> lk(proxy.mu);
+    ASSERT_TRUE(proxy.first_line == "GET http://origin.invalid:8080/a/b?x=1 HTTP/1.1");
+    ASSERT_TRUE(proxy.proxy_auth == "Basic dXNlcjpwYXNz");
+}
+
+UTEST(client_proxy_url, a_bad_proxy_is_refused_and_changes_nothing) {
+    proxy_test_server proxy;
+    httpp::client c("http://origin.invalid:8080");
+    c.set_proxy("http://127.0.0.1:" + std::to_string(proxy.port()));
+    for (const char* bad : {"127.0.0.1:3128", "https://127.0.0.1:3128", "socks4://127.0.0.1:1080", "http://", "nonsense"}) {
+        bool threw = false;
+        try { c.set_proxy(bad); } catch (const std::invalid_argument&) { threw = true; }
+        ASSERT_TRUE(threw);
+    }
+    ASSERT_EQ(200, c.get("/ok").status); // still the earlier proxy
+    c.set_proxy(""); // no proxy: origin.invalid cannot be reached directly
+    ASSERT_TRUE(c.get("/ok").status != 200);
+}
+
+UTEST(client_proxy_url, request_and_async_client_take_the_same_url) {
+    proxy_test_server proxy;
+    const std::string p = "http://u:p@127.0.0.1:" + std::to_string(proxy.port());
+    auto r = httpp::request("http://origin.invalid:8080/x").proxy(p).run();
+    ASSERT_EQ(200, r.status);
+    httpp::async_client ac("http://origin.invalid:8080");
+    ac.set_proxy(p);
+    ASSERT_EQ(200, ac.get("/x").get().status);
+}
+
+// ------------------------------------------------------------------ SOCKS5 proxy (ADR-0068)
+
+namespace {
+
+// A SOCKS5 proxy (RFC 1928, user/password RFC 1929) that records what it was asked and tunnels to 127.0.0.1:<the asked port>,
+// whatever name or address was asked for, so a name that does not exist can still be used as the target.
+struct socks_test_server {
+    asio::io_context io;
+    tcp::acceptor acc{io, tcp::endpoint(asio::ip::make_address("127.0.0.1"), 0)};
+    std::thread th;
+    std::mutex mu;
+    std::vector<std::thread> workers;
+    std::atomic<bool> stopping{false};
+    bool want_auth = false;
+    std::string user, pass;
+    int refuse_with = 0;            // a reply code of RFC 1928 (5 = connection refused)
+    bool bad_version = false;       // answer the greeting as if it were SOCKS4
+    int atyp = 0, asked_port = 0;
+    std::string asked_name;
+    std::atomic<int> tunnels{0};
+
+    int port() { return acc.local_endpoint().port(); }
+    socks_test_server() { th = std::thread([this] { loop(); }); }
+    ~socks_test_server() {
+        stopping = true;
+        { tcp::socket knock(io); std::error_code ec; knock.connect(tcp::endpoint(asio::ip::make_address("127.0.0.1"), static_cast<unsigned short>(port())), ec); }
+        if (th.joinable()) th.join();
+        for (auto& w : workers) w.join();
+    }
+    void loop() {
+        while (!stopping) {
+            auto s = std::make_shared<tcp::socket>(io);
+            std::error_code ec;
+            acc.accept(*s, ec);
+            if (ec || stopping) return;
+            std::lock_guard<std::mutex> lk(mu);
+            workers.emplace_back([this, s] { serve(s); });
+        }
+    }
+    static std::string take(tcp::socket& s, std::size_t n, std::error_code& ec) {
+        std::string b(n, '\0');
+        asio::read(s, asio::buffer(&b[0], n), ec);
+        return b;
+    }
+    void serve(std::shared_ptr<tcp::socket> s) {
+        std::error_code ec;
+        std::string g = take(*s, 2, ec);
+        if (ec) return;
+        const std::string methods = take(*s, static_cast<unsigned char>(g[1]), ec);
+        if (ec) return;
+        if (bad_version) { asio::write(*s, asio::buffer(std::string("\x04\x00", 2)), ec); return; }
+        if (want_auth) {
+            if (methods.find('\x02') == std::string::npos) { asio::write(*s, asio::buffer(std::string("\x05\xFF", 2)), ec); return; }
+            asio::write(*s, asio::buffer(std::string("\x05\x02", 2)), ec);
+            std::string a = take(*s, 2, ec);
+            if (ec) return;
+            const std::string u = take(*s, static_cast<unsigned char>(a[1]), ec);
+            const std::string pl = take(*s, 1, ec);
+            const std::string p = take(*s, static_cast<unsigned char>(pl[0]), ec);
+            if (ec) return;
+            const bool ok = u == user && p == pass;
+            asio::write(*s, asio::buffer(std::string(ok ? "\x01\x00" : "\x01\x01", 2)), ec);
+            if (!ok) return;
+        } else {
+            asio::write(*s, asio::buffer(std::string("\x05\x00", 2)), ec);
+        }
+        std::string r = take(*s, 4, ec);
+        if (ec) return;
+        std::string name;
+        const int t = static_cast<unsigned char>(r[3]);
+        if (t == 1) take(*s, 4, ec);
+        else if (t == 4) take(*s, 16, ec);
+        else { const std::string l = take(*s, 1, ec); name = take(*s, static_cast<unsigned char>(l[0]), ec); }
+        const std::string pb = take(*s, 2, ec);
+        if (ec) return;
+        const int target_port = (static_cast<unsigned char>(pb[0]) << 8) | static_cast<unsigned char>(pb[1]);
+        { std::lock_guard<std::mutex> lk(mu); atyp = t; asked_name = name; asked_port = target_port; }
+        if (refuse_with) {
+            std::string rep("\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00", 10);
+            rep[1] = static_cast<char>(refuse_with);
+            asio::write(*s, asio::buffer(rep), ec);
+            return;
+        }
+        tcp::socket up(io);
+        up.connect(tcp::endpoint(asio::ip::make_address("127.0.0.1"), static_cast<unsigned short>(target_port)), ec);
+        if (ec) { asio::write(*s, asio::buffer(std::string("\x05\x04\x00\x01\x00\x00\x00\x00\x00\x00", 10)), ec); return; }
+        ++tunnels;
+        asio::write(*s, asio::buffer(std::string("\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00", 10)), ec);
+        std::thread back([&] { proxy_test_server::pump(up, *s); });
+        proxy_test_server::pump(*s, up);
+        back.join();
+    }
+};
+
+async_job socks_job(int origin_port, int socks_port, const std::string& kind_host = "127.0.0.1") {
+    auto j = job_for(origin_port, false);
+    j.host = kind_host;
+    j.proxy_host = "127.0.0.1";
+    j.proxy_port = socks_port;
+    j.proxy_type = httpp::detail::proxy_kind::socks5;
+    return j;
+}
+
+} // namespace
+
+UTEST(async_socks5, plain_http_goes_through_the_tunnel_in_origin_form) {
+    http_test_server origin;
+    socks_test_server socks;
+    async_http eng;
+    auto r = run_now(eng, socks_job(origin.port(), socks.port()));
+    ASSERT_EQ(200, r.status);
+    ASSERT_TRUE(r.body == "reply 1");
+    ASSERT_EQ(1, socks.tunnels.load());
+    ASSERT_EQ(1, socks.atyp);
+    ASSERT_EQ(origin.port(), socks.asked_port);
+    std::lock_guard<std::mutex> lk(origin.mu);
+    ASSERT_TRUE(origin.last_head.rfind("GET ", 0) == 0);
+    ASSERT_TRUE(origin.last_head.find("http://") == std::string::npos); // origin form: the SOCKS proxy is not an HTTP proxy
+}
+
+UTEST(async_socks5, user_and_password_are_sent_and_checked) {
+    http_test_server origin;
+    socks_test_server socks;
+    socks.want_auth = true; socks.user = "bob"; socks.pass = "secret";
+    async_http eng;
+    auto good = socks_job(origin.port(), socks.port());
+    good.proxy_user = "bob"; good.proxy_password = "secret";
+    ASSERT_EQ(200, run_now(eng, std::move(good)).status);
+    auto bad = socks_job(origin.port(), socks.port());
+    bad.proxy_user = "bob"; bad.proxy_password = "wrong";
+    auto r = run_now(eng, std::move(bad));
+    ASSERT_TRUE(r.error == httpp::error_kind::connection);
+    ASSERT_TRUE(r.error_message.find("user name and password") != std::string::npos);
+    auto none = socks_job(origin.port(), socks.port()); // a proxy that wants a login and a client that has none
+    auto n = run_now(eng, std::move(none));
+    ASSERT_TRUE(n.error == httpp::error_kind::connection);
+    ASSERT_TRUE(n.error_message.find("authentication") != std::string::npos);
+}
+
+UTEST(async_socks5, socks5h_sends_the_name_and_socks5_sends_an_address) {
+    http_test_server origin;
+    socks_test_server socks;
+    async_http eng;
+    auto h = socks_job(origin.port(), socks.port(), "origin.invalid"); // not resolvable: only the proxy can know it
+    h.proxy_type = httpp::detail::proxy_kind::socks5h;
+    ASSERT_EQ(200, run_now(eng, std::move(h)).status);
+    {
+        std::lock_guard<std::mutex> lk(socks.mu);
+        ASSERT_EQ(3, socks.atyp);
+        ASSERT_TRUE(socks.asked_name == "origin.invalid");
+    }
+    auto local = socks_job(origin.port(), socks.port(), "localhost"); // socks5: resolved here, an address goes out
+    ASSERT_EQ(200, run_now(eng, std::move(local)).status);
+    std::lock_guard<std::mutex> lk(socks.mu);
+    ASSERT_TRUE(socks.atyp == 1 || socks.atyp == 4);
+}
+
+UTEST(async_socks5, a_refused_connection_and_a_non_socks_server_are_connection_errors) {
+    http_test_server origin;
+    socks_test_server socks;
+    socks.refuse_with = 5;
+    async_http eng;
+    auto r = run_now(eng, socks_job(origin.port(), socks.port()));
+    ASSERT_TRUE(r.error == httpp::error_kind::connection);
+    ASSERT_TRUE(r.error_message.find("connection refused") != std::string::npos);
+    socks_test_server old;
+    old.bad_version = true;
+    auto v = run_now(eng, socks_job(origin.port(), old.port()));
+    ASSERT_TRUE(v.error == httpp::error_kind::connection);
+    ASSERT_TRUE(v.error_message.find("not a SOCKS5 proxy") != std::string::npos);
+}
+
+UTEST(async_socks5, https_runs_inside_the_tunnel_and_the_pool_keeps_it) {
+    tls_server origin(testcerts::good_cert, testcerts::good_key, [](const std::string&) { return keep_response("through socks"); });
+    origin.keep_alive = true;
+    socks_test_server socks;
+    async_http eng;
+    const std::string ca = write_pem(testcerts::good_cert, "good");
+    for (int i = 0; i < 2; ++i) {
+        auto j = socks_job(origin.port(), socks.port());
+        j.tls = true; j.ca_file = ca; j.keep_alive = true;
+        auto r = run_now(eng, std::move(j));
+        ASSERT_EQ(200, r.status);
+        ASSERT_TRUE(r.body == "through socks");
+    }
+    ASSERT_EQ(1, socks.tunnels.load()); // one tunnel, two requests
+}
+
+UTEST(client_socks5, set_proxy_takes_a_socks_url_and_refuses_what_it_cannot_speak) {
+    http_test_server origin;
+    socks_test_server socks;
+    socks.want_auth = true; socks.user = "u s"; socks.pass = "p@ss"; // percent-encoded in the URL
+    httpp::client c("http://origin.invalid:" + std::to_string(origin.port()));
+    c.set_proxy("socks5h://u%20s:p%40ss@127.0.0.1:" + std::to_string(socks.port()));
+    ASSERT_EQ(200, c.get("/").status);
+    for (const char* bad : {"socks4://127.0.0.1:1080", "https://127.0.0.1:1", "socks5://", "127.0.0.1:1080"}) {
+        bool threw = false;
+        try { c.set_proxy(bad); } catch (const std::invalid_argument&) { threw = true; }
+        ASSERT_TRUE(threw);
+    }
+    bool too_long = false;
+    try { c.set_proxy("socks5://" + std::string(256, 'a') + ":x@h:1"); } catch (const std::invalid_argument&) { too_long = true; }
+    ASSERT_TRUE(too_long);
+    ASSERT_EQ(200, c.get("/").status); // the earlier proxy is still the one in use
+    bool target_refused = false; // a socks URL is a proxy address, never a place to fetch from
+    try { httpp::client::fetch("socks5://127.0.0.1:1080/"); } catch (const std::invalid_argument&) { target_refused = true; }
+    ASSERT_TRUE(target_refused);
+}

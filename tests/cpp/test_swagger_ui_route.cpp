@@ -1,4 +1,4 @@
-// httpp::mount_swagger_ui: /docs and its three files served from the bytes compiled into the library.
+// httpp::swagger_ui: /docs and its three files served from the bytes compiled into the library.
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/server.hpp"
@@ -13,14 +13,14 @@ using testutil::local_server;
 
 static bool rejects(const std::string& docs_path) {
     httpp::server s;
-    try { httpp::mount_swagger_ui(s, docs_path); } catch (const std::invalid_argument&) { return true; }
+    try { httpp::swagger_ui().set_docs_path(docs_path).mount(s); } catch (const std::invalid_argument&) { return true; }
     return false;
 }
 
 static bool contains(const std::string& s, const std::string& part) { return s.find(part) != std::string::npos; }
 
 UTEST(httpp_swagger_ui_route, serves_the_page_and_the_two_files_byte_for_byte) {
-    local_server srv([](httpp::server& s) { httpp::mount_swagger_ui(s); });
+    local_server srv([](httpp::server& s) { httpp::swagger_ui().mount(s); });
 
     auto page = httpp::client::fetch(srv.url("/docs"));
     ASSERT_EQ(200, page.status);
@@ -45,7 +45,7 @@ UTEST(httpp_swagger_ui_route, serves_the_page_and_the_two_files_byte_for_byte) {
 
 UTEST(httpp_swagger_ui_route, custom_path_title_and_openapi_url_are_escaped) {
     local_server srv([](httpp::server& s) {
-        httpp::mount_swagger_ui(s, "/api/docs/", "/v1/o\"</script>.json", "<b>My & API</b>");
+        httpp::swagger_ui().set_docs_path("/api/docs/").set_openapi_url("/v1/o\"</script>.json").set_title("<b>My & API</b>").mount(s);
     });
     auto page = httpp::client::fetch(srv.url("/api/docs/"));
     ASSERT_EQ(200, page.status);
@@ -70,7 +70,7 @@ static httpp::response get_asset(const local_server& srv, const std::string& acc
 }
 
 UTEST(httpp_swagger_ui_route, a_client_that_takes_gzip_gets_the_stored_bytes_as_they_are) {
-    local_server srv([](httpp::server& s) { httpp::mount_swagger_ui(s); });
+    local_server srv([](httpp::server& s) { httpp::swagger_ui().mount(s); });
     const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset("swagger-ui-bundle.js");
     auto res = get_asset(srv, "gzip, deflate");
     ASSERT_EQ(200, res.status);
@@ -83,7 +83,7 @@ UTEST(httpp_swagger_ui_route, a_client_that_takes_gzip_gets_the_stored_bytes_as_
 }
 
 UTEST(httpp_swagger_ui_route, a_client_that_does_not_take_gzip_gets_the_original) {
-    local_server srv([](httpp::server& s) { httpp::mount_swagger_ui(s); });
+    local_server srv([](httpp::server& s) { httpp::swagger_ui().mount(s); });
     const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset("swagger-ui-bundle.js");
     for (const char* accept : {"identity", "gzip;q=0, identity", "br"}) {
         auto res = get_asset(srv, accept);
@@ -96,7 +96,7 @@ UTEST(httpp_swagger_ui_route, a_client_that_does_not_take_gzip_gets_the_original
 }
 
 UTEST(httpp_swagger_ui_route, the_small_svg_and_css_follow_the_same_rule) {
-    local_server srv([](httpp::server& s) { httpp::mount_swagger_ui(s); });
+    local_server srv([](httpp::server& s) { httpp::swagger_ui().mount(s); });
     for (const char* name : {"swagger-ui.css", "swagger-api-icon.svg"}) {
         const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset(name);
         auto plain = get_asset(srv, "identity", name);
@@ -113,7 +113,7 @@ UTEST(httpp_swagger_ui_route, the_small_svg_and_css_follow_the_same_rule) {
 UTEST(httpp_swagger_ui_route, set_compression_does_not_compress_the_stored_bytes_again) {
     local_server srv([](httpp::server& s) {
         s.set_compression(1024);
-        httpp::mount_swagger_ui(s);
+        httpp::swagger_ui().mount(s);
     });
     const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset("swagger-ui-bundle.js");
     auto res = get_asset(srv, "gzip");

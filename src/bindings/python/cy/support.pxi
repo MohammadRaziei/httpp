@@ -49,39 +49,70 @@ cdef extern from "httpp/swagger_ui.hpp" namespace "httpp":
         string_view data
         bint gzip
     const swagger_ui_asset_t* find_swagger_ui_asset(string_view name) noexcept
-    void mount_swagger_ui(cpp_server& s, string docs_path, string openapi_url, string title) except +
+    cdef cppclass cpp_swagger_ui "httpp::swagger_ui":
+        cpp_swagger_ui() except +
+        cpp_swagger_ui& set_docs_path(string path) except +
+        cpp_swagger_ui& set_openapi_url(string url)
+        cpp_swagger_ui& set_title(string title)
+        void mount(cpp_server& s) except +
 
 
 cdef extern from "httpp/file_browser.hpp" namespace "httpp":
-    cdef cppclass cpp_file_browser_options "httpp::file_browser_options":
-        string title
-        string theme
-        string accent
-        bint search
-        bint show_hidden
-        size_t max_entries
-        string view
-        string sort
-    void mount_file_browser(cpp_server& s, const string& base, const string& root, const cpp_file_browser_options& options) except +
+    cdef cppclass cpp_file_browser "httpp::file_browser":
+        cpp_file_browser(const string& root) except +
+        cpp_file_browser& set_title(string title)
+        cpp_file_browser& set_accent(string colour) except +
+        cpp_file_browser& set_search(bint on)
+        cpp_file_browser& set_show_hidden(bint on)
+        cpp_file_browser& set_max_entries(size_t count) except +
+        void mount(cpp_server& s, const string& base) except +
 
+# The three enum setters take the enum's number: the numbers are checked against the C++ enums right here, so a reordering there fails the build.
+cdef extern from *:
+    """
+    static_assert(static_cast<int>(httpp::file_browser::theme_mode::system) == 0 && static_cast<int>(httpp::file_browser::theme_mode::light) == 1 &&
+                  static_cast<int>(httpp::file_browser::theme_mode::dark) == 2, "update the Theme enum in cy/file_browser.pxi");
+    static_assert(static_cast<int>(httpp::file_browser::view_mode::list) == 0 && static_cast<int>(httpp::file_browser::view_mode::grid) == 1,
+                  "update the View enum in cy/file_browser.pxi");
+    static_assert(static_cast<int>(httpp::file_browser::sort_key::name) == 0 && static_cast<int>(httpp::file_browser::sort_key::size) == 1 &&
+                  static_cast<int>(httpp::file_browser::sort_key::date) == 2, "update the Sort enum in cy/file_browser.pxi");
+    inline void httpp_cy_fb_theme(httpp::file_browser& b, int v) { b.set_theme(static_cast<httpp::file_browser::theme_mode>(v)); }
+    inline void httpp_cy_fb_view(httpp::file_browser& b, int v) { b.set_view(static_cast<httpp::file_browser::view_mode>(v)); }
+    inline void httpp_cy_fb_sort(httpp::file_browser& b, int v) { b.set_sort(static_cast<httpp::file_browser::sort_key>(v)); }
+    """
+    void fb_set_theme "httpp_cy_fb_theme"(cpp_file_browser& b, int v)
+    void fb_set_view "httpp_cy_fb_view"(cpp_file_browser& b, int v)
+    void fb_set_sort "httpp_cy_fb_sort"(cpp_file_browser& b, int v)
+
+
+
+cdef extern from "httpp/server.hpp" namespace "httpp":
+    cdef cppclass cpp_directory "httpp::directory":
+        cpp_directory(const string& root) except +
+        cpp_directory& set_index(bint on)
+        cpp_directory& set_show_hidden(bint on)
+        cpp_directory& set_download_active(bint on)
+        void mount(cpp_server& s, const string& base) except +
 
 cdef extern from "httpp/middleware.hpp" namespace "httpp":
-    cdef cppclass cpp_cors_options "httpp::cors_options":
-        vector[string] allow_origins
-        string allow_origin_regex
-        vector[string] allow_methods
-        vector[string] allow_headers
-        cbool allow_credentials
-        vector[string] expose_headers
-        int max_age
-    cdef cppclass cpp_trusted_host_options "httpp::trusted_host_options":
-        vector[string] allowed_hosts
-        cbool www_redirect
-    cdef cppclass cpp_https_redirect_options "httpp::https_redirect_options":
-        cbool trust_forwarded_proto
-    void add_https_redirect(cpp_server& s, const cpp_https_redirect_options& options) except +
-    void add_cors(cpp_server& s, const cpp_cors_options& options) except +
-    void add_trusted_host(cpp_server& s, const cpp_trusted_host_options& options) except +
+    cdef cppclass cpp_cors "httpp::cors":
+        cpp_cors() except +
+        cpp_cors& set_allow_origins(vector[string] v) except +
+        cpp_cors& set_allow_origin_regex(string v) except +
+        cpp_cors& set_allow_methods(vector[string] v) except +
+        cpp_cors& set_allow_headers(vector[string] v) except +
+        cpp_cors& set_allow_credentials(cbool v) except +
+        cpp_cors& set_expose_headers(vector[string] v) except +
+        cpp_cors& set_max_age(int v) except +
+        void install(cpp_server& s) except +
+    cdef cppclass cpp_trusted_host "httpp::trusted_host":
+        cpp_trusted_host(vector[string] hosts) except +
+        cpp_trusted_host& set_www_redirect(cbool v) except +
+        void install(cpp_server& s) except +
+    cdef cppclass cpp_https_redirect "httpp::https_redirect":
+        cpp_https_redirect() except +
+        cpp_https_redirect& set_trust_forwarded_proto(cbool v) except +
+        void install(cpp_server& s) except +
 
 
 cdef extern from "httpp/server.hpp" namespace "httpp":

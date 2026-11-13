@@ -1,4 +1,4 @@
-"""Server.mount_file_browser and `httpp browse`: the C++ browser through the Python API (the security matrix is in tests/cpp/test_file_browser.cpp)."""
+"""httpp.FileBrowser and `httpp browse`: the C++ browser through the Python API (the security matrix is in tests/cpp/test_file_browser.cpp)."""
 
 import json
 import os
@@ -12,7 +12,7 @@ from contextlib import contextmanager
 import pytest
 
 import httpp
-from httpp import Server
+from httpp import FileBrowser, Server
 
 
 @contextmanager
@@ -40,7 +40,7 @@ def tree(tmp_path):
 
 def test_lists_and_serves_files(tree):
     app = Server()
-    app.mount_file_browser("/files", str(tree), title="My <files>")
+    FileBrowser(tree).set_title("My <files>").mount(app, "/files")
     with running(app) as url:
         page = httpp.get(f"{url}/files")
         assert page.status == 200 and "My &lt;files&gt;" in page.text
@@ -55,33 +55,90 @@ def test_lists_and_serves_files(tree):
 
 def test_options_are_applied(tree):
     app = Server()
-    app.mount_file_browser("/", str(tree), show_hidden=True, max_entries=2)
+    FileBrowser(tree, show_hidden=True, max_entries=2).mount(app)
     with running(app) as url:
         listing = json.loads(httpp.get(f"{url}/api/list").text)
         assert len(listing["entries"]) == 2 and listing["truncated"] is True and listing["limit"] == 2
         assert httpp.get(f"{url}/raw/.hidden.txt").status == 200
 
 
-@pytest.mark.parametrize("kwargs", [{"theme": "purple"}, {"accent": "red"}, {"view": "tiles"}, {"sort": "color"}, {"max_entries": 0}])
-def test_bad_options_raise_value_error(tree, kwargs):
-    with pytest.raises(ValueError):
-        Server().mount_file_browser("/files", str(tree), **kwargs)
+def test_the_enums_and_the_keywords_reach_the_page(tree):
+    app = Server()
+    (FileBrowser(tree, accent="#12ab34", search=False)
+        .set_theme(FileBrowser.Theme.DARK).set_view(FileBrowser.View.GRID).set_sort(FileBrowser.Sort.DATE).mount(app, "/files"))
+    with running(app) as url:
+        page = httpp.get(f"{url}/files").text
+        for fragment in ('"theme":"dark"', '"view":"grid"', '"sort":"date"', '"accent":"#12ab34"', '"search":false'):
+            assert fragment in page
 
 
-def test_bad_base_and_root_raise_value_error(tree):
+def test_the_defaults_are_those_of_the_cpp_class(tree):
+    app = Server()
+    FileBrowser(tree).mount(app, "/files")
+    with running(app) as url:
+        page = httpp.get(f"{url}/files").text
+        for fragment in ('"theme":"auto"', '"view":"list"', '"sort":"name"', '"accent":""', '"search":true', '"limit":5000'):
+            assert fragment in page
+
+
+def test_the_setters_chain_and_one_browser_mounts_twice(tree):
+    fb = FileBrowser(tree)
+    assert fb.set_title("x") is fb and fb.set_theme(FileBrowser.Theme.LIGHT) is fb and fb.set_max_entries(3) is fb
+    first, second = Server(), Server()
+    fb.mount(first, "/a")
+    fb.mount(second, "/b")
+    with running(first) as url:
+        assert httpp.get(f"{url}/a/api/list").status == 200
+    with running(second) as url:
+        assert httpp.get(f"{url}/b/api/list").status == 200
+
+
+@pytest.mark.parametrize("call", [
+    lambda fb: fb.set_accent("red"),
+    lambda fb: fb.set_accent("#12345"),
+    lambda fb: fb.set_max_entries(0),
+    lambda fb: fb.set_max_entries(-1),
+])
+def test_a_bad_value_raises_value_error_at_the_setter_and_changes_nothing(tree, call):
+    fb = FileBrowser(tree)
     with pytest.raises(ValueError):
-        Server().mount_file_browser("files", str(tree))
+        call(fb)
+    app = Server()
+    fb.mount(app, "/files")
+    with running(app) as url:
+        page = httpp.get(f"{url}/files").text
+        assert '"accent":""' in page and '"limit":5000' in page
+
+
+@pytest.mark.parametrize("name,value", [("set_theme", "dark"), ("set_view", "grid"), ("set_sort", "date"),
+                                        ("set_theme", FileBrowser.View.GRID), ("set_view", FileBrowser.Sort.NAME), ("set_sort", 1)])
+def test_an_enum_setter_takes_only_its_own_enum(tree, name, value):
+    with pytest.raises(TypeError):
+        getattr(FileBrowser(tree), name)(value)
+
+
+@pytest.mark.parametrize("keyword,value", [("theme", "dark"), ("view", FileBrowser.Sort.NAME), ("accent", "red"), ("max_entries", 0)])
+def test_the_constructor_keywords_are_checked_like_the_setters(tree, keyword, value):
+    with pytest.raises((TypeError, ValueError)):
+        FileBrowser(tree, **{keyword: value})
+
+
+def test_bad_base_and_root_raise_value_error_when_mounting(tree):
     with pytest.raises(ValueError):
-        Server().mount_file_browser("/files", str(tree / "a.txt"))
-    with pytest.raises(ValueError):
-        Server().mount_file_browser("/files", str(tree / "missing"))
-    with pytest.raises(ValueError):
-        Server().mount_file_browser("/files", os.path.abspath(os.sep))
+        FileBrowser(tree).mount(Server(), "files")
+    for root in (tree / "a.txt", tree / "missing", os.path.abspath(os.sep)):
+        fb = FileBrowser(root)  # the root is checked when mounting, not here
+        with pytest.raises(ValueError):
+            fb.mount(Server(), "/files")
+
+
+def test_mount_file_browser_is_gone_from_server():
+    assert not hasattr(Server, "mount_file_browser")  # one way to do it, as in C++ (ADR-0065)
 
 
 def test_write_methods_are_refused(tree):
     app = Server()
-    app.mount_file_browser("/files", str(tree))
+    FileBrowser(tree).mount(app, "/files")
     with running(app) as url:
         for method in ("POST", "PUT", "DELETE", "PATCH"):
             r = httpp.request(method, f"{url}/files/raw/a.txt")

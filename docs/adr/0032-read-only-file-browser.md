@@ -1,6 +1,6 @@
 # ADR-0032: A read-only file browser
 
-- **Status:** accepted (C++ core, Python wrapper and `httpp browse` done)
+- **Status:** accepted (C++ core, Python wrapper and `httpp browse` done); the C++ API shape (a free function and an options struct) was replaced by ADR-0065
 - **Source:** `include/httpp/file_browser.hpp`, `src/core/file_browser.cpp`, `src/assets/file_browser.html`, `server::directory_options` in `src/core/server.cpp`, `tests/cpp/test_file_browser.cpp`
 
 ## Context

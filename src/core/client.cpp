@@ -22,9 +22,8 @@ using detail::header_list;
 using detail::request_spec;
 using detail::session_settings;
 
-endpoint parse_base(const std::string& base_url, const char* who) {
-    const url u = url::parse(base_url);
-    if (!u.valid()) throw std::invalid_argument(std::string(who) + ": not a usable http(s) URL: " + base_url);
+endpoint parse_base(const url& u, const char* who) {
+    if (!u.is_http()) throw std::invalid_argument(std::string(who) + ": not a usable http(s) URL: " + u.str());
     return endpoint_of(u, true);
 }
 
@@ -65,7 +64,7 @@ client::client(const std::string& host, int port, bool use_ssl) {
     impl_ = std::make_unique<impl>(std::move(e));
 }
 
-client::client(const std::string& base_url) : impl_(std::make_unique<impl>(parse_base(base_url, "httpp::client"))) {}
+client::client(const url& base_url) : impl_(std::make_unique<impl>(parse_base(base_url, "httpp::client"))) {}
 
 client::~client() = default;
 client::client(client&&) noexcept = default;
@@ -116,8 +115,9 @@ client& client::set_bearer_token(const std::string& token) {
     impl_->settings.update([&](session_settings& s) { s.set_bearer(token); });
     return *this;
 }
-client& client::set_proxy(const std::string& host, int port) {
-    impl_->settings.update([&](session_settings& s) { s.proxy_host = host; s.proxy_port = port; });
+client& client::set_proxy(const url& proxy_url) {
+    const auto p = detail::parse_proxy_url(proxy_url); // before touching anything: a bad URL changes nothing
+    impl_->settings.update([&](session_settings& s) { s.proxy = p; });
     return *this;
 }
 client& client::set_verify(bool enable) {
@@ -133,8 +133,9 @@ client& client::set_keep_alive(bool enable) {
     return *this;
 }
 
-response client::fetch(const std::string& full_url) {
-    if (!url::parse(full_url).valid())
+response client::fetch(const url& target) {
+    const std::string& full_url = target.str();
+    if (!target.is_http())
         throw std::invalid_argument("httpp::client::fetch: unsupported or invalid URL: " + full_url);
     session_settings once;
     once.keep_alive = false; // one request: do not park the connection
@@ -173,7 +174,7 @@ struct request::impl {
     }
 };
 
-request::request(std::string url) : impl_(std::make_unique<impl>(std::move(url))) {}
+request::request(const url& target) : impl_(std::make_unique<impl>(target.str())) {}
 request::~request() = default;
 request::request(request&&) noexcept = default;
 request& request::operator=(request&&) noexcept = default;
@@ -218,9 +219,9 @@ request& request::timeout(long seconds) { impl_->settings.timeout = seconds; ret
 request& request::follow_redirects(bool enable) { impl_->settings.follow = enable; return *this; }
 request& request::verify(bool enable) { impl_->settings.verify = enable; return *this; }
 request& request::ca_file(const path& file) { impl_->settings.ca_file = file.str(); return *this; }
-request& request::proxy(std::string host, int port) {
-    impl_->settings.proxy_host = std::move(host);
-    impl_->settings.proxy_port = port;
+request& request::proxy(const url& proxy_url) {
+    const auto p = detail::parse_proxy_url(proxy_url);
+    impl_->settings.proxy = p;
     return *this;
 }
 request& request::max_response_size(std::size_t bytes) { impl_->settings.max_response_size = bytes; return *this; }
@@ -284,7 +285,7 @@ struct async_client::impl {
     }
 };
 
-async_client::async_client(const std::string& base_url, std::size_t max_connections)
+async_client::async_client(const url& base_url, std::size_t max_connections)
     : impl_(std::make_shared<impl>()) {
     impl_->where = parse_base(base_url, "httpp::async_client");
     impl_->max_connections = max_connections == 0 ? 1 : max_connections;
@@ -351,9 +352,9 @@ async_client& async_client::set_basic_auth(const std::string& u, const std::stri
     return *this;
 }
 async_client& async_client::set_bearer_token(const std::string& token) { impl_->settings.set_bearer(token); return *this; }
-async_client& async_client::set_proxy(const std::string& host, int port) {
-    impl_->settings.proxy_host = host;
-    impl_->settings.proxy_port = port;
+async_client& async_client::set_proxy(const url& proxy_url) {
+    const auto p = detail::parse_proxy_url(proxy_url);
+    impl_->settings.proxy = p;
     return *this;
 }
 async_client& async_client::set_verify(bool enable) { impl_->settings.verify = enable; return *this; }

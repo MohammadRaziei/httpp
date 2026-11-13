@@ -15,7 +15,7 @@ namespace httpp {
 //
 // The bytes are stored gzip-compressed (about a quarter of the size, ADR-0031) unless libhttpp was built with
 // -DHTTPP_EMBED_COMPRESS=OFF. `data` is what is stored: when `gzip` is true it is a gzip stream (RFC 1952), not the
-// file; `raw_size` is the size of the file itself either way. mount_swagger_ui() sends the stored bytes as they are to
+// file; `raw_size` is the size of the file itself either way. swagger_ui::mount() sends the stored bytes as they are to
 // a client that accepts gzip, and inflates them for one that does not.
 struct swagger_ui_asset {
     std::string_view name;          // "swagger-ui-bundle.js"
@@ -28,11 +28,23 @@ struct swagger_ui_asset {
 // The asset called `name` ("swagger-ui-bundle.js", "swagger-ui.css", "swagger-api-icon.svg"), or nullptr.
 HTTPP_API const swagger_ui_asset* find_swagger_ui_asset(std::string_view name) noexcept;
 
-// Serve Swagger UI from `s`: the page at `docs_path` (with or without a trailing '/') and the three files under `docs_path`/<name>, all from the
-// bytes compiled into the library (nothing is read from disk). `openapi_url` is where the page loads the OpenAPI
-// document from; you serve that yourself. `docs_path` must start with '/' and name more than the root, otherwise
-// std::invalid_argument. A trailing '/' is accepted ("/docs/" and "/docs" give the same file URLs).
-HTTPP_API void mount_swagger_ui(server& s, const std::string& docs_path = "/docs",
-                                const std::string& openapi_url = "/openapi.json", const std::string& title = "API");
+// Swagger UI served from the bytes compiled into the library (nothing is read from disk, ADR-0066):
+// `swagger_ui().set_docs_path("/docs").set_openapi_url("/openapi.json").set_title("My API").mount(server)`.
+// The page is at the docs path (with or without a trailing '/') and the three files under <docs path>/<name>. The OpenAPI document is
+// served by you. set_docs_path throws std::invalid_argument unless the path starts with '/' and names more than the root (a trailing '/'
+// is accepted: "/docs/" and "/docs" give the same file URLs); a refused value leaves the object unchanged.
+class swagger_ui {
+public:
+    HTTPP_API swagger_ui();
+    HTTPP_API swagger_ui& set_docs_path(std::string path);      // default "/docs"
+    HTTPP_API swagger_ui& set_openapi_url(std::string url);     // where the page loads the OpenAPI document from; default "/openapi.json"
+    HTTPP_API swagger_ui& set_title(std::string title);         // shown in the tab (escaped); default "API"
+    HTTPP_API void mount(server& s) const;
+
+private:
+    std::string docs_path_;
+    std::string openapi_url_;
+    std::string title_;
+};
 
 } // namespace httpp

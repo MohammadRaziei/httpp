@@ -222,6 +222,9 @@ cdef class URL:
     cdef readonly bint valid
     cdef readonly str scheme
     cdef readonly str host
+    cdef readonly bint is_http
+    cdef readonly str username
+    cdef readonly str password
     cdef readonly int port
     cdef readonly str path
     cdef readonly str query
@@ -229,8 +232,11 @@ cdef class URL:
     def __init__(self, str raw):
         cdef cpp_url u = cpp_url.parse(raw.encode("utf-8"))
         self.valid = u.valid()
+        self.is_http = u.is_http()
         self.scheme = u.scheme().decode("utf-8", "replace")
         self.host = u.host().decode("utf-8", "replace")
+        self.username = u.username().decode("utf-8", "replace")
+        self.password = u.password().decode("utf-8", "replace")
         self.port = u.port()
         self.path = u.path().decode("utf-8", "replace")
         self.query = u.query().decode("utf-8", "replace")
@@ -362,8 +368,9 @@ cdef class Request:
         self._req.ca_file(_fs(path))
         return self
 
-    def proxy(self, str host, int port):
-        self._req.proxy(host.encode("utf-8"), port)
+    def proxy(self, str proxy_url):
+        """Send the request through an HTTP proxy: "http://[user[:pass]@]host[:port]". ValueError for anything else."""
+        self._req.proxy(proxy_url.encode("utf-8"))
         return self
 
     def max_response_size(self, size_t nbytes):
@@ -408,7 +415,7 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         cpp_async_client& set_bearer_token(string token) except +
         cpp_async_client& set_verify(cbool enable) except +
         cpp_async_client& set_ca_file(string path) except +
-        cpp_async_client& set_proxy(string host, int port) except +
+        cpp_async_client& set_proxy(string proxy_url) except +
 
 cdef extern from *:
     """

@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cstring>
 #include <future>
+#include <stdexcept>
 
 namespace httpp::detail {
 
@@ -81,6 +82,25 @@ std::string base64(const std::string& in) {
 
 } // namespace
 
+proxy_setting parse_proxy_url(const url& u) {
+    proxy_setting out;
+    if (u.str().empty()) return out;
+    if (!u.valid() || u.scheme() == "https")
+        throw std::invalid_argument("proxy: '" + u.str() + "' is not an http://, socks5:// or socks5h:// URL with a host");
+    out.host = u.host();
+    out.port = u.port();
+    if (u.scheme() == "http") {
+        if (!u.username().empty() || !u.password().empty()) out.authorization = "Basic " + base64(u.username() + ":" + u.password());
+    } else {
+        out.kind = u.scheme() == "socks5h" ? proxy_kind::socks5h : proxy_kind::socks5;
+        if (u.username().size() > 255 || u.password().size() > 255)
+            throw std::invalid_argument("proxy: a SOCKS5 user name and password are at most 255 bytes each");
+        out.user = u.username();
+        out.password = u.password();
+    }
+    return out;
+}
+
 // --- session_settings ---
 
 void session_settings::set_default_header(std::string name, std::string value) { set_header(headers, std::move(name), std::move(value)); }
@@ -123,8 +143,7 @@ bool session_settings::make_spec(const endpoint& where, const std::string& metho
     out.follow = follow;
     out.verify = verify;
     out.ca_file = ca_file;
-    out.proxy_host = proxy_host;
-    out.proxy_port = proxy_port;
+    out.proxy = proxy;
     out.max_response_size = max_response_size;
     out.keep_alive = keep_alive;
     return true;
@@ -148,7 +167,7 @@ bool session_settings::make_spec_for_url(const std::string& full_url, const std:
                                          std::string body_bytes, std::string ctype, request_spec& out,
                                          response& error) const {
     const url u = url::parse(full_url);
-    if (!u.valid()) {
+    if (!u.is_http()) {
         error = failed_response(error_kind::invalid_url, "not a usable http(s) URL: " + full_url);
         return false;
     }
@@ -182,8 +201,12 @@ async_job make_job(const request_spec& s) {
     j.verify = s.verify;
     j.ca_file = s.ca_file;
     j.keep_alive = s.keep_alive;
-    j.proxy_host = s.proxy_host;
-    j.proxy_port = s.proxy_port;
+    j.proxy_host = s.proxy.host;
+    j.proxy_port = s.proxy.port;
+    j.proxy_authorization = s.proxy.authorization;
+    j.proxy_type = s.proxy.kind;
+    j.proxy_user = s.proxy.user;
+    j.proxy_password = s.proxy.password;
     if (s.sink) { // a redirect we follow is not for the sink: its body is thrown away
         auto inner = s.sink;
         const bool follow = s.follow;
@@ -202,7 +225,7 @@ bool resolve_location(const request_spec& cur, std::string loc, request_spec& ne
     if (loc.empty()) return false;
     next = cur;
     auto adopt = [&](const url& u) {
-        if (!u.valid()) return false;
+        if (!u.is_http()) return false;
         next.scheme = u.scheme();
         next.host = u.host();
         next.port = u.port();

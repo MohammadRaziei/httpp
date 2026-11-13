@@ -1,0 +1,113 @@
+"""httpp.Directory and httpp.SwaggerUI: the builder classes of ADR-0066 through the Python API (the HTTP behaviour is tested in C++)."""
+
+import threading
+import time
+import urllib.error
+import urllib.request
+from contextlib import contextmanager
+
+import pytest
+
+from httpp import Directory, Server, SwaggerUI
+
+
+@contextmanager
+def running(app):
+    port = app.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=app.listen_after_bind)
+    th.start()
+    time.sleep(0.05)
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        app.stop()
+        th.join()
+
+
+def status(url):
+    try:
+        return urllib.request.urlopen(url).status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def test_directory_settings_chain_and_change_the_answer(tmp_path):
+    (tmp_path / "index.html").write_text("<h1>home</h1>")
+    (tmp_path / ".secret").write_text("x")
+    app = Server()
+    d = Directory(tmp_path)
+    assert d.set_index(False).set_show_hidden(False) is d
+    d.mount(app, "/site")
+    with running(app) as url:
+        assert status(url + "/site/") == 404
+        assert status(url + "/site/.secret") == 404
+        assert status(url + "/site/index.html") == 200
+
+
+def test_directory_keywords_and_defaults(tmp_path):
+    (tmp_path / "index.html").write_text("<h1>home</h1>")
+    (tmp_path / ".dot").write_text("x")
+    app = Server()
+    Directory(tmp_path).mount(app, "/a")
+    Directory(tmp_path, index=False, show_hidden=False).mount(app, "/b")
+    with running(app) as url:
+        assert status(url + "/a/") == 200 and status(url + "/a/.dot") == 200
+        assert status(url + "/b/") == 404 and status(url + "/b/.dot") == 404
+
+
+def test_directory_refuses_a_base_without_a_slash(tmp_path):
+    with pytest.raises(ValueError):
+        Directory(tmp_path).mount(Server(), "site")
+
+
+def test_swagger_ui_builder_serves_the_page_and_refuses_a_bad_path():
+    s = SwaggerUI()
+    with pytest.raises(ValueError):
+        s.set_docs_path("docs")
+    with pytest.raises(ValueError):
+        s.set_docs_path("/")
+    app = Server()
+    assert s.set_docs_path("/api/docs").set_title("T") is s
+    s.mount(app)  # the refused values left "/docs" default untouched until the valid one
+    with running(app) as url:
+        body = urllib.request.urlopen(url + "/api/docs").read().decode()
+        assert "swagger-ui" in body and "T - Swagger UI" in body
+
+
+def test_swagger_ui_keywords():
+    app = Server()
+    SwaggerUI(docs_path="/d", openapi_url="/o.json", title="K").mount(app)
+    with running(app) as url:
+        assert "/o.json" in urllib.request.urlopen(url + "/d").read().decode()
+
+
+def test_proxy_is_one_url_in_every_client(tmp_path):
+    from httpp import AsyncClient, Client, Request
+    for cls in (Client, AsyncClient):
+        cls("http://127.0.0.1:1", proxy="http://user:pass@127.0.0.1:3128")
+        with pytest.raises(TypeError):
+            cls("http://127.0.0.1:1", proxy=("127.0.0.1", 3128))
+        cls("http://127.0.0.1:1", proxy="socks5h://u:p@127.0.0.1:1080")
+        cls("http://127.0.0.1:1", proxy="socks5://127.0.0.1")
+        for bad in ("127.0.0.1:3128", "https://127.0.0.1:3128", "socks4://h:1", "socks5://"):
+            with pytest.raises(ValueError):
+                cls("http://127.0.0.1:1", proxy=bad)
+    Request("http://127.0.0.1:1").proxy("http://127.0.0.1:3128")
+    with pytest.raises(ValueError):
+        Request("http://127.0.0.1:1").proxy("nonsense")
+
+
+def test_url_exposes_the_decoded_user_and_password():
+    from httpp import URL
+    u = URL("http://us%40er:p%3Ass@h.example:81/x")
+    assert (u.username, u.password, u.host, u.port) == ("us@er", "p:ss", "h.example", 81)
+    assert URL("http://h.example/").username == ""
+
+
+def test_a_socks_url_is_a_proxy_address_not_a_place_to_fetch_from():
+    from httpp import URL, Client
+    u = URL("socks5h://u:p@127.0.0.1")
+    assert u.valid and not u.is_http and u.port == 1080 and u.username == "u"
+    assert URL("https://h/").is_http and not URL("ftp://h/").valid
+    with pytest.raises(ValueError):
+        Client("socks5://127.0.0.1:1080")

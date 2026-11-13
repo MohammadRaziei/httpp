@@ -6,7 +6,7 @@ title: Browse files
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
 
-`mount_file_browser` adds a page where people can look through a folder, search it, sort it and download files. It is read-only: no route accepts a body, so nothing can be uploaded, renamed or deleted. The page is one self-contained HTML document that comes with the library, so it needs no files of yours and no internet.
+`FileBrowser` (`httpp::file_browser` in C++) adds a page where people can look through a folder, search it, sort it and download files. It is read-only: no route accepts a body, so nothing can be uploaded, renamed or deleted. The page is one self-contained HTML document that comes with the library, so it needs no files of yours and no internet.
 
 <Lang name="file_browser" />
 
@@ -41,28 +41,31 @@ The folder you give is a ceiling. `..` segments, backslashes, NUL bytes, absolut
 
 The browser has **no login of its own**. The `before` hook of the server runs first, so that is the place to ask for a key or a session: see [hooks](hooks.mdx).
 
-## Options
+## Settings
 
-The same names work in both languages.
+Every setting is a method that returns the browser, so they chain, and the same names work in both languages. A bad value is refused where you set it and leaves the browser as it was.
 
-| Option | Default | Meaning |
+| Setting | Default | Meaning |
 |---|---|---|
-| `title` | `"Files"` | page header and tab title (escaped, any text is safe) |
-| `theme` | `"auto"` | `"auto"` follows the system, or `"light"` / `"dark"`; the viewer can still switch |
-| `accent` | empty | `"#rrggbb"` for the accent colour, empty for the default |
-| `search` | `true` | show the filter box (it filters the open folder in the browser) |
-| `show_hidden` | `false` | list and serve names that start with a dot |
-| `max_entries` | `5000` | a larger folder is cut at this many and flagged `"truncated"`; must be above 0 |
-| `view` | `"list"` | first view, `"list"` or `"grid"` |
-| `sort` | `"name"` | first sort, `"name"`, `"size"` or `"date"` |
+| `set_title(text)` | `"Files"` | page header and tab title (escaped, any text is safe) |
+| `set_theme(theme)` | `system` | `Theme.SYSTEM` follows the system, or `Theme.LIGHT` / `Theme.DARK`; the viewer can still switch |
+| `set_accent("#rrggbb")` | empty | accent colour, empty for the default |
+| `set_search(bool)` | `true` | show the filter box (it filters the open folder in the browser) |
+| `set_show_hidden(bool)` | `false` | list and serve names that start with a dot |
+| `set_max_entries(count)` | `5000` | a larger folder is cut at this many and flagged `"truncated"`; must be above 0 |
+| `set_view(view)` | `list` | first view, `View.LIST` or `View.GRID` |
+| `set_sort(key)` | `name` | first sort, `Sort.NAME`, `Sort.SIZE` or `Sort.DATE` |
 
-A bad `base` (it must start with `/`), a folder that does not exist or is the root of the file system, and a bad option value are errors when you mount it: `ValueError` in Python, `std::invalid_argument` in C++.
+In Python the enums are `httpp.FileBrowser.Theme`, `.View` and `.Sort`; in C++ they are `httpp::file_browser::theme_mode`, `view_mode` and `sort_key`. Python also takes the settings as keyword arguments: `httpp.FileBrowser("shared", title="Team files", view=httpp.FileBrowser.View.GRID)`.
+
+A bad `base` (it must start with `/`) and a folder that does not exist or is the root of the file system are errors when you call `mount`: `ValueError` in Python, `std::invalid_argument` in C++.
 
 ## Where the two differ
 
 | | Python | C++ |
 |---|---|---|
-| Mount | `app.mount_file_browser(base, root, title=...)` | `httpp::mount_file_browser(app, base, root, options)` |
-| Options | keyword arguments | members of `httpp::file_browser_options` |
+| Mount | `httpp.FileBrowser(root).set_title(...).mount(app, base)` | `httpp::file_browser(root).set_title(...).mount(app, base)` |
+| Settings | methods, or keyword arguments | methods |
+| Enums | `FileBrowser.Theme`, `.View`, `.Sort` | `theme_mode`, `view_mode`, `sort_key` |
 | Header | nothing to include | `httpp/file_browser.hpp` |
 | Bad setup | `ValueError` | `std::invalid_argument` |

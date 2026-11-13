@@ -1,5 +1,7 @@
 # ADR-0037: Middleware through `server::use()` and ready-made hooks
 
+> Note (ADR-0066): the options structs and `add_*` functions below are now the classes `cors`, `trusted_host` and `https_redirect` with `install(server&)`.
+
 - **Status:** accepted
 - **Source:** `include/httpp/middleware.hpp`, `src/core/middleware.cpp`, `server::use` in `src/core/server.cpp`, `src/bindings/python/httpp/middleware.py`
 

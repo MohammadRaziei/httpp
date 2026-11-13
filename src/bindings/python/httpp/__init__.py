@@ -26,7 +26,7 @@ if _sys.platform == "win32" and hasattr(_os, "add_dll_directory"):
     _os.add_dll_directory(_bin_dir)
 
 # Import the compiled Cython module
-from .httpp_cy import Client, download, Download, DownloadResult, Request, Response, URL
+from .httpp_cy import Client, Directory, download, Download, DownloadResult, FileBrowser, Request, Response, SwaggerUI, URL
 from .httpp_cy import set_log_file, set_log_system, set_log_callback
 from . import _log
 from ._log import set_log_level
@@ -68,7 +68,7 @@ def get_cmake_dir():
 
 __all__ = [
     "Client", "AsyncClient", "Request", "Response", "request", "get", "head", "options", "post", "put",
-    "patch", "delete", "Server", "run", "WebSocket", "WebSocketDisconnect", "ServerRequest", "ResponseHead", "file", "redirect", "set_cookie", "download", "Download", "DownloadResult", "URL", "progress", "utils",
+    "patch", "delete", "Server", "FileBrowser", "Directory", "SwaggerUI", "run", "WebSocket", "WebSocketDisconnect", "ServerRequest", "ResponseHead", "file", "redirect", "set_cookie", "download", "Download", "DownloadResult", "URL", "progress", "utils",
     "Query", "Path", "Header", "Cookie", "Body", "Depends", "APIRouter", "BackgroundTasks", "Form", "File", "UploadFile", "FormData",
     "HTTPException", "JSONResponse", "PlainTextResponse", "HTMLResponse", "RedirectResponse",
     "StreamingResponse", "FileResponse", "responses", "status", "middleware", "CORSMiddleware", "TrustedHostMiddleware", "GZipMiddleware", "HTTPSRedirectMiddleware",

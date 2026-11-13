@@ -19,44 +19,23 @@ cdef class Server:
         """Serve `local_dir` under `mount_path`, like `python -m http.server`."""
         self._srv.serve_directory(mount_path.encode("utf-8"), local_dir.encode("utf-8"))
 
-    def mount_swagger_ui(self, str docs_path, str openapi_url, str title):
-        """Serve Swagger UI at `docs_path` from the files compiled into libhttpp, entirely in C++ (no GIL)."""
-        mount_swagger_ui(self._srv[0], docs_path.encode("utf-8"), openapi_url.encode("utf-8"), title.encode("utf-8"))
-
-    def mount_file_browser(self, str base, root, *, str title="Files", str theme="auto", str accent="", bint search=True,
-                           bint show_hidden=False, max_entries=5000, str view="list", str sort="name"):
-        """Serve a read-only file browser for the folder `root` under `base` (see include/httpp/file_browser.hpp), entirely in C++ (no GIL).
-        Raises ValueError for a bad `base`, a `root` that is not a folder (or is the file system root) or a bad option."""
-        cdef cpp_file_browser_options o
-        if max_entries < 1:
-            raise ValueError("max_entries must be above 0")
-        o.title = title.encode("utf-8")
-        o.theme = theme.encode("utf-8")
-        o.accent = accent.encode("utf-8")
-        o.search = search
-        o.show_hidden = show_hidden
-        o.max_entries = <size_t>max_entries
-        o.view = view.encode("utf-8")
-        o.sort = sort.encode("utf-8")
-        mount_file_browser(self._srv[0], base.encode("utf-8"), _fs(root), o)
-
     def _add_cors(self, origins, str origin_regex, methods, headers, bint credentials, expose, int max_age):
         """Install the C++ CORS middleware (include/httpp/middleware.hpp); use Server.add_middleware(CORSMiddleware, ...)."""
-        cdef cpp_cors_options o
-        o.allow_origins = [x.encode("utf-8") for x in origins]
-        o.allow_origin_regex = origin_regex.encode("utf-8")
-        o.allow_methods = [x.encode("utf-8") for x in methods]
-        o.allow_headers = [x.encode("utf-8") for x in headers]
-        o.allow_credentials = credentials
-        o.expose_headers = [x.encode("utf-8") for x in expose]
-        o.max_age = max_age
-        add_cors(self._srv[0], o)
+        cdef cpp_cors c
+        c.set_allow_origins([x.encode("utf-8") for x in origins])
+        c.set_allow_origin_regex(origin_regex.encode("utf-8"))
+        c.set_allow_methods([x.encode("utf-8") for x in methods])
+        c.set_allow_headers([x.encode("utf-8") for x in headers])
+        c.set_allow_credentials(credentials)
+        c.set_expose_headers([x.encode("utf-8") for x in expose])
+        c.set_max_age(max_age)
+        c.install(self._srv[0])
 
     def _add_https_redirect(self, bint trust_forwarded_proto):
         """Install the C++ HTTPS redirect middleware; use Server.add_middleware(HTTPSRedirectMiddleware, ...)."""
-        cdef cpp_https_redirect_options o
-        o.trust_forwarded_proto = trust_forwarded_proto
-        add_https_redirect(self._srv[0], o)
+        cdef cpp_https_redirect r
+        r.set_trust_forwarded_proto(trust_forwarded_proto)
+        r.install(self._srv[0])
 
     def set_tls(self, cert_file, key_file, password=None):
         """Serve https and wss: a certificate chain (PEM, leaf first) and its private key (PEM; `password` when encrypted).
@@ -71,10 +50,12 @@ cdef class Server:
 
     def _add_trusted_host(self, hosts, bint www_redirect):
         """Install the C++ trusted-host middleware; use Server.add_middleware(TrustedHostMiddleware, ...)."""
-        cdef cpp_trusted_host_options o
-        o.allowed_hosts = [x.encode("utf-8") for x in hosts]
-        o.www_redirect = www_redirect
-        add_trusted_host(self._srv[0], o)
+        cdef cpp_trusted_host* t = new cpp_trusted_host([x.encode("utf-8") for x in hosts])
+        try:
+            t.set_www_redirect(www_redirect)
+            t.install(self._srv[0])
+        finally:
+            del t
 
     def add_route(self, str method, str path, handler):
         """Low-level: register `handler` for `method` + `path` ("/users/:id").

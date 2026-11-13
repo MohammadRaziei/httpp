@@ -184,7 +184,7 @@ download_result run_plain(const std::string& url_str, const std::string& dest_pa
 download_result run_resumable(const std::string& url_str, const std::string& dest_path, bool show_progress,
                               bool follow_redirects, bool force, long timeout_seconds) {
     download_result result;
-    if (!url::parse(url_str).valid()) {
+    if (!url::parse(url_str).is_http()) {
         result.error = "invalid or unsupported URL: " + url_str;
         return result;
     }
@@ -450,8 +450,8 @@ download_result execute(const job& j) {
 
 } // namespace
 
-download::download(std::string url, const path& dest_path)
-    : url_(std::move(url)), dest_path_(dest_path.str()) {}
+download::download(const url& source, const path& dest_path)
+    : url_(source.str()), dest_path_(dest_path.str()) {}
 
 download& download::output(const path& dest_path) {
     dest_path_ = dest_path.str();
@@ -488,8 +488,8 @@ download& download::sha256(std::string hex) {
     return *this;
 }
 
-download& download::sha256_url(std::string checksum_url) {
-    sha256_url_ = std::move(checksum_url);
+download& download::sha256_url(const url& checksum_url) {
+    sha256_url_ = checksum_url.str();
     use_sha256_url_ = true;
     return *this;
 }

@@ -57,8 +57,13 @@ std::string url::decode_component(const std::string& text) {
     return out;
 }
 
+url::url() = default;
+url::url(const std::string& raw) { *this = parse(raw); }
+url::url(const char* raw) { *this = parse(raw ? raw : ""); }
+
 url url::parse(const std::string& raw) {
     url u;
+    u.raw_ = raw;
 
     urlparser::url parsed;
     try {
@@ -73,8 +78,10 @@ url url::parse(const std::string& raw) {
         default_port = 80;
     } else if (scheme == "https") {
         default_port = 443;
+    } else if (scheme == "socks5" || scheme == "socks5h") {
+        default_port = 1080; // a proxy address (ADR-0068); not a place to fetch from, see is_http()
     } else {
-        return u; // invalid: httpp only deals in http(s)
+        return u; // invalid: not a scheme httpp knows
     }
 
     const std::string host(parsed.host_text());
@@ -82,6 +89,12 @@ url url::parse(const std::string& raw) {
         return u; // invalid: no host
     }
 
+    const std::string userinfo(parsed.userinfo());
+    if (!userinfo.empty()) {
+        const auto colon = userinfo.find(':');
+        u.username_ = decode_component(userinfo.substr(0, colon));
+        if (colon != std::string::npos) u.password_ = decode_component(userinfo.substr(colon + 1));
+    }
     u.scheme_ = scheme;
     u.host_ = host;
     u.port_ = (parsed.port() != 0) ? parsed.port() : default_port;

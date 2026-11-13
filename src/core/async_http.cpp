@@ -69,7 +69,8 @@ struct io_result {
     std::string data;        // read: plaintext (after TLS decryption)
 };
 
-using key_t = std::tuple<std::string, int, bool, bool, std::string, std::string, int>;
+// host, port, tls, verify, ca file, proxy host, proxy port, proxy kind, SOCKS user and password (the credentials shape the tunnel itself)
+using key_t = std::tuple<std::string, int, bool, bool, std::string, std::string, int, int, std::string, std::string>;
 
 } // namespace
 
@@ -99,7 +100,9 @@ struct async_http::impl {
     impl() : thread([this] { io.run(); }) {}
 
     static key_t key_of(const async_job& j) {
-        return {j.host, j.port, j.tls, j.verify, j.verify ? j.ca_file : std::string(), j.proxy_host, j.proxy_port};
+        const bool socks = !j.proxy_host.empty() && j.proxy_type != proxy_kind::http;
+        return {j.host, j.port, j.tls, j.verify, j.verify ? j.ca_file : std::string(), j.proxy_host, j.proxy_port,
+                static_cast<int>(j.proxy_type), socks ? j.proxy_user : std::string(), socks ? j.proxy_password : std::string()};
     }
 
     std::shared_ptr<connection> take_idle(const key_t& key);
@@ -184,6 +187,7 @@ struct async_http::impl {
         // ---- connect: resolve, connect, [proxy CONNECT], [TLS handshake] ----
         void connect(const async_job& job, std::function<void(io_result)> cb) {
             const bool via_proxy = !job.proxy_host.empty();
+            const bool socks = via_proxy && job.proxy_type != proxy_kind::http;
             if (job.tls) {
                 std::string err;
                 auto ctx = owner.context_for(job.verify, job.ca_file, err);
@@ -195,19 +199,123 @@ struct async_http::impl {
             const std::string& host = via_proxy ? job.proxy_host : job.host;
             const int port = via_proxy ? job.proxy_port : job.port;
             resolver.async_resolve(host, std::to_string(port),
-                [self = shared_from_this(), job_host = job.host, job_port = job.port, via_proxy, tunnel = via_proxy && job.tls,
-                 auth = job.proxy_authorization](std::error_code ec, tcp::resolver::results_type eps) {
+                [self = shared_from_this(), job_host = job.host, job_port = job.port, via_proxy, tunnel = via_proxy && !socks && job.tls,
+                 auth = job.proxy_authorization, socks, remote_dns = job.proxy_type == proxy_kind::socks5h,
+                 user = job.proxy_user, pass = job.proxy_password](std::error_code ec, tcp::resolver::results_type eps) {
                     if (self->closed) return;
                     if (ec) return self->fail(error_kind::connection, "cannot resolve host: " + ec.message());
                     self->arm();
                     asio::async_connect(self->sock, eps,
-                        [self, job_host, job_port, via_proxy, tunnel, auth](std::error_code ec2, const tcp::endpoint&) {
+                        [self, job_host, job_port, via_proxy, tunnel, auth, socks, remote_dns, user, pass](std::error_code ec2, const tcp::endpoint&) {
                             if (self->closed) return;
                             if (ec2) return self->fail(error_kind::connection, (via_proxy ? "cannot connect to the proxy: " : "cannot connect: ") + ec2.message());
+                            if (socks) return self->socks_handshake(job_host, job_port, remote_dns, user, pass);
                             if (tunnel) return self->open_tunnel(job_host, job_port, auth);
                             self->after_tcp();
                         });
                 });
+        }
+
+        // ---- SOCKS5 (RFC 1928, user/password RFC 1929): negotiate, authenticate, CONNECT; then the socket is a plain tunnel ----
+        void socks_write(std::string data, std::function<void()> next) {
+            wire = std::move(data);
+            arm();
+            asio::async_write(sock, asio::buffer(wire), [self = shared_from_this(), next = std::move(next)](std::error_code ec, std::size_t) {
+                if (self->closed) return;
+                if (ec) return self->fail(error_kind::connection, "SOCKS5 proxy write failed: " + ec.message());
+                next();
+            });
+        }
+
+        void socks_read(std::size_t n, std::function<void(std::string)> next) {
+            arm();
+            asio::async_read(sock, asio::buffer(&rbuf[0], n), [self = shared_from_this(), n, next = std::move(next)](std::error_code ec, std::size_t) {
+                if (self->closed) return;
+                if (ec) return self->fail(error_kind::connection, "the SOCKS5 proxy closed the connection during the handshake");
+                next(std::string(self->rbuf.data(), n));
+            });
+        }
+
+        void socks_handshake(const std::string& host, int port, bool remote_dns, const std::string& user, const std::string& pass) {
+            const bool auth = !user.empty() || !pass.empty();
+            socks_write(auth ? std::string("\x05\x02\x00\x02", 4) : std::string("\x05\x01\x00", 3),
+                [self = shared_from_this(), host, port, remote_dns, user, pass, auth] {
+                    self->socks_read(2, [self, host, port, remote_dns, user, pass, auth](std::string r) {
+                        if (static_cast<unsigned char>(r[0]) != 5) return self->fail(error_kind::connection, "not a SOCKS5 proxy (bad version in its reply)");
+                        const unsigned char method = static_cast<unsigned char>(r[1]);
+                        if (method == 0x00) return self->socks_request(host, port, remote_dns);
+                        if (method == 0x02 && auth) {
+                            std::string req(1, '\x01');
+                            req += static_cast<char>(user.size()); req += user;
+                            req += static_cast<char>(pass.size()); req += pass;
+                            return self->socks_write(std::move(req), [self, host, port, remote_dns] {
+                                self->socks_read(2, [self, host, port, remote_dns](std::string a) {
+                                    if (a[1] != 0) return self->fail(error_kind::connection, "the SOCKS5 proxy refused the user name and password");
+                                    self->socks_request(host, port, remote_dns);
+                                });
+                            });
+                        }
+                        self->fail(error_kind::connection, method == 0xFF ? "the SOCKS5 proxy accepts none of the offered authentication methods"
+                                                                          : "the SOCKS5 proxy chose an authentication method that was not offered");
+                    });
+                });
+        }
+
+        // The CONNECT request: an IP literal goes as an address; a name goes to the proxy (socks5h) or is resolved here first (socks5).
+        void socks_request(const std::string& host, int port, bool remote_dns) {
+            std::string literal = host;
+            if (literal.size() > 1 && literal.front() == '[' && literal.back() == ']') literal = literal.substr(1, literal.size() - 2);
+            std::error_code ip_ec;
+            const auto ip = asio::ip::make_address(literal, ip_ec);
+            if (!ip_ec) return socks_send_connect(ip, std::string(), port);
+            if (remote_dns) {
+                if (host.size() > 255) return fail(error_kind::connection, "the host name is too long for SOCKS5 (255 bytes)");
+                return socks_send_connect(asio::ip::address(), host, port);
+            }
+            arm();
+            resolver.async_resolve(host, std::to_string(port), [self = shared_from_this(), port](std::error_code ec, tcp::resolver::results_type eps) {
+                if (self->closed) return;
+                if (ec || eps.begin() == eps.end()) return self->fail(error_kind::connection, "cannot resolve host: " + ec.message());
+                self->socks_send_connect(eps.begin()->endpoint().address(), std::string(), port);
+            });
+        }
+
+        void socks_send_connect(const asio::ip::address& ip, const std::string& name, int port) {
+            std::string req("\x05\x01\x00", 3);
+            if (!name.empty()) {
+                req += '\x03';
+                req += static_cast<char>(name.size());
+                req += name;
+            } else if (ip.is_v4()) {
+                req += '\x01';
+                const auto b = ip.to_v4().to_bytes();
+                req.append(reinterpret_cast<const char*>(b.data()), b.size());
+            } else {
+                req += '\x04';
+                const auto b = ip.to_v6().to_bytes();
+                req.append(reinterpret_cast<const char*>(b.data()), b.size());
+            }
+            req += static_cast<char>((port >> 8) & 0xFF);
+            req += static_cast<char>(port & 0xFF);
+            socks_write(std::move(req), [self = shared_from_this()] {
+                self->socks_read(4, [self](std::string h) {
+                    static const char* why[] = {"succeeded", "general failure", "not allowed by the proxy's rules", "network unreachable",
+                                                "host unreachable", "connection refused", "TTL expired", "command not supported", "address type not supported"};
+                    const unsigned char rep = static_cast<unsigned char>(h[1]);
+                    if (static_cast<unsigned char>(h[0]) != 5) return self->fail(error_kind::connection, "not a SOCKS5 proxy (bad version in its reply)");
+                    if (rep != 0) return self->fail(error_kind::connection, std::string("the SOCKS5 proxy refused the connection: ") + (rep <= 8 ? why[rep] : "unknown error"));
+                    auto done = [self](std::string) { self->after_tcp(); };
+                    switch (static_cast<unsigned char>(h[3])) {
+                        case 1: return self->socks_read(4 + 2, done);
+                        case 4: return self->socks_read(16 + 2, done);
+                        case 3:
+                            return self->socks_read(1, [self, done](std::string len) {
+                                self->socks_read(static_cast<unsigned char>(len[0]) + 2, done);
+                            });
+                        default: return self->fail(error_kind::connection, "the SOCKS5 proxy sent an address type that is not defined");
+                    }
+                });
+            });
         }
 
         void open_tunnel(const std::string& host, int port, const std::string& auth) {
@@ -509,7 +617,7 @@ struct async_http::impl {
                     return fail(error_kind::other, "invalid header");
                 }
             }
-            const bool plain_via_proxy = !job.proxy_host.empty() && !job.tls;
+            const bool plain_via_proxy = !job.proxy_host.empty() && !job.tls && job.proxy_type == proxy_kind::http;
             std::string target = job.target;
             if (plain_via_proxy) { // absolute form: the proxy needs to know where to go
                 target = "http://" + job.host + (job.port != 80 ? ":" + std::to_string(job.port) : std::string()) + job.target;

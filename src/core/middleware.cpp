@@ -115,36 +115,56 @@ std::string encode(const std::string& s, bool keep_slash) {
 
 } // namespace
 
-void add_cors(server& s, const cors_options& o) {
-    if (o.max_age < 0) throw std::invalid_argument("add_cors: max_age must not be negative");
-    auto p = std::make_shared<cors_policy>();
-    if (!o.allow_origin_regex.empty()) {
+cors::cors() : methods_{"GET"} {}
+
+cors& cors::set_allow_origins(std::vector<std::string> origins) { origins_ = std::move(origins); return *this; }
+
+cors& cors::set_allow_origin_regex(std::string pattern) {
+    if (!pattern.empty()) {
         try {
-            p->origin_regex = std::make_unique<std::regex>(o.allow_origin_regex, std::regex::ECMAScript);
+            std::regex check(pattern, std::regex::ECMAScript);
         } catch (const std::regex_error& e) {
-            throw std::invalid_argument(std::string("add_cors: bad allow_origin_regex: ") + e.what());
+            throw std::invalid_argument(std::string("cors: bad allow_origin_regex: ") + e.what());
         }
     }
-    for (const auto& origin : o.allow_origins) {
+    origin_regex_ = std::move(pattern);
+    return *this;
+}
+
+cors& cors::set_allow_methods(std::vector<std::string> methods) { methods_ = std::move(methods); return *this; }
+cors& cors::set_allow_headers(std::vector<std::string> headers) { headers_ = std::move(headers); return *this; }
+cors& cors::set_allow_credentials(bool allow) { credentials_ = allow; return *this; }
+cors& cors::set_expose_headers(std::vector<std::string> headers) { expose_ = std::move(headers); return *this; }
+
+cors& cors::set_max_age(int seconds) {
+    if (seconds < 0) throw std::invalid_argument("cors: max_age must not be negative");
+    max_age_ = seconds;
+    return *this;
+}
+
+void cors::install(server& s) const {
+    auto p = std::make_shared<cors_policy>();
+    if (!origin_regex_.empty()) p->origin_regex = std::make_unique<std::regex>(origin_regex_, std::regex::ECMAScript);
+    for (const auto& origin : origins_) {
         if (origin == "*") p->any_origin = true;
         else p->origins.insert(origin);
     }
-    p->any_method = has(o.allow_methods, "*");
-    p->any_header = has(o.allow_headers, "*");
-    p->credentials = o.allow_credentials;
-    for (const auto& m : o.allow_methods) p->methods.push_back(upper(m));
+    p->any_method = has(methods_, "*");
+    p->any_header = has(headers_, "*");
+    p->credentials = credentials_;
+    for (const auto& m : methods_) p->methods.push_back(upper(m));
     p->allow_methods = p->any_method ? "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT" : join(p->methods);
     // Always allowed by the CORS spec (the request-header safelist); listed first so a preflight sees them.
     std::vector<std::string> shown = {"Accept", "Accept-Language", "Content-Language", "Content-Type"};
     for (const auto& h : shown) p->header_set.insert(lower(h));
-    for (const auto& h : o.allow_headers) {
+    for (const auto& h : headers_) {
         if (h == "*") continue;
         p->header_set.insert(lower(h));
         if (!has(shown, h)) shown.push_back(h);
     }
     p->allow_headers = join(shown);
-    p->expose = join(o.expose_headers);
-    p->max_age = std::to_string(o.max_age);
+    p->expose = join(expose_);
+    p->max_age = std::to_string(max_age_);
 
     auto before = [p](const server_request& req, response& res) {
         if (!is_preflight(req)) return false;
@@ -192,16 +212,29 @@ void add_cors(server& s, const cors_options& o) {
     s.use(std::move(before), std::move(after));
 }
 
-void add_trusted_host(server& s, const trusted_host_options& o) {
-    if (o.allowed_hosts.empty()) throw std::invalid_argument("add_trusted_host: allowed_hosts must not be empty");
+trusted_host::trusted_host(std::vector<std::string> allowed_hosts) { set_allowed_hosts(std::move(allowed_hosts)); }
+
+trusted_host& trusted_host::set_allowed_hosts(std::vector<std::string> hosts) {
+    if (hosts.empty()) throw std::invalid_argument("trusted_host: allowed_hosts must not be empty");
+    for (const auto& raw : hosts) {
+        const std::string h = lower(raw);
+        const bool wildcard = h == "*" || (h.compare(0, 2, "*.") == 0 && h.size() > 2 && h.find('*', 1) == std::string::npos);
+        if (!wildcard && (h.empty() || h.find('*') != std::string::npos))
+            throw std::invalid_argument("trusted_host: '" + raw + "' is not a host name, \"*\" or \"*.domain\"");
+    }
+    hosts_ = std::move(hosts);
+    return *this;
+}
+
+trusted_host& trusted_host::set_www_redirect(bool redirect) { www_redirect_ = redirect; return *this; }
+
+void trusted_host::install(server& s) const {
     auto p = std::make_shared<host_policy>();
-    p->www_redirect = o.www_redirect;
-    for (const auto& raw : o.allowed_hosts) {
+    p->www_redirect = www_redirect_;
+    for (const auto& raw : hosts_) {
         const std::string h = lower(raw);
         if (h == "*") p->any = true;
-        else if (h.compare(0, 2, "*.") == 0 && h.size() > 2 && h.find('*', 1) == std::string::npos) p->suffixes.push_back(h.substr(1));
-        else if (h.empty() || h.find('*') != std::string::npos)
-            throw std::invalid_argument("add_trusted_host: '" + raw + "' is not a host name, \"*\" or \"*.domain\"");
+        else if (h.compare(0, 2, "*.") == 0) p->suffixes.push_back(h.substr(1));
         else p->exact.push_back(h);
     }
     s.use([p](const server_request& req, response& res) {
@@ -226,8 +259,12 @@ void add_trusted_host(server& s, const trusted_host_options& o) {
     });
 }
 
-void add_https_redirect(server& s, const https_redirect_options& o) {
-    const bool trust = o.trust_forwarded_proto;
+https_redirect::https_redirect() = default;
+
+https_redirect& https_redirect::set_trust_forwarded_proto(bool trust) { trust_ = trust; return *this; }
+
+void https_redirect::install(server& s) const {
+    const bool trust = trust_;
     s.use([trust](const server_request& req, response& res) {
         if (req.secure) return false;
         if (trust && lower(trim(req.header("X-Forwarded-Proto"))) == "https") return false;

@@ -15,7 +15,7 @@ namespace httpp::curl {
 // (see src/core/curl.cpp).
 class request {
 public:
-    explicit HTTPP_API request(std::string url);
+    explicit HTTPP_API request(const url& target);
     HTTPP_API ~request();
 
     HTTPP_API request(request&&) noexcept;

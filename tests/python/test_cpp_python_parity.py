@@ -56,6 +56,7 @@ TARGETS = {
     ("progress.hpp", "bar"): httpp.progress.bar,
     ("server.hpp", "server"): httpp.Server,
     ("router.hpp", "router"): httpp.APIRouter,
+    ("server.hpp", "directory"): httpp.Directory,
     ("server.hpp", "server_request"): httpp.ServerRequest,  # httpp::server_request: the handler's request object
     ("url.hpp", "url"): httpp.URL,
     ("logging.hpp", ""): None,  # the C++ module imitates Python's own `logging`, which is the Python side (ADR-0057)
@@ -63,9 +64,12 @@ TARGETS = {
     ("log.hpp", ""): httpp,
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("server.hpp", ""): httpp.utils,  # mime_type_for, the same way
-    ("swagger_ui.hpp", ""): httpp,
-    ("file_browser.hpp", ""): httpp,
-    ("middleware.hpp", ""): httpp,
+    ("swagger_ui.hpp", ""): httpp,  # find_swagger_ui_asset only (NOT_EXPOSED)
+    ("swagger_ui.hpp", "swagger_ui"): httpp.SwaggerUI,
+    ("file_browser.hpp", "file_browser"): httpp.FileBrowser,
+    ("middleware.hpp", "cors"): httpp.middleware.CORSMiddleware,
+    ("middleware.hpp", "trusted_host"): httpp.middleware.TrustedHostMiddleware,
+    ("middleware.hpp", "https_redirect"): httpp.middleware.HTTPSRedirectMiddleware,
     ("server.hpp", "responder"): None,  # handed to route_async handlers; Python handlers just return or await
     ("websocket.hpp", "websocket"): None,  # Python's WebSocket is its own awaitable API over a mailbox (ADR-0027), not this handle
     ("websocket.hpp", "ws_acceptor"): None,  # Python's handler accepts through `await websocket.accept()`
@@ -89,9 +93,6 @@ ALIASES = {
         "route_async": "route", "get_async": "get", "post_async": "post", "put_async": "put",
         "patch_async": "patch", "del_async": "delete",
     },
-    "": {"mount_swagger_ui": None, "mount_file_browser": None,
-         "add_cors": "CORSMiddleware", "add_trusted_host": "TrustedHostMiddleware",
-         "add_https_redirect": "HTTPSRedirectMiddleware"},  # live on Server (checked below)
 }
 
 # C++ setters that are constructor arguments in Python: name -> keyword, with a value that must be accepted.
@@ -100,15 +101,24 @@ CTOR_ARGS = {
         "set_timeout": ("timeout", 5), "set_follow_redirects": ("follow_redirects", True),
         "set_basic_auth": ("auth", ("u", "p")), "set_bearer_token": ("token", "t"),
         "set_verify": ("verify", False), "set_ca_file": ("ca_file", "ca.pem"),
-        "set_proxy": ("proxy", ("127.0.0.1", 3128)), "set_keep_alive": ("keep_alive", False),
+        "set_proxy": ("proxy", "http://127.0.0.1:3128"), "set_keep_alive": ("keep_alive", False),
     },
     "async_client": {
         "set_timeout": ("timeout", 5), "set_follow_redirects": ("follow_redirects", True),
         "set_basic_auth": ("auth", ("u", "p")), "set_bearer_token": ("token", "t"),
         "set_verify": ("verify", False), "set_ca_file": ("ca_file", "ca.pem"),
-        "set_proxy": ("proxy", ("127.0.0.1", 3128)), "set_header": ("headers", {"X": "1"}),
+        "set_proxy": ("proxy", "http://127.0.0.1:3128"), "set_header": ("headers", {"X": "1"}),
     },
 }
+
+CTOR_ARGS["cors"] = {
+    "set_allow_origins": ("allow_origins", ["https://a.example"]), "set_allow_origin_regex": ("allow_origin_regex", "https://.*"),
+    "set_allow_methods": ("allow_methods", ["GET"]), "set_allow_headers": ("allow_headers", ["X-A"]),
+    "set_allow_credentials": ("allow_credentials", True), "set_expose_headers": ("expose_headers", ["X-B"]),
+    "set_max_age": ("max_age", 5),
+}
+CTOR_ARGS["trusted_host"] = {"set_allowed_hosts": ("allowed_hosts", ["example.com"]), "set_www_redirect": ("www_redirect", False)}
+CTOR_ARGS["https_redirect"] = {"set_trust_forwarded_proto": ("trust_forwarded_proto", True)}
 
 # Public C++ names that Python deliberately does not carry (ADR-0017 rule 3). An entry must still be unbound (a test
 # checks), so adding the binding later forces the entry to go.
@@ -119,7 +129,7 @@ NOT_EXPOSED = {
     ("router", "route_ws"): "Python registers WebSocket routes with the APIRouter.websocket decorator (ADR-0048)",
     ("router", "route_io"): "same as server::route_io",
     ("router", "route_shared"): "same as server::route_shared",
-    ("", "find_swagger_ui_asset"): "internal lookup behind mount_swagger_ui, not meant for users",
+    ("", "find_swagger_ui_asset"): "internal lookup behind swagger_ui::mount, not meant for users",
 }
 
 
@@ -176,15 +186,16 @@ def test_aliases_point_at_real_python_names():
         for cpp, py in aliases.items():
             if py is not None:
                 assert py in _py_names(target), f"alias {owner}::{cpp} -> {py} does not exist"
-    assert "mount_swagger_ui" in _py_names(httpp.Server)
-    assert "mount_file_browser" in _py_names(httpp.Server)
 
 
 def test_cpp_setters_are_accepted_as_constructor_arguments():
-    for owner, cls in (("client", httpp.Client), ("async_client", httpp.AsyncClient)):
+    for owner, cls in (("client", httpp.Client), ("async_client", httpp.AsyncClient),
+                       ("cors", httpp.middleware.CORSMiddleware), ("trusted_host", httpp.middleware.TrustedHostMiddleware),
+                       ("https_redirect", httpp.middleware.HTTPSRedirectMiddleware)):
         for setter, (keyword, value) in CTOR_ARGS[owner].items():
             try:
-                cls("http://127.0.0.1:1", **{keyword: value})
+                args = () if owner in ("cors", "trusted_host", "https_redirect") else ("http://127.0.0.1:1",)
+                cls(*args, **{keyword: value})
             except TypeError as e:
                 pytest.fail(f"{owner}::{setter} should be {cls.__name__}({keyword}=...): {e}")
             except Exception:

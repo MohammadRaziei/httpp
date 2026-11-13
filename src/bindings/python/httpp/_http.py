@@ -45,7 +45,9 @@ def request(method, url, *, params=None, headers=None, data=None, json=None, for
     if ca_file is not None:
         req.ca_file(ca_file)
     if proxy is not None:
-        req.proxy(*proxy)
+        if not isinstance(proxy, str):
+            raise TypeError("proxy must be a URL string such as 'http://user:pass@127.0.0.1:3128'")
+        req.proxy(proxy)
     return req.run()
 
 

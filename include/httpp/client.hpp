@@ -2,6 +2,7 @@
 
 #include "httpp/export.hpp"
 #include "httpp/path.hpp"
+#include "httpp/url.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -129,7 +130,7 @@ public:
     explicit HTTPP_API client(const std::string& host, int port, bool use_ssl = false);
     // "http://host[:port][/base/path]" or "https://...". A base path is prepended to every
     // request path. Throws std::invalid_argument if the URL is not a usable http(s) URL.
-    explicit HTTPP_API client(const std::string& base_url);
+    explicit HTTPP_API client(const url& base_url);
     HTTPP_API ~client();
 
     HTTPP_API client(client&&) noexcept;
@@ -160,7 +161,10 @@ public:
     HTTPP_API client& set_follow_redirects(bool enable = true);
     HTTPP_API client& set_basic_auth(const std::string& user, const std::string& password);
     HTTPP_API client& set_bearer_token(const std::string& token);
-    HTTPP_API client& set_proxy(const std::string& host, int port);
+    // Send requests through an HTTP proxy: "http://[user[:pass]@]host[:port]" (user and pass percent-decoded, sent as Proxy-Authorization: Basic).
+    // http:// targets go to the proxy in absolute form, https:// targets through a CONNECT tunnel. "" = no proxy. Anything that is not
+    // an http:// URL with a host ("host:port", "https://...", "socks5://...") throws std::invalid_argument and changes nothing.
+    HTTPP_API client& set_proxy(const url& proxy_url);
     HTTPP_API client& set_verify(bool enable); // https: verify the server certificate (default true)
     HTTPP_API client& set_ca_file(const path& file); // https: trust this CA bundle instead of the system's
     HTTPP_API client& set_keep_alive(bool enable); // default true
@@ -168,7 +172,7 @@ public:
     // Parse `full_url` (via httpp::url) and GET it in one call - handles
     // http:// and https:// alike. No manual URL parsing needed by callers
     // (e.g. the CLI's `download` command).
-    static HTTPP_API response fetch(const std::string& full_url);
+    static HTTPP_API response fetch(const url& full_url);
 
 private:
     struct impl;
@@ -185,7 +189,7 @@ private:
 // httpp.ServerRequest), so the two names say which side they belong to: httpp::server_request(url)....run()
 class request {
 public:
-    explicit HTTPP_API request(std::string url);
+    explicit HTTPP_API request(const url& target);
     HTTPP_API ~request();
 
     HTTPP_API request(request&&) noexcept;
@@ -226,7 +230,7 @@ public:
     // the system's. And an HTTP proxy.
     HTTPP_API request& verify(bool enable);
     HTTPP_API request& ca_file(const path& file);
-    HTTPP_API request& proxy(std::string host, int port);
+    HTTPP_API request& proxy(const url& proxy_url); // same URL form and rules as client::set_proxy
 
     // Upper bound, in bytes, on the response body this request will
     // buffer into response::body. 0 (the default) means no limit, which
@@ -260,7 +264,7 @@ class async_client {
 public:
     using headers_t = client::headers_t;
 
-    explicit HTTPP_API async_client(const std::string& base_url, std::size_t max_connections = 8);
+    explicit HTTPP_API async_client(const url& base_url, std::size_t max_connections = 8);
     HTTPP_API ~async_client();
     HTTPP_API async_client(async_client&&) noexcept;
     HTTPP_API async_client& operator=(async_client&&) noexcept;
@@ -292,7 +296,7 @@ public:
     HTTPP_API async_client& set_bearer_token(const std::string& token);
     HTTPP_API async_client& set_verify(bool enable);
     HTTPP_API async_client& set_ca_file(const path& file);
-    HTTPP_API async_client& set_proxy(const std::string& host, int port);
+    HTTPP_API async_client& set_proxy(const url& proxy_url); // same URL form and rules as client::set_proxy
 
 private:
     struct impl;

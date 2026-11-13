@@ -24,6 +24,18 @@
 
 namespace httpp::detail {
 
+// The proxy settings of one client or request, as parsed from "http://[user[:pass]@]host[:port]" (ADR-0067).
+struct proxy_setting {
+    std::string host;           // empty = no proxy
+    int port = 0;
+    proxy_kind kind = proxy_kind::http;
+    std::string authorization;  // http proxy: "Basic ..." for the Proxy-Authorization header, or empty
+    std::string user, password; // SOCKS5 proxy: RFC 1929 credentials, or empty
+};
+// An empty url (url("")) means no proxy. Accepts http://, socks5:// and socks5h:// with an optional user[:pass]@ and port. Throws
+// std::invalid_argument for anything else ("host:port", "https://...", socks4) and for a SOCKS user or password over 255 bytes.
+proxy_setting parse_proxy_url(const url& proxy);
+
 using header_list = std::vector<std::pair<std::string, std::string>>;
 
 // --- small value helpers ---
@@ -57,8 +69,7 @@ struct request_spec {
     bool follow = false;
     bool verify = true;
     std::string ca_file;
-    std::string proxy_host;
-    int proxy_port = 0;
+    proxy_setting proxy;
     std::size_t max_response_size = 0;
     bool keep_alive = true; // keep the connection in the engine's pool for the next request
     // Stream the final response body to this sink (it runs on download_async_http()). Redirect and
@@ -84,8 +95,7 @@ struct session_settings {
     bool follow = false;
     bool verify = true;
     std::string ca_file;
-    std::string proxy_host;
-    int proxy_port = 0;
+    proxy_setting proxy;
     std::size_t max_response_size = 0;
     bool keep_alive = true;
     bool has_basic = false;

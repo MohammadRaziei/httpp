@@ -230,7 +230,7 @@ UTEST(httpp_server_tls, set_tls_reports_a_missing_file_a_garbage_file_and_a_key_
 UTEST(httpp_server_tls, the_https_redirect_sends_plain_requests_to_https_and_lets_secure_ones_through) {
     local_server plain([](httpp::server& s) {
         s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "x"; });
-        httpp::add_https_redirect(s, {false});
+        httpp::https_redirect().install(s);
     });
     auto r = httpp::client("http://127.0.0.1:" + std::to_string(plain.port)).get("/x?a=1");
     ASSERT_EQ(307, r.status);
@@ -238,20 +238,20 @@ UTEST(httpp_server_tls, the_https_redirect_sends_plain_requests_to_https_and_let
 
     local_server proxied([](httpp::server& s) {
         s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "x"; });
-        httpp::add_https_redirect(s, {true}); // behind a proxy that terminates TLS and says so
+        httpp::https_redirect().set_trust_forwarded_proto(true).install(s); // behind a proxy that terminates TLS and says so
     });
     httpp::client c("http://127.0.0.1:" + std::to_string(proxied.port));
     ASSERT_EQ(200, c.get("/x", {{"X-Forwarded-Proto", "https"}}).status);
     ASSERT_EQ(307, c.get("/x", {{"X-Forwarded-Proto", "http"}}).status);
     local_server untrusted([](httpp::server& s) {
         s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "x"; });
-        httpp::add_https_redirect(s, {false}); // the header means nothing unless the owner trusts the proxy
+        httpp::https_redirect().install(s); // the header means nothing unless the owner trusts the proxy
     });
     ASSERT_EQ(307, httpp::client("http://127.0.0.1:" + std::to_string(untrusted.port)).get("/x", {{"X-Forwarded-Proto", "https"}}).status);
 
     local_server secure([](httpp::server& s) {
         tls_site(s);
-        httpp::add_https_redirect(s, {false});
+        httpp::https_redirect().install(s);
     });
     ASSERT_EQ(200, trusting(secure).get("/who").status);
 }
@@ -259,7 +259,7 @@ UTEST(httpp_server_tls, the_https_redirect_sends_plain_requests_to_https_and_let
 UTEST(httpp_server_tls, the_www_redirect_of_trusted_host_keeps_https) {
     local_server srv([](httpp::server& s) {
         tls_site(s);
-        httpp::add_trusted_host(s, {{"www.example.com"}, true});
+        httpp::trusted_host({"www.example.com"}).install(s);
     });
     tls_raw c;
     ASSERT_TRUE(c.connect(srv.port));

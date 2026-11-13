@@ -97,12 +97,7 @@ UTEST(httpp_middleware_use, a_server_without_hooks_is_unchanged) {
 namespace {
 void cors_site(httpp::server& s) {
     ok_route(s);
-    httpp::cors_options o;
-    o.allow_origins = {"https://a.example", "https://b.example"};
-    o.allow_methods = {"GET", "POST"};
-    o.allow_headers = {"X-Token"};
-    o.expose_headers = {"X-Total"};
-    httpp::add_cors(s, o);
+    httpp::cors().set_allow_origins({"https://a.example", "https://b.example"}).set_allow_methods({"GET", "POST"}).set_allow_headers({"X-Token"}).set_expose_headers({"X-Total"}).install(s);
 }
 } // namespace
 
@@ -137,9 +132,7 @@ UTEST(httpp_cors, a_preflight_with_a_bad_origin_method_or_header_is_a_400_with_t
 UTEST(httpp_cors, an_options_request_that_is_not_a_preflight_goes_to_the_router) {
     local_server srv([](httpp::server& s) {
         s.route("OPTIONS", "/x", [](const httpp::server_request&, httpp::response& res) { res.status = 204; res.headers.emplace_back("Allow", "GET"); });
-        httpp::cors_options o;
-        o.allow_origins = {"https://a.example"};
-        httpp::add_cors(s, o);
+        httpp::cors().set_allow_origins({"https://a.example"}).install(s);
     });
     httpp::client c(srv.url());
     auto r = c.options("/x", {{"Origin", "https://a.example"}}); // no Access-Control-Request-Method
@@ -175,9 +168,7 @@ UTEST(httpp_cors, the_headers_are_also_on_error_answers) {
 UTEST(httpp_cors, a_wildcard_sends_a_star_and_with_credentials_echoes_the_origin) {
     local_server star([](httpp::server& s) {
         ok_route(s);
-        httpp::cors_options o;
-        o.allow_origins = {"*"};
-        httpp::add_cors(s, o);
+        httpp::cors().set_allow_origins({"*"}).install(s);
     });
     auto a = httpp::client(star.url()).get("/x", {{"Origin", "https://any.example"}});
     ASSERT_STREQ("*", a.header("Access-Control-Allow-Origin").c_str());
@@ -185,10 +176,7 @@ UTEST(httpp_cors, a_wildcard_sends_a_star_and_with_credentials_echoes_the_origin
 
     local_server creds([](httpp::server& s) {
         ok_route(s);
-        httpp::cors_options o;
-        o.allow_origins = {"*"};
-        o.allow_credentials = true;
-        httpp::add_cors(s, o);
+        httpp::cors().set_allow_origins({"*"}).set_allow_credentials(true).install(s);
     });
     auto b = httpp::client(creds.url()).get("/x", {{"Origin", "https://any.example"}});
     ASSERT_STREQ("https://any.example", b.header("Access-Control-Allow-Origin").c_str());
@@ -199,11 +187,7 @@ UTEST(httpp_cors, a_wildcard_sends_a_star_and_with_credentials_echoes_the_origin
 UTEST(httpp_cors, a_wildcard_header_list_echoes_what_the_preflight_asks_for_and_methods_star_allows_any) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        httpp::cors_options o;
-        o.allow_origins = {"https://a.example"};
-        o.allow_methods = {"*"};
-        o.allow_headers = {"*"};
-        httpp::add_cors(s, o);
+        httpp::cors().set_allow_origins({"https://a.example"}).set_allow_methods({"*"}).set_allow_headers({"*"}).install(s);
     });
     auto r = httpp::client(srv.url()).options("/x", {{"Origin", "https://a.example"}, {"Access-Control-Request-Method", "PATCH"},
                                                      {"Access-Control-Request-Headers", "x-anything"}});
@@ -214,23 +198,21 @@ UTEST(httpp_cors, a_wildcard_header_list_echoes_what_the_preflight_asks_for_and_
 UTEST(httpp_cors, an_origin_regex_must_match_the_whole_origin) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        httpp::cors_options o;
-        o.allow_origin_regex = R"(https://.*\.example\.com)";
-        httpp::add_cors(s, o);
+        httpp::cors().set_allow_origin_regex(R"(https://.*\.example\.com)").install(s);
     });
     httpp::client c(srv.url());
     ASSERT_STREQ("https://app.example.com", c.get("/x", {{"Origin", "https://app.example.com"}}).header("Access-Control-Allow-Origin").c_str());
     ASSERT_STREQ("", c.get("/x", {{"Origin", "https://app.example.com.evil.io"}}).header("Access-Control-Allow-Origin").c_str());
 }
 
-UTEST(httpp_cors, bad_options_throw) {
+UTEST(httpp_cors, bad_settings_throw_and_change_nothing) {
+    httpp::cors c;
+    c.set_allow_origin_regex("https://ok");
+    ASSERT_TRUE(rejects([&] { c.set_allow_origin_regex("("); }));
+    ASSERT_TRUE(rejects([&] { c.set_max_age(-1); }));
+    // a refused value leaves the earlier one in place, and the chain still works
     httpp::server s;
-    httpp::cors_options bad_regex;
-    bad_regex.allow_origin_regex = "(";
-    ASSERT_TRUE(rejects([&] { httpp::add_cors(s, bad_regex); }));
-    httpp::cors_options bad_age;
-    bad_age.max_age = -1;
-    ASSERT_TRUE(rejects([&] { httpp::add_cors(s, bad_age); }));
+    c.set_max_age(5).set_allow_credentials(true).install(s);
 }
 
 // ---------------------------------------------------------------- trusted host
@@ -238,7 +220,7 @@ UTEST(httpp_cors, bad_options_throw) {
 UTEST(httpp_trusted_host, a_listed_host_passes_with_or_without_a_port_and_any_other_is_a_400) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        httpp::add_trusted_host(s, {{"example.com"}, true});
+        httpp::trusted_host({"example.com"}).install(s);
     });
     ASSERT_TRUE(contains(raw_get(srv.port, "example.com"), "200 OK"));
     ASSERT_TRUE(contains(raw_get(srv.port, "example.com:8080"), "200 OK"));
@@ -251,7 +233,7 @@ UTEST(httpp_trusted_host, a_listed_host_passes_with_or_without_a_port_and_any_ot
 UTEST(httpp_trusted_host, a_subdomain_wildcard_matches_subdomains_only_and_star_matches_everything) {
     local_server sub([](httpp::server& s) {
         ok_route(s);
-        httpp::add_trusted_host(s, {{"*.example.com"}, false});
+        httpp::trusted_host({"*.example.com"}).set_www_redirect(false).install(s);
     });
     ASSERT_TRUE(contains(raw_get(sub.port, "api.example.com"), "200 OK"));
     ASSERT_TRUE(contains(raw_get(sub.port, "a.b.example.com"), "200 OK"));
@@ -260,7 +242,7 @@ UTEST(httpp_trusted_host, a_subdomain_wildcard_matches_subdomains_only_and_star_
 
     local_server any([](httpp::server& s) {
         ok_route(s);
-        httpp::add_trusted_host(s, {{"*"}, false});
+        httpp::trusted_host({"*"}).set_www_redirect(false).install(s);
     });
     ASSERT_TRUE(contains(raw_get(any.port, "whatever.test"), "200 OK"));
 }
@@ -268,7 +250,7 @@ UTEST(httpp_trusted_host, a_subdomain_wildcard_matches_subdomains_only_and_star_
 UTEST(httpp_trusted_host, www_redirect_goes_to_the_allowed_spelling) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        httpp::add_trusted_host(s, {{"www.example.com"}, true});
+        httpp::trusted_host({"www.example.com"}).install(s);
     });
     const std::string r = raw_get(srv.port, "example.com", "/x?a=1");
     ASSERT_TRUE(contains(r, " 307 "));
@@ -277,7 +259,7 @@ UTEST(httpp_trusted_host, www_redirect_goes_to_the_allowed_spelling) {
 
 UTEST(httpp_trusted_host, bad_options_throw) {
     httpp::server s;
-    ASSERT_TRUE(rejects([&] { httpp::add_trusted_host(s, {{}, true}); }));
-    ASSERT_TRUE(rejects([&] { httpp::add_trusted_host(s, {{"*example.com"}, true}); }));
-    ASSERT_TRUE(rejects([&] { httpp::add_trusted_host(s, {{"a.*.com"}, true}); }));
+    ASSERT_TRUE(rejects([&] { httpp::trusted_host(std::vector<std::string>{}); }));
+    ASSERT_TRUE(rejects([&] { httpp::trusted_host({"*example.com"}); }));
+    ASSERT_TRUE(rejects([&] { httpp::trusted_host({"a.*.com"}); }));
 }

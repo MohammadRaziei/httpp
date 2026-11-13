@@ -2,6 +2,7 @@
 
 #include "httpp/export.hpp"
 #include "httpp/path.hpp"
+#include "httpp/url.hpp"
 
 #include <chrono>
 #include <future>
@@ -39,7 +40,7 @@ public:
     // dest_path can be given here (the common case: url + where to save
     // it) or filled in later via output() - e.g. when it isn't known yet
     // at construction time, or alongside other fluent options.
-    explicit HTTPP_API download(std::string url, const path& dest_path = path());
+    explicit HTTPP_API download(const url& source, const path& dest_path = path());
 
     HTTPP_API download& output(const path& dest_path);
     HTTPP_API download& enable_progress(bool enable = true);
@@ -82,9 +83,9 @@ public:
 
     // Read the expected SHA-256 from a checksum file instead: one line as `sha256sum` writes it, i.e.
     // `<64 hex digits>` optionally followed by the file name (which must be the name in the download URL).
-    // `checksum_url` empty means `<download url>.sha256`. It is fetched before the file, so a missing or malformed
+    // `checksum_url` empty (the default, url("")) means `<download url>.sha256`. It is fetched before the file, so a missing or malformed
     // checksum file (an HTML error page, say) fails the call without downloading anything. Overrides sha256().
-    HTTPP_API download& sha256_url(std::string checksum_url = "");
+    HTTPP_API download& sha256_url(const url& checksum_url = url());
 
     // Seconds, for connecting, reading and writing (like client::set_timeout); 0 or less keeps the default
     // (300 s) for those. It is also how long a download waits for another process that holds the same file's

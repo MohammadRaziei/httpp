@@ -260,7 +260,9 @@ struct prepared {
 struct mount_entry {
     std::string prefix; // "/files" (no trailing slash, "" = root)
     std::string dir;
-    server::directory_options options;
+    bool index = true;
+    bool show_hidden = true;
+    bool download_active = false;
 };
 
 // True on the threads that run an engine (the I/O threads) while the server listens.
@@ -858,11 +860,11 @@ struct server::impl {
             bool safe = true;
             for (const auto& seg : split_path(rel.empty() ? "/" : rel)) {
                 if (seg == "..") safe = false;
-                if (!m.options.hidden && !seg.empty() && seg[0] == '.') safe = false; // also "." and ".hidden"
+                if (!m.show_hidden && !seg.empty() && seg[0] == '.') safe = false; // also "." and ".hidden"
             }
             if (!safe) continue; // never leave the mounted directory (and never show what the mount keeps hidden)
             const bool names_a_folder = rel.empty() || rel.back() == '/';
-            if (names_a_folder && !m.options.index) continue;
+            if (names_a_folder && !m.index) continue;
             std::string full = m.dir;
             if (!full.empty() && full.back() != '/' && full.back() != '\\') full += '/';
             full += rel.empty() ? "" : rel.substr(1);
@@ -870,13 +872,13 @@ struct server::impl {
             if (!inside_dir(full, m.dir)) continue; // a symlink must not lead out of the mounted directory
             const long long size = file_size(full);
             if (size < 0) continue;
-            return answer_file(req, send, full, size, m.options);
+            return answer_file(req, send, full, size, m);
         }
         return false;
     }
 
     // The answer for one existing file: validators, conditional requests (ADR-0045), then the whole file or a range.
-    bool answer_file(const server_request& req, const send_fn& send, const std::string& full, long long size, const server::directory_options& options) {
+    bool answer_file(const server_request& req, const send_fn& send, const std::string& full, long long size, const mount_entry& options) {
         {
             const httpp::path::status stamp = httpp::path(full).stat();
             const bool stamped = stamp.type == httpp::path::kind::file;
@@ -1329,14 +1331,19 @@ server& server::set_async_timeout(int seconds) {
 }
 
 void server::serve_directory(const std::string& mount_path, const std::string& local_dir) {
-    serve_directory(mount_path, local_dir, directory_options{});
+    directory(path(local_dir)).mount(*this, mount_path.empty() || mount_path[0] != '/' ? "/" + mount_path : mount_path);
 }
 
-void server::serve_directory(const std::string& mount_path, const std::string& local_dir, const directory_options& options) {
-    std::string prefix = mount_path;
+directory::directory(path root) : root_(std::move(root)) {}
+directory& directory::set_index(bool on) { index_ = on; return *this; }
+directory& directory::set_show_hidden(bool on) { show_hidden_ = on; return *this; }
+directory& directory::set_download_active(bool on) { download_active_ = on; return *this; }
+
+void directory::mount(server& s, const std::string& base) const {
+    if (base.empty() || base[0] != '/') throw std::invalid_argument("directory: base must start with '/'");
+    std::string prefix = base;
     while (!prefix.empty() && prefix.back() == '/') prefix.pop_back(); // "/" -> "" (the root)
-    if (!prefix.empty() && prefix[0] != '/') prefix = "/" + prefix;
-    impl_->mounts.push_back({std::move(prefix), local_dir, options});
+    s.impl_->mounts.push_back({std::move(prefix), root_.str(), index_, show_hidden_, download_active_});
 }
 
 int server::bind_to_any_port(const std::string& host) {

@@ -22,6 +22,13 @@
 
 namespace httpp::detail {
 
+// How the proxy of a job is spoken to (ADR-0067, ADR-0068).
+enum class proxy_kind {
+    http,    // plain http goes in absolute form, https through CONNECT; credentials are a Proxy-Authorization header
+    socks5,  // SOCKS5 (RFC 1928), the target name is resolved here and its address sent
+    socks5h, // SOCKS5, the target name is sent to the proxy to resolve
+};
+
 // Receives a response body as it arrives, instead of it being collected in response::body (downloads).
 // Both callbacks run on the engine's loop thread, so they may do short blocking work (a file write) but
 // belong on an engine of their own (see download_async_http()), not on the one API calls share.
@@ -58,7 +65,9 @@ struct async_job {
     // HTTP proxy. http:// targets are sent in absolute form; https:// targets are tunnelled with CONNECT.
     std::string proxy_host;
     int proxy_port = 0;
-    std::string proxy_authorization;    // value for Proxy-Authorization (e.g. "Basic ..."), or empty
+    std::string proxy_authorization;    // http proxy: value for Proxy-Authorization (e.g. "Basic ..."), or empty
+    proxy_kind proxy_type = proxy_kind::http;
+    std::string proxy_user, proxy_password; // SOCKS5 user/password authentication (RFC 1929); both empty = none
     // Stream the body to this sink; response::body stays empty and max_response_size does not apply.
     std::shared_ptr<body_sink> sink;
 };

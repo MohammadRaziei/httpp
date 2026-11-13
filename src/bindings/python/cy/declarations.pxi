@@ -21,7 +21,7 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         cpp_client& set_follow_redirects(cbool enable) except +
         cpp_client& set_basic_auth(string user, string password) except +
         cpp_client& set_bearer_token(string token) except +
-        cpp_client& set_proxy(string host, int port) except +
+        cpp_client& set_proxy(string proxy_url) except +
         cpp_client& set_verify(cbool enable) except +
         cpp_client& set_ca_file(string path) except +
         cpp_client& set_keep_alive(cbool enable) except +
@@ -315,6 +315,9 @@ cdef extern from "httpp/url.hpp" namespace "httpp":
         cbool valid()
         const string& scheme()
         const string& host()
+        bint is_http()
+        const string& username()
+        const string& password()
         int port()
         const string& path()
         const string& query()
@@ -337,6 +340,6 @@ cdef extern from "httpp/client.hpp" namespace "httpp::client":
         cpp_curl_request& follow_redirects(cbool enable) except +
         cpp_curl_request& verify(cbool enable) except +
         cpp_curl_request& ca_file(string path) except +
-        cpp_curl_request& proxy(string host, int port) except +
+        cpp_curl_request& proxy(string proxy_url) except +
         cpp_curl_request& max_response_size(size_t bytes) except +
         response run() except + nogil

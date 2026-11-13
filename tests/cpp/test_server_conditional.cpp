@@ -164,7 +164,7 @@ UTEST(httpp_server_conditional, a_missing_file_is_still_a_404_and_other_methods_
 
 UTEST(httpp_server_conditional, the_file_browser_raw_route_has_the_same_validators) {
     site s;
-    local_server srv([&](httpp::server& sv) { httpp::mount_file_browser(sv, "/files", s.dir.string()); });
+    local_server srv([&](httpp::server& sv) { httpp::file_browser(s.dir.string()).mount(sv, "/files"); });
     auto r = get(srv, "/files/raw/a.txt");
     ASSERT_EQ(200, r.status);
     ASSERT_FALSE(r.header("ETag").empty());

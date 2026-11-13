@@ -114,7 +114,13 @@ struct browse_args {
     std::string host = "127.0.0.1";
     int port = 8000;
     double grace = 10;
-    httpp::file_browser_options options;
+    std::string title = "Files";
+    std::string theme = "auto";
+    std::string accent;
+    bool hidden = false;
+    std::size_t max_entries = 5000;
+    std::string view = "list";
+    std::string sort = "name";
     bool no_search = false;
 };
 
@@ -122,10 +128,14 @@ int cmd_browse(const browse_args& a) {
     if (!is_directory(a.directory)) return fail("'" + a.directory + "' is not a folder");
     const std::string root = absolute_path(a.directory);
     httpp::server srv;
-    httpp::file_browser_options options = a.options;
-    options.search = !a.no_search;
     try {
-        httpp::mount_file_browser(srv, "/", root, options);
+        using fb = httpp::file_browser;
+        // The option values are checked by CLI11 against these names before this runs.
+        const fb::theme_mode theme = a.theme == "light" ? fb::theme_mode::light : a.theme == "dark" ? fb::theme_mode::dark : fb::theme_mode::system;
+        const fb::view_mode view = a.view == "grid" ? fb::view_mode::grid : fb::view_mode::list;
+        const fb::sort_key sort = a.sort == "size" ? fb::sort_key::size : a.sort == "date" ? fb::sort_key::date : fb::sort_key::name;
+        fb(root).set_title(a.title).set_theme(theme).set_accent(a.accent).set_search(!a.no_search).set_show_hidden(a.hidden)
+            .set_max_entries(a.max_entries).set_view(view).set_sort(sort).mount(srv, "/");
     } catch (const std::exception& e) {
         return fail(e.what());
     }
@@ -342,14 +352,14 @@ int main(int argc, char** argv) {
     c_browse->add_option("directory", b.directory, "The folder to browse")->capture_default_str();
     c_browse->add_option("--host", b.host, "Use 0.0.0.0 to share on every interface (there is no login)")->capture_default_str();
     c_browse->add_option("--port,-p", b.port)->check(CLI::Range(1, 65535))->capture_default_str();
-    c_browse->add_option("--title", b.options.title)->capture_default_str();
-    c_browse->add_option("--theme", b.options.theme)->check(CLI::IsMember({"auto", "light", "dark"}))->capture_default_str();
-    c_browse->add_option("--accent", b.options.accent, "Accent colour")->type_name("#RRGGBB");
+    c_browse->add_option("--title", b.title)->capture_default_str();
+    c_browse->add_option("--theme", b.theme)->check(CLI::IsMember({"auto", "light", "dark"}))->capture_default_str();
+    c_browse->add_option("--accent", b.accent, "Accent colour")->type_name("#RRGGBB");
     c_browse->add_flag("--no-search", b.no_search, "Hide the filter box");
-    c_browse->add_flag("--hidden", b.options.show_hidden, "List and serve names that start with a dot");
-    c_browse->add_option("--max-entries", b.options.max_entries, "Longest folder listing")->check(CLI::PositiveNumber)->capture_default_str()->type_name("N");
-    c_browse->add_option("--view", b.options.view)->check(CLI::IsMember({"list", "grid"}))->capture_default_str();
-    c_browse->add_option("--sort", b.options.sort)->check(CLI::IsMember({"name", "size", "date"}))->capture_default_str();
+    c_browse->add_flag("--hidden", b.hidden, "List and serve names that start with a dot");
+    c_browse->add_option("--max-entries", b.max_entries, "Longest folder listing")->check(CLI::PositiveNumber)->capture_default_str()->type_name("N");
+    c_browse->add_option("--view", b.view)->check(CLI::IsMember({"list", "grid"}))->capture_default_str();
+    c_browse->add_option("--sort", b.sort)->check(CLI::IsMember({"name", "size", "date"}))->capture_default_str();
     c_browse->add_option("--shutdown-timeout", b.grace, "On Ctrl+C or SIGTERM, how long requests in progress may take to finish")
         ->check(CLI::NonNegativeNumber)->capture_default_str()->type_name("SECONDS");
 

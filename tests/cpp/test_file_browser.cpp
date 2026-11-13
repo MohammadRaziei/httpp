@@ -1,4 +1,4 @@
-// httpp::mount_file_browser: a read-only file browser. The tests that matter most are the ones that try to leave the served root.
+// httpp::file_browser: a read-only file browser. The tests that matter most are the ones that try to leave the served root.
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/file_browser.hpp"
@@ -101,9 +101,17 @@ raw_reply raw_request(int port, const std::string& method, const std::string& ta
 }
 #endif
 
-bool rejects(const std::string& base, const std::string& root, const httpp::file_browser_options& o = {}) {
+// Mounting is what refuses a bad base or a root that is not a folder.
+bool rejects(const std::string& base, const std::string& root) {
     httpp::server s;
-    try { httpp::mount_file_browser(s, base, root, o); } catch (const std::invalid_argument&) { return true; }
+    try { httpp::file_browser(root).mount(s, base); } catch (const std::invalid_argument&) { return true; }
+    return false;
+}
+
+// The setters refuse a bad value at once, at the call that gives it.
+template <class F>
+bool setter_rejects(F&& f) {
+    try { f(); } catch (const std::invalid_argument&) { return true; }
     return false;
 }
 
@@ -111,7 +119,7 @@ bool rejects(const std::string& base, const std::string& root, const httpp::file
 
 UTEST(httpp_file_browser, lists_the_root_folders_first_and_hides_dotfiles_and_links_that_leave_the_root) {
     tree t;
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string()); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
     auto r = httpp::client::fetch(srv.url("/files/api/list"));
     ASSERT_EQ(200, r.status);
     EXPECT_TRUE(contains(r.header("Content-Type"), "application/json"));
@@ -137,10 +145,8 @@ UTEST(httpp_file_browser, lists_the_root_folders_first_and_hides_dotfiles_and_li
 
 UTEST(httpp_file_browser, show_hidden_lists_dotfiles_and_the_default_answers_404_for_them) {
     tree t;
-    httpp::file_browser_options shown;
-    shown.show_hidden = true;
-    local_server hidden([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string()); });
-    local_server open([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string(), shown); });
+    local_server hidden([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
+    local_server open([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_show_hidden(true).mount(s, "/files"); });
     EXPECT_EQ(404, httpp::client::fetch(hidden.url("/files/raw/.dotfile")).status);
     EXPECT_EQ(404, httpp::client::fetch(hidden.url("/files/raw/.hidden/secret.txt")).status);
     EXPECT_EQ(404, httpp::client::fetch(hidden.url("/files/api/list?path=.hidden")).status);
@@ -153,7 +159,7 @@ UTEST(httpp_file_browser, show_hidden_lists_dotfiles_and_the_default_answers_404
 #ifndef _WIN32
 UTEST(httpp_file_browser, nothing_outside_the_root_is_ever_returned) {
     tree t;
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string()); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
     const std::vector<std::string> targets = {
         "/files/raw/../outside/secret.txt",
         "/files/raw/%2e%2e/outside/secret.txt",
@@ -193,7 +199,7 @@ UTEST(httpp_file_browser, nothing_outside_the_root_is_ever_returned) {
 
 UTEST(httpp_file_browser, missing_hidden_and_outside_look_the_same) {
     tree t;
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string()); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
     auto missing = raw_request(srv.port, "GET", "/files/api/list?path=nope");
     auto hidden = raw_request(srv.port, "GET", "/files/api/list?path=.hidden");
     auto outside = raw_request(srv.port, "GET", "/files/api/list?path=dir_out");
@@ -209,7 +215,7 @@ UTEST(httpp_file_browser, missing_hidden_and_outside_look_the_same) {
 
 UTEST(httpp_file_browser, write_methods_do_nothing) {
     tree t;
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string()); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
     for (const char* method : {"POST", "PUT", "DELETE", "PATCH"}) {
         for (const char* target : {"/files/api/list", "/files/raw/a.txt", "/files/raw/new.txt", "/files", "/files/"}) {
             auto r = raw_request(srv.port, method, target);
@@ -226,7 +232,7 @@ UTEST(httpp_file_browser, write_methods_do_nothing) {
 UTEST(httpp_file_browser, a_name_that_is_not_utf8_is_left_out_of_the_json) {
     tree t;
     { std::ofstream(t.root / std::string("bad\xff\xfe.txt")) << "x"; }
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string()); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
     auto r = httpp::client::fetch(srv.url("/files/api/list"));
     ASSERT_EQ(200, r.status);
     EXPECT_FALSE(contains(r.body, "bad"));
@@ -239,7 +245,7 @@ UTEST(httpp_file_browser, a_unicode_name_is_listed_and_downloads_with_filename_s
     tree t;
     const std::string name = "caf\xc3\xa9.txt"; // café.txt
     write_file(t.root / name, "bean");
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string()); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
     auto list = httpp::client::fetch(srv.url("/files/api/list"));
     EXPECT_TRUE(contains(list.body, "\"name\":\"" + name + "\""));
     auto r = httpp::client::fetch(srv.url("/files/raw/caf%C3%A9.txt?download=1"));
@@ -251,7 +257,7 @@ UTEST(httpp_file_browser, a_unicode_name_is_listed_and_downloads_with_filename_s
 
 UTEST(httpp_file_browser, raw_serves_ranges_and_head_like_a_static_directory) {
     tree t;
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string()); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
     auto all = httpp::client::fetch(srv.url("/files/raw/a.txt"));
     ASSERT_EQ(200, all.status);
     EXPECT_STR_EQ("hello world", all.body);
@@ -276,7 +282,7 @@ UTEST(httpp_file_browser, active_and_unknown_types_are_always_downloads_and_noth
     write_file(t.root / "x.js", "alert(1)");
     write_file(t.root / "noext", "who knows");
     write_file(t.root / "pic.png", "not really a png");
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string()); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
     for (const char* name : {"evil.html", "x.svg", "x.xml", "x.js", "noext"}) {
         auto r = httpp::client::fetch(srv.url(std::string("/files/raw/") + name));
         ASSERT_EQ(200, r.status);
@@ -295,7 +301,7 @@ UTEST(httpp_file_browser, active_and_unknown_types_are_always_downloads_and_noth
 UTEST(httpp_file_browser, a_folder_is_not_a_file_and_index_html_is_not_served) {
     tree t;
     write_file(t.root / "sub" / "index.html", "<h1>index</h1>");
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string()); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
     EXPECT_EQ(404, httpp::client::fetch(srv.url("/files/raw/sub")).status);
     EXPECT_EQ(404, httpp::client::fetch(srv.url("/files/raw/sub/")).status);
     EXPECT_EQ(404, httpp::client::fetch(srv.url("/files/raw/")).status);
@@ -308,9 +314,7 @@ UTEST(httpp_file_browser, a_folder_is_not_a_file_and_index_html_is_not_served) {
 UTEST(httpp_file_browser, a_big_folder_is_cut_at_max_entries_and_says_so) {
     tree t;
     for (int i = 0; i < 10; i++) write_file(t.root / "many" / ("f" + std::to_string(i) + ".txt"), "x");
-    httpp::file_browser_options o;
-    o.max_entries = 3;
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string(), o); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_max_entries(3).mount(s, "/files"); });
     auto r = httpp::client::fetch(srv.url("/files/api/list?path=many"));
     ASSERT_EQ(200, r.status);
     EXPECT_TRUE(contains(r.body, "\"truncated\":true"));
@@ -322,14 +326,16 @@ UTEST(httpp_file_browser, a_big_folder_is_cut_at_max_entries_and_says_so) {
 
 UTEST(httpp_file_browser, the_page_is_html_with_the_options_filled_in_and_a_strict_policy) {
     tree t;
-    httpp::file_browser_options o;
-    o.title = "<b>My \"files\"</b>";
-    o.theme = "dark";
-    o.accent = "#12ab34";
-    o.view = "grid";
-    o.sort = "date";
-    o.search = false;
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/files", t.root.string(), o); });
+    local_server srv([&](httpp::server& s) {
+        httpp::file_browser(t.root.string())
+            .set_title("<b>My \"files\"</b>")
+            .set_theme(httpp::file_browser::theme_mode::dark)
+            .set_accent("#12ab34")
+            .set_view(httpp::file_browser::view_mode::grid)
+            .set_sort(httpp::file_browser::sort_key::date)
+            .set_search(false)
+            .mount(s, "/files");
+    });
     for (const char* path : {"/files", "/files/"}) {
         auto r = httpp::client::fetch(srv.url(path));
         ASSERT_EQ(200, r.status);
@@ -352,7 +358,7 @@ UTEST(httpp_file_browser, the_page_is_html_with_the_options_filled_in_and_a_stri
 
 UTEST(httpp_file_browser, can_be_mounted_at_the_root_of_a_server) {
     tree t;
-    local_server srv([&](httpp::server& s) { httpp::mount_file_browser(s, "/", t.root.string()); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/"); });
     EXPECT_EQ(200, httpp::client::fetch(srv.url("/")).status);
     EXPECT_TRUE(contains(httpp::client::fetch(srv.url("/api/list")).body, "\"name\":\"a.txt\""));
     EXPECT_STR_EQ("hello world", httpp::client::fetch(srv.url("/raw/a.txt")).body);
@@ -371,33 +377,41 @@ UTEST(httpp_file_browser, bad_arguments_are_refused_when_mounting) {
     EXPECT_TRUE(rejects("/files", "/"));                       // the whole disk is never served
     EXPECT_TRUE(rejects("/files", "//"));
 #endif
-    httpp::file_browser_options o;
-    o.accent = "red";
-    EXPECT_TRUE(rejects("/files", root, o));
-    o.accent = "#12345";
-    EXPECT_TRUE(rejects("/files", root, o));
-    o.accent = "#12345g";
-    EXPECT_TRUE(rejects("/files", root, o));
-    o.accent = "#12ab34\"><script>";
-    EXPECT_TRUE(rejects("/files", root, o));
-    o = {};
-    o.theme = "purple";
-    EXPECT_TRUE(rejects("/files", root, o));
-    o = {};
-    o.view = "tiles";
-    EXPECT_TRUE(rejects("/files", root, o));
-    o = {};
-    o.sort = "color";
-    EXPECT_TRUE(rejects("/files", root, o));
-    o = {};
-    o.max_entries = 0;
-    EXPECT_TRUE(rejects("/files", root, o));
-    o = {};
-    o.accent = "#ABCDEF"; // upper case hex is fine
-    EXPECT_FALSE(rejects("/files", root, o));
+    httpp::file_browser fb(root);
+    EXPECT_TRUE(setter_rejects([&] { fb.set_accent("red"); }));
+    EXPECT_TRUE(setter_rejects([&] { fb.set_accent("#12345"); }));
+    EXPECT_TRUE(setter_rejects([&] { fb.set_accent("#12345g"); }));
+    EXPECT_TRUE(setter_rejects([&] { fb.set_accent("#12ab34\"><script>"); }));
+    EXPECT_TRUE(setter_rejects([&] { fb.set_max_entries(0); }));
+    EXPECT_FALSE(setter_rejects([&] { fb.set_accent("#ABCDEF"); })); // upper case hex is fine
+    EXPECT_FALSE(setter_rejects([&] { fb.set_accent(""); }));         // empty means the default colour
 }
 
-UTEST(httpp_server_directory_options, the_old_serve_directory_still_serves_dotfiles_and_index_html) {
+UTEST(httpp_file_browser, the_setters_chain_and_a_refused_value_changes_nothing) {
+    tree t;
+    httpp::file_browser fb(t.root.string());
+    EXPECT_TRUE(&fb.set_title("x") == &fb);
+    EXPECT_TRUE(&fb.set_theme(httpp::file_browser::theme_mode::light).set_view(httpp::file_browser::view_mode::list) == &fb);
+    EXPECT_TRUE(setter_rejects([&] { fb.set_accent("red"); }));
+    EXPECT_TRUE(setter_rejects([&] { fb.set_max_entries(0); }));
+    local_server srv([&](httpp::server& s) { fb.mount(s, "/files"); });
+    auto r = httpp::client::fetch(srv.url("/files"));
+    ASSERT_EQ(200, r.status);
+    EXPECT_TRUE(contains(r.body, "\"accent\":\"\""));
+    EXPECT_TRUE(contains(r.body, "\"limit\":5000"));
+    EXPECT_TRUE(contains(r.body, "\"theme\":\"light\""));
+}
+
+UTEST(httpp_file_browser, the_system_theme_is_the_default_and_goes_to_the_page_as_auto) {
+    tree t;
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
+    auto r = httpp::client::fetch(srv.url("/files"));
+    EXPECT_TRUE(contains(r.body, "\"theme\":\"auto\""));
+    EXPECT_TRUE(contains(r.body, "\"view\":\"list\""));
+    EXPECT_TRUE(contains(r.body, "\"sort\":\"name\""));
+}
+
+UTEST(httpp_directory, serve_directory_keeps_the_defaults_dotfiles_and_index_html) {
     tree t;
     write_file(t.root / "index.html", "<h1>home</h1>");
     local_server srv([&](httpp::server& s) { s.serve_directory("/site", t.root.string()); });
@@ -406,4 +420,28 @@ UTEST(httpp_server_directory_options, the_old_serve_directory_still_serves_dotfi
     EXPECT_STR_EQ("<h1>home</h1>", home.body);
     EXPECT_FALSE(contains(home.header("Content-Disposition"), "attachment"));
     EXPECT_EQ(200, httpp::client::fetch(srv.url("/site/.dotfile")).status);
+}
+
+UTEST(httpp_directory, settings_chain_and_each_one_changes_the_answer) {
+    tree t;
+    write_file(t.root / "index.html", "<h1>home</h1>");
+    write_file(t.root / "page.html", "<p>x</p>");
+    local_server srv([&](httpp::server& s) {
+        httpp::directory(t.root.string()).set_index(false).set_show_hidden(false).set_download_active(true).mount(s, "/site");
+    });
+    EXPECT_EQ(404, httpp::client::fetch(srv.url("/site/")).status);          // set_index(false)
+    EXPECT_EQ(404, httpp::client::fetch(srv.url("/site/.dotfile")).status);  // set_show_hidden(false)
+    auto page = httpp::client::fetch(srv.url("/site/page.html"));            // set_download_active(true): html is not plainly harmless
+    EXPECT_EQ(200, page.status);
+    EXPECT_TRUE(contains(page.header("Content-Disposition"), "attachment"));
+    EXPECT_STR_EQ("nosniff", page.header("X-Content-Type-Options"));
+}
+
+UTEST(httpp_directory, a_base_that_does_not_start_with_a_slash_is_refused) {
+    tree t;
+    httpp::server s;
+    bool threw = false;
+    try { httpp::directory(t.root.string()).mount(s, "site"); } catch (const std::invalid_argument&) { threw = true; }
+    EXPECT_TRUE(threw);
+    httpp::directory(t.root.string()).mount(s); // the root is the default
 }

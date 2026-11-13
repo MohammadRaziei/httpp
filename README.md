@@ -111,6 +111,7 @@ Static files can be served next to your routes:
 
 ```python
 app.serve_directory("/static", "./public")
+httpp.Directory("./public", index=False, show_hidden=False).mount(app, "/assets")   # with settings
 ```
 
 ### Handler reference
@@ -292,7 +293,20 @@ def login():
 ### A read-only file browser
 
 ```python
-app.mount_file_browser("/files", "/srv/shared", title="Shared", theme="dark", accent="#2a7de1", show_hidden=False)
+from httpp import FileBrowser
+
+FileBrowser("/srv/shared", title="Shared", theme=FileBrowser.Theme.DARK, accent="#2a7de1").mount(app, "/files")
+# or chained: FileBrowser("/srv/shared").set_title("Shared").set_show_hidden(False).mount(app, "/files")
+```
+
+The same in C++ (a builder with enums; a bad accent or `max_entries` throws at the setter):
+
+```cpp
+httpp::file_browser("/srv/shared")
+    .set_title("Shared")
+    .set_theme(httpp::file_browser::theme_mode::dark)
+    .set_accent("#2a7de1")
+    .mount(server, "/files");
 ```
 
 ```
@@ -539,8 +553,8 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 ```
 
 The options are Starlette's. The work runs in C++ without the GIL: a CORS preflight is answered on the I/O thread and never reaches Python.
-`before_request` hooks run after the middleware, `after_request` hooks before it. In C++: `httpp::add_cors(server&, cors_options)`,
-`httpp::add_trusted_host(server&, trusted_host_options)` (`httpp/middleware.hpp`), or your own pair of hooks with `server::use(before, after)`.
+`before_request` hooks run after the middleware, `after_request` hooks before it. In C++: `httpp::cors().set_allow_origins({...}).install(server&)`,
+`httpp::trusted_host({...}).install(server&)` (`httpp/middleware.hpp`), or your own pair of hooks with `server::use(before, after)`.
 Not supported: ASGI middleware. `HTTPSRedirectMiddleware` sends plain requests to the https address (see TLS below).
 
 ## Build from source
