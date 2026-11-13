@@ -1,0 +1,57 @@
+---
+id: serve-directory
+title: Serve a folder
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+`serve_directory` makes a folder of files part of the server, like `python -m http.server` but inside your app. Use it for a site's images, scripts and pages, and for any file whose name the visitor chooses.
+
+<Lang name="serve_folder" />
+
+With a `public` folder that holds `index.html` and `notes.txt`:
+
+```bash
+curl http://127.0.0.1:8000/static/notes.txt   # the file public/notes.txt
+curl http://127.0.0.1:8000/static/            # public/index.html
+curl -i http://127.0.0.1:8000/static/nope.txt # 404
+```
+
+## What the code does
+
+The first argument is the path in the URL and the second is the folder on disk. Everything under the folder is reachable below the mount path. A path that ends in `/`, and the mount path itself, answer with that folder's `index.html`. The type of each file comes from its extension.
+
+By default **files whose names start with a dot are served too**: `public/.env` would answer at `/static/.env`. Keep such files out of the folder, or in C++ switch that off, as shown below.
+
+The [hooks](hooks.mdx) of the server run for these requests as well, so a `before` hook can ask for a key before any file is handed out.
+
+<Only lang="cpp">
+
+## Options
+
+A third argument tunes how the folder answers:
+
+```cpp
+httpp::server::directory_options options;
+options.hidden = false;          // a path with a dot-name in it answers 404, whatever is on disk
+options.download_active = true;  // html, svg and other types that can run code in the page are downloaded, not shown
+app.serve_directory("/static", "public", options);
+```
+
+`index` (default `true`) is the switch for the `index.html` answer. `download_active` also adds `X-Content-Type-Options: nosniff`, and `?download=1` on any file asks for a download.
+
+</Only>
+
+<Only lang="python">
+
+Python takes the two arguments only, so the defaults above apply. To list a folder for people to browse, or to keep the answers read-only and safe in the browser, see the [file browser](file-browser.mdx).
+
+</Only>
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Call | `app.serve_directory(mount, folder)` | `app.serve_directory(mount, folder)` |
+| Options (`index`, `hidden`, `download_active`) | not available | `httpp::server::directory_options` as a third argument |

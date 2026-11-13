@@ -1,0 +1,46 @@
+---
+id: send-file
+title: Send a file
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+A route can answer with a file from disk. The file is streamed with a known length and never loaded into memory whole, so a large file costs no more than a small one. The example below also asks the browser to save the file instead of showing it.
+
+<Lang name="send_file" />
+
+Put a `report.txt` next to the program, start it, and ask for the route:
+
+```bash
+curl -i http://127.0.0.1:8000/report
+# HTTP/1.1 200 OK
+# Content-Type: text/plain; charset=utf-8
+# Content-Disposition: attachment; filename="report.txt"
+```
+
+## What the code does
+
+`Content-Disposition: attachment` is what makes a browser download the answer rather than display it, and `filename` is the name it proposes. Leave the header out and the browser shows a file it knows how to show.
+
+<Only lang="python">
+
+`httpp.file(path)` is the response. It can be returned alone or as the first item of the `(body, status, headers)` tuple, as here. The `Content-Type` is guessed from the extension, or you pass one: `httpp.file(path, "text/csv")`. A file that is missing or cannot be read answers `404`. `httpp.FileResponse(path, media_type=...)` is the same thing as a response object.
+
+</Only>
+
+<Only lang="cpp">
+
+Set `res.file` and the body is streamed from that path with a known `Content-Length`. The `Content-Type` is not set for you, so set it yourself: `httpp::mime_type_for(path)` returns the type httpp gives a file by its extension (the same table mounted folders and Python's `httpp.file` use), and `application/octet-stream` when the extension is unknown. A file that is missing answers `404`, as in Python.
+
+</Only>
+
+The path is trusted. Never build it from what a visitor sent, because a name such as `../../etc/passwd` would walk out of your folder. For files that a visitor names, [serve a folder](serve-directory.mdx) and let httpp do the checking.
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Send a file | `return httpp.file(path)` | `res.file = path` |
+| Content type | guessed from the extension, or pass one | set it yourself, `httpp::mime_type_for(path)` helps |
+| Missing file | `404` | `404` |

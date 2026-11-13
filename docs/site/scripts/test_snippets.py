@@ -135,11 +135,55 @@ def check_download_async(out, cwd):
     saved_hello(cwd)
 
 
+# files a server snippet expects in its working folder
+FIXTURES = {
+    "send_file": {"report.txt": "quarterly numbers\n"},
+    "serve_folder": {"public/index.html": "<h1>home</h1>", "public/notes.txt": "notes", "public/.hidden": "dotfile"},
+    "file_browser": {"shared/a.txt": "alpha", "shared/sub/b.txt": "beta", "secret.txt": "outside the shared folder"},
+}
+
+
+def check_send_file(base):
+    status, h, body = http("GET", base + "/report")
+    expect(status == 200 and body == "quarterly numbers\n", f"GET /report gave {status} {body!r}")
+    expect((h.get("Content-Type") or "").startswith("text/plain"), f"Content-Type {h.get('Content-Type')!r}")
+    expect((h.get("Content-Disposition") or "").startswith("attachment"), f"Content-Disposition {h.get('Content-Disposition')!r}")
+
+
+def check_serve_folder(base):
+    status, _, body = http("GET", base + "/static/notes.txt")
+    expect((status, body) == (200, "notes"), f"/static/notes.txt gave {status} {body!r}")
+    status, _, body = http("GET", base + "/static/")
+    expect(status == 200 and "<h1>home</h1>" in body, f"/static/ gave {status} {body!r}")
+    status, _, body = http("GET", base + "/static/.hidden")
+    expect((status, body) == (200, "dotfile"), f"a dotfile is served by default, got {status} {body!r}")
+    status, _, _ = http("GET", base + "/static/nope.txt")
+    expect(status == 404, f"a missing file gave {status}")
+
+
+def check_file_browser(base):
+    status, h, body = http("GET", base + "/files/")
+    expect(status == 200 and "html" in (h.get("Content-Type") or ""), f"/files/ gave {status} {h.get('Content-Type')!r}")
+    status, _, body = http("GET", base + "/files/api/list?path=/")
+    expect(status == 200, f"list status {status}: {body[:200]!r}")
+    entries = {e["name"]: e["type"] for e in json.loads(body)["entries"]}
+    expect(entries == {"a.txt": "file", "sub": "dir"}, f"root entries {entries}")
+    status, _, body = http("GET", base + "/files/api/list?path=/sub")
+    expect(status == 200 and [e["name"] for e in json.loads(body)["entries"]] == ["b.txt"], f"sub list {status} {body[:200]!r}")
+    status, _, body = http("GET", base + "/files/raw/a.txt")
+    expect((status, body) == (200, "alpha"), f"raw/a.txt gave {status} {body!r}")
+    status, _, body = http("GET", base + "/files/raw/..%2Fsecret.txt")
+    expect(status == 404 and "outside" not in body, f"a path above the root gave {status} {body!r}")
+
+
 SERVERS = {
     "get_route": check_get_route,
     "request_info": check_request_info,
     "responses": check_responses,
     "hooks": check_hooks,
+    "send_file": check_send_file,
+    "serve_folder": check_serve_folder,
+    "file_browser": check_file_browser,
 }
 # client snippet: (the server snippet it talks to, its check)
 CLIENTS = {
@@ -175,8 +219,13 @@ def wait_listening(port, proc, log):
 def run_case(lang, name, command, port, work):
     """Start the server snippet, run the checks that talk to it, stop it."""
     log = work / f"{name}.log"
+    home = work / lang / f"{name}.srv"
+    home.mkdir(parents=True, exist_ok=True)
+    for rel, text in FIXTURES.get(name, {}).items():
+        (home / rel).parent.mkdir(parents=True, exist_ok=True)
+        (home / rel).write_text(text, encoding="utf-8")
     with open(log, "w") as out:
-        proc = subprocess.Popen(command, stdout=out, stderr=subprocess.STDOUT)
+        proc = subprocess.Popen(command, stdout=out, stderr=subprocess.STDOUT, cwd=home)
         try:
             wait_listening(port, proc, log)
             base = f"http://127.0.0.1:{port}"

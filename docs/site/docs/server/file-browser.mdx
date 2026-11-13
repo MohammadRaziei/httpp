@@ -1,0 +1,68 @@
+---
+id: file-browser
+title: Browse files
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+`mount_file_browser` adds a page where people can look through a folder, search it, sort it and download files. It is read-only: no route accepts a body, so nothing can be uploaded, renamed or deleted. The page is one self-contained HTML document that comes with the library, so it needs no files of yours and no internet.
+
+<Lang name="file_browser" />
+
+With a `shared` folder next to the program, open `http://127.0.0.1:8000/files/` in a browser. The same data is there for programs:
+
+```bash
+curl "http://127.0.0.1:8000/files/api/list?path=/"
+# {"path":"/","entries":[{"name":"a.txt","type":"file","size":5,"mtime":...},{"name":"sub","type":"dir",...}],"truncated":false,"limit":5000}
+curl http://127.0.0.1:8000/files/raw/a.txt
+# alpha
+```
+
+## What it serves
+
+| Request | Answer |
+|---|---|
+| `GET /files` | the browser page |
+| `GET /files/api/list?path=/sub` | the entries of one folder as JSON |
+| `GET /files/raw/<path>` | the file itself; `Range` and `HEAD` work |
+
+A file that could run code in the page's own origin (html, svg, xml, scripts and files of an unknown type) is always sent as a download, and `?download=1` makes any file a download.
+
+<Only lang="cpp">
+
+The header is `httpp/file_browser.hpp`. It is not part of `httpp.h`, so include it yourself, as the example does.
+
+</Only>
+
+## What it keeps out
+
+The folder you give is a ceiling. `..` segments, backslashes, NUL bytes, absolute paths and symlinks that lead out of it are refused, and a missing path, a hidden path and a path outside the folder all get the same `404`, so an answer never tells which of them it was. Names that start with a dot are not listed and answer `404` unless you set `show_hidden`.
+
+The browser has **no login of its own**. The `before` hook of the server runs first, so that is the place to ask for a key or a session: see [hooks](hooks.mdx).
+
+## Options
+
+The same names work in both languages.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `title` | `"Files"` | page header and tab title (escaped, any text is safe) |
+| `theme` | `"auto"` | `"auto"` follows the system, or `"light"` / `"dark"`; the viewer can still switch |
+| `accent` | empty | `"#rrggbb"` for the accent colour, empty for the default |
+| `search` | `true` | show the filter box (it filters the open folder in the browser) |
+| `show_hidden` | `false` | list and serve names that start with a dot |
+| `max_entries` | `5000` | a larger folder is cut at this many and flagged `"truncated"`; must be above 0 |
+| `view` | `"list"` | first view, `"list"` or `"grid"` |
+| `sort` | `"name"` | first sort, `"name"`, `"size"` or `"date"` |
+
+A bad `base` (it must start with `/`), a folder that does not exist or is the root of the file system, and a bad option value are errors when you mount it: `ValueError` in Python, `std::invalid_argument` in C++.
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Mount | `app.mount_file_browser(base, root, title=...)` | `httpp::mount_file_browser(app, base, root, options)` |
+| Options | keyword arguments | members of `httpp::file_browser_options` |
+| Header | nothing to include | `httpp/file_browser.hpp` |
+| Bad setup | `ValueError` | `std::invalid_argument` |
