@@ -356,6 +356,16 @@ UTEST(httpp_file_browser, the_page_is_html_with_the_options_filled_in_and_a_stri
     }
 }
 
+UTEST(httpp_file_browser, the_page_ships_its_own_media_player_and_no_native_controls) {
+    tree t;
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
+    auto r = httpp::client::fetch(srv.url("/files"));
+    ASSERT_EQ(200, r.status);
+    EXPECT_TRUE(contains(r.body, "function mediaPlayer("));
+    EXPECT_TRUE(contains(r.body, ".pl .bar"));
+    EXPECT_FALSE(contains(r.body, "controls = true"));
+}
+
 UTEST(httpp_file_browser, can_be_mounted_at_the_root_of_a_server) {
     tree t;
     local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/"); });

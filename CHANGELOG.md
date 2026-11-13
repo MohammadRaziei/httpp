@@ -7,6 +7,10 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Added
+
+- **File browser media player (ADR-0070).** Audio and video previews use the page's own controls instead of the browser's: they follow the light, dark and accent settings and add seek with buffered range, volume, speed, full screen for video, keyboard keys, and previous and next through the files of the folder. No API change.
+
 ### Changed
 
 - **C++ names now match Python's (ADR-0062, breaking for C++ code).** `httpp::request` is the client builder, as `httpp.Request` is, and the request a server handler receives is `httpp::server_request`, as `httpp.ServerRequest` is. Before, the handler's request was `httpp::request` and the builder was `httpp::client::request` (removed, no alias). Rename `const httpp::request&` to `const httpp::server_request&` in your handlers and `httpp::client::request` to `httpp::request`. Python code is unchanged.

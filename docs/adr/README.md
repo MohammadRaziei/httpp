@@ -73,6 +73,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0067](0067-urls-are-httpp-url-and-proxy-is-a-url.md) | Every URL parameter is an `httpp::url` (implicit from string); the proxy is one URL with credentials | accepted |
 | [0068](0068-socks5-proxy.md) | SOCKS5 proxies (`socks5://`, `socks5h://`) through the same proxy URL | accepted |
 | [0069](0069-forwarded-headers.md) | `forwarded_headers`: the real client, scheme and host from a trusted reverse proxy; `server_request::client_ip` | accepted |
+| [0070](0070-file-browser-media-player.md) | The file browser plays audio and video with its own themed controls, previous and next | accepted |
 
 ## Not decided yet
 
