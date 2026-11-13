@@ -1,0 +1,1312 @@
+{
+ "schema": 1,
+ "runtime": "cpp",
+ "results": [
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "C++ route (worker pool), io_threads=1",
+   "variant": "C++ route (worker pool)",
+   "io_threads": 1,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 247768.4,
+   "rps_sd_pct": 0.9009725459789271,
+   "rps_min": 246315.4,
+   "rps_max": 251623.0,
+   "us_per_req": 5.182258915987672,
+   "p50_ms": 0.251707,
+   "p99_ms": 0.31948000000000004,
+   "p999_ms": 0.699743,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 247768.4,
+     "us_per_req": 5.182258915987672,
+     "p50_ms": 0.251707,
+     "p99_ms": 0.31948000000000004,
+     "p999_ms": 0.699743,
+     "errors": 0
+    },
+    {
+     "rps": 246315.4,
+     "us_per_req": 5.261546781078244,
+     "p50_ms": 0.25371299999999997,
+     "p99_ms": 0.375415,
+     "p999_ms": 0.890223,
+     "errors": 0
+    },
+    {
+     "rps": 251623.0,
+     "us_per_req": 5.126717350957583,
+     "p50_ms": 0.24784399999999998,
+     "p99_ms": 0.30796,
+     "p999_ms": 0.651424,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "C++ route_io (inline), io_threads=1",
+   "variant": "C++ route_io (inline)",
+   "io_threads": 1,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 296182.8,
+   "rps_sd_pct": 6.754705858269146,
+   "rps_min": 257174.0,
+   "rps_max": 299434.0,
+   "us_per_req": 3.369540702566118,
+   "p50_ms": 0.211873,
+   "p99_ms": 0.27423600000000004,
+   "p999_ms": 0.37937000000000004,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 296182.8,
+     "us_per_req": 3.369540702566118,
+     "p50_ms": 0.211873,
+     "p99_ms": 0.315556,
+     "p999_ms": 0.37937000000000004,
+     "errors": 0
+    },
+    {
+     "rps": 299434.0,
+     "us_per_req": 3.332954841467569,
+     "p50_ms": 0.211542,
+     "p99_ms": 0.23747300000000002,
+     "p999_ms": 0.34232,
+     "errors": 0
+    },
+    {
+     "rps": 257174.0,
+     "us_per_req": 3.8884179582694984,
+     "p50_ms": 0.24719500000000003,
+     "p99_ms": 0.27423600000000004,
+     "p999_ms": 0.405114,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "cpu",
+   "runtime": "cpp",
+   "server": "C++ route CPU-bound, io_threads=1",
+   "variant": "C++ route CPU-bound",
+   "io_threads": 1,
+   "group": "cpu (C++)",
+   "unit": "req/s",
+   "rps": 255805.4,
+   "rps_sd_pct": 0.11059297613701483,
+   "rps_min": 255303.6,
+   "rps_max": 255968.0,
+   "us_per_req": 5.016252031503938,
+   "p50_ms": 0.244269,
+   "p99_ms": 0.31076600000000004,
+   "p999_ms": 0.517187,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 255805.4,
+     "us_per_req": 5.003803672635527,
+     "p50_ms": 0.243999,
+     "p99_ms": 0.313506,
+     "p999_ms": 0.517187,
+     "errors": 0
+    },
+    {
+     "rps": 255303.6,
+     "us_per_req": 5.084142957639454,
+     "p50_ms": 0.246143,
+     "p99_ms": 0.30380799999999997,
+     "p999_ms": 0.476083,
+     "errors": 0
+    },
+    {
+     "rps": 255968.0,
+     "us_per_req": 5.016252031503938,
+     "p50_ms": 0.244269,
+     "p99_ms": 0.31076600000000004,
+     "p999_ms": 0.535404,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "C++ route (worker pool), io_threads=2",
+   "variant": "C++ route (worker pool)",
+   "io_threads": 2,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 477566.6,
+   "rps_sd_pct": 2.435364591855919,
+   "rps_min": 455122.6,
+   "rps_max": 481002.8,
+   "us_per_req": 5.285126723686288,
+   "p50_ms": 0.131123,
+   "p99_ms": 0.198796,
+   "p999_ms": 0.29336500000000004,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 481002.8,
+     "us_per_req": 5.222422821655092,
+     "p50_ms": 0.12912,
+     "p99_ms": 0.198796,
+     "p999_ms": 0.29336500000000004,
+     "errors": 0
+    },
+    {
+     "rps": 477566.6,
+     "us_per_req": 5.285126723686288,
+     "p50_ms": 0.131123,
+     "p99_ms": 0.191253,
+     "p999_ms": 0.264305,
+     "errors": 0
+    },
+    {
+     "rps": 455122.6,
+     "us_per_req": 5.479842134844545,
+     "p50_ms": 0.13170700000000002,
+     "p99_ms": 0.206665,
+     "p999_ms": 0.298888,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "C++ route_io (inline), io_threads=2",
+   "variant": "C++ route_io (inline)",
+   "io_threads": 2,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 539887.0,
+   "rps_sd_pct": 2.9192503531113947,
+   "rps_min": 539190.2,
+   "rps_max": 573649.2,
+   "us_per_req": 3.6933654635136612,
+   "p50_ms": 0.114742,
+   "p99_ms": 0.173176,
+   "p999_ms": 0.25085199999999996,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 573649.2,
+     "us_per_req": 3.4759919476920738,
+     "p50_ms": 0.107518,
+     "p99_ms": 0.173176,
+     "p999_ms": 0.25079799999999997,
+     "errors": 0
+    },
+    {
+     "rps": 539190.2,
+     "us_per_req": 3.705556963016019,
+     "p50_ms": 0.114742,
+     "p99_ms": 0.170947,
+     "p999_ms": 0.25085199999999996,
+     "errors": 0
+    },
+    {
+     "rps": 539887.0,
+     "us_per_req": 3.6933654635136612,
+     "p50_ms": 0.114873,
+     "p99_ms": 0.179231,
+     "p999_ms": 0.267855,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "cpu",
+   "runtime": "cpp",
+   "server": "C++ route CPU-bound, io_threads=2",
+   "variant": "C++ route CPU-bound",
+   "io_threads": 2,
+   "group": "cpu (C++)",
+   "unit": "req/s",
+   "rps": 472522.6,
+   "rps_sd_pct": 1.5238422587954743,
+   "rps_min": 466195.0,
+   "rps_max": 483672.2,
+   "us_per_req": 5.299217434256055,
+   "p50_ms": 0.13057300000000002,
+   "p99_ms": 0.202616,
+   "p999_ms": 0.333465,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 483672.2,
+     "us_per_req": 5.189465096402067,
+     "p50_ms": 0.128608,
+     "p99_ms": 0.194516,
+     "p999_ms": 0.272162,
+     "errors": 0
+    },
+    {
+     "rps": 466195.0,
+     "us_per_req": 5.3754330269522415,
+     "p50_ms": 0.130954,
+     "p99_ms": 0.218366,
+     "p999_ms": 0.333465,
+     "errors": 0
+    },
+    {
+     "rps": 472522.6,
+     "us_per_req": 5.299217434256055,
+     "p50_ms": 0.13057300000000002,
+     "p99_ms": 0.202616,
+     "p999_ms": 0.5963710000000001,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "C++ route (worker pool), io_threads=4",
+   "variant": "C++ route (worker pool)",
+   "io_threads": 4,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 749769.0,
+   "rps_sd_pct": 1.2723977610782584,
+   "rps_min": 740756.6,
+   "rps_max": 763985.4,
+   "us_per_req": 6.313944694966049,
+   "p50_ms": 0.078835,
+   "p99_ms": 0.189747,
+   "p999_ms": 0.8795149999999999,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 763985.4,
+     "us_per_req": 6.251428364992315,
+     "p50_ms": 0.077025,
+     "p99_ms": 0.189747,
+     "p999_ms": 0.772402,
+     "errors": 0
+    },
+    {
+     "rps": 740756.6,
+     "us_per_req": 6.4258624222855385,
+     "p50_ms": 0.07896299999999999,
+     "p99_ms": 0.199076,
+     "p999_ms": 0.915349,
+     "errors": 0
+    },
+    {
+     "rps": 749769.0,
+     "us_per_req": 6.313944694966049,
+     "p50_ms": 0.078835,
+     "p99_ms": 0.186196,
+     "p999_ms": 0.8795149999999999,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "C++ route_io (inline), io_threads=4",
+   "variant": "C++ route_io (inline)",
+   "io_threads": 4,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 788349.4,
+   "rps_sd_pct": 8.011606309298399,
+   "rps_min": 691081.2,
+   "rps_max": 840603.2,
+   "us_per_req": 5.058670685865937,
+   "p50_ms": 0.074012,
+   "p99_ms": 0.164704,
+   "p999_ms": 1.293801,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 691081.2,
+     "us_per_req": 5.776455791302093,
+     "p50_ms": 0.088672,
+     "p99_ms": 0.190081,
+     "p999_ms": 0.606139,
+     "errors": 0
+    },
+    {
+     "rps": 788349.4,
+     "us_per_req": 5.058670685865937,
+     "p50_ms": 0.074012,
+     "p99_ms": 0.164704,
+     "p999_ms": 1.293801,
+     "errors": 0
+    },
+    {
+     "rps": 840603.2,
+     "us_per_req": 4.739453763678273,
+     "p50_ms": 0.06973399999999999,
+     "p99_ms": 0.16283899999999998,
+     "p999_ms": 1.93622,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "cpu",
+   "runtime": "cpp",
+   "server": "C++ route CPU-bound, io_threads=4",
+   "variant": "C++ route CPU-bound",
+   "io_threads": 4,
+   "group": "cpu (C++)",
+   "unit": "req/s",
+   "rps": 755026.6,
+   "rps_sd_pct": 2.5051449336906866,
+   "rps_min": 721397.4,
+   "rps_max": 765203.8,
+   "us_per_req": 6.301764732527304,
+   "p50_ms": 0.07839700000000001,
+   "p99_ms": 0.185586,
+   "p999_ms": 0.779091,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 755026.6,
+     "us_per_req": 6.301764732527304,
+     "p50_ms": 0.07839700000000001,
+     "p99_ms": 0.185586,
+     "p999_ms": 0.7063539999999999,
+     "errors": 0
+    },
+    {
+     "rps": 721397.4,
+     "us_per_req": 6.567808533826154,
+     "p50_ms": 0.08105799999999999,
+     "p99_ms": 0.205201,
+     "p999_ms": 0.897963,
+     "errors": 0
+    },
+    {
+     "rps": 765203.8,
+     "us_per_req": 6.259770272965189,
+     "p50_ms": 0.07698200000000001,
+     "p99_ms": 0.180235,
+     "p999_ms": 0.779091,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "C++ route (worker pool), io_threads=8",
+   "variant": "C++ route (worker pool)",
+   "io_threads": 8,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 801682.8,
+   "rps_sd_pct": 0.7578081363953796,
+   "rps_min": 799819.4,
+   "rps_max": 813591.4,
+   "us_per_req": 8.716967855493378,
+   "p50_ms": 0.059446,
+   "p99_ms": 0.392238,
+   "p999_ms": 2.320455,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 813591.4,
+     "us_per_req": 8.645617443842204,
+     "p50_ms": 0.059818,
+     "p99_ms": 0.35722,
+     "p999_ms": 2.320455,
+     "errors": 0
+    },
+    {
+     "rps": 801682.8,
+     "us_per_req": 8.734127762252102,
+     "p50_ms": 0.059446,
+     "p99_ms": 0.392238,
+     "p999_ms": 2.267547,
+     "errors": 0
+    },
+    {
+     "rps": 799819.4,
+     "us_per_req": 8.716967855493378,
+     "p50_ms": 0.058131999999999996,
+     "p99_ms": 0.407384,
+     "p999_ms": 2.9714289999999997,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "C++ route_io (inline), io_threads=8",
+   "variant": "C++ route_io (inline)",
+   "io_threads": 8,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 896442.0,
+   "rps_sd_pct": 1.3677666220046814,
+   "rps_min": 894706.6,
+   "rps_max": 921769.4,
+   "us_per_req": 6.728462716157453,
+   "p50_ms": 0.050799,
+   "p99_ms": 0.13231500000000002,
+   "p999_ms": 3.092265,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 894706.6,
+     "us_per_req": 6.728462716157453,
+     "p50_ms": 0.050799,
+     "p99_ms": 0.168152,
+     "p999_ms": 3.093838,
+     "errors": 0
+    },
+    {
+     "rps": 896442.0,
+     "us_per_req": 6.762289138616888,
+     "p50_ms": 0.051292000000000004,
+     "p99_ms": 0.13231500000000002,
+     "p999_ms": 3.090625,
+     "errors": 0
+    },
+    {
+     "rps": 921769.4,
+     "us_per_req": 6.676290187111874,
+     "p50_ms": 0.047775000000000005,
+     "p99_ms": 0.125592,
+     "p999_ms": 3.092265,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "cpu",
+   "runtime": "cpp",
+   "server": "C++ route CPU-bound, io_threads=8",
+   "variant": "C++ route CPU-bound",
+   "io_threads": 8,
+   "group": "cpu (C++)",
+   "unit": "req/s",
+   "rps": 801529.4,
+   "rps_sd_pct": 0.1349335714944707,
+   "rps_min": 800642.4,
+   "rps_max": 803248.6,
+   "us_per_req": 8.737983399330338,
+   "p50_ms": 0.060781,
+   "p99_ms": 0.377461,
+   "p999_ms": 2.177553,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 803248.6,
+     "us_per_req": 8.71461213875754,
+     "p50_ms": 0.060781,
+     "p99_ms": 0.377461,
+     "p999_ms": 2.177553,
+     "errors": 0
+    },
+    {
+     "rps": 801529.4,
+     "us_per_req": 8.790694389999917,
+     "p50_ms": 0.061602,
+     "p99_ms": 0.37438499999999997,
+     "p999_ms": 1.9713819999999997,
+     "errors": 0
+    },
+    {
+     "rps": 800642.4,
+     "us_per_req": 8.737983399330338,
+     "p50_ms": 0.058373,
+     "p99_ms": 0.416772,
+     "p999_ms": 2.8504989999999997,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 1,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 290845.8,
+   "rps_sd_pct": 3.006942006663516,
+   "rps_min": 273481.4,
+   "rps_max": 292445.4,
+   "us_per_req": 3.438248033837862,
+   "p50_ms": 0.20728899999999997,
+   "p99_ms": 0.421439,
+   "p999_ms": 0.486911,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 292445.4,
+     "us_per_req": 3.412602831160962,
+     "p50_ms": 0.20728899999999997,
+     "p99_ms": 0.420819,
+     "p999_ms": 0.46637,
+     "errors": 0
+    },
+    {
+     "rps": 273481.4,
+     "us_per_req": 3.6565558023324436,
+     "p50_ms": 0.228907,
+     "p99_ms": 0.46837,
+     "p999_ms": 0.486911,
+     "errors": 0
+    },
+    {
+     "rps": 290845.8,
+     "us_per_req": 3.438248033837862,
+     "p50_ms": 0.207159,
+     "p99_ms": 0.421439,
+     "p999_ms": 0.5208809999999999,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "cpu",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 1,
+   "group": "cpu (C++)",
+   "unit": "req/s",
+   "rps": 268673.4,
+   "rps_sd_pct": 4.5488437981549135,
+   "rps_min": 258941.4,
+   "rps_max": 288674.0,
+   "us_per_req": 3.707103122229443,
+   "p50_ms": 0.23096999999999998,
+   "p99_ms": 0.471477,
+   "p999_ms": 0.49017799999999995,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 268673.4,
+     "us_per_req": 3.707103122229443,
+     "p50_ms": 0.23096999999999998,
+     "p99_ms": 0.471477,
+     "p999_ms": 0.49017799999999995,
+     "errors": 0
+    },
+    {
+     "rps": 288674.0,
+     "us_per_req": 3.4502587694077054,
+     "p50_ms": 0.208402,
+     "p99_ms": 0.422929,
+     "p999_ms": 0.478531,
+     "errors": 0
+    },
+    {
+     "rps": 258941.4,
+     "us_per_req": 3.846430118938107,
+     "p50_ms": 0.23717899999999997,
+     "p99_ms": 0.478939,
+     "p999_ms": 0.49781000000000003,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 2,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 534795.2,
+   "rps_sd_pct": 6.044344352120063,
+   "rps_min": 479733.6,
+   "rps_max": 554410.2,
+   "us_per_req": 3.7322698483456844,
+   "p50_ms": 0.110175,
+   "p99_ms": 0.24113199999999999,
+   "p999_ms": 0.32895800000000003,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 554410.2,
+     "us_per_req": 3.603829799668188,
+     "p50_ms": 0.100683,
+     "p99_ms": 0.230047,
+     "p999_ms": 0.28618,
+     "errors": 0
+    },
+    {
+     "rps": 534795.2,
+     "us_per_req": 3.7322698483456844,
+     "p50_ms": 0.110175,
+     "p99_ms": 0.24113199999999999,
+     "p999_ms": 0.32895800000000003,
+     "errors": 0
+    },
+    {
+     "rps": 479733.6,
+     "us_per_req": 4.156473509464419,
+     "p50_ms": 0.116618,
+     "p99_ms": 0.27745,
+     "p999_ms": 0.477877,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "cpu",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 2,
+   "group": "cpu (C++)",
+   "unit": "req/s",
+   "rps": 548926.8,
+   "rps_sd_pct": 3.2292547214445895,
+   "rps_min": 515843.8,
+   "rps_max": 555805.0,
+   "us_per_req": 3.6398295729048025,
+   "p50_ms": 0.109614,
+   "p99_ms": 0.24420300000000003,
+   "p999_ms": 0.326027,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 515843.8,
+     "us_per_req": 3.8693883691148367,
+     "p50_ms": 0.112246,
+     "p99_ms": 0.249897,
+     "p999_ms": 0.299238,
+     "errors": 0
+    },
+    {
+     "rps": 548926.8,
+     "us_per_req": 3.6398295729048025,
+     "p50_ms": 0.10426500000000001,
+     "p99_ms": 0.240891,
+     "p999_ms": 0.481493,
+     "errors": 0
+    },
+    {
+     "rps": 555805.0,
+     "us_per_req": 3.587589172461565,
+     "p50_ms": 0.109614,
+     "p99_ms": 0.24420300000000003,
+     "p999_ms": 0.326027,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 4,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 837408.0,
+   "rps_sd_pct": 5.164230444867915,
+   "rps_min": 785522.4,
+   "rps_max": 891539.0,
+   "us_per_req": 4.75037257824143,
+   "p50_ms": 0.06317299999999999,
+   "p99_ms": 0.213682,
+   "p999_ms": 0.954558,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 837408.0,
+     "us_per_req": 4.75037257824143,
+     "p50_ms": 0.06317299999999999,
+     "p99_ms": 0.213682,
+     "p999_ms": 0.954558,
+     "errors": 0
+    },
+    {
+     "rps": 785522.4,
+     "us_per_req": 5.087060534492714,
+     "p50_ms": 0.07031,
+     "p99_ms": 0.210344,
+     "p999_ms": 0.508683,
+     "errors": 0
+    },
+    {
+     "rps": 891539.0,
+     "us_per_req": 4.466433885674099,
+     "p50_ms": 0.059935,
+     "p99_ms": 0.215953,
+     "p999_ms": 1.5966019999999999,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "cpu",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 4,
+   "group": "cpu (C++)",
+   "unit": "req/s",
+   "rps": 837923.6,
+   "rps_sd_pct": 2.0246195187534446,
+   "rps_min": 813901.8,
+   "rps_max": 855159.0,
+   "us_per_req": 4.749836381264354,
+   "p50_ms": 0.063495,
+   "p99_ms": 0.215244,
+   "p999_ms": 0.8432,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 813901.8,
+     "us_per_req": 4.870366425040466,
+     "p50_ms": 0.067152,
+     "p99_ms": 0.21616300000000002,
+     "p999_ms": 0.571519,
+     "errors": 0
+    },
+    {
+     "rps": 837923.6,
+     "us_per_req": 4.749836381264354,
+     "p50_ms": 0.063201,
+     "p99_ms": 0.215244,
+     "p999_ms": 0.8432,
+     "errors": 0
+    },
+    {
+     "rps": 855159.0,
+     "us_per_req": 4.665798991766444,
+     "p50_ms": 0.063495,
+     "p99_ms": 0.211157,
+     "p999_ms": 0.858308,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 8,
+   "group": "hello (C++)",
+   "unit": "req/s",
+   "rps": 909857.6,
+   "rps_sd_pct": 1.74187303349114,
+   "rps_min": 890390.4,
+   "rps_max": 929209.6,
+   "us_per_req": 6.3747318030383076,
+   "p50_ms": 0.050679,
+   "p99_ms": 0.102295,
+   "p999_ms": 3.0885380000000002,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 929209.6,
+     "us_per_req": 6.20527381550944,
+     "p50_ms": 0.050451,
+     "p99_ms": 0.10228000000000001,
+     "p999_ms": 3.088951,
+     "errors": 0
+    },
+    {
+     "rps": 909857.6,
+     "us_per_req": 6.515305252162536,
+     "p50_ms": 0.050679,
+     "p99_ms": 0.10364999999999999,
+     "p999_ms": 3.088427,
+     "errors": 0
+    },
+    {
+     "rps": 890390.4,
+     "us_per_req": 6.3747318030383076,
+     "p50_ms": 0.053807999999999995,
+     "p99_ms": 0.102295,
+     "p999_ms": 3.0885380000000002,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "cpu",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 8,
+   "group": "cpu (C++)",
+   "unit": "req/s",
+   "rps": 913015.0,
+   "rps_sd_pct": 1.7409638557188152,
+   "rps_min": 884080.2,
+   "rps_max": 920717.2,
+   "us_per_req": 6.55410918769133,
+   "p50_ms": 0.051016,
+   "p99_ms": 0.11063,
+   "p999_ms": 3.090743,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 920717.2,
+     "us_per_req": 6.434114622817951,
+     "p50_ms": 0.049661,
+     "p99_ms": 0.11063,
+     "p999_ms": 3.090743,
+     "errors": 0
+    },
+    {
+     "rps": 913015.0,
+     "us_per_req": 6.55410918769133,
+     "p50_ms": 0.051016,
+     "p99_ms": 0.102728,
+     "p999_ms": 3.085446,
+     "errors": 0
+    },
+    {
+     "rps": 884080.2,
+     "us_per_req": 6.569539731802612,
+     "p50_ms": 0.052561000000000004,
+     "p99_ms": 0.117493,
+     "p999_ms": 3.094544,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "ws",
+   "runtime": "cpp",
+   "server": "httpp",
+   "variant": "httpp C++",
+   "io_threads": 1,
+   "group": "websocket echo, 64 connections, 64 B (C++)",
+   "unit": "msg/s",
+   "rps": 309313.4,
+   "rps_sd_pct": 0.3482478148088703,
+   "rps_min": 309239.2,
+   "rps_max": 311565.8,
+   "us_per_req": 3.22727519667623,
+   "p50_ms": 0.2059,
+   "p99_ms": 0.2327,
+   "p999_ms": 0.3034,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 311565.8,
+     "us_per_req": 3.2095948913520034,
+     "p50_ms": 0.2045,
+     "p99_ms": 0.2327,
+     "p999_ms": 0.3002,
+     "errors": 0
+    },
+    {
+     "rps": 309313.4,
+     "us_per_req": 3.239432885869154,
+     "p50_ms": 0.2059,
+     "p99_ms": 0.2438,
+     "p999_ms": 0.3163,
+     "errors": 0
+    },
+    {
+     "rps": 309239.2,
+     "us_per_req": 3.22727519667623,
+     "p50_ms": 0.2063,
+     "p99_ms": 0.2242,
+     "p999_ms": 0.3034,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "ws",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 1,
+   "group": "websocket echo, 64 connections, 64 B (C++)",
+   "unit": "msg/s",
+   "rps": 414844.8,
+   "rps_sd_pct": 1.2085073352185136,
+   "rps_min": 404411.9,
+   "rps_max": 415071.1,
+   "us_per_req": 2.410540038105817,
+   "p50_ms": 0.1493,
+   "p99_ms": 0.2967,
+   "p999_ms": 0.3098,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 414844.8,
+     "us_per_req": 2.410540038105817,
+     "p50_ms": 0.1493,
+     "p99_ms": 0.2967,
+     "p999_ms": 0.3098,
+     "errors": 0
+    },
+    {
+     "rps": 415071.1,
+     "us_per_req": 2.4092257928822316,
+     "p50_ms": 0.148,
+     "p99_ms": 0.2959,
+     "p999_ms": 0.3092,
+     "errors": 0
+    },
+    {
+     "rps": 404411.9,
+     "us_per_req": 2.47272644548788,
+     "p50_ms": 0.1508,
+     "p99_ms": 0.3005,
+     "p999_ms": 0.3555,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "ws",
+   "runtime": "cpp",
+   "server": "httpp",
+   "variant": "httpp C++",
+   "io_threads": 2,
+   "group": "websocket echo, 64 connections, 64 B (C++)",
+   "unit": "msg/s",
+   "rps": 677194.5,
+   "rps_sd_pct": 10.586877038791744,
+   "rps_min": 538746.9,
+   "rps_max": 684558.1,
+   "us_per_req": 2.9563146186213856,
+   "p50_ms": 0.0964,
+   "p99_ms": 0.1181,
+   "p999_ms": 0.1576,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 677194.5,
+     "us_per_req": 2.9563146186213856,
+     "p50_ms": 0.0964,
+     "p99_ms": 0.1181,
+     "p999_ms": 0.1576,
+     "errors": 0
+    },
+    {
+     "rps": 538746.9,
+     "us_per_req": 3.7160306630070634,
+     "p50_ms": 0.1291,
+     "p99_ms": 0.1527,
+     "p999_ms": 0.1803,
+     "errors": 0
+    },
+    {
+     "rps": 684558.1,
+     "us_per_req": 2.9245143691967126,
+     "p50_ms": 0.0936,
+     "p99_ms": 0.1139,
+     "p999_ms": 0.1509,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "ws",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 2,
+   "group": "websocket echo, 64 connections, 64 B (C++)",
+   "unit": "msg/s",
+   "rps": 724651.1,
+   "rps_sd_pct": 6.154362342316818,
+   "rps_min": 716231.8,
+   "rps_max": 818494.1,
+   "us_per_req": 2.757188942375165,
+   "p50_ms": 0.0797,
+   "p99_ms": 0.1924,
+   "p999_ms": 0.2128,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 818494.1,
+     "us_per_req": 2.4459553220970074,
+     "p50_ms": 0.0673,
+     "p99_ms": 0.1572,
+     "p999_ms": 0.1746,
+     "errors": 0
+    },
+    {
+     "rps": 716231.8,
+     "us_per_req": 2.792392071952125,
+     "p50_ms": 0.0825,
+     "p99_ms": 0.199,
+     "p999_ms": 0.2143,
+     "errors": 0
+    },
+    {
+     "rps": 724651.1,
+     "us_per_req": 2.757188942375165,
+     "p50_ms": 0.0797,
+     "p99_ms": 0.1924,
+     "p999_ms": 0.2128,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "ws",
+   "runtime": "cpp",
+   "server": "httpp",
+   "variant": "httpp C++",
+   "io_threads": 4,
+   "group": "websocket echo, 64 connections, 64 B (C++)",
+   "unit": "msg/s",
+   "rps": 1019667.2,
+   "rps_sd_pct": 2.458132241181251,
+   "rps_min": 1010446.8,
+   "rps_max": 1068317.5,
+   "us_per_req": 3.81811293776179,
+   "p50_ms": 0.0621,
+   "p99_ms": 0.104,
+   "p999_ms": 0.1101,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 1068317.5,
+     "us_per_req": 3.583204431266922,
+     "p50_ms": 0.0504,
+     "p99_ms": 0.104,
+     "p999_ms": 0.1101,
+     "errors": 0
+    },
+    {
+     "rps": 1019667.2,
+     "us_per_req": 3.9150028558337464,
+     "p50_ms": 0.0621,
+     "p99_ms": 0.0976,
+     "p999_ms": 0.1032,
+     "errors": 0
+    },
+    {
+     "rps": 1010446.8,
+     "us_per_req": 3.81811293776179,
+     "p50_ms": 0.0621,
+     "p99_ms": 0.115,
+     "p999_ms": 0.1335,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "ws",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 4,
+   "group": "websocket echo, 64 connections, 64 B (C++)",
+   "unit": "msg/s",
+   "rps": 1026706.9,
+   "rps_sd_pct": 0.9038597262089278,
+   "rps_min": 1015301.4,
+   "rps_max": 1038032.0,
+   "us_per_req": 3.730911825788874,
+   "p50_ms": 0.0583,
+   "p99_ms": 0.1176,
+   "p999_ms": 0.1511,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 1026706.9,
+     "us_per_req": 3.8082923178952046,
+     "p50_ms": 0.0579,
+     "p99_ms": 0.1367,
+     "p999_ms": 0.158,
+     "errors": 0
+    },
+    {
+     "rps": 1015301.4,
+     "us_per_req": 3.730911825788874,
+     "p50_ms": 0.0583,
+     "p99_ms": 0.1104,
+     "p999_ms": 0.1341,
+     "errors": 0
+    },
+    {
+     "rps": 1038032.0,
+     "us_per_req": 3.5663640427270065,
+     "p50_ms": 0.0593,
+     "p99_ms": 0.1176,
+     "p999_ms": 0.1511,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "ws",
+   "runtime": "cpp",
+   "server": "httpp",
+   "variant": "httpp C++",
+   "io_threads": 8,
+   "group": "websocket echo, 64 connections, 64 B (C++)",
+   "unit": "msg/s",
+   "rps": 1031342.5,
+   "rps_sd_pct": 2.464110100465778,
+   "rps_min": 979939.0,
+   "rps_max": 1034531.5,
+   "us_per_req": 5.053375771349033,
+   "p50_ms": 0.0477,
+   "p99_ms": 0.1047,
+   "p999_ms": 0.1177,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 1031342.5,
+     "us_per_req": 5.0497288728041365,
+     "p50_ms": 0.0477,
+     "p99_ms": 0.1047,
+     "p999_ms": 0.1188,
+     "errors": 0
+    },
+    {
+     "rps": 979939.0,
+     "us_per_req": 5.053375771349033,
+     "p50_ms": 0.0511,
+     "p99_ms": 0.1045,
+     "p999_ms": 0.1161,
+     "errors": 0
+    },
+    {
+     "rps": 1034531.5,
+     "us_per_req": 5.117292223581399,
+     "p50_ms": 0.0459,
+     "p99_ms": 0.1053,
+     "p999_ms": 0.1177,
+     "errors": 0
+    }
+   ]
+  },
+  {
+   "suite": "ws",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 8,
+   "group": "websocket echo, 64 connections, 64 B (C++)",
+   "unit": "msg/s",
+   "rps": 997004.0,
+   "rps_sd_pct": 2.5076762927138367,
+   "rps_min": 972373.7,
+   "rps_max": 1033476.1,
+   "us_per_req": 4.70208745401222,
+   "p50_ms": 0.0497,
+   "p99_ms": 0.1079,
+   "p999_ms": 0.1232,
+   "errors": 0,
+   "rounds": [
+    {
+     "rps": 1033476.1,
+     "us_per_req": 4.692900009976041,
+     "p50_ms": 0.0469,
+     "p99_ms": 0.1053,
+     "p999_ms": 0.1166,
+     "errors": 0
+    },
+    {
+     "rps": 972373.7,
+     "us_per_req": 4.7430324370146995,
+     "p50_ms": 0.0517,
+     "p99_ms": 0.1082,
+     "p999_ms": 0.1444,
+     "errors": 0
+    },
+    {
+     "rps": 997004.0,
+     "us_per_req": 4.70208745401222,
+     "p50_ms": 0.0497,
+     "p99_ms": 0.1079,
+     "p999_ms": 0.1232,
+     "errors": 0
+    }
+   ]
+  }
+ ],
+ "rated": [
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "C++ route_io (inline), io_threads=1",
+   "variant": "C++ route_io (inline)",
+   "io_threads": 1,
+   "group": "hello (C++)",
+   "target_rps": 148091.4,
+   "p50_ms": 0.21070799999999998,
+   "p99_ms": 0.662714,
+   "p999_ms": 0.762757,
+   "errors": 0
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "C++ route_io (inline), io_threads=8",
+   "variant": "C++ route_io (inline)",
+   "io_threads": 8,
+   "group": "hello (C++)",
+   "target_rps": 448221.0,
+   "p50_ms": 0.10346,
+   "p99_ms": 0.652522,
+   "p999_ms": 0.717987,
+   "errors": 0
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 1,
+   "group": "hello (C++)",
+   "target_rps": 145422.9,
+   "p50_ms": 0.220115,
+   "p99_ms": 0.667177,
+   "p999_ms": 0.810388,
+   "errors": 0
+  },
+  {
+   "suite": "hello",
+   "runtime": "cpp",
+   "server": "drogon",
+   "variant": "Drogon",
+   "io_threads": 8,
+   "group": "hello (C++)",
+   "target_rps": 454928.8,
+   "p50_ms": 0.10376200000000001,
+   "p99_ms": 0.653383,
+   "p999_ms": 0.711653,
+   "errors": 0
+  }
+ ],
+ "idle": [
+  {
+   "runtime": "cpp",
+   "server": "httpp C++",
+   "connected": 10000,
+   "failed": 0,
+   "rss_before_kib": 6124,
+   "rss_after_kib": 97868,
+   "kib_per_connection": 9.1744
+  },
+  {
+   "runtime": "cpp",
+   "server": "Drogon",
+   "connected": 10000,
+   "failed": 0,
+   "rss_before_kib": 6220,
+   "rss_after_kib": 91544,
+   "kib_per_connection": 8.5324
+  }
+ ]
+}

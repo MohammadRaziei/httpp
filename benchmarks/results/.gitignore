@@ -1,0 +1,4 @@
+# a quick run (run.sh quick) is a test of the machinery; the docs site skips it
+quick/
+# the report of a run is for reading; the .json files are what the docs site uses
+*.txt

@@ -1,0 +1,73 @@
+{
+ "date": "2026-11-13T02:49:58+0330",
+ "purpose": "published",
+ "hardware": {
+  "cpu": "13th Gen Intel(R) Core(TM) i7-13620H",
+  "vendor": "GenuineIntel",
+  "arch": "x86_64",
+  "sockets": 1,
+  "physical_cores": 10,
+  "logical_cpus": 16,
+  "max_mhz": 4700,
+  "l2_cache": "9.5 MiB (7 instances)",
+  "l3_cache": "24 MiB (1 instance)",
+  "memory_gib": 30.5,
+  "swap_gib": 8.0,
+  "os": "Ubuntu 26.04.1 LTS",
+  "kernel": "7.0.0-42-generic",
+  "wsl": false,
+  "model": "ASUSTeK COMPUTER INC. ROG Zephyrus G16 GU603VV_GU603VV",
+  "is_laptop": true,
+  "on_battery": false
+ },
+ "server_cpus": "0-7",
+ "load_cpus": "8-15",
+ "governor": "performance",
+ "turbo_disabled": "0",
+ "tree": "56d87a6596",
+ "compiler": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+ "drogon": true,
+ "note": "drogon v1.9.14, jsoncpp 1.9.6, static, Release",
+ "settings": {
+  "conc": 64,
+  "seconds": 5,
+  "rounds": 3,
+  "ws_size": 64,
+  "idle_conns": 10000,
+  "client_conc": 32,
+  "io_threads": [
+   1,
+   2,
+   4,
+   8
+  ],
+  "only": [
+   "hello",
+   "json",
+   "cpu",
+   "latency",
+   "ws",
+   "idle",
+   "client"
+  ]
+ },
+ "idle_conns_measured": 10000,
+ "schema": 1,
+ "runtimes": [
+  {
+   "id": "cpp",
+   "label": "C++",
+   "file": "cpp.json"
+  },
+  {
+   "id": "py314",
+   "label": "Python 3.14",
+   "file": "py314.json"
+  },
+  {
+   "id": "py314t",
+   "label": "Python 3.14t",
+   "file": "py314t.json"
+  }
+ ]
+}
