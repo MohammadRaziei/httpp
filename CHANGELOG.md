@@ -11,6 +11,7 @@ such changes are listed under **Changed**).
 
 - **File browser media player (ADR-0070).** Audio and video previews use the page's own controls instead of the browser's: they follow the light, dark and accent settings and add seek with buffered range, volume, speed, full screen for video, keyboard keys, and previous and next through the files of the folder. No API change.
 - **File browser preview dialog (ADR-0071).** Download, Open raw and Close are icon buttons with tooltips at the top right; the dialog is a little larger, shows the size under the name, and opens and closes with a short animation. A click outside the dialog closes it, as do Escape and the Close button.
+- **File browser types (ADR-0072).** Files get an icon by kind (image, audio, video, PDF, archive, text, other) and the list view has a Type column that can be sorted. No API change.
 
 ### Changed
 

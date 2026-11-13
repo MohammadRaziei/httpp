@@ -20,19 +20,21 @@ nav a:hover { background:var(--row); }
 input, select, button { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--border); border-radius:.4rem; padding:.3rem .55rem; }
 button { cursor:pointer; } button:hover, button[aria-pressed="true"] { background:var(--row); border-color:var(--accent); }
 main { padding:.5rem 1rem 3rem; }
-.head, .row { display:grid; grid-template-columns:minmax(0,1fr) 7rem 11rem; gap:1rem; align-items:center; padding:.35rem .5rem; border-radius:.4rem; }
+.head, .row { display:grid; grid-template-columns:minmax(0,1fr) 6rem 7rem 11rem; gap:1rem; align-items:center; padding:.35rem .5rem; border-radius:.4rem; }
 .head { color:var(--muted); font-size:.85rem; border-bottom:1px solid var(--border); border-radius:0; }
 .head button { border:0; background:none; padding:0; text-align:left; color:inherit; } .head button[aria-pressed="true"] { color:var(--accent); }
 .row { cursor:pointer; } .row:hover, .row:focus { background:var(--row); outline:none; }
 .name { display:flex; align-items:center; gap:.55rem; min-width:0; } .name b { font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.meta { color:var(--muted); font-size:.9rem; text-align:right; } .meta.date { text-align:left; }
+.meta { color:var(--muted); font-size:.9rem; text-align:right; } .meta.date, .meta.type { text-align:left; }
 svg { width:1.25rem; height:1.25rem; flex:none; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
 .dir svg { color:var(--accent); } .file svg { color:var(--muted); }
+.row.k-image svg { color:#2da44e; } .row.k-audio svg { color:#a371f7; } .row.k-video svg { color:#e8833a; }
+.row.k-pdf svg { color:#e5534b; } .row.k-archive svg { color:#d4a72c; } .row.k-text svg { color:#4c9be8; }
 .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(8.5rem,1fr)); gap:.6rem; padding-top:.6rem; }
 .grid .head { display:none; }
 .grid .row { display:flex; flex-direction:column; align-items:center; text-align:center; padding:.8rem .4rem; gap:.4rem; border:1px solid var(--border); }
 .grid .name { flex-direction:column; width:100%; } .grid svg { width:2.4rem; height:2.4rem; } .grid .name b { max-width:100%; }
-.grid .meta { text-align:center; font-size:.8rem; } .grid .meta.date { display:none; }
+.grid .meta { text-align:center; font-size:.8rem; } .grid .meta.date, .grid .meta.type { display:none; }
 #info { position:fixed; left:0; right:0; bottom:0; padding:.4rem 1rem; background:var(--bg); border-top:1px solid var(--border); color:var(--muted); font-size:.85rem; }
 .empty, .error { color:var(--muted); padding:2rem 0; text-align:center; } .error { color:#c0392b; }
 dialog { width:min(60rem,94vw); max-height:92vh; background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:.8rem; padding:1rem 1.1rem 1.1rem; box-shadow:0 24px 64px rgba(0,0,0,.45); }
@@ -67,7 +69,7 @@ dialog h2 { margin:0; font-size:1.05rem; line-height:1.3; overflow-wrap:anywhere
 .sl .val::after { content:""; position:absolute; right:-6px; top:50%; width:12px; height:12px; margin-top:-6px; border-radius:50%; background:var(--accent); transform:scale(0); transition:transform .12s; }
 .sl:hover .val::after, .sl:focus-visible .val::after, .sl.drag .val::after { transform:scale(1); }
 #pv pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.45 ui-monospace,Menlo,Consolas,monospace; }
-@media (max-width:40rem) { .head, .row { grid-template-columns:minmax(0,1fr) 5rem; } .meta.date, .head .date { display:none; } .pl .vol, .pl .sp { display:none; } }
+@media (max-width:40rem) { .head, .row { grid-template-columns:minmax(0,1fr) 5rem; } .meta.date, .head .date, .meta.type, .head .type { display:none; } .pl .vol, .pl .sp { display:none; } }
 </style>
 </head>
 <body>
@@ -102,6 +104,12 @@ var ICON = {
   dir: '<svg viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2.5h9A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>',
   up: '<svg viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></svg>',
   file: '<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/></svg>',
+  image: '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.4"/><path d="M4 17l5-5 4 4 2.5-2.5L20 17"/></svg>',
+  audio: '<svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="16" r="2"/></svg>',
+  video: '<svg viewBox="0 0 24 24"><rect x="3.5" y="6" width="17" height="12" rx="2"/><path fill="currentColor" d="M10.5 9.5v5l4.5-2.5z"/></svg>',
+  text: '<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>',
+  pdf: '<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9.5 17v-5h2a1.5 1.5 0 0 1 0 3h-2"/></svg>',
+  archive: '<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M10 6h2M10 9h2M10 12h2"/><rect x="9" y="15" width="3" height="4" rx=".6"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>',
   pause: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>',
   prev: '<svg viewBox="0 0 24 24"><path d="M6.5 5v14"/><path fill="currentColor" d="M19 5v14L9 12z"/></svg>',
@@ -115,6 +123,21 @@ var ICON = {
 };
 var TEXT = /\.(txt|md|json|csv|tsv|log|ini|toml|ya?ml|xml|html?|css|js|mjs|ts|py|c|h|cc|cpp|hpp|rs|go|java|sh|bat|cfg|conf|sql|tex|rst)$/i;
 var IMG = /\.(png|jpe?g|gif|webp|avif|bmp|ico)$/i, AUD = /\.(mp3|wav|ogg|m4a)$/i, VID = /\.(mp4|webm|ogv)$/i;
+// What a file is called and drawn as. Broader than the preview lists above: a flac gets the audio icon even if the browser may not play it.
+var KINDS = [
+  ["image", "Image", /\.(png|jpe?g|gif|webp|avif|bmp|ico|svg|heic|tiff?)$/i],
+  ["audio", "Audio", /\.(mp3|wav|ogg|oga|opus|m4a|aac|flac|wma|aiff?)$/i],
+  ["video", "Video", /\.(mp4|webm|ogv|mkv|mov|avi|m4v|wmv|flv|mpe?g)$/i],
+  ["pdf", "PDF", /\.pdf$/i],
+  ["archive", "Archive", /\.(zip|tar|gz|tgz|bz2|xz|7z|rar|zst)$/i],
+  ["text", "Text", TEXT]
+];
+function kindOf(e) { if (e.type === "dir") return "dir"; for (var i = 0; i < KINDS.length; i++) if (KINDS[i][2].test(e.name)) return KINDS[i][0]; return "file"; }
+function kindLabel(e) {
+  var k = kindOf(e); if (k === "dir") return "Folder";
+  for (var i = 0; i < KINDS.length; i++) if (KINDS[i][0] === k) return KINDS[i][1];
+  var m = /\.([^.]+)$/.exec(e.name); return m ? m[1].toUpperCase() : "File";
+}
 var $ = function (id) { return document.getElementById(id); };
 var root = document.documentElement;
 var state = { path: "/", entries: [], view: C.view, key: C.sort, desc: false, filter: "", theme: C.theme, truncated: false };
@@ -151,16 +174,16 @@ function sorted() {
   var list = state.entries.filter(function (e) { return !q || e.name.toLowerCase().indexOf(q) >= 0; });
   list.sort(function (a, b) {
     if ((a.type === "dir") !== (b.type === "dir")) return a.type === "dir" ? -1 : 1;
-    var r = k === "size" ? a.size - b.size : k === "date" ? a.mtime - b.mtime : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+    var r = k === "size" ? a.size - b.size : k === "date" ? a.mtime - b.mtime : k === "type" ? kindLabel(a).localeCompare(kindLabel(b)) : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
     return (r || a.name.localeCompare(b.name)) * d;
   });
   return list;
 }
 
-function row(name, type, sz, mt, onopen, icon) {
-  var r = el("div", "row " + type); r.tabIndex = 0; r.setAttribute("role", "link");
-  var n = el("div", "name"); n.insertAdjacentHTML("beforeend", ICON[icon || type]); n.appendChild(el("b", "", name)); n.title = name;
-  r.appendChild(n); r.appendChild(el("div", "meta", sz)); r.appendChild(el("div", "meta date", mt));
+function row(name, kind, label, sz, mt, onopen, icon) {
+  var r = el("div", "row " + (kind === "dir" ? "dir" : "file") + " k-" + kind); r.tabIndex = 0; r.setAttribute("role", "link");
+  var n = el("div", "name"); n.insertAdjacentHTML("beforeend", ICON[icon || kind]); n.appendChild(el("b", "", name)); n.title = name;
+  r.appendChild(n); r.appendChild(el("div", "meta type", label)); r.appendChild(el("div", "meta", sz)); r.appendChild(el("div", "meta date", mt));
   r.onclick = onopen; r.onkeydown = function (ev) { if (ev.key === "Enter") onopen(); };
   return r;
 }
@@ -171,19 +194,19 @@ function render(error) {
   if (error) { main.appendChild(el("div", "error", error)); $("info").textContent = ""; return; }
   var box = el("div", state.view === "grid" ? "grid" : "list");
   var head = el("div", "head");
-  [["name", "Name"], ["size", "Size"], ["date", "Modified"]].forEach(function (c) {
-    var b = el("button", c[0] === "date" ? "date" : "", c[1] + (state.key === c[0] ? (state.desc ? " ▾" : " ▴") : ""));
+  [["name", "Name"], ["type", "Type"], ["size", "Size"], ["date", "Modified"]].forEach(function (c) {
+    var b = el("button", c[0] === "date" || c[0] === "type" ? c[0] : "", c[1] + (state.key === c[0] ? (state.desc ? " ▾" : " ▴") : ""));
     b.type = "button"; b.setAttribute("aria-pressed", state.key === c[0]);
     b.onclick = function () { if (state.key === c[0]) state.desc = !state.desc; else { state.key = c[0]; state.desc = false; } render(); };
     head.appendChild(b);
   });
   box.appendChild(head);
-  if (state.path !== "/") box.appendChild(row("..", "dir", "", "", function () { go("/" + segs(state.path).slice(0, -1).join("/")); }, "up"));
+  if (state.path !== "/") box.appendChild(row("..", "dir", "", "", "", function () { go("/" + segs(state.path).slice(0, -1).join("/")); }, "up"));
   var list = sorted(), dirs = 0, files = 0, total = 0;
   state.entries.forEach(function (e) { if (e.type === "dir") dirs++; else { files++; total += e.size; } });
   list.forEach(function (e) {
     var p = joinPath(state.path, e.name);
-    box.appendChild(row(e.name, e.type, e.type === "dir" ? "" : size(e.size), date(e.mtime), function () { if (e.type === "dir") go(p); else preview(e, p); }));
+    box.appendChild(row(e.name, kindOf(e), kindLabel(e), e.type === "dir" ? "" : size(e.size), date(e.mtime), function () { if (e.type === "dir") go(p); else preview(e, p); }));
   });
   main.appendChild(box);
   if (!list.length) main.appendChild(el("div", "empty", state.entries.length ? "Nothing matches the filter." : "This folder is empty."));

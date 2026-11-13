@@ -377,6 +377,16 @@ UTEST(httpp_file_browser, the_preview_dialog_has_icon_buttons_with_tooltips) {
     EXPECT_FALSE(contains(r.body, "class=\"actions\""));
 }
 
+UTEST(httpp_file_browser, the_list_has_a_type_column_and_typed_icons) {
+    tree t;
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
+    auto r = httpp::client::fetch(srv.url("/files"));
+    ASSERT_EQ(200, r.status);
+    EXPECT_TRUE(contains(r.body, "function kindOf("));
+    EXPECT_TRUE(contains(r.body, "[\"type\", \"Type\"]"));
+    EXPECT_TRUE(contains(r.body, ".row.k-audio svg"));
+}
+
 UTEST(httpp_file_browser, can_be_mounted_at_the_root_of_a_server) {
     tree t;
     local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/"); });
