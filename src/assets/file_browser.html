@@ -336,7 +336,8 @@ function closeDlg() {
   closing = true; d.classList.add("out");
   setTimeout(function () { d.classList.remove("out"); closing = false; d.close(); }, 170);
 }
-function outside(ev) { var r = $("dlg").getBoundingClientRect(); return ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom; }
+// Only a press on the backdrop counts: it is aimed at the dialog itself. A press on anything inside (a full screen video covers the whole screen, far outside the dialog box) never does.
+function outside(ev) { var d = $("dlg"), r = d.getBoundingClientRect(); return ev.target === d && (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom); }
 $("pd").innerHTML = ICON.download; $("po").innerHTML = ICON.ext; $("pc").innerHTML = ICON.x;
 $("pc").onclick = closeDlg;
 $("dlg").addEventListener("cancel", function (ev) { ev.preventDefault(); closeDlg(); });
