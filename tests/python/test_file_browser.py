@@ -81,21 +81,20 @@ def test_the_defaults_are_those_of_the_cpp_class(tree):
             assert fragment in page
 
 
-def test_safe_mode_is_the_default_and_turning_it_off_shows_html_and_svg_behind_a_sandbox(tree):
+def test_html_and_svg_are_shown_behind_a_sandbox_by_default_and_safe_mode_makes_them_downloads(tree):
     (tree / "p.html").write_text("<script>1</script><p>hi</p>")
     (tree / "x.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
     (tree / "x.xml").write_text("<a/>")
-    safe, loose, keyword = Server(), Server(), Server()
-    FileBrowser(tree).mount(safe, "/files")
+    default, loose, safe, keyword = Server(), Server(), Server(), Server()
+    FileBrowser(tree).mount(default, "/files")
     fb = FileBrowser(tree)
     assert fb.set_safe_mode(False) is fb
     fb.mount(loose, "/files")
-    FileBrowser(tree, safe_mode=False).mount(keyword, "/files")
-    with running(safe) as url:
-        assert '"safe":true' in httpp.get(f"{url}/files").text
-        for name in ("p.html", "x.svg"):
-            assert "attachment" in httpp.get(f"{url}/files/raw/{name}").header("Content-Disposition")
-    for server in (loose, keyword):
+    fb = FileBrowser(tree)
+    assert fb.set_safe_mode(True) is fb
+    fb.mount(safe, "/files")
+    FileBrowser(tree, safe_mode=True).mount(keyword, "/files")
+    for server in (default, loose):
         with running(server) as url:
             assert '"safe":false' in httpp.get(f"{url}/files").text
             for name in ("p.html", "x.svg"):
@@ -105,6 +104,12 @@ def test_safe_mode_is_the_default_and_turning_it_off_shows_html_and_svg_behind_a
                 assert "sandbox;" in csp and "allow-" not in csp and "default-src 'none'" in csp
                 assert "attachment" in httpp.get(f"{url}/files/raw/{name}?download=1").header("Content-Disposition")
             assert "attachment" in httpp.get(f"{url}/files/raw/x.xml").header("Content-Disposition")
+    for server in (safe, keyword):
+        with running(server) as url:
+            assert '"safe":true' in httpp.get(f"{url}/files").text
+            for name in ("p.html", "x.svg", "x.xml"):
+                r = httpp.get(f"{url}/files/raw/{name}")
+                assert "attachment" in r.header("Content-Disposition") and "sandbox" not in (r.header("Content-Security-Policy") or "")
 
 
 def test_the_setters_chain_and_one_browser_mounts_twice(tree):
@@ -207,10 +212,11 @@ def test_browse_command_refuses_a_bad_accent(tree, httpp_exe):
     assert r.returncode == 1 and "error" in r.stderr
 
 
-def test_browse_command_unsafe_shows_html(tree, httpp_exe, stop_process):
+@pytest.mark.parametrize("flag, shown", [(None, True), ("--safe", False)])
+def test_browse_command_shows_html_by_default_and_safe_makes_it_a_download(tree, httpp_exe, stop_process, flag, shown):
     (tree / "p.html").write_text("<p>hi</p>")
     port = _free_port()
-    proc = subprocess.Popen([*httpp_exe, "browse", str(tree), "--port", str(port), "--unsafe"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen([*httpp_exe, "browse", str(tree), "--port", str(port), *([flag] if flag else [])], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         url = f"http://127.0.0.1:{port}"
         for _ in range(100):
@@ -219,7 +225,10 @@ def test_browse_command_unsafe_shows_html(tree, httpp_exe, stop_process):
                 break
             time.sleep(0.1)
         assert r.status == 200, (r.status, proc.poll())
-        assert r.header("Content-Disposition") is None and "sandbox;" in r.header("Content-Security-Policy")
-        assert '"safe":false' in httpp.get(url).text
+        if shown:
+            assert r.header("Content-Disposition") is None and "sandbox;" in r.header("Content-Security-Policy")
+        else:
+            assert "attachment" in r.header("Content-Disposition")
+        assert f'"safe":{"false" if shown else "true"}' in httpp.get(url).text
     finally:
         stop_process(proc)

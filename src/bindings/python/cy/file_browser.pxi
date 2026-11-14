@@ -105,9 +105,9 @@ cdef class FileBrowser:
         return self
 
     def set_safe_mode(self, bint on):
-        """True: html, svg, xml, js and unknown types are only downloaded, never shown. False: "Open raw" renders html and svg in the new tab
-        and the dialog shows an svg as an image (html stays text there), all behind a Content-Security-Policy sandbox that stops every script
-        and every request to another origin; xml, js and unknown types stay downloads. Default True."""
+        """False (default): "Open raw" renders html and svg in the new tab and the dialog shows an svg as an image (html stays text there), all
+        behind a Content-Security-Policy sandbox that stops every script and every request to another origin; xml, js and unknown types stay
+        downloads. True: html and svg are only downloaded too, nothing that could run code is ever shown."""
         self._b.set_safe_mode(on)
         return self
 

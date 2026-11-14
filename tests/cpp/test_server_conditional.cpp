@@ -170,3 +170,62 @@ UTEST(httpp_server_conditional, the_file_browser_raw_route_has_the_same_validato
     ASSERT_FALSE(r.header("ETag").empty());
     ASSERT_EQ(304, get(srv, "/files/raw/a.txt", {{"If-None-Match", r.header("ETag")}}).status);
 }
+
+UTEST(httpp_server_conditional, the_etag_of_a_download_active_mount_depends_on_how_the_file_is_sent) {
+    // A browser that cached index.html as a download must not be told "304 Not Modified" after the mount starts showing it (a 304 keeps the
+    // cached Content-Disposition), so the validator changes with the mode.
+    site s;
+    local_server srv([&](httpp::server& sv) {
+        httpp::directory(s.dir.string()).set_download_active(true).mount(sv, "/dl");
+        httpp::directory(s.dir.string()).set_download_active(true).set_inline_active(true).mount(sv, "/inline");
+        httpp::directory(s.dir.string()).mount(sv, "/plain");
+    });
+    auto download = get(srv, "/dl/index.html");
+    auto inline_ = get(srv, "/inline/index.html");
+    ASSERT_EQ(200, download.status);
+    ASSERT_EQ(200, inline_.status);
+    ASSERT_TRUE(contains(download.header("Content-Disposition"), "attachment"));
+    ASSERT_FALSE(contains(inline_.header("Content-Disposition"), "attachment"));
+    ASSERT_FALSE(download.header("ETag").empty());
+    ASSERT_TRUE(download.header("ETag") != inline_.header("ETag"));
+    auto revalidated = get(srv, "/inline/index.html", {{"If-None-Match", download.header("ETag")}});  // the old validator: a full answer
+    ASSERT_EQ(200, revalidated.status);
+    ASSERT_FALSE(contains(revalidated.header("Content-Disposition"), "attachment"));
+    ASSERT_EQ(304, get(srv, "/inline/index.html", {{"If-None-Match", inline_.header("ETag")}}).status);  // its own validator still works
+    // a type that is shown the same way in every mode keeps working with a conditional request, and a plain mount is untouched
+    ASSERT_EQ(304, get(srv, "/dl/a.txt", {{"If-None-Match", get(srv, "/dl/a.txt").header("ETag")}}).status);
+    ASSERT_EQ(200, get(srv, "/plain/a.txt").status);
+}
+
+// ---- download_active: the validator follows how the file is sent (ADR-0070)
+
+UTEST(httpp_server_conditional, the_etag_follows_how_a_download_active_file_is_sent_so_a_mode_change_is_not_answered_with_a_304) {
+    site s;
+    s.write("page.html", "<h1>x</h1>");
+    local_server srv([&](httpp::server& sv) {
+        httpp::directory(s.dir.string()).set_download_active(true).mount(sv, "/safe");
+        httpp::directory(s.dir.string()).set_download_active(true).set_inline_active(true).mount(sv, "/loose");
+        httpp::directory(s.dir.string()).set_download_active(true).set_inline_active(true).mount(sv, "/loose2");
+        sv.serve_directory("/f2", s.dir.string());
+    });
+    const std::string safe_tag = get(srv, "/safe/page.html").header("ETag");
+    const std::string loose_tag = get(srv, "/loose/page.html").header("ETag");
+    ASSERT_FALSE(safe_tag.empty());
+    ASSERT_FALSE(loose_tag.empty());
+    ASSERT_TRUE(safe_tag != loose_tag);  // attachment vs sandboxed inline
+    ASSERT_TRUE(safe_tag.front() == '"' && safe_tag.back() == '"');
+    // a browser that cached the download under the safe mode asks again after the mode changed: a full answer with the new headers, not a 304
+    auto changed = get(srv, "/loose/page.html", {{"If-None-Match", safe_tag}});
+    ASSERT_EQ(200, changed.status);
+    ASSERT_TRUE(changed.header("Content-Disposition").empty());
+    ASSERT_TRUE(contains(changed.header("Content-Security-Policy"), "sandbox"));
+    // and a browser must ask every time (no-cache), or a fresh cached copy would be used without the question being put
+    ASSERT_STREQ("no-cache", changed.header("Cache-Control").c_str());
+    ASSERT_STREQ("no-cache", get(srv, "/safe/page.html").header("Cache-Control").c_str());
+    ASSERT_TRUE(get(srv, "/f2/a.txt").header("Cache-Control").empty());  // a plain mounted folder keeps its caching
+    // the same mode still revalidates into a 304
+    ASSERT_EQ(304, get(srv, "/loose/page.html", {{"If-None-Match", loose_tag}}).status);
+    ASSERT_EQ(304, get(srv, "/safe/page.html", {{"If-None-Match", safe_tag}}).status);
+    // a type that is shown as it is keeps its validator across the two modes
+    ASSERT_TRUE(get(srv, "/safe/a.txt").header("ETag") == get(srv, "/loose2/a.txt").header("ETag"));
+}

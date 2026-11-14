@@ -838,11 +838,19 @@ struct server::impl {
     // A file shown inline must not be able to run code in the page's origin: only types that cannot are shown, the rest is a download.
     // With `inline_active`, html and svg are shown too, but only behind a policy that stops scripts and every outside request
     // (an opaque origin, so not even the page's cookies or storage are reachable).
-    static void add_download_headers(const server_request& req, const std::string& full, response& res, bool inline_active) {
+    // How a file is sent when `download_active`: 'p' as it is (a type that cannot run code), 's' inline behind the sandbox policy
+    // (html and svg with `inline_active`), 'a' as a download.
+    static char download_class(const std::string& full, bool inline_active) {
         const std::string type = mime_for(full);
         const bool plain = type == "text/plain" || type == "application/json" || type == "text/csv" || type == "text/markdown" || type == "application/pdf" ||
                            (type.compare(0, 6, "image/") == 0 && type != "image/svg+xml") || type.compare(0, 6, "audio/") == 0 || type.compare(0, 6, "video/") == 0;
-        const bool sandboxed = inline_active && (type == "text/html" || type == "image/svg+xml");
+        if (plain) return 'p';
+        return inline_active && (type == "text/html" || type == "image/svg+xml") ? 's' : 'a';
+    }
+
+    static void add_download_headers(const server_request& req, const std::string& full, response& res, bool inline_active) {
+        const char how = download_class(full, inline_active);
+        const bool plain = how == 'p', sandboxed = how == 's';
         res.headers.emplace_back("X-Content-Type-Options", "nosniff");
         if ((plain || sandboxed) && req.query_param("download") != "1") {
             if (sandboxed)
@@ -894,7 +902,10 @@ struct server::impl {
         {
             const httpp::path::status stamp = httpp::path(full).stat();
             const bool stamped = stamp.type == httpp::path::kind::file;
-            const std::string etag = stamped ? make_etag(size, stamp) : std::string();
+            std::string etag = stamped ? make_etag(size, stamp) : std::string();
+            // The headers of a download_active answer depend on the mode (attachment or sandboxed inline), so the validator does too: a browser that
+            // cached the file under one mode must get a full answer, not a 304 that keeps the old Content-Disposition, after the mode is changed.
+            if (stamped && options.download_active) etag.insert(etag.size() - 1, std::string("-") + download_class(full, options.inline_active));
             const std::string modified = stamped ? format_http_date(stamp.mtime) : std::string();
             bool honour_range = true;
             if (stamped) {
@@ -905,6 +916,7 @@ struct server::impl {
                     if (p == precondition::not_modified) { // the validators go with a 304 (RFC 9110 section 15.4.5)
                         out.headers.emplace_back("ETag", etag);
                         out.headers.emplace_back("Last-Modified", modified);
+                        if (options.download_active) out.headers.emplace_back("Cache-Control", "no-cache");
                     }
                     send(std::move(out), 0, -1);
                     return true;
@@ -920,7 +932,12 @@ struct server::impl {
                 res.headers.emplace_back("ETag", etag);
                 res.headers.emplace_back("Last-Modified", modified);
             }
-            if (options.download_active) add_download_headers(req, full, res, options.inline_active);
+            if (options.download_active) {
+                add_download_headers(req, full, res, options.inline_active);
+                // Always revalidate (a cheap 304 when nothing changed): the headers depend on the mount's mode, and a browser must not keep
+                // showing a file as a download, or as a page, for hours after the mode was changed, as it would from a fresh cached copy.
+                res.headers.emplace_back("Cache-Control", "no-cache");
+            }
             long long start = 0, end = size - 1;
             switch (honour_range ? parse_range(req.header("Range"), size, start, end) : range_result::none) {
                 case range_result::unsatisfiable: {

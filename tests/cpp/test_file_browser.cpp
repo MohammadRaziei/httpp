@@ -275,14 +275,14 @@ UTEST(httpp_file_browser, raw_serves_ranges_and_head_like_a_static_directory) {
     EXPECT_STR_EQ("11", head.header("Content-Length"));
 }
 
-UTEST(httpp_file_browser, active_and_unknown_types_are_always_downloads_and_nothing_is_sniffed) {
+UTEST(httpp_file_browser, in_safe_mode_active_and_unknown_types_are_always_downloads_and_nothing_is_sniffed) {
     tree t;
     write_file(t.root / "x.svg", "<svg xmlns='http://www.w3.org/2000/svg'><script>1</script></svg>");
     write_file(t.root / "x.xml", "<a/>");
     write_file(t.root / "x.js", "alert(1)");
     write_file(t.root / "noext", "who knows");
     write_file(t.root / "pic.png", "not really a png");
-    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_safe_mode(true).mount(s, "/files"); });
     for (const char* name : {"evil.html", "x.svg", "x.xml", "x.js", "noext"}) {
         auto r = httpp::client::fetch(srv.url(std::string("/files/raw/") + name));
         ASSERT_EQ(200, r.status);
@@ -298,10 +298,14 @@ UTEST(httpp_file_browser, active_and_unknown_types_are_always_downloads_and_noth
     EXPECT_TRUE(contains(forced.header("Content-Disposition"), "attachment"));
 }
 
-UTEST(httpp_file_browser, safe_mode_is_the_default_so_html_and_svg_are_downloads) {
+UTEST(httpp_file_browser, safe_mode_makes_html_and_svg_downloads_too) {
     tree t;
     write_file(t.root / "x.svg", "<svg xmlns='http://www.w3.org/2000/svg'><script>1</script></svg>");
-    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
+    local_server srv([&](httpp::server& s) {
+        httpp::file_browser fb(t.root.string());
+        EXPECT_TRUE(&fb.set_safe_mode(true) == &fb);  // chains like every other setter
+        fb.mount(s, "/files");
+    });
     auto page = httpp::client::fetch(srv.url("/files"));
     ASSERT_EQ(200, page.status);
     EXPECT_TRUE(contains(page.body, "\"safe\":true"));
@@ -313,17 +317,13 @@ UTEST(httpp_file_browser, safe_mode_is_the_default_so_html_and_svg_are_downloads
     }
 }
 
-UTEST(httpp_file_browser, without_safe_mode_html_and_svg_are_shown_behind_a_sandbox_and_the_other_active_types_stay_downloads) {
+UTEST(httpp_file_browser, by_default_html_and_svg_are_shown_behind_a_sandbox_and_the_other_active_types_stay_downloads) {
     tree t;
     write_file(t.root / "x.svg", "<svg xmlns='http://www.w3.org/2000/svg'><script>1</script></svg>");
     write_file(t.root / "x.xml", "<a/>");
     write_file(t.root / "x.js", "alert(1)");
     write_file(t.root / "noext", "who knows");
-    local_server srv([&](httpp::server& s) {
-        httpp::file_browser fb(t.root.string());
-        EXPECT_TRUE(&fb.set_safe_mode(false) == &fb);  // chains like every other setter
-        fb.mount(s, "/files");
-    });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });  // no setter: this is the default
     auto page = httpp::client::fetch(srv.url("/files"));
     ASSERT_EQ(200, page.status);
     EXPECT_TRUE(contains(page.body, "\"safe\":false"));
@@ -354,7 +354,7 @@ UTEST(httpp_file_browser, without_safe_mode_html_and_svg_are_shown_behind_a_sand
 UTEST(httpp_file_browser, a_folder_is_not_a_file_and_index_html_is_not_served) {
     tree t;
     write_file(t.root / "sub" / "index.html", "<h1>index</h1>");
-    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_safe_mode(true).mount(s, "/files"); });
     EXPECT_EQ(404, httpp::client::fetch(srv.url("/files/raw/sub")).status);
     EXPECT_EQ(404, httpp::client::fetch(srv.url("/files/raw/sub/")).status);
     EXPECT_EQ(404, httpp::client::fetch(srv.url("/files/raw/")).status);
