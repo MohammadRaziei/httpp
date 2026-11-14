@@ -31,6 +31,7 @@ struct http_test_server {
     bool silent_close_after_response = false; // hang up after answering, without saying Connection: close
     bool say_connection_close = false;        // answer with Connection: close and hang up
     int drop_request_number = 0;              // on each connection, hang up instead of answering this request (1-based)
+    std::atomic<int> hold_until_requests{0};  // answer only once this many requests (in total) have arrived: forces them to be in flight together
     std::string last_head;
 
     int port() { return acc.local_endpoint().port(); }
@@ -70,6 +71,7 @@ struct http_test_server {
             ++requests;
             { std::lock_guard<std::mutex> lk(mu); last_head = head; }
             if (n == drop_request_number) break; // hang up without a word
+            for (int waited = 0; requests.load() < hold_until_requests.load() && waited < 500; ++waited) std::this_thread::sleep_for(10ms);
             const std::string body = "reply " + std::to_string(n);
             std::string resp = "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(body.size()) + "\r\n";
             if (say_connection_close) resp += "Connection: close\r\n";
@@ -311,6 +313,21 @@ UTEST(async_pool, concurrent_requests_use_separate_connections_and_all_return_to
     ASSERT_TRUE(first >= 1 && first <= 6);
     for (int i = 0; i < 6; ++i) ASSERT_EQ(200, run_now(eng, job_for(srv.port(), true)).status);
     ASSERT_EQ(first, srv.connections.load()); // all six later requests reused pooled connections
+}
+
+// ADR-0071: the pool used to keep only 8 idle connections per origin, so with more requests in flight than that every extra connection
+// was closed after its response and opened again for the next burst.
+UTEST(async_pool, a_burst_larger_than_eight_keeps_all_its_connections_for_the_next_burst) {
+    constexpr int burst = 24;
+    http_test_server srv;
+    async_http eng;
+    for (int round = 1; round <= 2; ++round) {
+        srv.hold_until_requests = round * burst; // all `burst` requests of this round must be in flight together
+        std::vector<std::future<httpp::response>> fs;
+        for (int i = 0; i < burst; ++i) fs.push_back(run(eng, job_for(srv.port(), true)));
+        for (auto& f : fs) { ASSERT_TRUE(f.wait_for(20s) == std::future_status::ready); ASSERT_EQ(200, f.get().status); }
+        ASSERT_EQ(burst, srv.connections.load()); // round 2 found all of them in the pool: no new connection
+    }
 }
 
 UTEST(async_pool, destroying_the_engine_closes_pooled_connections) {

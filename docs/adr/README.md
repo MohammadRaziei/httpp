@@ -74,6 +74,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0068](0068-socks5-proxy.md) | SOCKS5 proxies (`socks5://`, `socks5h://`) through the same proxy URL | accepted |
 | [0069](0069-forwarded-headers.md) | `forwarded_headers`: the real client, scheme and host from a trusted reverse proxy; `server_request::client_ip` | accepted |
 | [0070](0070-file-browser-safe-mode.md) | File browser shows html and svg inside a CSP sandbox by default; `set_safe_mode(true)` / `httpp browse --safe` makes them downloads; `directory::set_inline_active` | accepted |
+| [0071](0071-client-pool-keeps-every-connection-of-a-burst.md) | The client pool keeps every connection of a burst (idle limit 8 to 256): `httpp.Client` scaling on free-threaded Python | accepted |
 
 ## Not decided yet
 

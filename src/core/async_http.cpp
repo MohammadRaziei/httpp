@@ -32,7 +32,12 @@ namespace {
 
 using asio::ip::tcp;
 
-constexpr std::size_t max_idle_per_origin = 8;
+// A new connection is opened only when no idle one is available, so the pool never holds more than the peak number of requests that were in
+// flight at once. This limit only guards against a huge burst. It used to be 8: with more than 8 requests in flight at once (32 threads on a
+// free-threaded Python, or 32 asyncio tasks) every connection above the 8th was closed when its response ended and opened again for the next
+// request, which made the network thread several times slower per request (ADR-0071).
+// ponytail: after a burst, up to this many idle sockets stay open until idle_timeout_sec. Upgrade: shrink the pool faster than the timeout.
+constexpr std::size_t max_idle_per_origin = 256;
 constexpr int idle_timeout_sec = 60; // an idle pooled connection is closed after this long
 
 bool ieq(const std::string& a, const char* b) {

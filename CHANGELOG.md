@@ -27,6 +27,7 @@ such changes are listed under **Changed**).
 ### Fixed
 
 - **`AsyncClient` and `Request.run_async` on free-threaded Python.** The completion callback ran on the C++ network thread without pinning a thread state, so every request created and destroyed one (`PyGILState_Ensure`/`Release`), which is very slow on 3.14t. Measured on 3.14t, 32 tasks, local server: about 1.0k req/s and 990 us CPU per request before, about 17.5k req/s and 53 us after (the same fix the server trampolines already had).
+- **HTTP client connection pool (ADR-0071).** The engine kept at most 8 idle connections per origin and closed the rest, so with more than 8 requests in flight (`Client` from 16 or 32 threads on a free-threaded Python, `AsyncClient` with 32 tasks) every burst reopened its extra connections. The limit is now 256. Python 3.14t, `Client`, 8 load CPUs: 55k req/s at 16 threads and 27k at 32 before; the GIL build keeps 100k. Test: `async_pool.a_burst_larger_than_eight_keeps_all_its_connections_for_the_next_burst`.
 
 ## [0.8.1] - 2026-11-11
 
