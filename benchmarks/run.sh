@@ -6,6 +6,7 @@
 #
 # The JSON records the hardware itself (CPU, cores, memory, OS, laptop or not), no name needed. Anything after the mode is passed to
 # cmake as it is, e.g.  benchmarks/run.sh full -DBENCH_PYS="3.14t" -DBENCH_ONLY=client
+# Those options apply to that run only: the next run starts from the defaults again (they are not kept in the CMake cache).
 # Close heavy programs and plug in the charger before a full run.
 set -euo pipefail
 
@@ -30,7 +31,10 @@ done
 python3 -c "import jinja2, jsonschema" 2>/dev/null || { echo "missing python packages: pip install jinja2 jsonschema" >&2; exit 1; }
 # Drogon (optional) needs the uuid headers: sudo apt install uuid-dev
 
-args=(-S "$root/benchmarks" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release "-DBENCH_PURPOSE=$purpose")
+# Every BENCH_* setting is a CMake cache variable, so a -D from an earlier run would stay in build-bench/CMakeCache.txt and apply to this one too
+# (run.sh full -DBENCH_ONLY=client, then run.sh full, would run only the client part again). -UBENCH_* drops them all first: a run uses the
+# defaults plus the -D options of this command line. It must come before the -D options, because cmake applies them in the order given.
+args=(-S "$root/benchmarks" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release "-UBENCH_*" "-DBENCH_PURPOSE=$purpose")
 cmake "${args[@]}" "${extra[@]}"
 cmake --build "$build" --target "$target"
 

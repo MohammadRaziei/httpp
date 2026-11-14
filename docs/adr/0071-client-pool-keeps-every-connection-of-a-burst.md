@@ -34,7 +34,8 @@ burst (a second burst a moment later would pay the handshake again, which is wha
 
 - After a burst of N requests in flight (N up to 256), N idle sockets stay open per origin until the idle timeout (60 s). Before, at most 8.
 - Test: `async_pool.a_burst_larger_than_eight_keeps_all_its_connections_for_the_next_burst` (24 requests held in flight together twice; the server must see 24 connections, not 40).
-- **Not verified:** the numbers after the fix on the owner's machine (to be measured with `benchmarks/diag_sync_client.py` and `run.sh`), Windows, macOS.
+- Measured on the owner's machine after the fix (`run.sh full`, i7-13620H, server on CPUs 0-7, load generator on 8-15, governor `powersave`, 3 rounds): `httpp Client`, 32 threads: 120,385 req/s on 3.14t (p99 0.55 ms) against 75,638 on 3.14 (p99 1.60 ms); `httpp AsyncClient`, 32 tasks: 92,541 on 3.14t against 48,225 on 3.14. Before the fix (an earlier run with governor `performance`, so not strictly comparable): `Client` on 3.14t 28,438 req/s, `AsyncClient` on 3.14t 57,634 (after the thread-state pin fix only).
+- **Not verified:** the `diag_sync_client.py` sweep at 16 and 32 threads after the fix, a run with governor `performance`, Windows, macOS.
 
 ## Related
 
