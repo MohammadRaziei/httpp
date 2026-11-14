@@ -18,6 +18,10 @@ the `starting on` message that `run` printed came before the bind and also showe
 - After a **successful bind**, `listening on http://host:port` (`info`), in both `listen` and `bind_to_any_port` (with the real port).
 - `httpp.run` / `app.run()` / `httpp run` default to `info` (like uvicorn); the old `starting on` message was removed.
   `app.listen()` and the C++ API keep the default `warning`.
+- The native commands `httpp server` and `httpp browse` also default to `info` (the address, then one line per request) and take `--log-level`
+  with the same values as `httpp py run`. They call `listen()`, which stays at `warning` for the library, so without this they ran silent: the
+  commands raise the level themselves (`set_log_level`) and nothing else changes. Added after the owner ran `httpp browse` and saw only the
+  "Browsing ..." line.
 
 ## Rejected alternatives
 

@@ -20,6 +20,7 @@
 #include "httpp/client.hpp"
 #include "httpp/download.hpp"
 #include "httpp/file_browser.hpp"
+#include "httpp/log.hpp"
 #include "httpp/server.hpp"
 
 #include <atomic>
@@ -29,9 +30,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -67,6 +70,18 @@ std::string absolute_path(const std::string& dir) {
     return real.empty() ? dir : real;
 }
 
+// The native commands log like `httpp py run`: info by default (the listening line, then one line per request), and
+// --log-level changes it (ADR-0011). The library itself stays at warning for listen(); only these commands raise it.
+const std::initializer_list<std::string> k_log_levels = {"trace", "debug", "info", "warning", "error", "off"};
+
+void apply_log_level(const std::string& name) {
+    using httpp::log_level;
+    static const std::pair<const char*, log_level> levels[] = {{"trace", log_level::trace}, {"debug", log_level::debug}, {"info", log_level::info},
+                                                               {"warning", log_level::warning}, {"error", log_level::error}, {"off", log_level::off}};
+    for (const auto& l : levels)
+        if (name == l.first) httpp::set_log_level(l.second);  // the option values are checked by CLI11 against k_log_levels
+}
+
 // --- serving until Ctrl+C or SIGTERM ---
 
 std::atomic<int> g_signals{0};
@@ -96,7 +111,7 @@ bool serve(httpp::server& srv, const std::string& host, int port, double grace) 
     return listened;
 }
 
-int cmd_server(const std::string& directory, const std::string& host, int port, double grace) {
+int cmd_server(const std::string& directory, const std::string& host, int port, double grace, const std::string& log_level) {
     if (!is_directory(directory)) return fail("'" + directory + "' is not a folder");
     httpp::server srv;
     try {
@@ -105,6 +120,7 @@ int cmd_server(const std::string& directory, const std::string& host, int port, 
         return fail(e.what());
     }
     std::cout << "Serving '" << directory << "' at http://" << host << ":" << port << "/" << std::endl;
+    apply_log_level(log_level);
     if (!serve(srv, host, port, grace)) return fail("cannot listen on " + host + ":" + std::to_string(port));
     return 0;
 }
@@ -121,6 +137,7 @@ struct browse_args {
     std::size_t max_entries = 5000;
     std::string view = "list";
     std::string sort = "name";
+    std::string log_level = "info";
     bool no_search = false;
 };
 
@@ -140,6 +157,7 @@ int cmd_browse(const browse_args& a) {
         return fail(e.what());
     }
     std::cout << "Browsing '" << root << "' (read-only) at http://" << a.host << ":" << a.port << "/" << std::endl;
+    apply_log_level(a.log_level);
     if (!serve(srv, a.host, a.port, a.grace)) return fail("cannot listen on " + a.host + ":" + std::to_string(a.port));
     return 0;
 }
@@ -339,12 +357,15 @@ int main(int argc, char** argv) {
     std::string server_dir = ".", server_host = "0.0.0.0";
     int server_port = 8000;
     double server_grace = 10;
+    std::string server_log_level = "info";
     auto* c_server = app.add_subcommand("server", "Serve a directory over HTTP, like `python -m http.server`.");
     c_server->add_option("directory", server_dir, "The folder to serve")->capture_default_str();
     c_server->add_option("--host", server_host)->capture_default_str();
     c_server->add_option("--port,-p", server_port)->check(CLI::Range(1, 65535))->capture_default_str();
     c_server->add_option("--shutdown-timeout", server_grace, "On Ctrl+C or SIGTERM, how long requests in progress may take to finish")
         ->check(CLI::NonNegativeNumber)->capture_default_str()->type_name("SECONDS");
+    c_server->add_option("--log-level", server_log_level, "What goes to stderr: info is the address and one line per request, off is nothing")
+        ->check(CLI::IsMember(k_log_levels))->capture_default_str();
 
     // browse
     browse_args b;
@@ -360,6 +381,8 @@ int main(int argc, char** argv) {
     c_browse->add_option("--max-entries", b.max_entries, "Longest folder listing")->check(CLI::PositiveNumber)->capture_default_str()->type_name("N");
     c_browse->add_option("--view", b.view)->check(CLI::IsMember({"list", "grid"}))->capture_default_str();
     c_browse->add_option("--sort", b.sort)->check(CLI::IsMember({"name", "size", "date"}))->capture_default_str();
+    c_browse->add_option("--log-level", b.log_level, "What goes to stderr: info is the address and one line per request, off is nothing")
+        ->check(CLI::IsMember(k_log_levels))->capture_default_str();
     c_browse->add_option("--shutdown-timeout", b.grace, "On Ctrl+C or SIGTERM, how long requests in progress may take to finish")
         ->check(CLI::NonNegativeNumber)->capture_default_str()->type_name("SECONDS");
 
@@ -391,7 +414,7 @@ int main(int argc, char** argv) {
         return code == 0 ? 0 : 2;
     }
 
-    if (c_server->parsed()) return cmd_server(server_dir, server_host, server_port, server_grace);
+    if (c_server->parsed()) return cmd_server(server_dir, server_host, server_port, server_grace, server_log_level);
     if (c_browse->parsed()) return cmd_browse(b);
     if (c_download->parsed()) return cmd_download(dl_url, dl_output, dl_quiet);
     if (c_curl->parsed()) return cmd_curl(curl_url, curl_method, curl_headers, curl_data, curl_data_opt->count() > 0, curl_output);

@@ -133,6 +133,36 @@ def test_server_serves_a_directory(httpp_exe, tmp_path, stop_process):
         stop_process(proc)
 
 
+@pytest.mark.parametrize("command", ["server", "browse"])
+def test_the_native_commands_log_the_address_and_each_request(httpp_exe, tmp_path, stop_process, command):
+    port = free_port()
+    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        assert wait_for(f"http://127.0.0.1:{port}/", proc).status != 0
+        assert httpp.get(f"http://127.0.0.1:{port}/nope.txt").status == 404
+    finally:
+        _, err = stop_process(proc)
+    assert f"listening on http://127.0.0.1:{port}" in err, err
+    assert "GET /nope.txt 404" in err, err
+
+
+@pytest.mark.parametrize("command", ["server", "browse"])
+def test_the_native_commands_stay_quiet_with_log_level_off(httpp_exe, tmp_path, stop_process, command):
+    port = free_port()
+    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port), "--log-level", "off"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        assert wait_for(f"http://127.0.0.1:{port}/", proc).status != 0
+        assert httpp.get(f"http://127.0.0.1:{port}/nope.txt").status == 404
+    finally:
+        _, err = stop_process(proc)
+    assert "GET /nope.txt" not in err and "listening on" not in err, err
+
+
+def test_a_bad_log_level_is_a_usage_error(httpp_exe):
+    assert run(httpp_exe, "server", "--log-level", "loud").returncode == 2
+    assert run(httpp_exe, "browse", "--log-level", "loud").returncode == 2
+
+
 def test_server_refuses_a_missing_folder(httpp_exe, tmp_path):
     r = run(httpp_exe, "server", str(tmp_path / "nope"))
     assert r.returncode == 1 and "not a folder" in r.stderr
