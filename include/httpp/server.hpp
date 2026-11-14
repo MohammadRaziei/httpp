@@ -299,6 +299,11 @@ public:
     // common images, PDF, audio and video) or that is asked for with "?download=1" gets "Content-Disposition: attachment" with a
     // filename and filename*=UTF-8''... Default: false.
     HTTPP_API directory& set_download_active(bool on);
+    // true: html and svg files are shown inline instead of downloaded, but only under "Content-Security-Policy: sandbox; default-src 'none'; ...",
+    // so no script runs and nothing is fetched from another origin (images, styles, fonts and media of the same server still load). Every other
+    // active type (xml, js, unknown) stays a download, and "?download=1" still forces one. Only has an effect together with
+    // set_download_active(true). Default: false.
+    HTTPP_API directory& set_inline_active(bool on);
     HTTPP_API void mount(server& s, const std::string& base = "/") const;
 
 private:
@@ -306,6 +311,7 @@ private:
     bool index_ = true;
     bool show_hidden_ = true;
     bool download_active_ = false;
+    bool inline_active_ = false;
 };
 
 // The Content-Type httpp gives a file by its extension (case-insensitive, the last dot after the last slash). Mounted directories use

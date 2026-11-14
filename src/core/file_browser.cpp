@@ -215,6 +215,7 @@ file_browser& file_browser::set_accent(std::string colour) {
 }
 file_browser& file_browser::set_search(bool on) { search_ = on; return *this; }
 file_browser& file_browser::set_show_hidden(bool on) { show_hidden_ = on; return *this; }
+file_browser& file_browser::set_safe_mode(bool on) { safe_mode_ = on; return *this; }
 file_browser& file_browser::set_max_entries(std::size_t count) {
     if (count == 0) throw std::invalid_argument("file_browser: max_entries must be above 0");
     max_entries_ = count;
@@ -239,7 +240,8 @@ void file_browser::mount(server& s, const std::string& base) const {
         : std::string(reinterpret_cast<const char*>(embedded::file_browser_html), embedded::file_browser_html_size);
     const std::string config = "{\"base\":" + json_string(prefix) + ",\"theme\":" + json_string(theme_name(theme_)) + ",\"accent\":" + json_string(accent_) +
                                ",\"search\":" + (search_ ? "true" : "false") + ",\"view\":" + json_string(view_name(view_)) + ",\"sort\":" + json_string(sort_name(sort_)) +
-                               ",\"limit\":" + std::to_string(max_entries_) + "}";
+                               ",\"limit\":" + std::to_string(max_entries_) +
+                               ",\"safe\":" + (safe_mode_ ? "true" : "false") + "}";
     replace_all(html, "__CONFIG__", config);
     replace_all(html, "__TITLE__", html_escape(title_));
 
@@ -289,7 +291,7 @@ void file_browser::mount(server& s, const std::string& base) const {
         res.body = std::move(body);
     });
 
-    directory(path(real_root)).set_index(false).set_show_hidden(show_hidden_).set_download_active(true).mount(s, prefix + "/raw");
+    directory(path(real_root)).set_index(false).set_show_hidden(show_hidden_).set_download_active(true).set_inline_active(!safe_mode_).mount(s, prefix + "/raw");
 }
 
 } // namespace httpp

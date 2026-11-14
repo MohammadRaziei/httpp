@@ -298,6 +298,59 @@ UTEST(httpp_file_browser, active_and_unknown_types_are_always_downloads_and_noth
     EXPECT_TRUE(contains(forced.header("Content-Disposition"), "attachment"));
 }
 
+UTEST(httpp_file_browser, safe_mode_is_the_default_so_html_and_svg_are_downloads) {
+    tree t;
+    write_file(t.root / "x.svg", "<svg xmlns='http://www.w3.org/2000/svg'><script>1</script></svg>");
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
+    auto page = httpp::client::fetch(srv.url("/files"));
+    ASSERT_EQ(200, page.status);
+    EXPECT_TRUE(contains(page.body, "\"safe\":true"));
+    for (const char* name : {"evil.html", "x.svg"}) {
+        auto r = httpp::client::fetch(srv.url(std::string("/files/raw/") + name));
+        ASSERT_EQ(200, r.status);
+        EXPECT_TRUE(contains(r.header("Content-Disposition"), "attachment"));
+        EXPECT_FALSE(contains(r.header("Content-Security-Policy"), "sandbox"));
+    }
+}
+
+UTEST(httpp_file_browser, without_safe_mode_html_and_svg_are_shown_behind_a_sandbox_and_the_other_active_types_stay_downloads) {
+    tree t;
+    write_file(t.root / "x.svg", "<svg xmlns='http://www.w3.org/2000/svg'><script>1</script></svg>");
+    write_file(t.root / "x.xml", "<a/>");
+    write_file(t.root / "x.js", "alert(1)");
+    write_file(t.root / "noext", "who knows");
+    local_server srv([&](httpp::server& s) {
+        httpp::file_browser fb(t.root.string());
+        EXPECT_TRUE(&fb.set_safe_mode(false) == &fb);  // chains like every other setter
+        fb.mount(s, "/files");
+    });
+    auto page = httpp::client::fetch(srv.url("/files"));
+    ASSERT_EQ(200, page.status);
+    EXPECT_TRUE(contains(page.body, "\"safe\":false"));
+    for (const char* name : {"evil.html", "x.svg"}) {
+        auto r = httpp::client::fetch(srv.url(std::string("/files/raw/") + name));
+        ASSERT_EQ(200, r.status);
+        EXPECT_FALSE(contains(r.header("Content-Disposition"), "attachment"));
+        EXPECT_STR_EQ("nosniff", r.header("X-Content-Type-Options"));
+        const std::string csp = r.header("Content-Security-Policy");  // no script, no outside request, no form, an opaque origin
+        EXPECT_TRUE(contains(csp, "sandbox;"));
+        EXPECT_FALSE(contains(csp, "allow-"));
+        EXPECT_TRUE(contains(csp, "default-src 'none'"));
+        EXPECT_FALSE(contains(csp, "script-src"));
+        EXPECT_TRUE(contains(csp, "form-action 'none'"));
+        auto forced = httpp::client::fetch(srv.url(std::string("/files/raw/") + name + "?download=1"));
+        EXPECT_TRUE(contains(forced.header("Content-Disposition"), "attachment"));  // still a download when asked
+    }
+    for (const char* name : {"x.xml", "x.js", "noext"}) {
+        auto r = httpp::client::fetch(srv.url(std::string("/files/raw/") + name));
+        ASSERT_EQ(200, r.status);
+        EXPECT_TRUE(contains(r.header("Content-Disposition"), "attachment"));
+        EXPECT_FALSE(contains(r.header("Content-Security-Policy"), "sandbox"));
+    }
+    auto ranged = httpp::client::fetch(srv.url("/files/raw/evil.html"));  // the file is still the same bytes
+    EXPECT_STR_EQ("<script>alert(1)</script>", ranged.body.c_str());
+}
+
 UTEST(httpp_file_browser, a_folder_is_not_a_file_and_index_html_is_not_served) {
     tree t;
     write_file(t.root / "sub" / "index.html", "<h1>index</h1>");
@@ -466,6 +519,31 @@ UTEST(httpp_directory, settings_chain_and_each_one_changes_the_answer) {
     EXPECT_EQ(200, page.status);
     EXPECT_TRUE(contains(page.header("Content-Disposition"), "attachment"));
     EXPECT_STR_EQ("nosniff", page.header("X-Content-Type-Options"));
+}
+
+UTEST(httpp_directory, inline_active_shows_html_and_svg_behind_a_sandbox_and_only_with_download_active) {
+    tree t;
+    write_file(t.root / "page.html", "<p>x</p>");
+    write_file(t.root / "x.svg", "<svg xmlns='http://www.w3.org/2000/svg'/>");
+    write_file(t.root / "x.xml", "<a/>");
+    local_server srv([&](httpp::server& s) {
+        httpp::directory(t.root.string()).set_download_active(true).set_inline_active(true).mount(s, "/on");
+        httpp::directory(t.root.string()).set_download_active(true).mount(s, "/off");
+        httpp::directory(t.root.string()).set_inline_active(true).mount(s, "/alone");
+    });
+    for (const char* name : {"page.html", "x.svg"}) {
+        auto on = httpp::client::fetch(srv.url(std::string("/on/") + name));
+        ASSERT_EQ(200, on.status);
+        EXPECT_FALSE(contains(on.header("Content-Disposition"), "attachment"));
+        EXPECT_TRUE(contains(on.header("Content-Security-Policy"), "sandbox;"));
+        auto off = httpp::client::fetch(srv.url(std::string("/off/") + name));
+        EXPECT_TRUE(contains(off.header("Content-Disposition"), "attachment"));
+        EXPECT_STR_EQ("", off.header("Content-Security-Policy").c_str());
+        auto alone = httpp::client::fetch(srv.url(std::string("/alone/") + name));  // no download_active: no headers of this kind at all
+        EXPECT_STR_EQ("", alone.header("Content-Security-Policy").c_str());
+        EXPECT_STR_EQ("", alone.header("Content-Disposition").c_str());
+    }
+    EXPECT_TRUE(contains(httpp::client::fetch(srv.url("/on/x.xml")).header("Content-Disposition"), "attachment"));
 }
 
 UTEST(httpp_directory, a_base_that_does_not_start_with_a_slash_is_refused) {

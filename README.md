@@ -315,7 +315,7 @@ httpp browse ~/Downloads --port 8000 --theme auto
 
 Lists folders, opens text and images, downloads files; nothing can be written, renamed or deleted. The folder you give is a ceiling:
 `..`, absolute paths and symlinks that leave it are refused, dotfiles are hidden (404 too) unless `show_hidden=True` / `--hidden`, and html, svg and
-other active types are always downloads. A folder is cut at `max_entries` (5000). It has **no login**: it listens on 127.0.0.1 by default, and for anything
+other active types are downloads (`safe_mode=False` / `--unsafe` renders html and svg in "Open raw", sandboxed so no script runs). A folder is cut at `max_entries` (5000). It has **no login**: it listens on 127.0.0.1 by default, and for anything
 else put a `before_request` hook in front of it. A bad option or folder raises `ValueError`.
 
 ### Settings

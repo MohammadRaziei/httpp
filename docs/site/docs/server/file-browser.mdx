@@ -39,6 +39,10 @@ The header is `httpp/file_browser.hpp`. It is not part of `httpp.h`, so include 
 
 The folder you give is a ceiling. `..` segments, backslashes, NUL bytes, absolute paths and symlinks that lead out of it are refused, and a missing path, a hidden path and a path outside the folder all get the same `404`, so an answer never tells which of them it was. Names that start with a dot are not listed and answer `404` unless you set `show_hidden`.
 
+A file that could run code in the page's origin (html, svg, xml, js, a type httpp does not know) is never shown: its preview says so and "Open raw" downloads it. That is **safe mode**, and it is the default.
+
+`set_safe_mode(false)` (Python `safe_mode=False`, `httpp browse --unsafe`) lets **html and svg only** be shown. "Open raw" renders them in the tab it opens, and the dialog shows an svg as an image (an html file stays text there, as before). Both are sent with `Content-Security-Policy: sandbox; default-src 'none'; ...`, so no script runs, nothing is fetched from another origin (images, styles and fonts of the same server still load), forms are blocked and the page has an opaque origin: it cannot reach the browser or the viewer's session. xml, js and unknown types stay downloads, and `?download=1` still forces a download.
+
 The browser has **no login of its own**. The `before` hook of the server runs first, so that is the place to ask for a key or a session: see [hooks](hooks.mdx).
 
 ## Settings
@@ -55,6 +59,7 @@ Every setting is a method that returns the browser, so they chain, and the same 
 | `set_max_entries(count)` | `5000` | a larger folder is cut at this many and flagged `"truncated"`; must be above 0 |
 | `set_view(view)` | `list` | first view, `View.LIST` or `View.GRID` |
 | `set_sort(key)` | `name` | first sort, `Sort.NAME`, `Sort.SIZE` or `Sort.DATE` |
+| `set_safe_mode(bool)` | `true` | `true`: html, svg, xml, js and unknown types are only downloaded. `false`: html and svg are rendered (see below) |
 
 In Python the enums are `httpp.FileBrowser.Theme`, `.View` and `.Sort`; in C++ they are `httpp::file_browser::theme_mode`, `view_mode` and `sort_key`. Python also takes the settings as keyword arguments: `httpp.FileBrowser("shared", title="Team files", view=httpp.FileBrowser.View.GRID)`.
 

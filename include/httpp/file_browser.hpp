@@ -21,7 +21,8 @@ namespace httpp {
 //   GET base                   the page (a single self-contained HTML document, compiled into the library)
 //   GET base/api/list?path=/a  the entries of a folder as JSON: {"path","entries":[{"name","type":"dir"|"file","size","mtime"}],"truncated","limit"}
 //   GET base/raw/<path>        the file itself (Range and HEAD work); anything that could run code in the page's origin (html, svg, xml, js,
-//                              unknown types) is always a download, and "?download=1" forces a download for any file
+//                              unknown types) is a download, and "?download=1" forces a download for any file. set_safe_mode(false) shows
+//                              html and svg instead (see there); the other active types stay downloads
 // Nothing can be written, renamed or deleted: no route accepts a body. The served root is a ceiling: ".." segments, backslashes, NUL, absolute paths and
 // symlinks that lead out of it are refused, and a missing, hidden or outside path gets the same 404. Names that are not valid UTF-8 are left out of
 // the listing. The `before` hook of the server runs first, so it is the place for authentication (this browser has none of its own).
@@ -43,6 +44,11 @@ public:
     HTTPP_API file_browser& set_max_entries(std::size_t count);    // a folder with more entries is cut at this many and flagged "truncated"; must be above 0; default 5000
     HTTPP_API file_browser& set_view(view_mode view);              // default list
     HTTPP_API file_browser& set_sort(sort_key sort);               // default name
+    // true: html, svg, xml, js and unknown types are never shown, only downloaded (the dialog has no preview for them).
+    // false: "Open raw" renders html and svg in the tab it opens, and the dialog shows an svg as an image (html stays text there). They are
+    // sent behind a "Content-Security-Policy: sandbox" that stops every script and every request to another origin, so they cannot touch
+    // the page or the viewer's session. xml, js and unknown types stay downloads. Default true.
+    HTTPP_API file_browser& set_safe_mode(bool on);
 
     // Adds the routes to `s` under `base` (must start with '/'). Throws std::invalid_argument for a bad `base`, a root that is not a folder, or the root
     // of the file system. The browser can be mounted more than once (on several servers, or under several bases).
@@ -57,6 +63,7 @@ private:
     sort_key sort_ = sort_key::name;
     bool search_ = true;
     bool show_hidden_ = false;
+    bool safe_mode_ = true;
     std::size_t max_entries_ = 5000;
 };
 

@@ -122,6 +122,7 @@ var ICON = {
   x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>'
 };
 var TEXT = /\.(txt|md|json|csv|tsv|log|ini|toml|ya?ml|xml|html?|css|js|mjs|ts|py|c|h|cc|cpp|hpp|rs|go|java|sh|bat|cfg|conf|sql|tex|rst)$/i;
+var SVG = /\.svg$/i, SAFE = C.safe !== false; // not safe mode: an svg is shown as an image (html stays text here; "Open raw" renders it)
 var IMG = /\.(png|jpe?g|gif|webp|avif|bmp|ico)$/i, AUD = /\.(mp3|wav|ogg|m4a)$/i, VID = /\.(mp4|webm|ogv)$/i;
 // What a file is called and drawn as. Broader than the preview lists above: a flac gets the audio icon even if the browser may not play it.
 var KINDS = [
@@ -223,7 +224,7 @@ function head(e, p) {
 
 function preview(e, p) {
   var url = rawUrl(p), pv = $("pv"); stop(); pv.textContent = ""; head(e, p);
-  if (IMG.test(e.name)) { var i = el("img"); i.alt = e.name; i.src = url; pv.appendChild(i); }
+  if (IMG.test(e.name) || (!SAFE && SVG.test(e.name))) { var i = el("img"); i.alt = e.name; i.src = url; pv.appendChild(i); }
   else if (AUD.test(e.name)) mediaPlayer("audio", series(AUD, e), false);
   else if (VID.test(e.name)) mediaPlayer("video", series(VID, e), false);
   else if (TEXT.test(e.name) && e.size > 0) {

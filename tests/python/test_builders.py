@@ -55,6 +55,26 @@ def test_directory_keywords_and_defaults(tmp_path):
         assert status(url + "/b/") == 404 and status(url + "/b/.dot") == 404
 
 
+def test_directory_inline_active_chains_and_shows_html_and_svg_only_behind_a_sandbox(tmp_path):
+    (tmp_path / "p.html").write_text("<p>x</p>")
+    (tmp_path / "x.xml").write_text("<a/>")
+    app = Server()
+    d = Directory(tmp_path, download_active=True)
+    assert d.set_inline_active(True) is d
+    d.mount(app, "/on")
+    Directory(tmp_path, download_active=True).mount(app, "/off")
+    Directory(tmp_path, download_active=True, inline_active=True).mount(app, "/kw")
+    with running(app) as url:
+        for base in ("/on", "/kw"):
+            with urllib.request.urlopen(url + base + "/p.html") as r:
+                assert r.headers.get("Content-Disposition") is None
+                assert "sandbox;" in r.headers["Content-Security-Policy"]
+            with urllib.request.urlopen(url + base + "/x.xml") as r:
+                assert "attachment" in r.headers["Content-Disposition"]
+        with urllib.request.urlopen(url + "/off/p.html") as r:
+            assert "attachment" in r.headers["Content-Disposition"]
+
+
 def test_directory_refuses_a_base_without_a_slash(tmp_path):
     with pytest.raises(ValueError):
         Directory(tmp_path).mount(Server(), "site")

@@ -12,11 +12,12 @@ cdef class Directory:
     """
     cdef cpp_directory* _d
 
-    def __cinit__(self, root, *, index=None, show_hidden=None, download_active=None):
+    def __cinit__(self, root, *, index=None, show_hidden=None, download_active=None, inline_active=None):
         self._d = new cpp_directory(_fs(root))
         if index is not None: self.set_index(index)
         if show_hidden is not None: self.set_show_hidden(show_hidden)
         if download_active is not None: self.set_download_active(download_active)
+        if inline_active is not None: self.set_inline_active(inline_active)
 
     def __dealloc__(self):
         if self._d != NULL:
@@ -35,6 +36,12 @@ cdef class Directory:
     def set_download_active(self, bint on):
         """True: send nosniff, and make a file that is not plainly harmless to show (or asked for with ?download=1) a download. Default False."""
         self._d.set_download_active(on)
+        return self
+
+    def set_inline_active(self, bint on):
+        """True: html and svg are shown instead of downloaded, but only under a Content-Security-Policy sandbox (no script, no outside request).
+        xml, js and unknown types stay downloads. Only has an effect with set_download_active(True). Default False."""
+        self._d.set_inline_active(on)
         return self
 
     def mount(self, Server server, str base="/"):

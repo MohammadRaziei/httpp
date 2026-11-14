@@ -264,6 +264,7 @@ struct mount_entry {
     bool index = true;
     bool show_hidden = true;
     bool download_active = false;
+    bool inline_active = false;
 };
 
 // True on the threads that run an engine (the I/O threads) while the server listens.
@@ -835,12 +836,21 @@ struct server::impl {
     }
 
     // A file shown inline must not be able to run code in the page's origin: only types that cannot are shown, the rest is a download.
-    static void add_download_headers(const server_request& req, const std::string& full, response& res) {
+    // With `inline_active`, html and svg are shown too, but only behind a policy that stops scripts and every outside request
+    // (an opaque origin, so not even the page's cookies or storage are reachable).
+    static void add_download_headers(const server_request& req, const std::string& full, response& res, bool inline_active) {
         const std::string type = mime_for(full);
         const bool plain = type == "text/plain" || type == "application/json" || type == "text/csv" || type == "text/markdown" || type == "application/pdf" ||
                            (type.compare(0, 6, "image/") == 0 && type != "image/svg+xml") || type.compare(0, 6, "audio/") == 0 || type.compare(0, 6, "video/") == 0;
+        const bool sandboxed = inline_active && (type == "text/html" || type == "image/svg+xml");
         res.headers.emplace_back("X-Content-Type-Options", "nosniff");
-        if (plain && req.query_param("download") != "1") return;
+        if ((plain || sandboxed) && req.query_param("download") != "1") {
+            if (sandboxed)
+                res.headers.emplace_back("Content-Security-Policy",
+                    "sandbox; default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self'; "
+                    "base-uri 'none'; form-action 'none'");
+            return;
+        }
         const std::size_t slash = full.find_last_of("/\\");
         const std::string name = slash == std::string::npos ? full : full.substr(slash + 1);
         std::string ascii, encoded;
@@ -910,7 +920,7 @@ struct server::impl {
                 res.headers.emplace_back("ETag", etag);
                 res.headers.emplace_back("Last-Modified", modified);
             }
-            if (options.download_active) add_download_headers(req, full, res);
+            if (options.download_active) add_download_headers(req, full, res, options.inline_active);
             long long start = 0, end = size - 1;
             switch (honour_range ? parse_range(req.header("Range"), size, start, end) : range_result::none) {
                 case range_result::unsatisfiable: {
@@ -1343,12 +1353,13 @@ directory::directory(path root) : root_(std::move(root)) {}
 directory& directory::set_index(bool on) { index_ = on; return *this; }
 directory& directory::set_show_hidden(bool on) { show_hidden_ = on; return *this; }
 directory& directory::set_download_active(bool on) { download_active_ = on; return *this; }
+directory& directory::set_inline_active(bool on) { inline_active_ = on; return *this; }
 
 void directory::mount(server& s, const std::string& base) const {
     if (base.empty() || base[0] != '/') throw std::invalid_argument("directory: base must start with '/'");
     std::string prefix = base;
     while (!prefix.empty() && prefix.back() == '/') prefix.pop_back(); // "/" -> "" (the root)
-    s.impl_->mounts.push_back({std::move(prefix), root_.str(), index_, show_hidden_, download_active_});
+    s.impl_->mounts.push_back({std::move(prefix), root_.str(), index_, show_hidden_, download_active_, inline_active_});
 }
 
 int server::bind_to_any_port(const std::string& host) {

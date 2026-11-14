@@ -139,6 +139,7 @@ struct browse_args {
     std::string sort = "name";
     std::string log_level = "info";
     bool no_search = false;
+    bool unsafe = false;
 };
 
 int cmd_browse(const browse_args& a) {
@@ -152,7 +153,7 @@ int cmd_browse(const browse_args& a) {
         const fb::view_mode view = a.view == "grid" ? fb::view_mode::grid : fb::view_mode::list;
         const fb::sort_key sort = a.sort == "size" ? fb::sort_key::size : a.sort == "date" ? fb::sort_key::date : fb::sort_key::name;
         fb(root).set_title(a.title).set_theme(theme).set_accent(a.accent).set_search(!a.no_search).set_show_hidden(a.hidden)
-            .set_max_entries(a.max_entries).set_view(view).set_sort(sort).mount(srv, "/");
+            .set_max_entries(a.max_entries).set_view(view).set_sort(sort).set_safe_mode(!a.unsafe).mount(srv, "/");
     } catch (const std::exception& e) {
         return fail(e.what());
     }
@@ -378,6 +379,7 @@ int main(int argc, char** argv) {
     c_browse->add_option("--accent", b.accent, "Accent colour")->type_name("#RRGGBB");
     c_browse->add_flag("--no-search", b.no_search, "Hide the filter box");
     c_browse->add_flag("--hidden", b.hidden, "List and serve names that start with a dot");
+    c_browse->add_flag("--unsafe", b.unsafe, "Show html and svg files instead of downloading them (sandboxed: no script runs, no outside request)");
     c_browse->add_option("--max-entries", b.max_entries, "Longest folder listing")->check(CLI::PositiveNumber)->capture_default_str()->type_name("N");
     c_browse->add_option("--view", b.view)->check(CLI::IsMember({"list", "grid"}))->capture_default_str();
     c_browse->add_option("--sort", b.sort)->check(CLI::IsMember({"name", "size", "date"}))->capture_default_str();

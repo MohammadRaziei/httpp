@@ -81,6 +81,32 @@ def test_the_defaults_are_those_of_the_cpp_class(tree):
             assert fragment in page
 
 
+def test_safe_mode_is_the_default_and_turning_it_off_shows_html_and_svg_behind_a_sandbox(tree):
+    (tree / "p.html").write_text("<script>1</script><p>hi</p>")
+    (tree / "x.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
+    (tree / "x.xml").write_text("<a/>")
+    safe, loose, keyword = Server(), Server(), Server()
+    FileBrowser(tree).mount(safe, "/files")
+    fb = FileBrowser(tree)
+    assert fb.set_safe_mode(False) is fb
+    fb.mount(loose, "/files")
+    FileBrowser(tree, safe_mode=False).mount(keyword, "/files")
+    with running(safe) as url:
+        assert '"safe":true' in httpp.get(f"{url}/files").text
+        for name in ("p.html", "x.svg"):
+            assert "attachment" in httpp.get(f"{url}/files/raw/{name}").header("Content-Disposition")
+    for server in (loose, keyword):
+        with running(server) as url:
+            assert '"safe":false' in httpp.get(f"{url}/files").text
+            for name in ("p.html", "x.svg"):
+                r = httpp.get(f"{url}/files/raw/{name}")
+                assert r.header("Content-Disposition") is None  # shown, not downloaded
+                csp = r.header("Content-Security-Policy")
+                assert "sandbox;" in csp and "allow-" not in csp and "default-src 'none'" in csp
+                assert "attachment" in httpp.get(f"{url}/files/raw/{name}?download=1").header("Content-Disposition")
+            assert "attachment" in httpp.get(f"{url}/files/raw/x.xml").header("Content-Disposition")
+
+
 def test_the_setters_chain_and_one_browser_mounts_twice(tree):
     fb = FileBrowser(tree)
     assert fb.set_title("x") is fb and fb.set_theme(FileBrowser.Theme.LIGHT) is fb and fb.set_max_entries(3) is fb
@@ -179,3 +205,21 @@ def test_browse_command_refuses_a_missing_folder(tmp_path, httpp_exe):
 def test_browse_command_refuses_a_bad_accent(tree, httpp_exe):
     r = subprocess.run([*httpp_exe, "browse", str(tree), "--accent", "red"], capture_output=True, text=True, timeout=30)
     assert r.returncode == 1 and "error" in r.stderr
+
+
+def test_browse_command_unsafe_shows_html(tree, httpp_exe, stop_process):
+    (tree / "p.html").write_text("<p>hi</p>")
+    port = _free_port()
+    proc = subprocess.Popen([*httpp_exe, "browse", str(tree), "--port", str(port), "--unsafe"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        url = f"http://127.0.0.1:{port}"
+        for _ in range(100):
+            r = httpp.get(f"{url}/raw/p.html")
+            if r.status != 0:
+                break
+            time.sleep(0.1)
+        assert r.status == 200, (r.status, proc.poll())
+        assert r.header("Content-Disposition") is None and "sandbox;" in r.header("Content-Security-Policy")
+        assert '"safe":false' in httpp.get(url).text
+    finally:
+        stop_process(proc)

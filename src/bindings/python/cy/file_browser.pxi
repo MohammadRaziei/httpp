@@ -46,7 +46,7 @@ cdef class FileBrowser:
     View = _View    # LIST, GRID: the first view
     Sort = _Sort    # NAME, SIZE, DATE: the first sort
 
-    def __cinit__(self, root, *, title=None, theme=None, accent=None, search=None, show_hidden=None, max_entries=None, view=None, sort=None):
+    def __cinit__(self, root, *, title=None, theme=None, accent=None, search=None, show_hidden=None, max_entries=None, view=None, sort=None, safe_mode=None):
         self._b = new cpp_file_browser(_fs(root))
         if title is not None: self.set_title(title)
         if theme is not None: self.set_theme(theme)
@@ -56,6 +56,7 @@ cdef class FileBrowser:
         if max_entries is not None: self.set_max_entries(max_entries)
         if view is not None: self.set_view(view)
         if sort is not None: self.set_sort(sort)
+        if safe_mode is not None: self.set_safe_mode(safe_mode)
 
     def __dealloc__(self):
         if self._b != NULL:
@@ -101,6 +102,13 @@ cdef class FileBrowser:
     def set_sort(self, sort):
         """A FileBrowser.Sort member: the first sort. Default NAME."""
         fb_set_sort(self._b[0], _fb_member(sort, _Sort, "sort"))
+        return self
+
+    def set_safe_mode(self, bint on):
+        """True: html, svg, xml, js and unknown types are only downloaded, never shown. False: "Open raw" renders html and svg in the new tab
+        and the dialog shows an svg as an image (html stays text there), all behind a Content-Security-Policy sandbox that stops every script
+        and every request to another origin; xml, js and unknown types stay downloads. Default True."""
+        self._b.set_safe_mode(on)
         return self
 
     def mount(self, Server server, str base="/"):
