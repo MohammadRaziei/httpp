@@ -1,4 +1,4 @@
-/* httpp has no docs identity yet: flat grounds, one blue, ink for the active state, 4px radius.
+/* httpp docs identity: the Coolvetica wordmark (static/img/logo*.svg), flat grounds, one blue, ink for the active state, 4px radius.
    Brand blue is used as text only where it passes 4.5:1 on its ground (see the dark block). */
 :root {
   --httpp-ink: #14171c;

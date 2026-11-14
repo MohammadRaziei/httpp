@@ -28,8 +28,9 @@ const config: Config = {
   ],
   themeConfig: {
     colorMode: {respectPrefersColorScheme: true},
+    image: 'img/social-card.png',
     navbar: {
-      title: 'httpp',
+      logo: {alt: 'httpp', src: 'img/logo.svg', srcDark: 'img/logo-dark.svg', height: 26},
       items: [
         {type: 'custom-langSwitch', position: 'right'},
         {href: 'https://github.com/mohammadraziei/httpp', label: 'GitHub', position: 'right'},

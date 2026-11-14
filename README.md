@@ -1,6 +1,9 @@
-# httpp
-
 <div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/MohammadRaziei/httpp/master/docs/site/static/img/logo-dark.svg">
+  <img src="https://raw.githubusercontent.com/MohammadRaziei/httpp/master/docs/site/static/img/logo.svg" alt="httpp" height="72">
+</picture>
 
 **A lightweight HTTP client and server for Python and C++: one `pip install`, no system dependencies.**
 
