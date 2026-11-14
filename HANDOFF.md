@@ -1,5 +1,7 @@
 # httpp hand-off (consolidated, 2026-11-05; updates 2026-11-06 and 2026-11-07 below)
 
+> **Update 2026-11-14 (newest, read first): version 0.9.0 (`HTTPP_VERSION_MINOR`/`PATCH` in `include/httpp.h`; CHANGELOG has the section and an empty `[Unreleased]`). Nothing is committed, tagged or pushed (the owner does that). Next free ADR number: 0072. Done: free-threaded `AsyncClient`/`Request.run_async` fix (thread-state pin in `_done_trampoline`) and the client pool limit 8 to 256 (ADR-0071, test `async_pool.a_burst_larger_than_eight_keeps_all_its_connections_for_the_next_burst`); `benchmarks/run.sh` drops the cached `BENCH_*` options on every run; `benchmarks/results/full/*.json` are the owner's `run.sh full` of 2026-11-14 (governor `performance`). Checked: C++ 551/551 on Linux from a build of the merged tree. NOT checked: the full Python suite on this tree, Windows, macOS, the `diag_sync_client.py` sweep after the pool fix.
+>
 > **Update 2026-11-12 (newest, read first): ADR-0062. The C++ request names match Python's: `httpp::request` is the client builder (was `httpp::client::request`, removed), `httpp::server_request` is the handler's request (was `httpp::request`). Done by a scripted rename over include, src, tests, examples, benchmarks and the Cython declarations; ADRs 0051 to 0053 keep the old names on purpose. The docs site (`docs/site`, ADR-0060, workflow `docs.yml`) is not committed either. Checked on Linux from a build of this tree: C++ 522/522, Python 576 passed and 7 skipped, parity test 7/7; NOT checked: Windows, macOS, a pip wheel. Next free ADR number: 0063. Not renamed: C++ has one `httpp::response`, Python has `Response` and `ResponseHead`.
 >
 > **Update 2026-11-11 (very newest, read first): version 0.8.1 (`HTTPP_VERSION_PATCH` in `include/httpp.h`, CHANGELOG has the section). Nothing is pushed; the owner commits and tags. Next free ADR number: 0059.**
@@ -122,7 +124,7 @@ Request paths:
 - `perf` on his machine: his `perf report --symbol-filter=...` did NOT filter (all outputs were identical); use `--sort dso,symbol` plus `grep`, or `-S` with the mangled name.
 
 ## 5. State after the last session (2026-11-05)
-Nothing is committed or pushed (the owner commits). Version in the tree is 0.8.1 (bumped 2026-11-11; the owner commits and tags it); `CHANGELOG.md` has the 0.8.1 section, `[Unreleased]` is empty.
+Nothing is committed or pushed (the owner commits). Version in the tree is 0.9.0 (bumped 2026-11-14; the owner commits and tags it); `CHANGELOG.md` has the 0.9.0 section, `[Unreleased]` is empty.
 
 ### Verified
 - C++ suite 407 tests pass in Release, and are clean under AddressSanitizer (no memory errors) and ThreadSanitizer (no warnings).

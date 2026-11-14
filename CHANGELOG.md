@@ -7,6 +7,8 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-14
+
 ### Added
 
 - **File browser page (ADR-0032).** Audio and video previews use the page's own controls instead of the browser's: they follow the light, dark and accent settings and add seek with buffered range, volume, speed, full screen for video, keyboard keys, and previous and next through the files of the folder. Download, Open raw and Close are icon buttons with tooltips at the top right, the dialog is a little larger, opens and closes with a short animation, and closes on a click outside, Escape or the Close button. Files get an icon by kind (image, audio, video, PDF, archive, text, other) and the list view has a Type column that can be sorted. No API change.
@@ -26,9 +28,9 @@ such changes are listed under **Changed**).
 
 ### Fixed
 
-- **`AsyncClient` and `Request.run_async` on free-threaded Python.** The completion callback ran on the C++ network thread without pinning a thread state, so every request created and destroyed one (`PyGILState_Ensure`/`Release`), which is very slow on 3.14t. Measured on 3.14t, 32 tasks, local server: about 1.0k req/s and 990 us CPU per request before, about 17.5k req/s and 53 us after (the same fix the server trampolines already had).
-- **HTTP client connection pool (ADR-0071).** The engine kept at most 8 idle connections per origin and closed the rest, so with more than 8 requests in flight (`Client` from 16 or 32 threads on a free-threaded Python, `AsyncClient` with 32 tasks) every burst reopened its extra connections. The limit is now 256. Python 3.14t, `Client`, 8 load CPUs: 55k req/s at 16 threads and 27k at 32 before; the GIL build keeps 100k. Test: `async_pool.a_burst_larger_than_eight_keeps_all_its_connections_for_the_next_burst`.
-- **`benchmarks/run.sh` forgot nothing it should forget.** The `BENCH_*` options are CMake cache variables, so `run.sh full -DBENCH_ONLY=client` made every later `run.sh full` run only the client part too. `run.sh` now drops the cached `BENCH_*` values first (`-UBENCH_*`): an option applies to the run that passes it.
+- **`AsyncClient` and `Request.run_async` on free-threaded Python.** The completion callback ran on the C++ network thread without pinning a thread state, so every request created and destroyed one (`PyGILState_Ensure`/`Release`), which is very slow on 3.14t: in the 0.8.1 benchmark `AsyncClient` made 33,842 req/s on 3.14 and 2,426 on 3.14t (32 tasks). The server trampolines already had this fix.
+- **HTTP client connection pool (ADR-0071).** The engine kept at most 8 idle connections per origin and closed the rest, so with more than 8 requests in flight (`Client` from 16 or 32 threads on a free-threaded Python, `AsyncClient` with 32 tasks) every burst reopened its extra connections. The limit is now 256. With both fixes (`benchmarks/run.sh full` on the owner's machine, i7-13620H, governor `performance`, 32 threads or tasks), 3.14t: `Client` 28,438 to 152,873 req/s, `AsyncClient` 57,634 (after the thread-state fix alone) to 113,747; on 3.14 (GIL) the same run gives 92,811 and 61,433. Test: `async_pool.a_burst_larger_than_eight_keeps_all_its_connections_for_the_next_burst`.
+- **`benchmarks/run.sh` keeps no options between runs.** The `BENCH_*` options are CMake cache variables, so `run.sh full -DBENCH_ONLY=client` made every later `run.sh full` run only the client part too. `run.sh` now drops the cached `BENCH_*` values first (`-UBENCH_*`): an option applies to the run that passes it.
 
 ## [0.8.1] - 2026-11-11
 
@@ -483,7 +485,8 @@ First release.
 - Single umbrella header `include/httpp.h` that carries the version, and `version.py` for tagging and releases.
 - CMake and wheels workflows in CI.
 
-[Unreleased]: https://github.com/MohammadRaziei/httpp/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/MohammadRaziei/httpp/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/MohammadRaziei/httpp/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/MohammadRaziei/httpp/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/MohammadRaziei/httpp/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MohammadRaziei/httpp/compare/v0.6.1...v0.7.0

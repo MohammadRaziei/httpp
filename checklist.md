@@ -96,6 +96,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 - [ ] README gaps: when to use `def` against `async def`, `HTTPException`, response classes, `httpp.status`, 405; the GZip section
 - [x] An ADR and a benchmark for server gzip (`set_compression`): [ADR-0061](docs/adr/0061-server-gzip-defaults.md), `benchmarks/gzip_bench.py`
 - [x] 0.8.1 committed, tagged and released by the owner (2026-11-11)
+- [ ] 0.9.0 committed, tagged and released by the owner
 
 ## 5. Binding policy (ADR-0017), unchanged
 Python binds only what `include/` exports; a public C++ function is bound only when necessary; `tests/python/test_cpp_python_parity.py` forces every public C++ name to be bound or listed in `NOT_EXPOSED` with a reason. Not exposed on purpose: `route_io`, `route_shared`, `route_ws`, `find_swagger_ui_asset`. The new `mount_file_browser` is bound (as `Server.mount_file_browser`).

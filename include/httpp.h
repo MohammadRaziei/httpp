@@ -38,8 +38,8 @@
  *============================================================================*/
 
 #define HTTPP_VERSION_MAJOR 0
-#define HTTPP_VERSION_MINOR 8
-#define HTTPP_VERSION_PATCH 1
+#define HTTPP_VERSION_MINOR 9
+#define HTTPP_VERSION_PATCH 0
 
 /*==============================================================================
  * MARK: - Public API
