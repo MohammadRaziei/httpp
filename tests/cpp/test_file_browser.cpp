@@ -440,6 +440,114 @@ UTEST(httpp_file_browser, the_list_has_a_type_column_and_typed_icons) {
     EXPECT_TRUE(contains(r.body, ".row.k-audio svg"));
 }
 
+// ---- ZIP (ADR-0032). The archive itself is checked in full by tests/python/test_file_browser.py (zipfile); here its shape and the refusals. ----
+
+UTEST(httpp_file_browser, zip_is_off_by_default_and_the_page_does_not_offer_it) {
+    tree t;
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
+    EXPECT_EQ(404, httpp::client::fetch(srv.url("/files/api/zip?path=/sub")).status);
+    httpp::client c("127.0.0.1", srv.port);
+    EXPECT_EQ(404, c.post("/files/api/zip", "path=%2Fsub").status);
+    auto page = httpp::client::fetch(srv.url("/files"));
+    ASSERT_EQ(200, page.status);
+    EXPECT_TRUE(contains(page.body, "\"zip\":false"));
+    EXPECT_TRUE(contains(page.header("Content-Security-Policy"), "form-action 'none'"));
+}
+
+UTEST(httpp_file_browser, zip_of_a_folder_is_streamed_with_its_files_and_a_download_name) {
+    tree t;
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_zip(true).mount(s, "/files"); });
+    auto page = httpp::client::fetch(srv.url("/files"));
+    EXPECT_TRUE(contains(page.body, "\"zip\":true"));
+    EXPECT_TRUE(contains(page.header("Content-Security-Policy"), "form-action 'self'"));
+
+    auto r = httpp::client::fetch(srv.url("/files/api/zip?path=/sub"));
+    ASSERT_EQ(200, r.status);
+    EXPECT_STR_EQ("application/zip", r.header("Content-Type").c_str());
+    EXPECT_STR_EQ("attachment; filename=\"sub.zip\"; filename*=UTF-8''sub.zip", r.header("Content-Disposition").c_str());
+    ASSERT_GT(r.body.size(), 22u);
+    EXPECT_STR_EQ("PK\x03\x04", r.body.substr(0, 4).c_str());
+    EXPECT_STR_EQ("PK\x05\x06", r.body.substr(r.body.size() - 22, 4).c_str()); // the end of central directory, no comment
+    for (const char* name : {"sub/", "sub/b.txt", "sub/deep/", "sub/deep/c.bin"}) EXPECT_TRUE(contains(r.body, name));
+    EXPECT_TRUE(contains(r.body, "bee"));  // nothing is compressed
+    EXPECT_TRUE(contains(r.body, "cee"));
+
+    // The same by POST, with chosen names: a file and a folder of the root, in one archive named after the served folder's title.
+    httpp::client c("127.0.0.1", srv.port);
+    auto p = c.post("/files/api/zip", "path=%2F&name=a.txt&name=sub");
+    ASSERT_EQ(200, p.status);
+    EXPECT_STR_EQ("attachment; filename=\"Files.zip\"; filename*=UTF-8''Files.zip", p.header("Content-Disposition").c_str());
+    EXPECT_TRUE(contains(p.body, "a.txt"));
+    EXPECT_TRUE(contains(p.body, "hello world"));
+    EXPECT_TRUE(contains(p.body, "sub/b.txt"));
+    EXPECT_FALSE(contains(p.body, "evil.html"));  // not chosen
+}
+
+UTEST(httpp_file_browser, zip_leaves_out_hidden_names_and_links_that_leave_the_root_or_could_loop) {
+    tree t;
+    local_server closed(([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_zip(true).mount(s, "/files"); }));
+    auto r = httpp::client::fetch(closed.url("/files/api/zip?path=/"));
+    ASSERT_EQ(200, r.status);
+    EXPECT_FALSE(contains(r.body, "TOPSECRET"));
+    EXPECT_FALSE(contains(r.body, "hidden secret"));
+    EXPECT_FALSE(contains(r.body, ".dotfile"));
+    EXPECT_FALSE(contains(r.body, ".hidden"));
+#ifndef _WIN32
+    EXPECT_FALSE(contains(r.body, "link_out"));  // a link to a file outside the root
+    EXPECT_FALSE(contains(r.body, "dir_out"));   // a link to a folder outside the root
+    EXPECT_FALSE(contains(r.body, "link_in"));   // a link to a folder inside: not followed in a walk
+#endif
+    EXPECT_TRUE(contains(r.body, "sub/deep/c.bin"));
+
+    local_server open(([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_zip(true).set_show_hidden(true).mount(s, "/files"); }));
+    auto h = httpp::client::fetch(open.url("/files/api/zip?path=/"));
+    ASSERT_EQ(200, h.status);
+    EXPECT_TRUE(contains(h.body, ".dotfile"));
+    EXPECT_TRUE(contains(h.body, "hidden secret"));
+    EXPECT_FALSE(contains(h.body, "TOPSECRET"));
+}
+
+UTEST(httpp_file_browser, zip_refuses_what_the_other_routes_refuse_and_too_many_entries) {
+    tree t;
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_zip(true).mount(s, "/files"); });
+    auto status = [&](const std::string& query) { return httpp::client::fetch(srv.url("/files/api/zip?" + query)).status; };
+    EXPECT_EQ(400, status("path=/../outside"));
+    EXPECT_EQ(400, status("path=/sub&name=.."));
+    EXPECT_EQ(400, status("path=/&name=sub/deep"));        // one name in the folder, not a path
+    EXPECT_EQ(400, status("path=/&name=a%5Cb"));            // backslash
+    EXPECT_EQ(404, status("path=/&name=.dotfile"));         // hidden
+    EXPECT_EQ(404, status("path=/.hidden"));
+    EXPECT_EQ(404, status("path=/&name=nope.txt"));
+    EXPECT_EQ(404, status("path=/a.txt"));                  // a file, not a folder
+#ifndef _WIN32
+    EXPECT_EQ(404, status("path=/&name=link_out"));         // leads outside the root
+    EXPECT_EQ(404, status("path=/&name=dir_out"));
+#endif
+    local_server small(([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_zip(true).set_max_zip_entries(2).mount(s, "/files"); }));
+    auto many = httpp::client::fetch(small.url("/files/api/zip?path=/"));
+    EXPECT_EQ(413, many.status);
+    EXPECT_TRUE(contains(many.body, "too many files"));
+    EXPECT_EQ(200, httpp::client::fetch(small.url("/files/api/zip?path=/&name=a.txt")).status);  // one entry fits
+}
+
+UTEST(httpp_file_browser, the_credit_line_is_on_by_default_and_can_be_turned_off) {
+    tree t;
+    local_server on(([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); }));
+    auto page = httpp::client::fetch(on.url("/files"));
+    EXPECT_TRUE(contains(page.body, "\"powered\":true"));
+    EXPECT_TRUE(contains(page.body, "https://github.com/mohammadraziei/httpp"));  // where the credit line leads
+    local_server off(([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_powered_by(false).mount(s, "/files"); }));
+    EXPECT_TRUE(contains(httpp::client::fetch(off.url("/files")).body, "\"powered\":false"));
+}
+
+UTEST(httpp_file_browser, the_zip_setters_chain_and_refuse_a_bad_value) {
+    httpp::file_browser fb("/tmp");
+    EXPECT_TRUE(&fb.set_powered_by(false) == &fb);
+    EXPECT_TRUE(&fb.set_zip(true) == &fb);
+    EXPECT_TRUE(&fb.set_max_zip_entries(10) == &fb);
+    EXPECT_TRUE(setter_rejects([&] { fb.set_max_zip_entries(0); }));
+}
+
 UTEST(httpp_file_browser, can_be_mounted_at_the_root_of_a_server) {
     tree t;
     local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/"); });

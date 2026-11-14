@@ -6,7 +6,7 @@ title: Browse files
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
 
-`FileBrowser` (`httpp::file_browser` in C++) adds a page where people can look through a folder, search it, sort it and download files. It is read-only: no route accepts a body, so nothing can be uploaded, renamed or deleted. The page is one self-contained HTML document that comes with the library, so it needs no files of yours and no internet.
+`FileBrowser` (`httpp::file_browser` in C++) adds a page where people can look through a folder, search it, sort it and download files. It is read-only: nothing can be uploaded, renamed or deleted (the only route that reads a body is the optional ZIP request, and all it reads is names). The page is one self-contained HTML document that comes with the library, so it needs no files of yours and no internet.
 
 <Lang name="file_browser" />
 
@@ -26,6 +26,7 @@ curl http://127.0.0.1:8000/files/raw/a.txt
 | `GET /files` | the browser page |
 | `GET /files/api/list?path=/sub` | the entries of one folder as JSON |
 | `GET /files/raw/<path>` | the file itself; `Range` and `HEAD` work |
+| `GET` or `POST /files/api/zip` | a ZIP of a folder or of chosen names in it; only with `set_zip(true)` (see below) |
 
 A file that could run code in the page's own origin (html, svg, xml, scripts and files of an unknown type) is always sent as a download, and `?download=1` makes any file a download.
 
@@ -34,6 +35,24 @@ A file that could run code in the page's own origin (html, svg, xml, scripts and
 The header is `httpp/file_browser.hpp`. It is not part of `httpp.h`, so include it yourself, as the example does.
 
 </Only>
+
+## Select, download as ZIP, right-click
+
+With `set_zip(true)` (Python `zip=True`; `httpp browse` has it on, `--no-zip` turns it off) the page can bundle files:
+
+- a **checkbox** on every row (Shift+click for a range, Space on a focused row, **Ctrl+A** for all), or **drag a rectangle** with the mouse over the rows (Ctrl or Shift adds to what is selected; a click on empty space clears it; touch screens scroll as usual and use the checkboxes);
+- a bar at the bottom shows what is selected, with **Download ZIP**, **Copy names** and **Clear**; the **Folder ZIP** button in the header takes the open folder;
+- a folder goes in with everything under it. Hidden names stay out (unless `set_show_hidden`), and so do links that lead out of the root and links to folders (they could loop); a link to a file inside the root is included;
+- **nothing is compressed**: the ZIP is a bundle, not a smaller file (music and video are compressed already). It is streamed while it is read, so memory stays small however big it is, and it uses Zip64, so it can pass 4 GiB and 65535 entries. File names are UTF-8 (Persian, Arabic and the rest show correctly). The browser shows no total size, because it is not known when the download starts.
+- the request is refused before any byte is sent when it names something that is not there (`404`), a bad name (`400`) or more than `set_max_zip_entries` entries (`413`); the page shows the reason.
+
+The same works for programs: `GET /files/api/zip?path=/music&name=a.mp3&name=b.mp3` (no `name`: the whole folder), or `POST` with the same fields as a form.
+
+A request can make the server read a lot of disk, so this is **off by default** in the library: turn it on where the viewers are trusted or behind the `before` hook.
+
+**Right-click** opens the page's own menu (Open or Preview, Open in a new tab, Download, Copy name, Copy path, Copy link, Select, and ZIP entries when it is on; on empty space: folder ZIP, Select all, Copy folder path, Refresh). It works with the keyboard (the menu key, arrows, Enter, Esc). The filter box and the column headers keep the browser's own menu, and so does the preview dialog.
+
+The page ends with a small **Powered by httpp** link to the project on GitHub; `set_powered_by(false)` (`--no-powered-by`) removes it.
 
 ## What it keeps out
 
@@ -59,6 +78,9 @@ Every setting is a method that returns the browser, so they chain, and the same 
 | `set_max_entries(count)` | `5000` | a larger folder is cut at this many and flagged `"truncated"`; must be above 0 |
 | `set_view(view)` | `list` | first view, `View.LIST` or `View.GRID` |
 | `set_sort(key)` | `name` | first sort, `Sort.NAME`, `Sort.SIZE` or `Sort.DATE` |
+| `set_zip(bool)` | `false` | the page can select files and folders and download them as one ZIP (`api/zip`); see above |
+| `set_max_zip_entries(count)` | `50000` | the most entries (files and folders) one ZIP may hold, `413` beyond; must be above 0 |
+| `set_powered_by(bool)` | `true` | the "Powered by httpp" line at the bottom of the page |
 | `set_safe_mode(bool)` | `false` | `false`: html and svg are rendered by "Open raw", in a sandbox (see below). `true`: html, svg, xml, js and unknown types are only downloaded |
 
 In Python the enums are `httpp.FileBrowser.Theme`, `.View` and `.Sort`; in C++ they are `httpp::file_browser::theme_mode`, `view_mode` and `sort_key`. Python also takes the settings as keyword arguments: `httpp.FileBrowser("shared", title="Team files", view=httpp.FileBrowser.View.GRID)`.

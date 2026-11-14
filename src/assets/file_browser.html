@@ -19,7 +19,7 @@ nav a:hover { background:var(--row); }
 .tools { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
 input, select, button { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--border); border-radius:.4rem; padding:.3rem .55rem; }
 button { cursor:pointer; } button:hover, button[aria-pressed="true"] { background:var(--row); border-color:var(--accent); }
-main { padding:.5rem 1rem 3rem; }
+main { padding:.5rem 1rem 3rem; min-height:60vh; }
 .head, .row { display:grid; grid-template-columns:minmax(0,1fr) 6rem 7rem 11rem; gap:1rem; align-items:center; padding:.35rem .5rem; border-radius:.4rem; }
 .head { color:var(--muted); font-size:.85rem; border-bottom:1px solid var(--border); border-radius:0; }
 .head button { border:0; background:none; padding:0; text-align:left; color:inherit; } .head button[aria-pressed="true"] { color:var(--accent); }
@@ -35,7 +35,8 @@ svg { width:1.25rem; height:1.25rem; flex:none; fill:none; stroke:currentColor; 
 .grid .row { display:flex; flex-direction:column; align-items:center; text-align:center; padding:.8rem .4rem; gap:.4rem; border:1px solid var(--border); }
 .grid .name { flex-direction:column; width:100%; } .grid svg { width:2.4rem; height:2.4rem; } .grid .name b { max-width:100%; }
 .grid .meta { text-align:center; font-size:.8rem; } .grid .meta.date, .grid .meta.type { display:none; }
-#info { position:fixed; left:0; right:0; bottom:0; padding:.4rem 1rem; background:var(--bg); border-top:1px solid var(--border); color:var(--muted); font-size:.85rem; }
+#info { position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:space-between; gap:1rem; padding:.4rem 1rem; background:var(--bg); border-top:1px solid var(--border); color:var(--muted); font-size:.85rem; }
+#credit { color:var(--muted); text-decoration:none; white-space:nowrap; } #credit:hover, #credit:focus-visible { color:var(--accent); text-decoration:underline; outline:none; } #credit[hidden] { display:none; }
 .empty, .error { color:var(--muted); padding:2rem 0; text-align:center; } .error { color:#c0392b; }
 dialog { width:min(60rem,94vw); max-height:92vh; background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:.8rem; padding:1rem 1.1rem 1.1rem; box-shadow:0 24px 64px rgba(0,0,0,.45); }
 dialog::backdrop { background:rgba(0,0,0,.55); backdrop-filter:blur(2px); }
@@ -69,6 +70,25 @@ dialog h2 { margin:0; font-size:1.05rem; line-height:1.3; overflow-wrap:anywhere
 .sl .val::after { content:""; position:absolute; right:-6px; top:50%; width:12px; height:12px; margin-top:-6px; border-radius:50%; background:var(--accent); transform:scale(0); transition:transform .12s; }
 .sl:hover .val::after, .sl:focus-visible .val::after, .sl.drag .val::after { transform:scale(1); }
 #pv pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.45 ui-monospace,Menlo,Consolas,monospace; }
+.cb { display:inline-block; flex:none; width:1rem; height:1rem; margin:0; padding:0; border:0; background:none; accent-color:var(--accent); cursor:pointer; } .cb.sp { visibility:hidden; }
+.hn { display:flex; align-items:center; gap:.55rem; min-width:0; }
+.row.sel { background:var(--row); box-shadow:inset 0 0 0 1px var(--accent); }
+.grid .row { position:relative; } .grid .cb { position:absolute; top:.45rem; left:.45rem; }
+#sel { position:fixed; left:50%; bottom:1rem; transform:translateX(-50%); z-index:5; display:flex; align-items:center; gap:.6rem; padding:.5rem .7rem; background:var(--bg); border:1px solid var(--border); border-radius:.7rem; box-shadow:0 10px 30px rgba(0,0,0,.4); animation:dlg-in .18s cubic-bezier(.2,.8,.2,1); }
+#sel[hidden] { display:none; } #sel span { font-size:.9rem; white-space:nowrap; }
+#sel .go { background:var(--accent); border-color:var(--accent); color:#fff; } #sel .go:hover { background:var(--accent); filter:brightness(1.12); } #sel .go:disabled { opacity:.6; cursor:progress; }
+.cm { position:fixed; z-index:20; min-width:13rem; max-width:21rem; padding:.3rem; background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:.65rem; box-shadow:0 14px 40px rgba(0,0,0,.45); animation:dlg-in .12s ease-out; }
+.cm .mt { padding:.3rem .55rem .4rem; color:var(--muted); font-size:.78rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cm .ms { height:1px; margin:.3rem .2rem; background:var(--border); }
+.cm .mi { display:flex; align-items:center; gap:.6rem; width:100%; padding:.4rem .55rem; border:0; border-radius:.4rem; background:none; text-align:left; font-size:.9rem; }
+.cm .mi:hover, .cm .mi:focus { background:var(--row); outline:none; } .cm .mi svg { width:1.05rem; height:1.05rem; color:var(--muted); }
+.cm .mi .ml { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .cm .mi kbd { color:var(--muted); font:inherit; font-size:.75rem; }
+.cm .mi:disabled { opacity:.45; cursor:default; } .cm .mi:disabled:hover { background:none; }
+.row.ctx { background:var(--row); }
+#toast { position:fixed; left:50%; bottom:4.5rem; z-index:30; transform:translate(-50%,6px); padding:.4rem .8rem; border-radius:.5rem; background:var(--fg); color:var(--bg); font-size:.85rem; opacity:0; pointer-events:none; transition:opacity .15s, transform .15s; }
+#toast.show { opacity:1; transform:translate(-50%,0); }
+#mq { position:absolute; z-index:4; pointer-events:none; border:1px solid var(--accent); border-radius:2px; } #mq::before { content:""; position:absolute; inset:0; background:var(--accent); opacity:.18; }
+body.dragging, body.dragging * { user-select:none; cursor:crosshair !important; }
 @media (max-width:40rem) { .head, .row { grid-template-columns:minmax(0,1fr) 5rem; } .meta.date, .head .date, .meta.type, .head .type { display:none; } .pl .vol, .pl .sp { display:none; } }
 </style>
 </head>
@@ -80,11 +100,19 @@ dialog h2 { margin:0; font-size:1.05rem; line-height:1.3; overflow-wrap:anywhere
     <input id="q" type="search" placeholder="Filter" aria-label="Filter this folder" size="14">
     <button id="vlist" type="button" title="List view">List</button>
     <button id="vgrid" type="button" title="Grid view">Grid</button>
+    <button id="zipdir" type="button" title="Download this folder as one ZIP" hidden>Folder ZIP</button>
     <button id="theme" type="button" title="Theme"></button>
   </div>
 </header>
 <main id="main"></main>
-<div id="info"></div>
+<div id="info"><span id="stat"></span><a id="credit" href="https://github.com/mohammadraziei/httpp" target="_blank" rel="noopener noreferrer" title="httpp on GitHub">Powered by httpp</a></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="sel" hidden role="region" aria-label="Selection">
+  <span id="selinfo"></span>
+  <button id="zipgo" class="go" type="button" title="Download the selection as one ZIP">Download ZIP</button>
+  <button id="zipcopy" type="button" title="Copy the names of the selected items">Copy names</button>
+  <button id="zipclear" type="button" title="Clear the selection (Esc)">Clear</button>
+</div>
 <dialog id="dlg">
   <div class="dh">
     <div class="dt"><h2 id="pt"></h2><div class="sub" id="ps"></div></div>
@@ -117,6 +145,11 @@ var ICON = {
   vol: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 10v4h4l5 4V6L8 10z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>',
   mute: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 10v4h4l5 4V6L8 10z"/><path d="M16 9l5 6M21 9l-5 6"/></svg>',
   fs: '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+  copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>',
+  link: '<svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
+  eye: '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   download: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>',
   ext: '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>'
@@ -170,6 +203,204 @@ function crumbs() {
   });
 }
 
+// ---- selection and ZIP (only when the server was set up with set_zip) ----
+var sel = Object.create(null), lastSel = -1, rowEls = [], allBox = null, zipBusy = false;  // sel: names in the open folder
+function selected() { return Object.keys(sel); }
+function checkbox(label) { var c = el("input", "cb"); c.type = "checkbox"; c.setAttribute("aria-label", label); return c; }
+function pick(names, on) { names.forEach(function (n) { if (on) sel[n] = true; else delete sel[n]; }); refreshSel(); }
+function refreshSel() {
+  var names = selected(), files = 0, folders = 0, total = 0, by = Object.create(null), chosen = 0;
+  state.entries.forEach(function (e) { by[e.name] = e; });
+  names.forEach(function (n) { var e = by[n]; if (!e) return; if (e.type === "dir") folders++; else { files++; total += e.size; } });
+  rowEls.forEach(function (x) { var on = !!sel[x.name]; if (on) chosen++; x.row.classList.toggle("sel", on); x.cb.checked = on; });
+  if (allBox) { allBox.checked = rowEls.length > 0 && chosen === rowEls.length; allBox.indeterminate = chosen > 0 && chosen < rowEls.length; }
+  var txt = names.length + " selected";
+  if (files) txt += " \u00b7 " + size(total) + (folders ? " + folders" : ""); else if (folders) txt += " \u00b7 folders";
+  $("selinfo").textContent = txt; $("sel").hidden = !names.length;
+}
+function addCheck(r, name, idx, list) {
+  var cb = checkbox("Select " + name);
+  cb.onclick = function (ev) {
+    ev.stopPropagation();
+    var on = cb.checked;
+    if (ev.shiftKey && lastSel >= 0 && lastSel < list.length) pick(list.slice(Math.min(lastSel, idx), Math.max(lastSel, idx) + 1).map(function (x) { return x.name; }), on);
+    else pick([name], on);
+    lastSel = idx;
+  };
+  r.firstChild.insertBefore(cb, r.firstChild.firstChild);
+  r.addEventListener("keydown", function (ev) { if (ev.key === " " && ev.target === r) { ev.preventDefault(); pick([name], !sel[name]); lastSel = idx; } });
+  rowEls.push({ name: name, row: r, cb: cb });
+}
+// The request is first made with fetch and dropped once the answer is known (the plan is made before any byte is sent), so a refusal (too many
+// files, a file that is gone) is shown here instead of replacing the page; then a form POST makes the browser save the stream straight to disk.
+function zipDownload(names) {
+  if (zipBusy) return;
+  var body = new URLSearchParams(), ctl = window.AbortController ? new AbortController() : null;
+  body.append("path", state.path); names.forEach(function (n) { body.append("name", n); });
+  zipBusy = true; $("zipgo").disabled = true;
+  fetch(C.base + "/api/zip", { method: "POST", body: body, signal: ctl ? ctl.signal : undefined }).then(function (r) {
+    if (r.ok) { if (ctl) ctl.abort(); zipForm(names); return; }
+    return r.json().then(function (j) { throw new Error(j.error || r.status); }, function () { throw new Error(r.status); });
+  }).catch(function (e) {
+    if (e && e.name === "AbortError") return;
+    toast("Could not make the ZIP: " + (e && e.message ? e.message : "the server did not answer"));
+  }).then(function () { zipBusy = false; $("zipgo").disabled = false; });
+}
+function zipForm(names) {
+  var f = el("form"); f.method = "post"; f.action = C.base + "/api/zip"; f.style.display = "none";
+  function add(k, v) { var i = el("input"); i.type = "hidden"; i.name = k; i.value = v; f.appendChild(i); }
+  add("path", state.path); names.forEach(function (n) { add("name", n); });
+  document.body.appendChild(f); f.submit(); document.body.removeChild(f);
+}
+
+var toastTimer = 0;
+function toast(msg) { var t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2200); }
+// navigator.clipboard exists only on https and localhost; on a plain http address on the network the old way still works.
+function copyText(text, what) {
+  function fallback() {
+    var t = el("textarea"); t.value = text; t.setAttribute("readonly", ""); t.style.cssText = "position:fixed;left:-9999px;top:0";
+    document.body.appendChild(t); t.select(); var ok = false; try { ok = document.execCommand("copy"); } catch (e) {} document.body.removeChild(t); return ok;
+  }
+  function done(ok) { toast(ok ? "Copied " + what : "Could not copy"); }
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallback()); });
+  else done(fallback());
+}
+function clickLink(href, newTab, download) {
+  var a = el("a"); a.href = href; if (newTab) { a.target = "_blank"; a.rel = "noopener"; } if (download) a.download = "";
+  a.style.display = "none"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+function pageLink(p) { return location.origin + location.pathname + "#/" + enc(p); }
+
+// ---- the right-click menu: ours, not the browser's. Arrows, Home, End, Enter and Esc work; it closes on a click elsewhere, on scroll and on resize. ----
+var menuEl = null, menuRow = null;
+function closeMenu() {
+  if (menuEl && menuEl.parentNode) menuEl.parentNode.removeChild(menuEl);
+  if (menuRow) menuRow.classList.remove("ctx");
+  menuEl = menuRow = null;
+}
+function showMenu(x, y, title, items, row) {
+  closeMenu();
+  var m = el("div", "cm"); m.setAttribute("role", "menu");
+  if (title) m.appendChild(el("div", "mt", title));
+  items.forEach(function (it) {
+    if (it === "-") { if (m.lastChild && m.lastChild.className !== "ms") m.appendChild(el("div", "ms")); return; }
+    var b = el("button", "mi"); b.type = "button"; b.setAttribute("role", "menuitem");
+    b.insertAdjacentHTML("beforeend", ICON[it.icon] || ""); b.appendChild(el("span", "ml", it.label)); if (it.hint) b.appendChild(el("kbd", "", it.hint));
+    b.disabled = !!it.off; b.onclick = function () { closeMenu(); it.run(); };
+    m.appendChild(b);
+  });
+  if (m.lastChild && m.lastChild.className === "ms") m.removeChild(m.lastChild);
+  document.body.appendChild(m);
+  var w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(4, Math.min(x, window.innerWidth - w - 4)) + "px"; m.style.top = Math.max(4, Math.min(y, window.innerHeight - h - 4)) + "px";
+  m.onkeydown = function (ev) {
+    var bs = [].slice.call(m.querySelectorAll(".mi:not(:disabled)")), i = bs.indexOf(document.activeElement);
+    if (ev.key === "ArrowDown") bs[(i + 1) % bs.length].focus();
+    else if (ev.key === "ArrowUp") bs[(i + bs.length - 1) % bs.length].focus();
+    else if (ev.key === "Home") bs[0].focus();
+    else if (ev.key === "End") bs[bs.length - 1].focus();
+    else if (ev.key === "Tab") { closeMenu(); return; }
+    else return;
+    ev.preventDefault();
+  };
+  menuEl = m; menuRow = row || null; if (menuRow) menuRow.classList.add("ctx");
+  var first = m.querySelector(".mi:not(:disabled)"); if (first) first.focus();
+}
+document.addEventListener("pointerdown", function (ev) { if (menuEl && !menuEl.contains(ev.target)) closeMenu(); }, true);
+window.addEventListener("scroll", closeMenu, true);
+window.addEventListener("resize", closeMenu);
+window.addEventListener("blur", closeMenu);
+
+function entryItems(e, p, row) {
+  var names = selected(), many = C.zip && sel[e.name] && names.length > 1, isDir = e.type === "dir", out = [];
+  if (many) {
+    return { title: names.length + " selected", items: [
+      { icon: "archive", label: "Download " + names.length + " items as ZIP", run: function () { zipDownload(names); } },
+      { icon: "copy", label: "Copy names", run: function () { copyText(names.join("\n"), names.length + " names"); } },
+      { icon: "copy", label: "Copy paths", run: function () { copyText(names.map(function (n) { return joinPath(state.path, n); }).join("\n"), names.length + " paths"); } },
+      "-", { icon: "check", label: "Clear selection", hint: "Esc", run: function () { pick(names, false); } }] };
+  }
+  out.push(isDir ? { icon: "dir", label: "Open", hint: "Enter", run: function () { go(p); } } : { icon: "eye", label: "Preview", hint: "Enter", run: function () { preview(e, p); } });
+  if (!isDir) out.push({ icon: "ext", label: "Open in a new tab", run: function () { clickLink(rawUrl(p), true, false); } });
+  if (!isDir) out.push({ icon: "download", label: "Download", run: function () { clickLink(rawUrl(p) + "?download=1", false, true); } });
+  if (isDir && C.zip) out.push({ icon: "archive", label: "Download folder as ZIP", run: function () { zipDownload([e.name]); } });
+  out.push("-", { icon: "copy", label: "Copy name", run: function () { copyText(e.name, "name"); } },
+    { icon: "copy", label: "Copy path", run: function () { copyText(p, "path"); } },
+    { icon: "link", label: "Copy link", run: function () { copyText(isDir ? pageLink(p) : location.origin + rawUrl(p), "link"); } });
+  if (C.zip) {
+    out.push("-", { icon: "check", label: sel[e.name] ? "Deselect" : "Select", hint: "Space", run: function () { pick([e.name], !sel[e.name]); } });
+    if (names.length) out.push({ icon: "archive", label: "Download " + names.length + " selected as ZIP", run: function () { zipDownload(names); } });
+  }
+  return { title: e.name, items: out };
+}
+function blankItems() {
+  var names = selected(), out = [];
+  if (C.zip) out.push({ icon: "archive", label: "Download this folder as ZIP", run: function () { zipDownload([]); } });
+  if (C.zip && state.entries.length) out.push({ icon: "check", label: "Select all", hint: "Ctrl+A", run: function () { pick(sorted().map(function (e) { return e.name; }), true); } });
+  if (names.length) out.push({ icon: "check", label: "Clear selection (" + names.length + ")", hint: "Esc", run: function () { pick(names, false); } });
+  out.push("-", { icon: "copy", label: "Copy folder path", run: function () { copyText(state.path, "path"); } },
+    { icon: "link", label: "Copy link to this folder", run: function () { copyText(pageLink(state.path), "link"); } },
+    { icon: "refresh", label: "Refresh", run: load });
+  return { title: state.path === "/" ? "Home" : state.path, items: out };
+}
+function onContext(ev) {
+  var t = ev.target; if (!t.closest) return;
+  if (t.closest("input, textarea, .head")) return;  // the filter box and the column headers keep the browser's menu
+  ev.preventDefault();
+  var row = t.closest(".row"), x = ev.clientX, y = ev.clientY;
+  if (row && !row._e) row = null;                  // the ".." row has no menu of its own
+  if (!x && !y) { var r = (row || $("main")).getBoundingClientRect(); x = r.left + 24; y = r.top + 24; }  // opened from the keyboard
+  var m = row ? entryItems(row._e, row._p, row) : blankItems();
+  showMenu(x, y, m.title, m.items, row);
+}
+
+// ---- drag to select, with the mouse: a press on empty space, or a press on a row that moves, draws a rectangle; every row it touches is selected. ----
+var mq = null, dragged = false;
+function mqDown(ev) {
+  if (!C.zip || ev.button !== 0 || ev.pointerType === "touch" || mq || ev.clientX >= document.documentElement.clientWidth) return;
+  if (ev.target.closest && ev.target.closest("input, button, a, .head")) return;
+  var add = ev.ctrlKey || ev.metaKey || ev.shiftKey;
+  mq = { id: ev.pointerId, x0: ev.clientX + window.pageXOffset, y0: ev.clientY + window.pageYOffset, cx: ev.clientX, cy: ev.clientY, add: add, base: add ? copyKeys(sel) : Object.create(null), moved: false, box: null, rects: [], onRow: !!ev.target.closest(".row") };
+}
+function mqBegin() {
+  mq.moved = true; document.body.classList.add("dragging");
+  if (window.getSelection) window.getSelection().removeAllRanges();
+  closeMenu();
+  var sx = window.pageXOffset, sy = window.pageYOffset;
+  mq.rects = rowEls.map(function (x) { var r = x.row.getBoundingClientRect(); return { name: x.name, l: r.left + sx, r: r.right + sx, t: r.top + sy, b: r.bottom + sy }; });  // page coordinates: scrolling does not move them
+  mq.box = el("div"); mq.box.id = "mq"; document.body.appendChild(mq.box);
+  requestAnimationFrame(mqTick);
+}
+function mqUpdate() {
+  var x1 = mq.cx + window.pageXOffset, y1 = mq.cy + window.pageYOffset, l = Math.min(mq.x0, x1), r = Math.max(mq.x0, x1), t = Math.min(mq.y0, y1), b = Math.max(mq.y0, y1);
+  mq.box.style.cssText = "left:" + l + "px;top:" + t + "px;width:" + (r - l) + "px;height:" + (b - t) + "px";
+  var next = mq.add ? copyKeys(mq.base) : Object.create(null);
+  mq.rects.forEach(function (q) { if (l < q.r && r > q.l && t < q.b && b > q.t) next[q.name] = true; });
+  sel = next; refreshSel();
+}
+function copyKeys(o) { var c = Object.create(null); Object.keys(o).forEach(function (k) { c[k] = true; }); return c; }
+function mqTick() {  // keeps scrolling while the pointer rests near the top or the bottom edge
+  if (!mq || !mq.moved) return;
+  var h = window.innerHeight; if (mq.cy < 48) window.scrollBy(0, -18); else if (mq.cy > h - 48) window.scrollBy(0, 18);
+  mqUpdate(); requestAnimationFrame(mqTick);
+}
+function mqMove(ev) {
+  if (!mq || ev.pointerId !== mq.id) return;
+  mq.cx = ev.clientX; mq.cy = ev.clientY;
+  if (!mq.moved) { if (Math.abs(ev.clientX + window.pageXOffset - mq.x0) < 6 && Math.abs(ev.clientY + window.pageYOffset - mq.y0) < 6) return; mqBegin(); }
+  mqUpdate();
+}
+function mqEnd(ev, cancel) {
+  if (!mq || (ev && ev.pointerId !== mq.id)) return;
+  var m = mq; mq = null;
+  if (m.moved) {
+    document.body.classList.remove("dragging"); if (m.box && m.box.parentNode) m.box.parentNode.removeChild(m.box);
+    if (cancel) { sel = m.base; refreshSel(); }
+    dragged = true; setTimeout(function () { dragged = false; }, 0);  // the click that follows the release must not open the row under the pointer
+    lastSel = -1;
+  } else if (!m.onRow && !m.add && !cancel) pick(selected(), false);  // a plain click on empty space clears the selection
+}
+
 function sorted() {
   var q = state.filter.toLowerCase(), k = state.key, d = state.desc ? -1 : 1;
   var list = state.entries.filter(function (e) { return !q || e.name.toLowerCase().indexOf(q) >= 0; });
@@ -190,31 +421,46 @@ function row(name, kind, label, sz, mt, onopen, icon) {
 }
 
 function render(error) {
-  var main = $("main"); main.textContent = ""; crumbs();
+  var main = $("main"); main.textContent = ""; crumbs(); rowEls = []; allBox = null;
   $("vlist").setAttribute("aria-pressed", state.view === "list"); $("vgrid").setAttribute("aria-pressed", state.view === "grid");
-  if (error) { main.appendChild(el("div", "error", error)); $("info").textContent = ""; return; }
+  if (error) { main.appendChild(el("div", "error", error)); $("stat").textContent = ""; return; }
   var box = el("div", state.view === "grid" ? "grid" : "list");
   var head = el("div", "head");
   [["name", "Name"], ["type", "Type"], ["size", "Size"], ["date", "Modified"]].forEach(function (c) {
     var b = el("button", c[0] === "date" || c[0] === "type" ? c[0] : "", c[1] + (state.key === c[0] ? (state.desc ? " ▾" : " ▴") : ""));
     b.type = "button"; b.setAttribute("aria-pressed", state.key === c[0]);
     b.onclick = function () { if (state.key === c[0]) state.desc = !state.desc; else { state.key = c[0]; state.desc = false; } render(); };
-    head.appendChild(b);
+    if (C.zip && c[0] === "name") {
+      var hn = el("div", "hn"); allBox = checkbox("Select all"); hn.appendChild(allBox); hn.appendChild(b); head.appendChild(hn);
+      allBox.onchange = function () { pick(sorted().map(function (e) { return e.name; }), allBox.checked); lastSel = -1; };
+    } else head.appendChild(b);
   });
   box.appendChild(head);
-  if (state.path !== "/") box.appendChild(row("..", "dir", "", "", "", function () { go("/" + segs(state.path).slice(0, -1).join("/")); }, "up"));
+  if (state.path !== "/") {
+    var up = row("..", "dir", "", "", "", function () { go("/" + segs(state.path).slice(0, -1).join("/")); }, "up");
+    if (C.zip) up.firstChild.insertBefore(el("span", "cb sp"), up.firstChild.firstChild);
+    box.appendChild(up);
+  }
   var list = sorted(), dirs = 0, files = 0, total = 0;
   state.entries.forEach(function (e) { if (e.type === "dir") dirs++; else { files++; total += e.size; } });
-  list.forEach(function (e) {
+  list.forEach(function (e, idx) {
     var p = joinPath(state.path, e.name);
-    box.appendChild(row(e.name, kindOf(e), kindLabel(e), e.type === "dir" ? "" : size(e.size), date(e.mtime), function () { if (e.type === "dir") go(p); else preview(e, p); }));
+    var r = row(e.name, kindOf(e), kindLabel(e), e.type === "dir" ? "" : size(e.size), date(e.mtime), function (ev) {
+      if (dragged) return;
+      if (C.zip && ev && (ev.ctrlKey || ev.metaKey)) { pick([e.name], !sel[e.name]); lastSel = idx; return; }  // Ctrl/Cmd+click selects instead of opening
+      if (e.type === "dir") go(p); else preview(e, p);
+    });
+    r._e = e; r._p = p;
+    if (C.zip) addCheck(r, e.name, idx, list);
+    box.appendChild(r);
   });
   main.appendChild(box);
   if (!list.length) main.appendChild(el("div", "empty", state.entries.length ? "Nothing matches the filter." : "This folder is empty."));
   var info = dirs + " folder" + (dirs === 1 ? "" : "s") + ", " + files + " file" + (files === 1 ? "" : "s") + ", " + size(total);
   if (state.filter) info += " (showing " + list.length + ")";
   if (state.truncated) info += ". Only the first " + C.limit + " entries are listed.";
-  $("info").textContent = info;
+  $("stat").textContent = info;
+  refreshSel();
 }
 
 function head(e, p) {
@@ -342,7 +588,7 @@ function mediaPlayer(kind, list, auto) {
 
 var seq = 0;
 function load() {
-  var mine = ++seq; state.path = hashPath(); state.filter = ""; $("q").value = "";
+  var mine = ++seq; state.path = hashPath(); state.filter = ""; $("q").value = ""; sel = Object.create(null); lastSel = -1; refreshSel();
   fetch(C.base + "/api/list?path=" + encodeURIComponent(state.path), { headers: { Accept: "application/json" } })
     .then(function (r) { if (r.status === 404) throw new Error("This folder does not exist (or is not available)."); if (!r.ok) throw new Error("The server answered " + r.status + "."); return r.json(); })
     .then(function (j) { if (mine !== seq) return; state.entries = j.entries; state.truncated = j.truncated; render(); })
@@ -368,6 +614,26 @@ $("dlg").addEventListener("cancel", function (ev) { ev.preventDefault(); closeDl
 $("dlg").addEventListener("pointerdown", function (ev) { downOutside = outside(ev); });
 $("dlg").addEventListener("click", function (ev) { if (downOutside && outside(ev)) closeDlg(); downOutside = false; });
 $("dlg").addEventListener("close", function () { stop(); $("pv").textContent = ""; });
+$("credit").hidden = C.powered === false;
+$("main").addEventListener("contextmenu", onContext);
+document.addEventListener("keydown", function (ev) {
+  var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName);
+  if (ev.key === "Escape" && menuEl) { closeMenu(); ev.preventDefault(); return; }
+  if (C.zip && (ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "a" && !typing && !$("dlg").open && state.entries.length) { ev.preventDefault(); pick(sorted().map(function (e) { return e.name; }), true); }
+});
+if (C.zip) {
+  $("main").addEventListener("pointerdown", mqDown);
+  document.addEventListener("pointermove", mqMove);
+  document.addEventListener("pointerup", function (ev) { mqEnd(ev, false); });
+  document.addEventListener("pointercancel", function (ev) { mqEnd(ev, true); });
+  window.addEventListener("blur", function () { mqEnd(null, true); });
+  $("zipcopy").onclick = function () { var n = selected(); copyText(n.join("\n"), n.length + (n.length === 1 ? " name" : " names")); };
+  $("zipdir").hidden = false;
+  $("zipdir").onclick = function () { zipDownload([]); };
+  $("zipgo").onclick = function () { zipDownload(selected()); };
+  $("zipclear").onclick = function () { pick(selected(), false); };
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && !ev.defaultPrevented && !$("dlg").open && selected().length) pick(selected(), false); });
+}
 window.addEventListener("hashchange", load);
 applyTheme(); load();
 })();

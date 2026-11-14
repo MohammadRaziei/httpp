@@ -140,6 +140,8 @@ struct browse_args {
     std::string log_level = "info";
     bool no_search = false;
     bool safe = false;
+    bool no_zip = false;
+    bool no_powered_by = false;
 };
 
 int cmd_browse(const browse_args& a) {
@@ -153,7 +155,7 @@ int cmd_browse(const browse_args& a) {
         const fb::view_mode view = a.view == "grid" ? fb::view_mode::grid : fb::view_mode::list;
         const fb::sort_key sort = a.sort == "size" ? fb::sort_key::size : a.sort == "date" ? fb::sort_key::date : fb::sort_key::name;
         fb(root).set_title(a.title).set_theme(theme).set_accent(a.accent).set_search(!a.no_search).set_show_hidden(a.hidden)
-            .set_max_entries(a.max_entries).set_view(view).set_sort(sort).set_safe_mode(a.safe).mount(srv, "/");
+            .set_max_entries(a.max_entries).set_view(view).set_sort(sort).set_safe_mode(a.safe).set_zip(!a.no_zip).set_powered_by(!a.no_powered_by).mount(srv, "/");
     } catch (const std::exception& e) {
         return fail(e.what());
     }
@@ -380,6 +382,8 @@ int main(int argc, char** argv) {
     c_browse->add_flag("--no-search", b.no_search, "Hide the filter box");
     c_browse->add_flag("--hidden", b.hidden, "List and serve names that start with a dot");
     c_browse->add_flag("--safe", b.safe, "Only download html and svg files, never show them (default: shown, sandboxed so no script runs and nothing outside is fetched)");
+    c_browse->add_flag("--no-zip", b.no_zip, "Do not offer selecting files and downloading them as one ZIP (it is on here; the library default is off)");
+    c_browse->add_flag("--no-powered-by", b.no_powered_by, "Hide the \"Powered by httpp\" line at the bottom of the page");
     c_browse->add_option("--max-entries", b.max_entries, "Longest folder listing")->check(CLI::PositiveNumber)->capture_default_str()->type_name("N");
     c_browse->add_option("--view", b.view)->check(CLI::IsMember({"list", "grid"}))->capture_default_str();
     c_browse->add_option("--sort", b.sort)->check(CLI::IsMember({"name", "size", "date"}))->capture_default_str();

@@ -24,7 +24,8 @@ inline std::uint32_t adler32(const unsigned char* p, std::size_t n) {
     return (b << 16) | a;
 }
 
-inline std::uint32_t crc32(const unsigned char* p, std::size_t n) {
+// CRC-32 of `n` more bytes, continuing from `crc` (0 to start): crc32_update(crc32_update(0, a, na), b, nb) == crc32 of a then b, as zlib's crc32().
+inline std::uint32_t crc32_update(std::uint32_t crc, const unsigned char* p, std::size_t n) {
     struct table_t {
         std::uint32_t v[256];
     };
@@ -37,9 +38,11 @@ inline std::uint32_t crc32(const unsigned char* p, std::size_t n) {
         }
         return t;
     }();
-    std::uint32_t c = 0xFFFFFFFFu;
+    std::uint32_t c = crc ^ 0xFFFFFFFFu;
     for (std::size_t i = 0; i < n; ++i) c = table.v[(c ^ p[i]) & 0xFF] ^ (c >> 8);
     return c ^ 0xFFFFFFFFu;
 }
+
+inline std::uint32_t crc32(const unsigned char* p, std::size_t n) { return crc32_update(0, p, n); }
 
 }  // namespace httpp::detail

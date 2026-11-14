@@ -77,7 +77,7 @@ def test_the_defaults_are_those_of_the_cpp_class(tree):
     FileBrowser(tree).mount(app, "/files")
     with running(app) as url:
         page = httpp.get(f"{url}/files").text
-        for fragment in ('"theme":"auto"', '"view":"list"', '"sort":"name"', '"accent":""', '"search":true', '"limit":5000'):
+        for fragment in ('"theme":"auto"', '"view":"list"', '"sort":"name"', '"accent":""', '"search":true', '"limit":5000', '"powered":true', '"zip":false'):
             assert fragment in page
 
 
@@ -230,5 +230,127 @@ def test_browse_command_shows_html_by_default_and_safe_makes_it_a_download(tree,
         else:
             assert "attachment" in r.header("Content-Disposition")
         assert f'"safe":{"false" if shown else "true"}' in httpp.get(url).text
+    finally:
+        stop_process(proc)
+
+
+# ---- ZIP download (ADR-0032): the archive is read back with zipfile, the strictest reader that is at hand ----
+
+def _zip_tree(tree):
+    (tree / "فارسی").mkdir()
+    (tree / "فارسی" / "آهنگ من.mp3").write_bytes(bytes(range(256)) * 600)  # 153600 bytes: more than one stored block
+    (tree / "sub" / "empty").mkdir()
+    (tree / "empty.txt").write_bytes(b"")
+    return tree
+
+
+def _archive(body):
+    import io
+    import zipfile
+    z = zipfile.ZipFile(io.BytesIO(body))
+    assert z.testzip() is None
+    return z
+
+
+def test_zip_is_off_by_default_and_set_zip_turns_it_on(tree):
+    app = Server()
+    FileBrowser(tree).mount(app, "/files")
+    on = Server()
+    FileBrowser(tree, zip=True).mount(on, "/files")
+    with running(app) as url:
+        assert httpp.get(f"{url}/files/api/zip?path=/sub").status == 404
+        assert '"zip":false' in httpp.get(f"{url}/files").text
+    with running(on) as url:
+        assert httpp.get(f"{url}/files/api/zip?path=/sub").status == 200
+        assert '"zip":true' in httpp.get(f"{url}/files").text
+
+
+def test_zip_of_a_folder_and_of_chosen_names_reads_back_with_zipfile(tree):
+    _zip_tree(tree)
+    app = Server()
+    FileBrowser(tree).set_zip(True).set_title("Music").mount(app, "/files")
+    with running(app) as url:
+        whole = httpp.get(f"{url}/files/api/zip?path=/")
+        assert whole.status == 200 and whole.header("Content-Type") == "application/zip"
+        assert "Music.zip" in whole.header("Content-Disposition")
+        z = _archive(whole.content)
+        assert z.namelist() == ["Music/", "Music/sub/", "Music/sub/b.txt", "Music/sub/empty/", "Music/a.txt", "Music/empty.txt", "Music/فارسی/", "Music/فارسی/آهنگ من.mp3"] or \
+            sorted(z.namelist()) == sorted(["Music/", "Music/sub/", "Music/sub/b.txt", "Music/sub/empty/", "Music/a.txt", "Music/empty.txt", "Music/فارسی/", "Music/فارسی/آهنگ من.mp3"])
+        assert z.read("Music/فارسی/آهنگ من.mp3") == bytes(range(256)) * 600
+        assert z.read("Music/a.txt") == b"hello" and z.read("Music/empty.txt") == b""
+        assert ".hidden.txt" not in " ".join(z.namelist())  # hidden names stay out
+
+        # chosen names by POST (a form, repeated "name"), a Persian folder name, and the file name that goes with it
+        form = httpp.post(f"{url}/files/api/zip", form=[("path", "/"), ("name", "فارسی")])
+        assert form.status == 200
+        assert "filename*=UTF-8''%D9%81%D8%A7%D8%B1%D8%B3%DB%8C.zip" in form.header("Content-Disposition")
+        assert _archive(form.content).namelist() == ["فارسی/", "فارسی/آهنگ من.mp3"]
+
+        two = httpp.post(f"{url}/files/api/zip", form=[("path", "/"), ("name", "a.txt"), ("name", "sub")])
+        assert _archive(two.content).namelist() == ["a.txt", "sub/", "sub/b.txt", "sub/empty/"]
+
+
+def test_zip_refusals_and_the_entry_limit(tree):
+    app = Server()
+    FileBrowser(tree).set_zip(True).set_max_zip_entries(2).mount(app, "/files")
+    with running(app) as url:
+        assert httpp.get(f"{url}/files/api/zip?path=/../x").status == 400
+        assert httpp.get(f"{url}/files/api/zip?path=/&name=..").status == 400
+        assert httpp.get(f"{url}/files/api/zip?path=/&name=.hidden.txt").status == 404
+        assert httpp.get(f"{url}/files/api/zip?path=/&name=nope").status == 404
+        too_many = httpp.get(f"{url}/files/api/zip?path=/")
+        assert too_many.status == 413 and "too many files" in too_many.text
+        assert httpp.get(f"{url}/files/api/zip?path=/&name=a.txt").status == 200
+
+
+def test_the_credit_line_is_on_by_default_and_powered_by_false_turns_it_off(tree):
+    app = Server()
+    FileBrowser(tree).mount(app, "/on")
+    FileBrowser(tree, powered_by=False).mount(app, "/off")
+    with running(app) as url:
+        on, off = httpp.get(f"{url}/on").text, httpp.get(f"{url}/off").text
+        assert '"powered":true' in on and "https://github.com/mohammadraziei/httpp" in on
+        assert '"powered":false' in off
+
+
+def test_the_zip_setters_chain_and_refuse_a_bad_value(tree):
+    fb = FileBrowser(tree)
+    assert fb.set_powered_by(False) is fb and fb.set_zip(True) is fb and fb.set_max_zip_entries(10) is fb
+    with pytest.raises(ValueError):
+        fb.set_max_zip_entries(0)
+    with pytest.raises(ValueError):
+        FileBrowser(tree, max_zip_entries=0)
+
+
+def test_browse_command_no_powered_by_hides_the_credit(tree, httpp_exe, stop_process):
+    port = _free_port()
+    proc = subprocess.Popen([*httpp_exe, "browse", str(tree), "--port", str(port), "--no-powered-by"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        url = f"http://127.0.0.1:{port}"
+        for _ in range(100):
+            r = httpp.get(url)
+            if r.status != 0:
+                break
+            time.sleep(0.1)
+        assert r.status == 200 and '"powered":false' in r.text, (r.status, proc.poll())
+    finally:
+        stop_process(proc)
+
+
+@pytest.mark.parametrize("flag, zip_on", [(None, True), ("--no-zip", False)])
+def test_browse_command_offers_zip_and_no_zip_turns_it_off(tree, httpp_exe, stop_process, flag, zip_on):
+    port = _free_port()
+    proc = subprocess.Popen([*httpp_exe, "browse", str(tree), "--port", str(port), *([flag] if flag else [])], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        url = f"http://127.0.0.1:{port}"
+        for _ in range(100):
+            r = httpp.get(f"{url}/api/zip?path=/sub")
+            if r.status != 0:
+                break
+            time.sleep(0.1)
+        assert (r.status == 200) == zip_on, (r.status, proc.poll())
+        if zip_on:
+            assert _archive(r.content).namelist() == ["sub/", "sub/b.txt"]
+        assert f'"zip":{"true" if zip_on else "false"}' in httpp.get(url).text
     finally:
         stop_process(proc)

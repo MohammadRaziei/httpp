@@ -46,7 +46,7 @@ cdef class FileBrowser:
     View = _View    # LIST, GRID: the first view
     Sort = _Sort    # NAME, SIZE, DATE: the first sort
 
-    def __cinit__(self, root, *, title=None, theme=None, accent=None, search=None, show_hidden=None, max_entries=None, view=None, sort=None, safe_mode=None):
+    def __cinit__(self, root, *, title=None, theme=None, accent=None, search=None, show_hidden=None, max_entries=None, view=None, sort=None, safe_mode=None, zip=None, max_zip_entries=None, powered_by=None):
         self._b = new cpp_file_browser(_fs(root))
         if title is not None: self.set_title(title)
         if theme is not None: self.set_theme(theme)
@@ -57,6 +57,9 @@ cdef class FileBrowser:
         if view is not None: self.set_view(view)
         if sort is not None: self.set_sort(sort)
         if safe_mode is not None: self.set_safe_mode(safe_mode)
+        if zip is not None: self.set_zip(zip)
+        if max_zip_entries is not None: self.set_max_zip_entries(max_zip_entries)
+        if powered_by is not None: self.set_powered_by(powered_by)
 
     def __dealloc__(self):
         if self._b != NULL:
@@ -109,6 +112,26 @@ cdef class FileBrowser:
         behind a Content-Security-Policy sandbox that stops every script and every request to another origin; xml, js and unknown types stay
         downloads. True: html and svg are only downloaded too, nothing that could run code is ever shown."""
         self._b.set_safe_mode(on)
+        return self
+
+    def set_zip(self, bint on):
+        """True: the page can select files and folders and download them as one ZIP (`base/api/zip`). A folder goes in with everything in it
+        (hidden names only with show_hidden; links that lead out of the root, and links to folders, are left out). Nothing is compressed.
+        Default False: a request can make the server read a lot of disk, so turn it on where the viewers are trusted or behind a `before` hook."""
+        self._b.set_zip(on)
+        return self
+
+    def set_powered_by(self, bint on):
+        """True (default): a small "Powered by httpp" at the bottom of the page, a link to the project on GitHub. False: no credit line."""
+        self._b.set_powered_by(on)
+        return self
+
+    def set_max_zip_entries(self, count):
+        """The most entries (files and folders together) one ZIP may hold; a request for more answers 413 before any byte is sent.
+        Must be above 0. Default 50000."""
+        if count <= 0:
+            raise ValueError("max_zip_entries must be above 0")
+        self._b.set_max_zip_entries(<size_t>count)
         return self
 
     def mount(self, Server server, str base="/"):

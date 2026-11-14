@@ -2,12 +2,15 @@
 
 #include "httpp_file_browser_data.hpp" // generated at configure time, see CMakeLists.txt
 #include "internal/inflate.hpp"
+#include "internal/zip_stream.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -176,6 +179,77 @@ path_result clean_path(const std::string& in, bool show_hidden, std::string& rel
     return path_result::ok;
 }
 
+// ---- ZIP (ADR-0032) ----
+
+// A name that is safe as a file name on any system: no separators, no characters Windows refuses, no control characters; "files" when nothing is left.
+std::string zip_file_stem(const std::string& in) {
+    std::string out;
+    for (unsigned char c : in) if (c >= 0x20 && c != 0x7f && std::strchr("\"\\/:*?<>|", c) == nullptr) out += static_cast<char>(c);
+    while (!out.empty() && (out.back() == ' ' || out.back() == '.')) out.pop_back();
+    const std::size_t first = out.find_first_not_of(' ');
+    out = first == std::string::npos ? std::string() : out.substr(first);
+    if (out.size() > 120) { // cut, but not in the middle of a UTF-8 character
+        out.resize(120);
+        while (!out.empty() && (static_cast<unsigned char>(out.back()) & 0xC0) == 0x80) out.pop_back();
+        if (!out.empty() && (static_cast<unsigned char>(out.back()) & 0x80)) out.pop_back();
+    }
+    return out.empty() ? "files" : out;
+}
+
+std::string content_disposition(const std::string& file_name) {
+    static const char hex[] = "0123456789ABCDEF";
+    std::string ascii, encoded;
+    for (unsigned char c : file_name) {
+        ascii += (c >= 0x20 && c < 0x7f) ? static_cast<char>(c) : '_';
+        if (std::isalnum(c) || c == '.' || c == '-' || c == '_') encoded += static_cast<char>(c);
+        else { encoded += '%'; encoded += hex[c >> 4]; encoded += hex[c & 15]; }
+    }
+    return "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + encoded;
+}
+
+// Adds `p` as `name` to the plan, and for a folder everything under it. `top`: a name the viewer chose (a link to a folder is followed there only; a
+// link to a folder deeper down could lead back up and loop). Returns false when the plan passes `limit` entries.
+bool zip_add(const std::string& root, bool show_hidden, std::size_t limit, const httpp::path& p, const std::string& name, bool top, int depth, std::vector<detail::zip_item>& items) {
+    httpp::path::status st = p.lstat();
+    if (st.type == httpp::path::kind::missing && !st.link) return true; // gone since the listing
+    if (st.link) {
+        const httpp::path real = p.resolve();
+        if (real.empty() || !real.is_relative_to(root)) return true;
+        st = p.stat();
+        if (st.type == httpp::path::kind::directory && !top) return true;
+    }
+    if (st.type == httpp::path::kind::directory) {
+        if (items.size() >= limit) return false;
+        detail::zip_item d;
+        d.name = name + "/";
+        d.dir = true;
+        d.mtime = st.mtime;
+        items.push_back(std::move(d));
+        if (depth >= 64) return true;
+        std::vector<httpp::path> children;
+        if (!p.iterdir(children)) return true;
+        std::vector<std::pair<std::string, httpp::path>> sorted;
+        for (const httpp::path& c : children) {
+            const std::string n = c.name().str();
+            if (n.empty() || (!show_hidden && n[0] == '.') || !valid_utf8(n)) continue;
+            sorted.emplace_back(n, c);
+        }
+        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        for (const auto& c : sorted)
+            if (!zip_add(root, show_hidden, limit, c.second, name + "/" + c.first, false, depth + 1, items)) return false;
+        return true;
+    }
+    if (st.type != httpp::path::kind::file) return true; // sockets, pipes and devices
+    if (items.size() >= limit) return false;
+    detail::zip_item f;
+    f.name = name;
+    f.file = p;
+    f.size = static_cast<unsigned long long>(st.size);
+    f.mtime = st.mtime;
+    items.push_back(std::move(f));
+    return true;
+}
+
 response json_error(int status, const char* text) {
     response r;
     r.status = status;
@@ -216,6 +290,13 @@ file_browser& file_browser::set_accent(std::string colour) {
 file_browser& file_browser::set_search(bool on) { search_ = on; return *this; }
 file_browser& file_browser::set_show_hidden(bool on) { show_hidden_ = on; return *this; }
 file_browser& file_browser::set_safe_mode(bool on) { safe_mode_ = on; return *this; }
+file_browser& file_browser::set_zip(bool on) { zip_ = on; return *this; }
+file_browser& file_browser::set_powered_by(bool on) { powered_by_ = on; return *this; }
+file_browser& file_browser::set_max_zip_entries(std::size_t count) {
+    if (count == 0) throw std::invalid_argument("file_browser: max_zip_entries must be above 0");
+    max_zip_entries_ = count;
+    return *this;
+}
 file_browser& file_browser::set_max_entries(std::size_t count) {
     if (count == 0) throw std::invalid_argument("file_browser: max_entries must be above 0");
     max_entries_ = count;
@@ -241,16 +322,18 @@ void file_browser::mount(server& s, const std::string& base) const {
     const std::string config = "{\"base\":" + json_string(prefix) + ",\"theme\":" + json_string(theme_name(theme_)) + ",\"accent\":" + json_string(accent_) +
                                ",\"search\":" + (search_ ? "true" : "false") + ",\"view\":" + json_string(view_name(view_)) + ",\"sort\":" + json_string(sort_name(sort_)) +
                                ",\"limit\":" + std::to_string(max_entries_) +
-                               ",\"safe\":" + (safe_mode_ ? "true" : "false") + "}";
+                               ",\"safe\":" + (safe_mode_ ? "true" : "false") +
+                               ",\"zip\":" + (zip_ ? "true" : "false") +
+                               ",\"powered\":" + (powered_by_ ? "true" : "false") + "}";
     replace_all(html, "__CONFIG__", config);
     replace_all(html, "__TITLE__", html_escape(title_));
 
-    auto page = [html](const server_request&, response& res) {
+    const std::string csp = std::string("default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self'; ") +
+                            "base-uri 'none'; form-action " + (zip_ ? "'self'" : "'none'") + "; frame-ancestors 'none'";
+    auto page = [html, csp](const server_request&, response& res) {
         res.status = 200;
         res.headers.emplace_back("Content-Type", "text/html; charset=utf-8");
-        res.headers.emplace_back("Content-Security-Policy",
-            "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self'; "
-            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+        res.headers.emplace_back("Content-Security-Policy", csp);
         res.headers.emplace_back("X-Content-Type-Options", "nosniff");
         res.headers.emplace_back("Referrer-Policy", "no-referrer");
         res.body = html;
@@ -290,6 +373,67 @@ void file_browser::mount(server& s, const std::string& base) const {
         res.headers.emplace_back("X-Content-Type-Options", "nosniff");
         res.body = std::move(body);
     });
+
+    if (zip_) {
+        const std::size_t zip_limit = max_zip_entries_;
+        const std::string zip_stem = zip_file_stem(title_);
+        auto zip_route = [real_root, show_hidden, zip_limit, zip_stem](const server_request& req, response& res) {
+            std::string dir_in;
+            std::vector<std::string> names;
+            if (req.method == "POST") {
+                form_data f;
+                try { f = req.form(); } catch (const std::invalid_argument&) { res = json_error(400, "bad request"); return; }
+                dir_in = f.field("path");
+                for (const auto& [k, v] : f.fields) if (k == "name") names.push_back(v);
+            } else {
+                dir_in = req.query_param("path");
+                for (const auto& [k, v] : req.query) if (k == "name") names.push_back(v);
+            }
+            std::string rel, dir;
+            const path_result pr = clean_path(dir_in, show_hidden, rel);
+            if (pr == path_result::bad) { res = json_error(400, "bad path"); return; }
+            if (pr != path_result::ok || !resolve_dir(real_root, rel, dir)) { res = json_error(404, "not found"); return; }
+
+            // Each chosen name is one name in that folder: a "/" in it, or ".." or a hidden name, is refused like any other path.
+            for (const std::string& n : names) {
+                std::string child;
+                if (n.find('/') != std::string::npos) { res = json_error(400, "bad path"); return; }
+                const path_result nr = clean_path("/" + n, show_hidden, child);
+                if (nr == path_result::bad) { res = json_error(400, "bad path"); return; }
+                if (nr != path_result::ok) { res = json_error(404, "not found"); return; }
+            }
+
+            std::vector<detail::zip_item> items;
+            const std::string here = rel == "/" ? zip_stem : zip_file_stem(rel.substr(rel.rfind('/') + 1)); // the folder's own name
+            std::string archive = here;
+            bool within_limit = true;
+            if (names.empty()) {
+                within_limit = zip_add(real_root, show_hidden, zip_limit, httpp::path(dir), here, true, 0, items);
+            } else {
+                std::set<std::string> seen;
+                for (const std::string& n : names) {
+                    if (!seen.insert(n).second) continue;
+                    const std::size_t before = items.size();
+                    within_limit = zip_add(real_root, show_hidden, zip_limit, httpp::path(dir) / n, n, true, 0, items);
+                    if (!within_limit) break;
+                    if (items.size() == before) { res = json_error(404, "not found"); return; } // missing, outside the root, or not a file or folder
+                }
+                if (within_limit && names.size() == 1 && !items.empty() && items.front().dir) archive = zip_file_stem(names.front());
+            }
+            if (!within_limit) { res = json_error(413, "too many files"); return; }
+            if (items.empty()) { res = json_error(404, "not found"); return; }
+
+            auto z = std::make_shared<detail::zip_stream>(std::move(items));
+            res.status = 200;
+            res.headers.emplace_back("Content-Type", "application/zip");
+            res.headers.emplace_back("Content-Disposition", content_disposition(archive + ".zip"));
+            res.headers.emplace_back("Cache-Control", "no-store");
+            res.headers.emplace_back("X-Content-Type-Options", "nosniff");
+            res.stream = [z](std::size_t, std::string& piece) { return z->next(piece); };
+        };
+        s.get(prefix + "/api/zip", zip_route);
+        s.post(prefix + "/api/zip", zip_route);
+    }
 
     directory(path(real_root)).set_index(false).set_show_hidden(show_hidden_).set_download_active(true).set_inline_active(!safe_mode_).mount(s, prefix + "/raw");
 }

@@ -23,7 +23,9 @@ namespace httpp {
 //   GET base/raw/<path>        the file itself (Range and HEAD work); anything that could run code in the page's origin (html, svg, xml, js,
 //                              unknown types) is a download, and "?download=1" forces a download for any file. Unless set_safe_mode(true),
 //                              html and svg are the exception: shown, but only behind a sandbox (see there); the other active types stay downloads
-// Nothing can be written, renamed or deleted: no route accepts a body. The served root is a ceiling: ".." segments, backslashes, NUL, absolute paths and
+//   GET|POST base/api/zip      (only with set_zip(true)) a ZIP of a folder or of chosen names in it, streamed as it is read; GET takes "?path=/a&name=x&name=y",
+//                              POST the same fields as a form. No "name": the whole folder "path". Nothing is compressed (it is a bundle, not a smaller file)
+// Nothing can be written, renamed or deleted: the only route that reads a body is the ZIP request, and all it reads is names. The served root is a ceiling: ".." segments, backslashes, NUL, absolute paths and
 // symlinks that lead out of it are refused, and a missing, hidden or outside path gets the same 404. Names that are not valid UTF-8 are left out of
 // the listing. The `before` hook of the server runs first, so it is the place for authentication (this browser has none of its own).
 // The defaults are a sensible, safe setup. A setter throws std::invalid_argument for a value it cannot use and then leaves the browser unchanged.
@@ -49,6 +51,14 @@ public:
     // touch the page or the viewer's session. xml, js and unknown types stay downloads.
     // true: nothing that could run code is ever shown, html and svg are only downloaded too (the dialog has no preview for them).
     HTTPP_API file_browser& set_safe_mode(bool on);
+    // true: the page can select files and folders and download them as one ZIP, and `base/api/zip` answers. A folder is included with everything in it
+    // (hidden names only with set_show_hidden; links that lead out of the root, and links to folders, are left out). Nothing is compressed. Off by default:
+    // a request can make the server read a lot of disk, so turn it on where the viewers are trusted or behind the `before` hook.
+    HTTPP_API file_browser& set_zip(bool on);
+    // true (default): a small "Powered by httpp" at the bottom of the page, a link to the project on GitHub. false: no credit line.
+    HTTPP_API file_browser& set_powered_by(bool on);
+    // The most entries (files and folders together) one ZIP may hold; a request for more answers 413 before any byte is sent. Must be above 0; default 50000.
+    HTTPP_API file_browser& set_max_zip_entries(std::size_t count);
 
     // Adds the routes to `s` under `base` (must start with '/'). Throws std::invalid_argument for a bad `base`, a root that is not a folder, or the root
     // of the file system. The browser can be mounted more than once (on several servers, or under several bases).
@@ -64,6 +74,9 @@ private:
     bool search_ = true;
     bool show_hidden_ = false;
     bool safe_mode_ = false;
+    bool zip_ = false;
+    bool powered_by_ = true;
+    std::size_t max_zip_entries_ = 50000;
     std::size_t max_entries_ = 5000;
 };
 

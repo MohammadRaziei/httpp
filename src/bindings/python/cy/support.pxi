@@ -66,6 +66,9 @@ cdef extern from "httpp/file_browser.hpp" namespace "httpp":
         cpp_file_browser& set_show_hidden(bint on)
         cpp_file_browser& set_max_entries(size_t count) except +
         cpp_file_browser& set_safe_mode(bint on)
+        cpp_file_browser& set_zip(bint on)
+        cpp_file_browser& set_powered_by(bint on)
+        cpp_file_browser& set_max_zip_entries(size_t count) except +
         void mount(cpp_server& s, const string& base) except +
 
 # The three enum setters take the enum's number: the numbers are checked against the C++ enums right here, so a reordering there fails the build.
