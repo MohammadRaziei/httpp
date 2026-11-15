@@ -87,7 +87,7 @@ from httpp import Server
 
 app = Server()
 
-@app.get("/hello/{name}")              # "/hello/<name>" is accepted too
+@app.get("/hello/{name}")
 def hello(name):
     return f"hello {name}"
 

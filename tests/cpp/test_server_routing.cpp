@@ -1,9 +1,10 @@
 // Which route answers a request: the first one registered (same method, same number of segments) that
-// fits, where ":name" takes any non-empty segment and a literal segment is compared after percent-decoding.
+// fits, where "{name}" takes any non-empty segment and a literal segment is compared after percent-decoding.
 // These pin that behaviour down, including against a straight re-implementation of the old linear scan.
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/server.hpp"
+#include "httpp/route_pattern.hpp"
 #include "local_server.hpp"
 
 #include <asio.hpp>
@@ -13,6 +14,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -79,9 +81,9 @@ std::string oracle(const std::vector<oracle_route>& routes, const std::string& m
         bool ok = true;
         for (std::size_t k = 0; k < decoded.size() && ok; ++k) {
             const std::string& seg = r.segs[k];
-            if (seg.size() > 1 && seg[0] == ':') {
+            if (seg.size() > 2 && seg.front() == '{' && seg.back() == '}') {
                 if (decoded[k].empty()) ok = false;
-                else params += seg.substr(1) + "=" + decoded[k] + ";";
+                else params += seg.substr(1, seg.size() - 2) + "=" + decoded[k] + ";";
             } else {
                 ok = seg == decoded[k];
             }
@@ -95,13 +97,13 @@ std::string oracle(const std::vector<oracle_route>& routes, const std::string& m
 
 UTEST(httpp_routing, the_first_registered_route_that_fits_wins_whatever_its_shape) {
     local_server a([](httpp::server& s) {
-        add(s, "GET", "/users/:id", 0);
+        add(s, "GET", "/users/{id}", 0);
         add(s, "GET", "/users/me", 1); // shadowed by the route above
     });
     ASSERT_STREQ("0|id=me;", fetch(a, "/users/me").body.c_str());
     local_server b([](httpp::server& s) {
         add(s, "GET", "/users/me", 0);
-        add(s, "GET", "/users/:id", 1);
+        add(s, "GET", "/users/{id}", 1);
     });
     ASSERT_STREQ("0|", fetch(b, "/users/me").body.c_str());
     ASSERT_STREQ("1|id=7;", fetch(b, "/users/7").body.c_str());
@@ -115,7 +117,7 @@ UTEST(httpp_routing, the_first_registered_route_that_fits_wins_whatever_its_shap
 UTEST(httpp_routing, segments_are_decoded_before_they_are_compared_and_captured) {
     local_server srv([](httpp::server& s) {
         add(s, "GET", "/x y", 0);
-        add(s, "GET", "/files/:name", 1);
+        add(s, "GET", "/files/{name}", 1);
         add(s, "GET", "/a/b", 2);
         add(s, "GET", "/:/colon", 3); // a lone ':' is an ordinary literal segment
     });
@@ -130,7 +132,7 @@ UTEST(httpp_routing, segments_are_decoded_before_they_are_compared_and_captured)
 
 UTEST(httpp_routing, a_parameter_needs_a_non_empty_segment_and_the_segment_count_must_match) {
     local_server srv([](httpp::server& s) {
-        add(s, "GET", "/u/:id", 0);
+        add(s, "GET", "/u/{id}", 0);
         add(s, "GET", "/", 1);
         add(s, "GET", "/t/", 2); // a trailing slash is an empty last segment
     });
@@ -145,8 +147,8 @@ UTEST(httpp_routing, a_parameter_needs_a_non_empty_segment_and_the_segment_count
 
 UTEST(httpp_routing, methods_are_kept_apart_and_head_uses_the_get_route) {
     local_server srv([](httpp::server& s) {
-        add(s, "GET", "/m/:id", 0);
-        add(s, "POST", "/m/:id", 1);
+        add(s, "GET", "/m/{id}", 0);
+        add(s, "POST", "/m/{id}", 1);
         add(s, "PUT", "/m/fixed", 2);
     });
     ASSERT_STREQ("0|id=5;", fetch(srv, "/m/5").body.c_str());
@@ -159,7 +161,7 @@ UTEST(httpp_routing, methods_are_kept_apart_and_head_uses_the_get_route) {
 UTEST(httpp_routing, hundreds_of_routes_each_answer_for_themselves) {
     local_server srv([](httpp::server& s) {
         for (int i = 0; i < 300; ++i) add(s, "GET", "/r" + std::to_string(i) + "/x", i);
-        for (int i = 0; i < 300; ++i) add(s, "GET", "/p" + std::to_string(i) + "/:v", 1000 + i);
+        for (int i = 0; i < 300; ++i) add(s, "GET", "/p" + std::to_string(i) + "/{v}", 1000 + i);
     });
     for (int i : {0, 1, 149, 299}) {
         ASSERT_STREQ((std::to_string(i) + "|").c_str(), fetch(srv, "/r" + std::to_string(i) + "/x").body.c_str());
@@ -170,7 +172,7 @@ UTEST(httpp_routing, hundreds_of_routes_each_answer_for_themselves) {
 
 UTEST(httpp_routing, random_routes_and_paths_agree_with_the_old_linear_scan) {
     std::mt19937 rng(12345);
-    const std::vector<std::string> words = {"a", "b", "users", "x y", "caf\xC3\xA9", "a/b", ":id", ":name", ":", ":q", ""};
+    const std::vector<std::string> words = {"a", "b", "users", "x y", "caf\xC3\xA9", "a/b", "{id}", "{name}", ":", "{q}", ""};
     std::vector<oracle_route> routes;
     local_server srv([&](httpp::server& s) {
         const char* methods[] = {"GET", "POST"};
@@ -223,4 +225,67 @@ UTEST(httpp_routing, random_routes_and_paths_agree_with_the_old_linear_scan) {
         ++checked;
     }
     ASSERT_EQ(250, checked);
+}
+
+UTEST(httpp_routing, a_typed_parameter_only_matches_what_fits_and_the_request_falls_through) {
+    local_server srv([](httpp::server& s) {
+        add(s, "GET", "/n/{id:int}", 0);
+        add(s, "GET", "/n/{name}", 1);   // what the int route refuses lands here
+        add(s, "GET", "/p/{x:float}", 2);
+    });
+    ASSERT_STREQ("0|id=42;", fetch(srv, "/n/42").body.c_str());
+    ASSERT_STREQ("0|id=-5;", fetch(srv, "/n/-5").body.c_str());
+    ASSERT_STREQ("1|name=new;", fetch(srv, "/n/new").body.c_str());
+    ASSERT_STREQ("1|name=4.5;", fetch(srv, "/n/4.5").body.c_str());
+    ASSERT_STREQ("1|name=99999999999999999999;", fetch(srv, "/n/99999999999999999999").body.c_str()); // past 64 bits
+    ASSERT_STREQ("2|x=3;", fetch(srv, "/p/3").body.c_str());
+    ASSERT_STREQ("2|x=-3.5;", fetch(srv, "/p/-3.5").body.c_str());
+    ASSERT_EQ(404, fetch(srv, "/p/abc").status);
+    ASSERT_EQ(404, fetch(srv, "/p/1e5").status);
+    ASSERT_EQ(404, fetch(srv, "/p/3.").status);
+}
+
+UTEST(httpp_routing, path_param_converts_and_throws_on_what_is_not_a_number) {
+    httpp::server_request req;
+    req.path_params = {{"id", "42"}, {"p", "-3.5"}, {"s", "abc"}};
+    ASSERT_EQ(42, req.path_param<int>("id"));
+    ASSERT_EQ(42LL, req.path_param<long long>("id"));
+    ASSERT_TRUE(req.path_param<double>("p") == -3.5);
+    ASSERT_STREQ("42", req.path_param("id").c_str());
+    bool threw = false;
+    try { req.path_param<int>("s"); } catch (const std::invalid_argument&) { threw = true; }
+    ASSERT_TRUE(threw);
+    threw = false;
+    try { req.path_param<int>("missing"); } catch (const std::invalid_argument&) { threw = true; }
+    ASSERT_TRUE(threw);
+}
+
+UTEST(httpp_routing, a_malformed_pattern_is_an_error_at_registration) {
+    const char* bad[] = {"/u/:id", "/u/<id>", "/u/{id", "/u/id}", "/u/{}", "/u/a{id}", "/u/{id}x", "/u/{a b}",
+                         "/u/{1a}", "/u/{id:str}", "/u/{id:}", "/u/{:int}", "/u/{{id}}"};
+    for (const char* path : bad) {
+        httpp::server s;
+        bool threw = false;
+        try { s.get(path, [](const httpp::server_request&, httpp::response&) {}); } catch (const std::invalid_argument&) { threw = true; }
+        if (!threw) std::fprintf(stderr, "accepted: %s\n", path);
+        ASSERT_TRUE(threw);
+    }
+    httpp::server ok;  // a lone ':' stays an ordinary literal
+    ok.get("/:/{id:int}/{name}", [](const httpp::server_request&, httpp::response&) {});
+}
+
+UTEST(httpp_route_pattern, parses_literals_and_typed_parameters) {
+    const auto segs = httpp::parse_route_pattern("/a/{id:int}/{p:float}/{name}/");
+    ASSERT_EQ(5u, segs.size());
+    ASSERT_FALSE(segs[0].is_param);
+    ASSERT_STREQ("a", segs[0].text.c_str());
+    ASSERT_TRUE(segs[1].is_param && segs[1].type == httpp::param_type::integer);
+    ASSERT_TRUE(segs[2].is_param && segs[2].type == httpp::param_type::number);
+    ASSERT_TRUE(segs[3].is_param && segs[3].type == httpp::param_type::string);
+    ASSERT_STREQ("name", segs[3].text.c_str());
+    ASSERT_FALSE(segs[4].is_param);  // the trailing slash is an empty last segment
+    ASSERT_TRUE(httpp::param_fits("-12", httpp::param_type::integer));
+    ASSERT_FALSE(httpp::param_fits("-", httpp::param_type::integer));
+    ASSERT_FALSE(httpp::param_fits("1.5", httpp::param_type::integer));
+    ASSERT_FALSE(httpp::param_fits("", httpp::param_type::string));
 }

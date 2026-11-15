@@ -2,6 +2,7 @@
 
 #include "httpp/export.hpp"
 #include "httpp/path.hpp"
+#include "httpp/route_pattern.hpp"
 #include "httpp/client.hpp" // reuses httpp::response for the outgoing side too
 #include "httpp/websocket.hpp"
 
@@ -11,8 +12,12 @@
 #include <cstddef>
 #include <exception>
 #include <functional>
+#include <locale>
 #include <memory>
+#include <sstream>
+#include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -53,7 +58,7 @@ struct server_request {
     // Repeated names are kept (in wire order), like response::headers.
     std::vector<std::pair<std::string, std::string>> headers;
     std::vector<std::pair<std::string, std::string>> query;        // ?a=1&b=2
-    std::vector<std::pair<std::string, std::string>> path_params;  // "/users/:id"
+    std::vector<std::pair<std::string, std::string>> path_params;  // "/users/{id}"
     bool secure = false;  // the connection is TLS (https, wss): the server was given set_tls()
     std::string scheme() const { return secure ? "https" : "http"; }
     // The address of the client as text, "" when unknown. It is the address of the connection, unless a forwarded_headers
@@ -78,6 +83,21 @@ struct server_request {
     std::string path_param(const std::string& name) const {
         for (const auto& [k, v] : path_params) if (k == name) return v;
         return "";
+    }
+    // The same, converted: req.path_param<int>("id"). Throws std::invalid_argument when the parameter is absent or
+    // does not read as a T. A route written {id:int} (see route_pattern.hpp) only matches when it does, so for
+    // those the conversion cannot fail (it can still overflow a type narrower than 64 bits).
+    template <class T>
+    T path_param(const std::string& name) const {
+        static_assert(std::is_arithmetic_v<T> && !std::is_same_v<T, char> && !std::is_same_v<T, bool>,
+                      "path_param<T>: T must be an integer or floating-point type");
+        const std::string v = path_param(name);
+        T out{};
+        std::istringstream in(v);
+        in.imbue(std::locale::classic());
+        if (v.empty() || !(in >> out) || in.peek() != std::char_traits<char>::eof())
+            throw std::invalid_argument("path parameter '" + name + "' is missing or not a valid number: '" + v + "'");
+        return out;
     }
     // The body as a form: application/x-www-form-urlencoded (fields only) or multipart/form-data (fields and files).
     // Any other Content-Type gives an empty form. Parsed on every call, so call it once. A malformed multipart body
@@ -159,7 +179,7 @@ public:
     server(const server&) = delete;
     server& operator=(const server&) = delete;
 
-    // `path` may contain ":name" segments ("/users/:id"), captured into
+    // `path` may contain {name} or {name:int|float} segments ("/users/{id}"), captured into
     // request::path_params. `method` is GET/POST/PUT/PATCH/DELETE/OPTIONS
     // (case-insensitive); anything else throws std::invalid_argument.
     // A handler may set a "Content-Type" entry in response::headers
@@ -188,7 +208,7 @@ public:
     // A before hook (it may block) or a mounted directory that has the file still runs first, on a
     // worker thread, and then the handler runs there instead.
     HTTPP_API void route_io(const std::string& method, const std::string& path, io_handler h);
-    // A WebSocket endpoint (RFC 6455): GET `path` (":name" segments work as in route()) upgrades the connection and the callbacks of `h`
+    // A WebSocket endpoint (RFC 6455): GET `path` ({name} segments work as in route()) upgrades the connection and the callbacks of `h`
     // then run on its I/O thread, see ws_handler and websocket. A request that is not a valid upgrade gets 400 (426 for a Sec-WebSocket-Version
     // other than 13). The before hook runs first (and may refuse); the after hook does not run for the 101 answer. Needs no worker thread.
     HTTPP_API void route_ws(const std::string& path, ws_handler h);

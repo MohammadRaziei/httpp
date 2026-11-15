@@ -817,7 +817,7 @@ def test_async_route_answers_many_concurrent_requests_without_hooks():
 
     app = Server()
 
-    @app.get("/n/:i")
+    @app.get("/n/{i}")
     async def n(i):
         await asyncio.sleep(0.01)
         return f"n{i}"
@@ -876,7 +876,7 @@ def test_a_burst_that_piles_up_while_the_loop_is_busy_is_served_in_full():
         time.sleep(0.5)  # blocks the loop thread, which is the point
         return "b"
 
-    @app.get("/n/:i")
+    @app.get("/n/{i}")
     async def n(i):
         return f"n{i}"
 

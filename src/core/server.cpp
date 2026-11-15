@@ -1,4 +1,5 @@
 #include "httpp/server.hpp"
+#include "httpp/route_pattern.hpp"
 
 // httpp::server on top of the async engine (internal/async_server.hpp: Asio + llhttp). Routing,
 // static files, hooks and response building live here; the engine only moves bytes.
@@ -241,7 +242,8 @@ struct config { // read-only once listening; shared with answers that may outliv
 
 struct route_entry {
     std::string method;
-    std::vector<std::string> segs; // ":name" segments capture
+    std::vector<std::string> segs; // ":name" segments capture (the router keeps this form; the user writes {name})
+    std::vector<param_type> types; // per segment; only meaningful for a ":name" one
     handler h;          // exactly one of these four is set
     shared_handler sh;
     async_handler ah;
@@ -756,7 +758,7 @@ struct server::impl {
                 for (std::size_t k = 0; k < parts.size() && ok; ++k) {
                     const std::string& seg = r.segs[k];
                     if (is_param(seg)) {
-                        if (parts[k].empty()) ok = false;
+                        if (!param_fits(parts[k], r.types[k])) ok = false;
                         else found.emplace_back(seg.substr(1), parts[k]);
                     } else {
                         ok = seg == parts[k];
@@ -1229,7 +1231,10 @@ struct server::impl {
         if (m != "GET" && m != "POST" && m != "PUT" && m != "PATCH" && m != "DELETE" && m != "OPTIONS")
             throw std::invalid_argument("httpp::server::route: unsupported method '" + method + "'");
         r.method = std::move(m);
-        r.segs = split_path(!path.empty() && path[0] == '/' ? path : "/" + path);
+        for (route_segment& seg : parse_route_pattern(!path.empty() && path[0] == '/' ? path : "/" + path)) {
+            r.types.push_back(seg.type);
+            r.segs.push_back(seg.is_param ? ":" + seg.text : std::move(seg.text));
+        }
         if (r.ih || r.ws) ++io_route_count;
         const std::size_t at = routes.size();
         std::string key;

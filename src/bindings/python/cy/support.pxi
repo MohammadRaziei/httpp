@@ -223,3 +223,9 @@ def set_log_callback(callback):
     with nogil:
         httpp_py_set_log_callback(<void*>callback, <log_fn>_log_trampoline)
     del previous
+
+
+def parse_route(str path):
+    """The segments of a route path as [(kind, text, type)]: ("lit", "users", "") or ("param", "id", "int").
+    type is "str", "int" or "float". Raises ValueError for a malformed path. This is the router's own parser."""
+    return [(k.decode(), t.decode(), ty.decode()) for k, t, ty in httpp_py_route_segments(path.encode())]

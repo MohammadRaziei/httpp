@@ -295,7 +295,7 @@ UTEST(httpp_server_ws, the_upgrade_request_is_visible_to_the_handlers) {
             seen = ws.handshake().path + "|" + ws.handshake().path_param("room") + "|" + ws.handshake().query_param("token") + "|" +
                    ws.handshake().cookie("sid");
         };
-        s.route_ws("/rooms/:room", h);
+        s.route_ws("/rooms/{room}", h);
     });
     ws_client c(srv.port);
     ASSERT_EQ(101, head_status(c.handshake("/rooms/lobby?token=t1", "Cookie: sid=abc\r\n")));

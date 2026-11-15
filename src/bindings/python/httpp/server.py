@@ -543,6 +543,8 @@ def _prepare(fn, plan=None):
     background_name = plan.background_name if plan is not None else None
     wanted = tuple(n for n in params if n != "request")
     convert = {n: p.annotation for n, p in params.items() if p.annotation in (int, float)}
+    if plan is not None:  # '{id:int}' converts the value even when the argument has no annotation
+        convert.update({n: t for n, t in plan.path.items() if t in (int, float)})
 
     if not (takes_all or wants_request or wanted):
         return lambda raw: _NO_ARGS
@@ -1133,7 +1135,8 @@ class Server(_Server):
         unknown = set(meta) - _ROUTE_META
         if unknown:
             raise TypeError(f"route() got unexpected options {sorted(unknown)}; known: {sorted(_ROUTE_META)}")
-        pattern = _params.to_cpp_pattern(path)
+        _params.path_types(path)  # a malformed path fails here, when the decorator is made
+        pattern = path  # the C++ router parses {name} / {name:int} itself
 
         def register(fn):
             plan = _params.make_plan(fn, path)
@@ -1183,7 +1186,8 @@ class Server(_Server):
         peer). ping_interval: seconds of silence before a ping, and again before the connection is closed; 0 = off."""
         _check_ws_options(max_message=max_message, max_buffered=max_buffered, max_queued=max_queued, ping_interval=ping_interval)
         allowed = None if origins is None else frozenset(o.rstrip("/").lower() for o in origins)
-        pattern = _params.to_cpp_pattern(path)
+        _params.path_types(path)  # a malformed path fails here, when the decorator is made
+        pattern = path  # the C++ router parses {name} / {name:int} itself
 
         def register(fn):
             if not inspect.iscoroutinefunction(fn):

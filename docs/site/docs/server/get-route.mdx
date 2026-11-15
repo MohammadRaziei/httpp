@@ -23,7 +23,7 @@ The path `/hello/` followed by a name matches any value in that position and han
 
 <Only lang="python">
 
-The name is written `{name}` (`<name>` means the same). It arrives as an argument with that name. The function returns a `str`, which is sent as `200` with `text/plain; charset=utf-8`. Annotate the argument as `int` or `float` and httpp converts it for you.
+The name is written `{name}`. It arrives as an argument with that name. The function returns a `str`, which is sent as `200` with `text/plain; charset=utf-8`. Annotate the argument as `int` or `float` and httpp converts it for you.
 
 `listen` sits under `if __name__ == "__main__":` so the file works both ways: `python get_route.py` serves on the host and port you wrote, and `httpp py run get_route:app` imports the file and picks host, port and workers itself. Without the guard `httpp py run` still works, but it skips your `listen` call and prints a warning.
 
@@ -31,16 +31,28 @@ The name is written `{name}` (`<name>` means the same). It arrives as an argumen
 
 <Only lang="cpp">
 
-The name is written `:name`. The handler gets a `const httpp::server_request&` and fills in an `httpp::response&`. Read the value with `req.path_param("name")`, which returns a `std::string`. Setting `res.body` is enough: a response whose status was never set is sent as `200`.
+The name is written `{name}`. The handler gets a `const httpp::server_request&` and fills in an `httpp::response&`. Read the value with `req.path_param("name")`, which returns a `std::string`, or `req.path_param<int>("name")` to get it as a number. Setting `res.body` is enough: a response whose status was never set is sent as `200`.
 
 </Only>
 
 `listen` blocks until the server is stopped.
+
+## Typed parameters
+
+Both languages use the same syntax, parsed by the same code. Add a type after a colon and the route only matches when the segment fits:
+
+| Pattern | Matches | Does not match |
+|---|---|---|
+| `/users/{id}` | any non-empty segment | an empty one |
+| `/users/{id:int}` | `42`, `-5` | `abc`, `4.5` |
+| `/prices/{p:float}` | `3`, `-3.5` | `abc`, `1e5` |
+
+A segment that does not fit means the route does not match, so the request goes on to the next route that fits, or gets a `404`. A parameter is always a whole segment, and a malformed pattern (`:id`, `<id>`, `{id`, `a{id}`, an unknown type) is an error when the route is registered.
 
 ## Where the two differ
 
 | | Python | C++ |
 |---|---|---|
 | Server type | `httpp.Server` | `httpp::server` |
-| Path parameter | `{name}` or `<name>`, an argument of the function | `:name`, read with `req.path_param("name")` |
+| Reading a path parameter | an argument of the function | `req.path_param("name")` |
 | Reply | the return value | fill in `res` |

@@ -129,7 +129,7 @@ def make_app():
     def plain():
         return "x"
 
-    @app.route("/multi/<name>", methods=("GET", "DELETE"), deprecated=True)
+    @app.route("/multi/{name}", methods=("GET", "DELETE"), deprecated=True)
     def multi(name):
         return name
 
@@ -179,7 +179,7 @@ def test_openapi_is_rebuilt_when_a_route_is_added():
 def test_colon_path_params_are_described_too():
     app = Server()
 
-    @app.get("/n/:i")
+    @app.get("/n/{i}")
     def n(i: int):
         return str(i)
 

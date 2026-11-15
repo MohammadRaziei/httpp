@@ -238,8 +238,8 @@ UTEST(httpp_server_settings, max_body_rejects_larger_requests) {
 // A path that exists for other methods is a 405 with an Allow header, not a 404.
 UTEST(httpp_server_routing, wrong_method_is_405_with_allow_and_unknown_path_is_404) {
     local_server srv([](httpp::server& s) {
-        s.get("/item/:id", [](const httpp::server_request&, httpp::response& res) { res.body = "g"; });
-        s.post("/item/:id", [](const httpp::server_request&, httpp::response& res) { res.body = "p"; });
+        s.get("/item/{id}", [](const httpp::server_request&, httpp::response& res) { res.body = "g"; });
+        s.post("/item/{id}", [](const httpp::server_request&, httpp::response& res) { res.body = "p"; });
         s.put("/only-put", [](const httpp::server_request&, httpp::response& res) { res.body = "u"; });
     });
     auto del = httpp::request(srv.url("/item/7")).method("DELETE").run();

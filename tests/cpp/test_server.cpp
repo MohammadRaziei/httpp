@@ -119,7 +119,7 @@ UTEST(httpp_server, reuse_port_lets_servers_share_a_port_only_when_both_ask) {
 
 UTEST(httpp_server, route_exposes_path_params_query_headers_and_sets_response_headers) {
     httpp::server s;
-    s.route("POST", "/users/:id", [](const httpp::server_request& req, httpp::response& res) {
+    s.route("POST", "/users/{id}", [](const httpp::server_request& req, httpp::response& res) {
         auto find = [](const auto& kv, const std::string& k) {
             for (const auto& [name, value] : kv) if (name == k) return value;
             return std::string("?");
@@ -177,7 +177,7 @@ UTEST(httpp_server, route_async_answers_later_from_another_thread) {
     httpp::server s;
     Joiner workers_guard;
     auto& workers = workers_guard.v;
-    s.route_async("POST", "/later/:id", [&](const httpp::server_request& req, httpp::responder r) {
+    s.route_async("POST", "/later/{id}", [&](const httpp::server_request& req, httpp::responder r) {
         std::string id = req.path_params.at(0).second;
         workers.emplace_back([r, id] {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));

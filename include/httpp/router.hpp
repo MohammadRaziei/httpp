@@ -15,10 +15,10 @@ namespace httpp {
 // route costs the same with or without a router.
 //
 //   httpp::router users("/users");
-//   users.get("/:id", [](const server_request& req, response& res) { ... });
+//   users.get("/{id}", [](const server_request& req, response& res) { ... });
 //   httpp::router api("/api");
-//   api.include(users);          // GET /api/users/:id
-//   srv.include(api, "/v1");     // GET /v1/api/users/:id
+//   api.include(users);          // GET /api/users/{id}
+//   srv.include(api, "/v1");     // GET /v1/api/users/{id}
 //
 // Rules: the order of joining is outer prefix, then the router's own prefix, then the route's path. A prefix gets a
 // leading "/" and loses trailing ones ("" and "/" mean none). A route path "/" under a prefix is the prefix itself

@@ -23,30 +23,23 @@ from ._background import BackgroundTasks
 from ._websocket import WebSocket
 from ._forms import FormData, UploadFile
 from .models import FieldInfo, _copy_default
+from .httpp_cy import parse_route
 
-# '/users/{id}', '/users/<id>' and cpp-httplib's own '/users/:id'
-PATH_PARAM = re.compile(r"[{<]([^}>]*)[}>]|(?<=/):([A-Za-z_]\w*)")
+# Route paths ('/users/{id}', '/users/{id:int}') are parsed by the C++ router's own parser, so both languages agree.
 
 
-def _checked(m, path):
-    name = m.group(1) if m.group(1) is not None else m.group(2)
-    if not name.isidentifier():
-        # Flask's <int:id> converters etc. would otherwise silently never match.
-        raise ValueError(f"unsupported path parameter {m.group(0)!r} in {path!r}")
-    return name
+def path_types(path):
+    """{name: "str" | "int" | "float"} of the path's parameters, in order. ValueError for a malformed path."""
+    return {t: ty for kind, t, ty in parse_route(path) if kind == "param"}
 
 
 def path_names(path):
-    return {_checked(m, path) for m in PATH_PARAM.finditer(path)}
-
-
-def to_cpp_pattern(path):
-    """'/users/{id}' or '/users/<id>' -> the C++ router's '/users/:id' (a ':id' stays as it is)."""
-    return PATH_PARAM.sub(lambda m: ":" + _checked(m, path), path)
+    return set(path_types(path))
 
 
 def openapi_path(path):
-    return PATH_PARAM.sub(lambda m: "{" + _checked(m, path) + "}", path)
+    """The path as OpenAPI writes it: '{id:int}' -> '{id}' (the type goes into the parameter's schema)."""
+    return "/" + "/".join("{" + t + "}" if kind == "param" else t for kind, t, _ in parse_route(path))
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -476,7 +469,8 @@ def make_plan(fn, path, top=True):
     """The plan for handler `fn` (top=True) or for a dependency of it (top=False)."""
     sig = inspect.signature(fn)
     hints = type_hints(fn)
-    names = path_names(path)
+    ptypes = path_types(path)
+    names = set(ptypes)
     plan = Plan()
     plan.path_from_raw = not top
     for name, p in sig.parameters.items():
@@ -515,6 +509,12 @@ def make_plan(fn, path, top=True):
         if name in names:
             if kind not in (None, "path"):
                 raise TypeError(f"{where}: {name!r} is in the path, so it can't be a {kind} parameter")
+            want = {"int": int, "float": float}.get(ptypes[name])
+            if want is not None:  # '{id:int}': the route only matches numbers, so convert them even without an annotation
+                if hint is None:
+                    hint = want
+                elif hint in (int, float, str) and hint is not want:
+                    raise TypeError(f"{where}: the path says {{{name}:{ptypes[name]}}} but the annotation is {hint.__name__}")
             plan.path[name] = hint
             if info is not None:
                 plan.path_info[name] = info

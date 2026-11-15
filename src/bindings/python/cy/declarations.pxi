@@ -104,6 +104,27 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cpp_server& set_tls(const string& cert_file, const string& key_file, const string& key_password) except +
 
 
+# The route-path grammar lives in C++ (include/httpp/route_pattern.hpp); Python asks the same parser instead of keeping its own.
+cdef extern from *:
+    """
+    #include "httpp/route_pattern.hpp"
+    #include <string>
+    #include <vector>
+    namespace httpp_py {
+    // One entry per segment: {"lit", text, ""} or {"param", name, "str" | "int" | "float"}. Throws std::invalid_argument (-> ValueError).
+    inline std::vector<std::vector<std::string>> route_segments(const std::string& path) {
+        std::vector<std::vector<std::string>> out;
+        for (const httpp::route_segment& s : httpp::parse_route_pattern(path)) {
+            if (!s.is_param) { out.push_back({"lit", s.text, ""}); continue; }
+            out.push_back({"param", s.text, s.type == httpp::param_type::integer ? "int" : s.type == httpp::param_type::number ? "float" : "str"});
+        }
+        return out;
+    }
+    }
+    """
+    vector[vector[string]] httpp_py_route_segments "httpp_py::route_segments"(string path) except +
+
+
 # Bridge from a plain C function pointer (+ context) to httpp::handler, which
 # is a std::function Cython can't build itself.
 cdef extern from *:

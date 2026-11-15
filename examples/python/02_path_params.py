@@ -10,7 +10,7 @@ from httpp import Server
 app = Server()
 
 
-@app.get("/hello/{name}")  # "/hello/<name>" means the same thing
+@app.get("/hello/{name}")
 def hello(name):
     return f"hello {name}"
 

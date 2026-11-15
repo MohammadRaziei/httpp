@@ -9,7 +9,7 @@ int main() {
         res.json("{\"id\":1}");  // you serialize; json() sets Content-Type
     });
 
-    app.get("/items/:item_id", [](const httpp::server_request& req, httpp::response& res) {
+    app.get("/items/{item_id}", [](const httpp::server_request& req, httpp::response& res) {
         if (req.path_param("item_id") != "1") {
             res.status = 404;
             res.json("{\"error\":\"not found\"}");

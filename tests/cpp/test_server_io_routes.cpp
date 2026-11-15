@@ -63,7 +63,7 @@ UTEST(httpp_server_io, an_io_route_runs_on_the_listening_thread_and_a_normal_rou
 
 UTEST(httpp_server_io, an_io_route_sees_path_params_query_headers_and_body) {
     local_server srv([](httpp::server& s) {
-        s.route_io("POST", "/io/:id/:name", [](std::shared_ptr<const httpp::server_request> req, httpp::responder r) {
+        s.route_io("POST", "/io/{id}/{name}", [](std::shared_ptr<const httpp::server_request> req, httpp::responder r) {
             answer(r, 201,
                    "id=" + req->path_param("id") + ";name=" + req->path_param("name") + ";q=" + req->query_param("q") +
                        ";h=" + req->header("X-Test") + ";body=" + req->body + ";path=" + req->path + ";m=" + req->method);
@@ -81,7 +81,7 @@ UTEST(httpp_server_io, the_request_outlives_the_handler_and_the_answer_can_come_
     std::thread th;
     {
         local_server srv([&](httpp::server& s) {
-            s.route_io("GET", "/keep/:id", [&](std::shared_ptr<const httpp::server_request> req, httpp::responder r) {
+            s.route_io("GET", "/keep/{id}", [&](std::shared_ptr<const httpp::server_request> req, httpp::responder r) {
                 std::lock_guard<std::mutex> lock(mu);
                 kept = req;
                 later = r;
@@ -187,7 +187,7 @@ UTEST(httpp_server_io, a_mounted_directory_still_wins_over_an_io_route_and_a_mis
     { std::ofstream(dir / "a.txt") << "from disk"; }
     local_server srv([&](httpp::server& s) {
         s.serve_directory("/files", dir.string());
-        s.route_io("GET", "/files/:name", [](std::shared_ptr<const httpp::server_request> req, httpp::responder r) {
+        s.route_io("GET", "/files/{name}", [](std::shared_ptr<const httpp::server_request> req, httpp::responder r) {
             answer(r, 200, "route " + req->path_param("name"));
         });
         s.route_io("GET", "/other", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "other"); });
@@ -231,7 +231,7 @@ UTEST(httpp_server_io, an_unanswered_io_route_gets_a_504) {
 
 UTEST(httpp_server_io, many_pipelined_style_requests_on_one_connection_all_get_their_own_answer) {
     local_server srv([](httpp::server& s) {
-        s.route_io("GET", "/n/:i", [](std::shared_ptr<const httpp::server_request> req, httpp::responder r) {
+        s.route_io("GET", "/n/{i}", [](std::shared_ptr<const httpp::server_request> req, httpp::responder r) {
             answer(r, 200, "n" + req->path_param("i"));
         });
     });
@@ -243,7 +243,7 @@ UTEST(httpp_server_shared, a_shared_route_runs_on_a_worker_and_may_keep_its_requ
     std::thread::id worker_id;
     std::shared_ptr<const httpp::server_request> kept;
     local_server srv([&](httpp::server& s) {
-        s.route_shared("PUT", "/s/:id", [&](std::shared_ptr<const httpp::server_request> req, httpp::response& res) {
+        s.route_shared("PUT", "/s/{id}", [&](std::shared_ptr<const httpp::server_request> req, httpp::response& res) {
             std::lock_guard<std::mutex> lock(mu);
             worker_id = std::this_thread::get_id();
             kept = req;
@@ -375,7 +375,7 @@ UTEST(httpp_server_io, requests_and_responders_dropped_on_other_threads_all_get_
     std::atomic<int> good{0};
     {
         local_server srv([&](httpp::server& s) {
-            s.route_io("GET", "/n/:n", [&](std::shared_ptr<const httpp::server_request> req, httpp::responder r) {
+            s.route_io("GET", "/n/{n}", [&](std::shared_ptr<const httpp::server_request> req, httpp::responder r) {
                 {
                     std::lock_guard<std::mutex> lock(mu);
                     jobs.emplace_back(std::move(req), std::move(r));

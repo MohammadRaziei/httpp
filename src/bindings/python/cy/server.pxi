@@ -65,7 +65,7 @@ cdef class Server:
             del t
 
     def add_route(self, str method, str path, handler):
-        """Low-level: register `handler` for `method` + `path` ("/users/:id").
+        """Low-level: register `handler` for `method` + `path` ("/users/{id}").
         `handler(method, path, body, headers, query, path_params)` returns (status, body, headers):
         body is bytes, or a str / pathlib.Path = path of a file to stream (trusted, never from user input), or a
         callable returning the next bytes piece / None when done (chunked). headers: list of pairs.

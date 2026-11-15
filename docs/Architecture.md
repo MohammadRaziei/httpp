@@ -117,7 +117,7 @@ graph LR
 ```mermaid
 graph TB
     subgraph "Layer 3: Python API"
-        API["@app.get('/user/:id')<br/>def get_user(id: int): ..."]
+        API["@app.get('/user/{id}')<br/>def get_user(id: int): ..."]
         RUN["httpp.run / httpp py run main:app<br/>--workers N (Linux)"]
     end
 

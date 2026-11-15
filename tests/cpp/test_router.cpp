@@ -23,14 +23,14 @@ std::string body_of(const local_server& s, const std::string& path) { return htt
 UTEST(httpp_router, a_prefix_is_put_in_front_of_every_path) {
     local_server srv([](httpp::server& s) {
         httpp::router r("/users");
-        r.get("/", say("list")).get("/:id", [](const httpp::server_request& req, httpp::response& res) { res.body = "user " + req.path_param("id"); });
+        r.get("/", say("list")).get("/{id}", [](const httpp::server_request& req, httpp::response& res) { res.body = "user " + req.path_param("id"); });
         r.post("/new", say("created"));
         s.include(r);
     });
     ASSERT_STREQ("list", body_of(srv, "/users").c_str());  // "/" under a prefix is the prefix itself
     ASSERT_STREQ("user 7", body_of(srv, "/users/7").c_str());
     ASSERT_EQ(404, status_of(srv, "/7"));
-    ASSERT_STREQ("user new", body_of(srv, "/users/new").c_str()); // GET: the first route that fits (":id") wins, as without a router
+    ASSERT_STREQ("user new", body_of(srv, "/users/new").c_str()); // GET: the first route that fits ("{id}") wins, as without a router
 }
 
 UTEST(httpp_router, include_adds_an_outer_prefix_and_routers_nest) {
@@ -99,7 +99,7 @@ UTEST(httpp_router, prefix_and_routes_can_be_read_back) {
 UTEST(httpp_router, websocket_routes_get_the_prefixes_like_http_routes_and_nest) {
     local_server srv([](httpp::server& s) {
         httpp::router inner("/inner");
-        inner.route_ws("/ws/:room", httpp::ws_handler{});
+        inner.route_ws("/ws/{room}", httpp::ws_handler{});
         httpp::router outer("/outer");
         outer.include(inner, "/mid");
         s.include(outer, "/v1");

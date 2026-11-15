@@ -38,16 +38,47 @@ def test_get_returns_text():
     assert res.header("Content-Type").startswith("text/plain")
 
 
-@pytest.mark.parametrize("pattern", ["/hello/{name}", "/hello/<name>"])
-def test_path_params_flask_and_fastapi_style(pattern):
+def test_path_params():
     app = Server()
 
-    @app.get(pattern)
+    @app.get("/hello/{name}")
     def hello(name):
         return f"hello {name}"
 
     with running(app) as url:
         assert Request(url + "/hello/world").run().body == "hello world"
+
+
+def test_a_typed_path_param_only_matches_what_fits_and_converts_without_an_annotation():
+    app = Server()
+
+    @app.get("/n/{n:int}")
+    def number(n):
+        return {"n": n, "type": type(n).__name__}
+
+    @app.get("/n/{word}")
+    def word(word):
+        return {"word": word}
+
+    @app.get("/p/{x:float}")
+    def price(x):
+        return {"x": x, "type": type(x).__name__}
+
+    with running(app) as url:
+        assert json.loads(Request(url + "/n/42").run().body) == {"n": 42, "type": "int"}
+        assert json.loads(Request(url + "/n/-5").run().body) == {"n": -5, "type": "int"}
+        assert json.loads(Request(url + "/n/new").run().body) == {"word": "new"}  # the int route refuses it: the next one answers
+        assert json.loads(Request(url + "/p/3.5").run().body) == {"x": 3.5, "type": "float"}
+        assert Request(url + "/p/abc").run().status == 404
+
+
+def test_the_annotation_must_agree_with_the_type_in_the_path():
+    app = Server()
+
+    with pytest.raises(TypeError):
+        @app.get("/n/{n:int}")
+        def wrong(n: str):
+            return n
 
 
 def test_post_json_status_and_headers():
