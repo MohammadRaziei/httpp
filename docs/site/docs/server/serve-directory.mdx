@@ -8,6 +8,38 @@ import Only from '@site/src/components/Only';
 
 `serve_directory` makes a folder of files part of the server, like `python -m http.server` but inside your app. Use it for a site's images, scripts and pages, and for any file whose name the visitor chooses.
 
+## From the command line
+
+With no app to write, one command hands out a folder, as `python -m http.server` does:
+
+```bash
+httpp server public
+# Serving '/home/you/public' at http://0.0.0.0:8000/
+```
+
+The folder defaults to the current one, and `Ctrl+C` stops it. Each request is logged on one line (`GET /notes.txt 200`).
+
+| | `python -m http.server` | `httpp server` |
+|---|---|---|
+| The folder | `--directory public` | `public` |
+| The port | `8000` | `-p 8000` (default `8000`) |
+| The address | `--bind 127.0.0.1` | `--host 127.0.0.1` (default `0.0.0.0`) |
+| A folder without `index.html` | lists its files | answers 404 |
+
+`--shutdown-timeout SECONDS` (default `10`) is how long requests in progress may take to finish on `Ctrl+C`, and `--log-level` (`trace`, `debug`, `info`, `warning`, `error` or `off`, default `info`) says what goes to stderr.
+
+:::warning
+
+The command listens on every interface, so anyone on your network can read the folder. Add `--host 127.0.0.1` to keep it on your computer. Names that start with a dot are served too: a `.env` or `.git` in the folder is reachable, so keep such files out.
+
+:::
+
+To let people see what is in a folder instead of asking for a file by name, run [`httpp browse`](browse-command.mdx), which adds a listing, a preview and ZIP downloads.
+
+The command is the `serve_directory("/", folder)` call below with its default settings, so everything on this page about names, `index.html` and file types applies to it.
+
+## In your own server
+
 <Lang name="serve_folder" />
 
 With a `public` folder that holds `index.html` and `notes.txt`:
