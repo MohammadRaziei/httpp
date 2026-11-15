@@ -1,40 +1,68 @@
+/* One box: the language tabs and the file name share a single bar above the code. */
 .box {
   margin-bottom: var(--ifm-leading);
+  overflow: hidden;
+  border: 1px solid #232a33;
+  border-radius: 6px;
+  background: #0d1014;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 1rem 0 0.35rem;
+  border-bottom: 1px solid #232a33;
 }
 
 .tabs {
   display: flex;
-  gap: 0.25rem;
   font-family: var(--ifm-font-family-monospace);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
 }
 
 .tab {
-  min-height: 44px;
-  padding: 0 1rem;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-bottom: 0;
-  border-radius: var(--ifm-global-radius) var(--ifm-global-radius) 0 0;
+  min-height: 36px;
+  padding: 0 0.8rem;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
   background: transparent;
-  color: var(--ifm-font-color-secondary);
+  color: #8b96a3;
   font: inherit;
   cursor: pointer;
 }
 
+.tab:hover {
+  color: #d7dde4;
+}
+
 .tab[aria-selected='true'] {
-  background: var(--httpp-ink);
-  border-color: var(--httpp-ink);
-  color: var(--httpp-on-ink);
+  color: #5cc3e8;
+  border-bottom-color: #5cc3e8;
   font-weight: 600;
 }
 
 .tab:focus-visible {
-  outline: 2px solid var(--ifm-color-primary);
-  outline-offset: 2px;
+  outline: 2px solid #5cc3e8;
+  outline-offset: -2px;
+}
+
+.file {
+  font: 0.78rem var(--ifm-font-family-monospace);
+  color: #6b7684;
+}
+
+.box :global(.theme-code-block) {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .missing {
+  margin: 0;
   padding: 0.75rem 1rem;
-  border: 1px dashed var(--ifm-color-emphasis-400);
-  border-radius: var(--ifm-global-radius);
+  color: #8b96a3;
 }

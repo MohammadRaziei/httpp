@@ -1,3 +1,4 @@
+import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
@@ -14,13 +15,13 @@ const config: Config = {
   onBrokenMarkdownLinks: 'warn',
   i18n: {defaultLocale: 'en', locales: ['en']},
   stylesheets: [
-    'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Public+Sans:wght@400;500;700&display=swap',
+    'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Public+Sans:wght@400;500;700;800&display=swap',
   ],
   presets: [
     [
       'classic',
       {
-        docs: {routeBasePath: '/', sidebarPath: './sidebars.ts'},
+        docs: {routeBasePath: 'docs', sidebarPath: './sidebars.ts'},
         blog: false,
         theme: {customCss: './src/css/custom.css'},
       } satisfies Preset.Options,
@@ -32,11 +33,13 @@ const config: Config = {
     navbar: {
       logo: {alt: 'httpp', src: 'img/logo.svg', srcDark: 'img/logo-dark.svg', height: 26},
       items: [
+        {type: 'docSidebar', sidebarId: 'main', label: 'Docs', position: 'left'},
+        {to: '/docs/benchmarks', label: 'Benchmarks', position: 'left'},
         {type: 'custom-langSwitch', position: 'right'},
         {href: 'https://github.com/mohammadraziei/httpp', label: 'GitHub', position: 'right'},
       ],
     },
-    prism: {additionalLanguages: ['cpp', 'bash']},
+    prism: {theme: prismThemes.vsDark, darkTheme: prismThemes.vsDark, additionalLanguages: ['cpp', 'bash']},
   } satisfies Preset.ThemeConfig,
 };
 

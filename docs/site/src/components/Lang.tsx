@@ -20,23 +20,24 @@ export default function Lang({name}: {name: string}) {
 
   return (
     <div className={styles.box}>
-      <div className={styles.tabs} role="tablist" aria-label="Language">
-        {languages.map((l) => (
-          <button
-            key={l.id}
-            type="button"
-            role="tab"
-            aria-selected={lang === l.id}
-            className={styles.tab}
-            onClick={() => setLang(l.id)}>
-            {l.label}
-          </button>
-        ))}
+      <div className={styles.bar}>
+        <div className={styles.tabs} role="tablist" aria-label="Language">
+          {languages.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              role="tab"
+              aria-selected={lang === l.id}
+              className={styles.tab}
+              onClick={() => setLang(l.id)}>
+              {l.label}
+            </button>
+          ))}
+        </div>
+        {entry && <span className={styles.file}>{entry.path.split('/').pop()}</span>}
       </div>
       {entry ? (
-        <CodeBlock language={known?.prism ?? 'text'} title={entry.path}>
-          {entry.code}
-        </CodeBlock>
+        <CodeBlock language={known?.prism ?? 'text'}>{entry.code}</CodeBlock>
       ) : (
         <p className={styles.missing}>No {known?.label} version of "{name}" yet.</p>
       )}

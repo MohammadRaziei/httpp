@@ -44,3 +44,18 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Reading pages: tighter headings, a left bar instead of a filled pill for the current page. */
+.markdown h1, .markdown h2, .markdown h3 { letter-spacing: -0.02em; }
+.markdown h1 { font-weight: 800; letter-spacing: -0.03em; }
+.menu__link--active:not(.menu__link--sublist) {
+  background: transparent; box-shadow: inset 2px 0 0 var(--ifm-color-primary); border-radius: 0;
+  color: var(--ifm-color-primary); font-weight: 600;
+}
+.navbar__link { font-weight: 500; }
+.navbar__link--active { color: var(--ifm-color-primary); }
+
+/* Code blocks match the ink window on the landing page. */
+.theme-code-block { --prism-background-color: #0d1014; --prism-color: #d7dde4; border: 1px solid #232a33; box-shadow: none; }
+.theme-code-block [class*='codeBlockTitle'] { background: #0d1014; border-bottom: 1px solid #232a33; color: #8b96a3; font: 500 0.8rem var(--ifm-font-family-monospace); }
+.theme-code-block pre, .theme-code-block code { background: #0d1014 !important; }
