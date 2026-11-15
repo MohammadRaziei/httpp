@@ -11,6 +11,12 @@ such changes are listed under **Changed**).
 
 - **File browser: ZIP, selection, right-click menu, credit (ADR-0032).** `set_zip(true)` (Python `zip=True`; on in `httpp browse`, `--no-zip` turns it off) lets the page select files and folders (checkboxes, a rectangle dragged with the mouse, Ctrl+A) and download them as one ZIP through `GET|POST base/api/zip`: streamed, **not compressed**, Zip64, UTF-8 names, refused with `400`, `404` or `413` (`set_max_zip_entries`, default 50000) before any byte is sent. The page has its own right-click menu (open, download, copy name, path or link, select, ZIP) and ends with a small "Powered by httpp" link to the repository (`set_powered_by(false)`, `--no-powered-by` to remove it). The ZIP route is off by default in the library.
 
+- **Typed path parameters, one syntax in both languages (breaking).** A route path is parsed by one C++ parser (`include/httpp/route_pattern.hpp`) that the C++ router and the Python binding both use. A parameter is a whole segment written `{name}`, or `{name:int}` / `{name:float}` to match only a number: `/users/{id:int}` does not match `/users/new`, so the request goes on to the next route that fits (or a `404`). Python converts an `{id:int}` argument to `int` without an annotation, and refuses an annotation that disagrees with the path. C++ gains `req.path_param<int>("id")`, which converts and throws `std::invalid_argument` when the value is missing or not a number.
+
+### Changed
+
+- **`:name` and `<name>` are gone (breaking).** C++ wrote `/users/:id` (cpp-httplib's form) and Python also accepted `<id>`; both now fail at registration with a message that says to write `{id}`. Rename them in your routes. Anything else that looks like a parameter but is not (`{id`, `a{id}`, `{}`, an unknown type, Flask's `<int:id>`) is an error too, instead of a literal that never matches. A lone `:` is still an ordinary literal segment. `httpp._params.to_cpp_pattern` is removed.
+
 ## [0.9.0] - 2026-11-14
 
 ### Added
