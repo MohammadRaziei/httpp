@@ -1,0 +1,112 @@
+---
+id: browse-command
+title: Share a folder with httpp browse
+sidebar_label: The browse command
+---
+
+import Lang from '@site/src/components/Lang';
+import ThemedImage from '@theme/ThemedImage';
+import listLight from './browse/01-list-light.png';
+import listDark from './browse/02-list-dark.png';
+import grid from './browse/03-grid-light.png';
+import selection from './browse/04-selection.png';
+import contextMenu from './browse/05-context-menu.png';
+import previewText from './browse/06-preview-text.png';
+import previewSvg from './browse/07-preview-svg.png';
+import search from './browse/08-search.png';
+import folder from './browse/09-folder.png';
+import mobile from './browse/10-mobile-dark.png';
+
+`httpp browse` turns one folder into a read-only web page. People can look through it, filter it, preview files and download one file or many. It is a single command, it does not need Python, and it has nothing to set up.
+
+```bash
+httpp browse ~/Downloads
+# Browsing '/home/you/Downloads' (read-only) at http://127.0.0.1:8000/
+```
+
+Open the address in a browser. The port is `8000` unless you pass `--port`.
+
+<ThemedImage alt="The file browser listing a shared folder, in the light and the dark theme" sources={{light: listLight, dark: listDark}} />
+
+The page follows the system theme (`--theme light` or `--theme dark` fixes it, and the viewer can still switch with the **Theme** button). The header has the folder path, a filter box, **List** and **Grid** buttons and **Folder ZIP**. A click on a column header sorts by name, type, size or date.
+
+## Look at a folder
+
+The list shows the type, size and modified time of every entry. **Grid** shows the same folder as tiles, which suits pictures and short names. `--view grid` and `--sort size` choose how the page starts.
+
+<ThemedImage alt="The same folder in grid view" sources={{light: grid, dark: grid}} />
+
+## Select files and download them as one ZIP
+
+Every row has a checkbox. Shift+click selects a range, **Ctrl+A** selects everything, and a rectangle dragged over the rows selects what it touches. A bar appears at the bottom with **Download ZIP**, **Copy names** and **Clear**. A selected folder goes in with everything under it.
+
+<ThemedImage alt="Three rows selected, with the Download ZIP bar at the bottom" sources={{light: selection, dark: selection}} />
+
+The ZIP is streamed while it is read, so memory stays small however big it is. It is a bundle and not a smaller file: nothing is compressed. File names are kept in UTF-8, so Persian and Arabic names arrive intact. **Folder ZIP** in the header takes the folder you are in. `--no-zip` turns all of this off.
+
+## Right-click
+
+A right-click opens the page's own menu: Preview, Open in a new tab, Download, Copy name, Copy path, Copy link and Select. On empty space it offers the folder ZIP, Select all, Copy folder path and Refresh. The keyboard works too (the menu key, arrows, Enter and Esc).
+
+<ThemedImage alt="The right-click menu open on a PDF" sources={{light: contextMenu, dark: contextMenu}} />
+
+## Preview a file
+
+A click on a text file opens it in a dialog, and a click on an image shows the image. The buttons in the corner download the file, open it raw in a new tab or close the dialog.
+
+<ThemedImage alt="A text file previewed in a dialog" sources={{light: previewText, dark: previewText}} />
+
+An SVG is shown as an image.
+
+<ThemedImage alt="An SVG file previewed as an image" sources={{light: previewSvg, dark: previewSvg}} />
+
+html and svg are sent with `Content-Security-Policy: sandbox`, so no script runs and nothing is fetched from another origin. Other files that could run code (xml, js and unknown types) are always downloads. `--safe` makes html and svg downloads too.
+
+## Filter and open folders
+
+The filter box narrows the open folder as you type, and the footer says how many entries are showing. A click on a folder opens it, and the path at the top lets you go back. A `..` row leads one level up.
+
+<ThemedImage alt="The filter box showing only names that contain re" sources={{light: search, dark: search}} />
+
+<ThemedImage alt="The src folder with the path Home / src in the header" sources={{light: folder, dark: folder}} />
+
+## On a phone
+
+The same page fits a narrow screen: the toolbar wraps and the type and date columns drop out. A touch screen scrolls as usual and selects with the checkboxes.
+
+<div style={{maxWidth: 300}}>
+  <ThemedImage alt="The file browser on a phone-sized screen" sources={{light: mobile, dark: mobile}} />
+</div>
+
+## Options
+
+| Option | Default | Meaning |
+|---|---|---|
+| `directory` | `.` | the folder to browse |
+| `--host` | `127.0.0.1` | `0.0.0.0` shares on every interface (there is no login) |
+| `-p`, `--port` | `8000` | the port |
+| `--title` | `Files` | page header and tab title |
+| `--theme` | `auto` | `auto`, `light` or `dark` |
+| `--accent #RRGGBB` | none | accent colour |
+| `--no-search` | off | hide the filter box |
+| `--hidden` | off | list and serve names that start with a dot |
+| `--safe` | off | only download html and svg files, never show them |
+| `--no-zip` | off | no selecting and no ZIP downloads |
+| `--no-powered-by` | off | hide the "Powered by httpp" line |
+| `--max-entries N` | `5000` | longest folder listing |
+| `--view` | `list` | first view: `list` or `grid` |
+| `--sort` | `name` | first sort: `name`, `size` or `date` |
+| `--log-level` | `info` | `trace`, `debug`, `info`, `warning`, `error` or `off` |
+| `--shutdown-timeout SECONDS` | `10` | how long requests in progress may take to finish on Ctrl+C |
+
+## The same page in your own program
+
+`httpp browse` is the `FileBrowser` of the library with a command line in front of it. To put the page on a route of your own server, mount it:
+
+<Lang name="file_browser" />
+
+All the settings above exist as methods in both languages, and the [reference page](file-browser.mdx) lists them.
+
+## Before you share it
+
+The page is read-only: nothing can be uploaded, renamed or deleted. It has no login, and it listens on `127.0.0.1` by default, so only your own computer can reach it. `--host 0.0.0.0` opens it to everyone on the network, so use it only where that is fine. Names that start with a dot stay hidden unless you pass `--hidden`, and links that lead out of the folder are refused. In your own program, the `before` hook is the place to ask for a key (see [hooks](hooks.mdx)).

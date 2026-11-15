@@ -59,3 +59,6 @@
 .theme-code-block { --prism-background-color: #0d1014; --prism-color: #d7dde4; border: 1px solid #232a33; box-shadow: none; }
 .theme-code-block [class*='codeBlockTitle'] { background: #0d1014; border-bottom: 1px solid #232a33; color: #8b96a3; font: 500 0.8rem var(--ifm-font-family-monospace); }
 .theme-code-block pre, .theme-code-block code { background: #0d1014 !important; }
+
+/* Screenshots in the docs: a hairline instead of a floating shadow. */
+.markdown img { border-radius: 6px; box-shadow: 0 0 0 1px var(--ifm-color-emphasis-300); }
