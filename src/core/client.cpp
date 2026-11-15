@@ -23,7 +23,7 @@ using detail::request_spec;
 using detail::session_settings;
 
 endpoint parse_base(const url& u, const char* who) {
-    if (!u.is_http()) throw std::invalid_argument(std::string(who) + ": not a usable http(s) URL: " + u.str());
+    if (!url_is_http(u)) throw std::invalid_argument(std::string(who) + ": not a usable http(s) URL: " + u.str());
     return endpoint_of(u, true);
 }
 
@@ -134,8 +134,8 @@ client& client::set_keep_alive(bool enable) {
 }
 
 response client::fetch(const url& target) {
-    const std::string& full_url = target.str();
-    if (!target.is_http())
+    const std::string full_url = target.str();
+    if (!url_is_http(target))
         throw std::invalid_argument("httpp::client::fetch: unsupported or invalid URL: " + full_url);
     session_settings once;
     once.keep_alive = false; // one request: do not park the connection
@@ -169,7 +169,7 @@ struct request::impl {
             }
             call.emplace_back("Cookie", std::move(joined));
         }
-        return settings.make_spec_for_url(url, params.empty() ? std::string() : url::build_query(params), method, call, body,
+        return settings.make_spec_for_url(url, params.empty() ? std::string() : httpp::build_query(params), method, call, body,
                                           content_type, out, error);
     }
 };
@@ -200,7 +200,7 @@ request& request::json(std::string document) {
     return *this;
 }
 request& request::form(const std::vector<std::pair<std::string, std::string>>& fields) {
-    impl_->body = url::build_query(fields);
+    impl_->body = httpp::build_query(fields);
     impl_->content_type = "application/x-www-form-urlencoded";
     if (impl_->method.empty()) impl_->method = "POST";
     return *this;

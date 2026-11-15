@@ -184,7 +184,7 @@ download_result run_plain(const std::string& url_str, const std::string& dest_pa
 download_result run_resumable(const std::string& url_str, const std::string& dest_path, bool show_progress,
                               bool follow_redirects, bool force, long timeout_seconds) {
     download_result result;
-    if (!url::parse(url_str).is_http()) {
+    if (!url_is_http(parse_url(url_str))) {
         result.error = "invalid or unsupported URL: " + url_str;
         return result;
     }

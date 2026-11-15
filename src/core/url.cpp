@@ -1,14 +1,12 @@
 #include "httpp/url.hpp"
 
-// urlparser.h is included ONLY in this translation unit - never in a public
-// httpp/*.hpp header - and stays hidden inside the compiled core.
-#include <urlparser.h>
+#include "httpp/client.hpp"
 
 #include <stdexcept>
 
 namespace httpp {
 
-std::string url::encode_component(const std::string& text) {
+std::string encode_component(const std::string& text) {
     static const char* hex = "0123456789ABCDEF";
     std::string out;
     out.reserve(text.size());
@@ -26,7 +24,7 @@ std::string url::encode_component(const std::string& text) {
     return out;
 }
 
-std::string url::build_query(const std::vector<std::pair<std::string, std::string>>& params) {
+std::string build_query(const std::vector<std::pair<std::string, std::string>>& params) {
     std::string out;
     for (const auto& [name, value] : params) {
         if (!out.empty()) out.push_back('&');
@@ -37,7 +35,7 @@ std::string url::build_query(const std::vector<std::pair<std::string, std::strin
     return out;
 }
 
-std::string url::decode_component(const std::string& text) {
+std::string decode_component(const std::string& text) {
     auto hexval = [](char c) -> int {
         if (c >= '0' && c <= '9') return c - '0';
         if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -57,51 +55,27 @@ std::string url::decode_component(const std::string& text) {
     return out;
 }
 
-url::url() = default;
-url::url(const std::string& raw) { *this = parse(raw); }
-url::url(const char* raw) { *this = parse(raw ? raw : ""); }
-
-url url::parse(const std::string& raw) {
-    url u;
-    u.raw_ = raw;
-
-    urlparser::url parsed;
+void fetch_public_suffix_list(const std::string& source, long timeout_seconds) {
+    const std::string from = source.empty() ? std::string(urlparser::psl::instance().source_url()) : source;
+    const response res = request(from).timeout(timeout_seconds).follow_redirects(true).run();
+    if (res.failed()) {
+        throw std::runtime_error("fetch_public_suffix_list: " + from + ": " + res.error_name() + ": " + res.error_message);
+    }
+    if (res.status != 200) {
+        throw std::runtime_error("fetch_public_suffix_list: " + from + ": HTTP status " + std::to_string(res.status));
+    }
+    const auto first = res.body.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+        throw std::runtime_error("fetch_public_suffix_list: " + from + ": empty answer");
+    }
+    if (res.body[first] == '<') { // a 200 with a web page (a captive portal, an error page) would otherwise parse as rules
+        throw std::runtime_error("fetch_public_suffix_list: " + from + ": not a Public Suffix List (got a web page)");
+    }
     try {
-        parsed = urlparser::url(raw);
-    } catch (const std::exception&) {
-        return u; // invalid: unparsable
+        urlparser::psl::instance().load_from_string(res.body); // replaces the list only when it parsed
+    } catch (const std::exception& e) {
+        throw std::runtime_error("fetch_public_suffix_list: " + from + ": not a Public Suffix List: " + e.what());
     }
-
-    const std::string scheme(parsed.protocol());
-    int default_port = 0;
-    if (scheme == "http") {
-        default_port = 80;
-    } else if (scheme == "https") {
-        default_port = 443;
-    } else if (scheme == "socks5" || scheme == "socks5h") {
-        default_port = 1080; // a proxy address (ADR-0068); not a place to fetch from, see is_http()
-    } else {
-        return u; // invalid: not a scheme httpp knows
-    }
-
-    const std::string host(parsed.host_text());
-    if (host.empty()) {
-        return u; // invalid: no host
-    }
-
-    const std::string userinfo(parsed.userinfo());
-    if (!userinfo.empty()) {
-        const auto colon = userinfo.find(':');
-        u.username_ = decode_component(userinfo.substr(0, colon));
-        if (colon != std::string::npos) u.password_ = decode_component(userinfo.substr(colon + 1));
-    }
-    u.scheme_ = scheme;
-    u.host_ = host;
-    u.port_ = (parsed.port() != 0) ? parsed.port() : default_port;
-    u.path_ = parsed.abspath().empty() ? "/" : parsed.abspath();
-    u.query_ = std::string(parsed.query());
-    u.valid_ = true;
-    return u;
 }
 
 } // namespace httpp

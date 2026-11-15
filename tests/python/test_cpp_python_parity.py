@@ -58,7 +58,7 @@ TARGETS = {
     ("router.hpp", "router"): httpp.APIRouter,
     ("server.hpp", "directory"): httpp.Directory,
     ("server.hpp", "server_request"): httpp.ServerRequest,  # httpp::server_request: the handler's request object
-    ("url.hpp", "url"): httpp.URL,
+    ("url.hpp", ""): httpp.URL,  # the codec helpers and fetch_public_suffix_list are statics of URL (httpp::url is urlparser::url)
     ("logging.hpp", ""): None,  # the C++ module imitates Python's own `logging`, which is the Python side (ADR-0057)
     ("path.hpp", "path"): None,  # pathlib.Path is the Python side of httpp::path: every path argument takes one (ADR-0055)
     ("log.hpp", ""): httpp,

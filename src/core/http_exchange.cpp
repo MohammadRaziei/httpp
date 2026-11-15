@@ -85,18 +85,19 @@ std::string base64(const std::string& in) {
 proxy_setting parse_proxy_url(const url& u) {
     proxy_setting out;
     if (u.str().empty()) return out;
-    if (!u.valid() || u.scheme() == "https")
+    if (!url_valid(u) || u.protocol() == "https")
         throw std::invalid_argument("proxy: '" + u.str() + "' is not an http://, socks5:// or socks5h:// URL with a host");
-    out.host = u.host();
-    out.port = u.port();
-    if (u.scheme() == "http") {
-        if (!u.username().empty() || !u.password().empty()) out.authorization = "Basic " + base64(u.username() + ":" + u.password());
+    const std::string user = url_username(u), pass = url_password(u);
+    out.host = url_host(u);
+    out.port = url_port(u);
+    if (u.protocol() == "http") {
+        if (!user.empty() || !pass.empty()) out.authorization = "Basic " + base64(user + ":" + pass);
     } else {
-        out.kind = u.scheme() == "socks5h" ? proxy_kind::socks5h : proxy_kind::socks5;
-        if (u.username().size() > 255 || u.password().size() > 255)
+        out.kind = u.protocol() == "socks5h" ? proxy_kind::socks5h : proxy_kind::socks5;
+        if (user.size() > 255 || pass.size() > 255)
             throw std::invalid_argument("proxy: a SOCKS5 user name and password are at most 255 bytes each");
-        out.user = u.username();
-        out.password = u.password();
+        out.user = user;
+        out.password = pass;
     }
     return out;
 }
@@ -151,11 +152,11 @@ bool session_settings::make_spec(const endpoint& where, const std::string& metho
 
 endpoint endpoint_of(const url& u, bool with_base_path) {
     endpoint e;
-    e.scheme = u.scheme();
-    e.host = u.host();
-    e.port = u.port();
+    e.scheme = url_scheme(u);
+    e.host = url_host(u);
+    e.port = url_port(u);
     if (with_base_path) {
-        std::string p = u.path();
+        std::string p = url_path(u);
         while (!p.empty() && p.back() == '/') p.pop_back();
         e.base_path = std::move(p);
     }
@@ -166,14 +167,14 @@ bool session_settings::make_spec_for_url(const std::string& full_url, const std:
                                          const std::string& method, const header_list& call_headers,
                                          std::string body_bytes, std::string ctype, request_spec& out,
                                          response& error) const {
-    const url u = url::parse(full_url);
-    if (!u.is_http()) {
+    const url u = parse_url(full_url);
+    if (!url_is_http(u)) {
         error = failed_response(error_kind::invalid_url, "not a usable http(s) URL: " + full_url);
         return false;
     }
-    std::string query = u.query();
+    std::string query = url_query(u);
     if (!extra_query.empty()) query += (query.empty() ? "" : "&") + extra_query;
-    std::string target = u.path().empty() ? "/" : u.path();
+    std::string target = url_path(u);
     if (!query.empty()) target += "?" + query;
     return make_spec(endpoint_of(u, false), method, target, call_headers, std::move(body_bytes), std::move(ctype), out, error);
 }
@@ -225,18 +226,18 @@ bool resolve_location(const request_spec& cur, std::string loc, request_spec& ne
     if (loc.empty()) return false;
     next = cur;
     auto adopt = [&](const url& u) {
-        if (!u.is_http()) return false;
-        next.scheme = u.scheme();
-        next.host = u.host();
-        next.port = u.port();
-        next.target = u.path().empty() ? "/" : u.path();
-        if (!u.query().empty()) next.target += "?" + u.query();
+        if (!url_is_http(u)) return false;
+        next.scheme = url_scheme(u);
+        next.host = url_host(u);
+        next.port = url_port(u);
+        next.target = url_path(u);
+        if (!u.query().empty()) next.target += "?" + url_query(u);
         return true;
     };
     const std::string low = to_lower(loc.substr(0, 8));
-    if (low.compare(0, 7, "http://") == 0 || low.compare(0, 8, "https://") == 0) return adopt(url::parse(loc));
+    if (low.compare(0, 7, "http://") == 0 || low.compare(0, 8, "https://") == 0) return adopt(parse_url(loc));
     if (loc.find("://") != std::string::npos && loc.find('/') > loc.find("://")) return false; // ftp:// and friends
-    if (loc.compare(0, 2, "//") == 0) return adopt(url::parse(cur.scheme + ":" + loc));
+    if (loc.compare(0, 2, "//") == 0) return adopt(parse_url(cur.scheme + ":" + loc));
     if (loc[0] == '/') { next.target = loc; return true; }
     const std::string cur_path = cur.target.substr(0, cur.target.find('?'));
     if (loc[0] == '?') { next.target = cur_path + loc; return true; }

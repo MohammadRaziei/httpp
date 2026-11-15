@@ -203,9 +203,9 @@ UTEST(httpp_client_async, async_client_pools_connections_and_overlaps_requests) 
 }
 
 UTEST(httpp_url, encode_decode_and_build_query) {
-    ASSERT_STREQ("a%20b%26c", httpp::url::encode_component("a b&c").c_str());
-    ASSERT_STREQ("-._~", httpp::url::encode_component("-._~").c_str());
-    ASSERT_STREQ("a b&c", httpp::url::decode_component("a%20b%26c").c_str());
-    ASSERT_STREQ("%zz", httpp::url::decode_component("%zz").c_str());
-    ASSERT_STREQ("a=1&b=x%20y", httpp::url::build_query({{"a", "1"}, {"b", "x y"}}).c_str());
+    ASSERT_STREQ("a%20b%26c", httpp::encode_component("a b&c").c_str());
+    ASSERT_STREQ("-._~", httpp::encode_component("-._~").c_str());
+    ASSERT_STREQ("a b&c", httpp::decode_component("a%20b%26c").c_str());
+    ASSERT_STREQ("%zz", httpp::decode_component("%zz").c_str());
+    ASSERT_STREQ("a=1&b=x%20y", httpp::build_query({{"a", "1"}, {"b", "x y"}}).c_str());
 }

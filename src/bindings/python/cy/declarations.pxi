@@ -325,24 +325,22 @@ cdef extern from "httpp/progress.hpp" namespace "httpp::progress":
 
 
 cdef extern from "httpp/url.hpp" namespace "httpp":
-    cdef cppclass cpp_url "httpp::url":
-        @staticmethod
-        cpp_url parse(const string& raw) except +
-        @staticmethod
-        string encode_component(const string& text) except +
-        @staticmethod
-        string decode_component(const string& text) except +
-        @staticmethod
-        string build_query(const vector[pair[string, string]]& params) except +
-        cbool valid()
-        const string& scheme()
-        const string& host()
-        bint is_http()
-        const string& username()
-        const string& password()
-        int port()
-        const string& path()
-        const string& query()
+    cdef cppclass cpp_url "httpp::url":  # urlparser::url (ADR-0072)
+        cpp_url()
+    cpp_url cpp_parse_url "httpp::parse_url"(const string& raw) except +
+    cbool cpp_url_valid "httpp::url_valid"(const cpp_url& u)
+    cbool cpp_url_is_http "httpp::url_is_http"(const cpp_url& u)
+    string cpp_url_scheme "httpp::url_scheme"(const cpp_url& u) except +
+    string cpp_url_host "httpp::url_host"(const cpp_url& u) except +
+    string cpp_url_username "httpp::url_username"(const cpp_url& u) except +
+    string cpp_url_password "httpp::url_password"(const cpp_url& u) except +
+    int cpp_url_port "httpp::url_port"(const cpp_url& u)
+    string cpp_url_path "httpp::url_path"(const cpp_url& u) except +
+    string cpp_url_query "httpp::url_query"(const cpp_url& u) except +
+    string cpp_encode_component "httpp::encode_component"(const string& text) except +
+    string cpp_decode_component "httpp::decode_component"(const string& text) except +
+    string cpp_build_query "httpp::build_query"(const vector[pair[string, string]]& params) except +
+    void cpp_fetch_public_suffix_list "httpp::fetch_public_suffix_list"(const string& source, long timeout_seconds) except + nogil
 
 
 cdef extern from "httpp/client.hpp" namespace "httpp::client":

@@ -45,9 +45,10 @@ size_t write_to_string(char* ptr, size_t size, size_t nmemb, void* userdata) {
 
 int main() {
     // 1) httpp::url
-    httpp::url u = httpp::url::parse("http://example.com:8080/hello?x=1");
-    check(u.valid() && u.host() == "example.com" && u.port() == 8080 && u.path() == "/hello",
-          "httpp::url parses scheme/host/port/path/query");
+    httpp::url u = httpp::parse_url("http://example.com:8080/hello?x=1");
+    check(httpp::url_valid(u) && httpp::url_host(u) == "example.com" && httpp::url_port(u) == 8080 &&
+              httpp::url_path(u) == "/hello" && u.host_text() == "example.com",
+          "httpp::url (liburlparser's type) parses scheme/host/port/path/query");
 
     // 2) httpp::server + httpp::client, live over a real socket
     httpp::server srv;

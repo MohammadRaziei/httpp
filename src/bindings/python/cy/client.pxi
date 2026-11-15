@@ -21,7 +21,7 @@ cdef bytes _query_part(object value):
 
 def _encode_query(object params):
     """{'a': 1, 'b': ['x', 'y']} or [('a', 1)] -> 'a=1&b=x&b=y', percent-encoded (spaces as %20).
-    Done by the C++ httpp::url::build_query: same output as urllib.parse.urlencode(quote_via=quote), about 4x faster."""
+    Done by the C++ httpp::build_query: same output as urllib.parse.urlencode(quote_via=quote), about 4x faster."""
     cdef vector[pair[string, string]] out
     if hasattr(params, "items"):
         params = params.items()
@@ -31,7 +31,7 @@ def _encode_query(object params):
                 out.push_back(pair[string, string](_query_part(key), _query_part(item)))
         else:
             out.push_back(pair[string, string](_query_part(key), _query_part(value)))
-    return cpp_url.build_query(out).decode("ascii")
+    return cpp_build_query(out).decode("ascii")
 
 
 def _with_params(str path, object params):

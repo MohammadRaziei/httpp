@@ -230,16 +230,16 @@ cdef class URL:
     cdef readonly str query
 
     def __init__(self, str raw):
-        cdef cpp_url u = cpp_url.parse(raw.encode("utf-8"))
-        self.valid = u.valid()
-        self.is_http = u.is_http()
-        self.scheme = u.scheme().decode("utf-8", "replace")
-        self.host = u.host().decode("utf-8", "replace")
-        self.username = u.username().decode("utf-8", "replace")
-        self.password = u.password().decode("utf-8", "replace")
-        self.port = u.port()
-        self.path = u.path().decode("utf-8", "replace")
-        self.query = u.query().decode("utf-8", "replace")
+        cdef cpp_url u = cpp_parse_url(raw.encode("utf-8"))
+        self.valid = cpp_url_valid(u)
+        self.is_http = cpp_url_is_http(u)
+        self.scheme = cpp_url_scheme(u).decode("utf-8", "replace")
+        self.host = cpp_url_host(u).decode("utf-8", "replace")
+        self.username = cpp_url_username(u).decode("utf-8", "replace")
+        self.password = cpp_url_password(u).decode("utf-8", "replace")
+        self.port = cpp_url_port(u)
+        self.path = cpp_url_path(u).decode("utf-8", "replace")
+        self.query = cpp_url_query(u).decode("utf-8", "replace")
 
     @staticmethod
     def parse(str raw):
@@ -248,12 +248,12 @@ cdef class URL:
     @staticmethod
     def encode_component(str text):
         """Percent-encode one component: all but letters, digits and "-._~" becomes %XX."""
-        return cpp_url.encode_component(text.encode("utf-8")).decode("ascii")
+        return cpp_encode_component(text.encode("utf-8")).decode("ascii")
 
     @staticmethod
     def decode_component(str text):
         """%XX -> byte, read as UTF-8 (a byte that isn't valid UTF-8 becomes U+FFFD)."""
-        return cpp_url.decode_component(text.encode("utf-8")).decode("utf-8", "replace")
+        return cpp_decode_component(text.encode("utf-8")).decode("utf-8", "replace")
 
     @staticmethod
     def build_query(params):
@@ -261,7 +261,17 @@ cdef class URL:
         cdef vector[pair[string, string]] pairs
         for name, value in (params.items() if hasattr(params, "items") else params):
             pairs.push_back(pair[string, string](_query_text(name), _query_text(value)))
-        return cpp_url.build_query(pairs).decode("ascii")
+        return cpp_build_query(pairs).decode("ascii")
+
+    @staticmethod
+    def fetch_public_suffix_list(str source="", long timeout=30):
+        """Download the Public Suffix List (default: the address liburlparser names, publicsuffix.org) with
+        httpp's own client and load it, so domain/suffix splitting knows multi-part suffixes like co.uk.
+        Raises RuntimeError on a failed request or a body that is not a list; the old list stays then."""
+        cdef string src = source.encode("utf-8")
+        cdef long t = timeout
+        with nogil:
+            cpp_fetch_public_suffix_list(src, t)
 
     def __repr__(self):
         if not self.valid:

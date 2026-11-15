@@ -89,7 +89,9 @@ if(DEFINED SKBUILD)
     #   target_link_libraries(app PRIVATE httpp::httpp)
     #
     # (see examples/find_httpp_via_python/ for a full working example.)
-    install(TARGETS httpp_core
+    # httpp::url is urlparser::url (ADR-0072), so the SDK carries liburlparser's shared library and its one header: the
+    # exported httpp_core links it PUBLIC. Both land in the same export set as httpp_core.
+    install(TARGETS httpp_core urlparser
         EXPORT httppTargets
         ARCHIVE DESTINATION httpp/sdk/lib COMPONENT httpp_wheel
         LIBRARY DESTINATION httpp/sdk/lib COMPONENT httpp_wheel
@@ -98,6 +100,10 @@ if(DEFINED SKBUILD)
         RUNTIME DESTINATION httpp/sdk/bin COMPONENT httpp_wheel
     )
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/
+        DESTINATION httpp/sdk/include
+        COMPONENT httpp_wheel
+    )
+    install(FILES ${CMAKE_SOURCE_DIR}/src/third_party/liburlparser/include/urlparser.h
         DESTINATION httpp/sdk/include
         COMPONENT httpp_wheel
     )

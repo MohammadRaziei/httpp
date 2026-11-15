@@ -58,13 +58,15 @@ embed_files(
         file_browser_html       ${PROJECT_SOURCE_DIR}/src/assets/file_browser.html
 )
 
-# liburlparser (git submodule, built from source - no system package) does
-# the real URL parsing (scheme/host/port/path, IPv4/IPv6, PSL-aware). It is
-# linked PRIVATE into httpp_core, same as mbedtls: consumers of
-# <httpp/url.hpp> see only httpp::url, never urlparser::url directly.
+# liburlparser (git submodule, built from source - no system package) does the real URL parsing
+# (scheme/host/port/path, IPv4/IPv6). Its url type IS httpp::url (ADR-0072), so <httpp/url.hpp>
+# includes <urlparser.h> and the library is linked PUBLIC. It is built SHARED on purpose: the Public
+# Suffix List is process-wide state (urlparser::psl::instance()), and a static copy inside libhttpp_core
+# plus another in the application would be two lists, so httpp::fetch_public_suffix_list() would load into
+# the wrong one. It is built without the embedded list (httpp never needs it; the function loads one on demand).
 set(BUILD_PYTHON OFF CACHE BOOL "" FORCE)
-# Needed so liburlparser's static lib can be linked into httpp's shared
-# lib / the Cython extension module (which are themselves PIC).
+set(URLPARSER_SHARED ON CACHE BOOL "" FORCE)
+set(URLPARSER_PSL OFF CACHE BOOL "" FORCE)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/third_party/liburlparser)
 
@@ -176,7 +178,10 @@ target_include_directories(httpp_core SYSTEM PRIVATE
 
 find_package(Threads REQUIRED)
 target_link_libraries(httpp_core PUBLIC Threads::Threads)
-target_link_libraries(httpp_core PRIVATE url::base httpp_llhttp)
+target_link_libraries(httpp_core PRIVATE httpp_llhttp)
+# PUBLIC: httpp::url is urlparser::url, so every consumer compiles against urlparser.h and links the shared library. The real target name is used, not the
+# liburlparser:: alias, so the wheel's httppTargets export can carry it.
+target_link_libraries(httpp_core PUBLIC urlparser)
 
 # HTTPS support: mbedtls is linked PRIVATE and only src/core/tls_session.cpp
 # includes its headers, so consumers of httpp never need mbedtls on their own
