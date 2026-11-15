@@ -7,6 +7,10 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Added
+
+- **File browser: ZIP, selection, right-click menu, credit (ADR-0032).** `set_zip(true)` (Python `zip=True`; on in `httpp browse`, `--no-zip` turns it off) lets the page select files and folders (checkboxes, a rectangle dragged with the mouse, Ctrl+A) and download them as one ZIP through `GET|POST base/api/zip`: streamed, **not compressed**, Zip64, UTF-8 names, refused with `400`, `404` or `413` (`set_max_zip_entries`, default 50000) before any byte is sent. The page has its own right-click menu (open, download, copy name, path or link, select, ZIP) and ends with a small "Powered by httpp" link to the repository (`set_powered_by(false)`, `--no-powered-by` to remove it). The ZIP route is off by default in the library.
+
 ## [0.9.0] - 2026-11-14
 
 ### Added
