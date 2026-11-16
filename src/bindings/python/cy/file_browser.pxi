@@ -46,13 +46,14 @@ cdef class FileBrowser:
     View = _View    # LIST, GRID: the first view
     Sort = _Sort    # NAME, SIZE, DATE: the first sort
 
-    def __cinit__(self, root, *, title=None, theme=None, accent=None, search=None, show_hidden=None, max_entries=None, view=None, sort=None, safe_mode=None, zip=None, max_zip_entries=None, powered_by=None):
+    def __cinit__(self, root, *, title=None, theme=None, accent=None, search=None, show_hidden=None, show_dates=None, max_entries=None, view=None, sort=None, safe_mode=None, zip=None, max_zip_entries=None, powered_by=None):
         self._b = new cpp_file_browser(_fs(root))
         if title is not None: self.set_title(title)
         if theme is not None: self.set_theme(theme)
         if accent is not None: self.set_accent(accent)
         if search is not None: self.set_search(search)
         if show_hidden is not None: self.set_show_hidden(show_hidden)
+        if show_dates is not None: self.set_show_dates(show_dates)
         if max_entries is not None: self.set_max_entries(max_entries)
         if view is not None: self.set_view(view)
         if sort is not None: self.set_sort(sort)
@@ -88,6 +89,12 @@ cdef class FileBrowser:
     def set_show_hidden(self, bint on):
         """False: names that start with '.' are not listed and answer 404 when asked for by name. Default False."""
         self._b.set_show_hidden(on)
+        return self
+
+    def set_show_dates(self, bint on):
+        """False: no file or folder time anywhere. The page has no "Modified" column and cannot sort by date, the listing has no "mtime", the files
+        carry no Last-Modified or ETag, and a ZIP stamps every entry 1980-01-01. Default True."""
+        self._b.set_show_dates(on)
         return self
 
     def set_max_entries(self, count):

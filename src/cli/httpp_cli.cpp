@@ -82,6 +82,26 @@ void apply_log_level(const std::string& name) {
         if (name == l.first) httpp::set_log_level(l.second);  // the option values are checked by CLI11 against k_log_levels
 }
 
+// A small banner for the two commands that stay up (server, browse). It goes to stderr and only when that is a terminal, so a pipe, a log
+// file and a CI run never see it; --log-level off and --no-banner turn it off for a terminal too.
+bool stderr_is_terminal() {
+#ifdef _WIN32
+    return _isatty(_fileno(stderr)) != 0;
+#else
+    return ::isatty(::fileno(stderr)) != 0;
+#endif
+}
+
+void print_banner(bool enabled, const std::string& log_level) {
+    if (!enabled || log_level == "off" || !stderr_is_terminal()) return;
+    std::cerr << " _   _   _\n"
+                 "| |_| |_| |_ _ __ _ __\n"
+                 "| ' \\  _|  _| '_ \\ '_ \\\n"
+                 "|_||_\\__|\\__| .__/ .__/\n"
+                 "            |_|  |_|\n"
+                 "  v" << k_version << "\n\n";
+}
+
 // --- serving until Ctrl+C or SIGTERM ---
 
 std::atomic<int> g_signals{0};
@@ -111,17 +131,31 @@ bool serve(httpp::server& srv, const std::string& host, int port, double grace) 
     return listened;
 }
 
-int cmd_server(const std::string& directory, const std::string& host, int port, double grace, const std::string& log_level) {
-    if (!is_directory(directory)) return fail("'" + directory + "' is not a folder");
+struct server_args {
+    std::string directory = ".";
+    std::string host = "0.0.0.0";
+    int port = 8000;
+    double grace = 10;
+    std::string log_level = "info";
+    bool hidden = false;
+    bool no_dates = false;
+    bool no_banner = false;
+};
+
+int cmd_server(const server_args& a) {
+    if (!is_directory(a.directory)) return fail("'" + a.directory + "' is not a folder");
     httpp::server srv;
     try {
-        srv.serve_directory("/", directory);
+        // The same as serve_directory("/", dir), with the two privacy settings: names that start with a dot answer 404 unless --hidden, and
+        // --no-dates sends no file times.
+        httpp::directory(httpp::path(a.directory)).set_show_hidden(a.hidden).set_show_dates(!a.no_dates).mount(srv, "/");
     } catch (const std::exception& e) {
         return fail(e.what());
     }
-    std::cout << "Serving '" << directory << "' at http://" << host << ":" << port << "/" << std::endl;
-    apply_log_level(log_level);
-    if (!serve(srv, host, port, grace)) return fail("cannot listen on " + host + ":" + std::to_string(port));
+    print_banner(!a.no_banner, a.log_level);
+    std::cout << "Serving '" << a.directory << "' at http://" << a.host << ":" << a.port << "/" << std::endl;
+    apply_log_level(a.log_level);
+    if (!serve(srv, a.host, a.port, a.grace)) return fail("cannot listen on " + a.host + ":" + std::to_string(a.port));
     return 0;
 }
 
@@ -142,6 +176,8 @@ struct browse_args {
     bool safe = false;
     bool no_zip = false;
     bool no_powered_by = false;
+    bool no_dates = false;
+    bool no_banner = false;
 };
 
 int cmd_browse(const browse_args& a) {
@@ -154,11 +190,12 @@ int cmd_browse(const browse_args& a) {
         const fb::theme_mode theme = a.theme == "light" ? fb::theme_mode::light : a.theme == "dark" ? fb::theme_mode::dark : fb::theme_mode::system;
         const fb::view_mode view = a.view == "grid" ? fb::view_mode::grid : fb::view_mode::list;
         const fb::sort_key sort = a.sort == "size" ? fb::sort_key::size : a.sort == "date" ? fb::sort_key::date : fb::sort_key::name;
-        fb(root).set_title(a.title).set_theme(theme).set_accent(a.accent).set_search(!a.no_search).set_show_hidden(a.hidden)
+        fb(root).set_title(a.title).set_theme(theme).set_accent(a.accent).set_search(!a.no_search).set_show_hidden(a.hidden).set_show_dates(!a.no_dates)
             .set_max_entries(a.max_entries).set_view(view).set_sort(sort).set_safe_mode(a.safe).set_zip(!a.no_zip).set_powered_by(!a.no_powered_by).mount(srv, "/");
     } catch (const std::exception& e) {
         return fail(e.what());
     }
+    print_banner(!a.no_banner, a.log_level);
     std::cout << "Browsing '" << root << "' (read-only) at http://" << a.host << ":" << a.port << "/" << std::endl;
     apply_log_level(a.log_level);
     if (!serve(srv, a.host, a.port, a.grace)) return fail("cannot listen on " + a.host + ":" + std::to_string(a.port));
@@ -357,17 +394,17 @@ int main(int argc, char** argv) {
                "httpp py --help");
 
     // server
-    std::string server_dir = ".", server_host = "0.0.0.0";
-    int server_port = 8000;
-    double server_grace = 10;
-    std::string server_log_level = "info";
+    server_args sv;
     auto* c_server = app.add_subcommand("server", "Serve a directory over HTTP, like `python -m http.server`.");
-    c_server->add_option("directory", server_dir, "The folder to serve")->capture_default_str();
-    c_server->add_option("--host", server_host)->capture_default_str();
-    c_server->add_option("--port,-p", server_port)->check(CLI::Range(1, 65535))->capture_default_str();
-    c_server->add_option("--shutdown-timeout", server_grace, "On Ctrl+C or SIGTERM, how long requests in progress may take to finish")
+    c_server->add_option("directory", sv.directory, "The folder to serve")->capture_default_str();
+    c_server->add_option("--host", sv.host, "Use 127.0.0.1 to keep it on this computer (the default is every interface, and there is no login)")->capture_default_str();
+    c_server->add_option("--port,-p", sv.port)->check(CLI::Range(1, 65535))->capture_default_str();
+    c_server->add_flag("--hidden", sv.hidden, "Serve names that start with a dot too (otherwise they answer 404)");
+    c_server->add_flag("--no-dates", sv.no_dates, "Send no file times: no Last-Modified and no ETag (every answer says Cache-Control: no-cache)");
+    c_server->add_flag("--no-banner", sv.no_banner, "Do not print the banner on a terminal");
+    c_server->add_option("--shutdown-timeout", sv.grace, "On Ctrl+C or SIGTERM, how long requests in progress may take to finish")
         ->check(CLI::NonNegativeNumber)->capture_default_str()->type_name("SECONDS");
-    c_server->add_option("--log-level", server_log_level, "What goes to stderr: info is the address and one line per request, off is nothing")
+    c_server->add_option("--log-level", sv.log_level, "What goes to stderr: info is the address and one line per request, off is nothing")
         ->check(CLI::IsMember(k_log_levels))->capture_default_str();
 
     // browse
@@ -383,6 +420,8 @@ int main(int argc, char** argv) {
     c_browse->add_flag("--hidden", b.hidden, "List and serve names that start with a dot");
     c_browse->add_flag("--safe", b.safe, "Only download html and svg files, never show them (default: shown, sandboxed so no script runs and nothing outside is fetched)");
     c_browse->add_flag("--no-zip", b.no_zip, "Do not offer selecting files and downloading them as one ZIP (it is on here; the library default is off)");
+    c_browse->add_flag("--no-dates", b.no_dates, "Show and send no file times: no Modified column, no sort by date, no Last-Modified or ETag, ZIP entries dated 1980-01-01");
+    c_browse->add_flag("--no-banner", b.no_banner, "Do not print the banner on a terminal");
     c_browse->add_flag("--no-powered-by", b.no_powered_by, "Hide the \"Powered by httpp\" line at the bottom of the page");
     c_browse->add_option("--max-entries", b.max_entries, "Longest folder listing")->check(CLI::PositiveNumber)->capture_default_str()->type_name("N");
     c_browse->add_option("--view", b.view)->check(CLI::IsMember({"list", "grid"}))->capture_default_str();
@@ -420,7 +459,7 @@ int main(int argc, char** argv) {
         return code == 0 ? 0 : 2;
     }
 
-    if (c_server->parsed()) return cmd_server(server_dir, server_host, server_port, server_grace, server_log_level);
+    if (c_server->parsed()) return cmd_server(sv);
     if (c_browse->parsed()) return cmd_browse(b);
     if (c_download->parsed()) return cmd_download(dl_url, dl_output, dl_quiet);
     if (c_curl->parsed()) return cmd_curl(curl_url, curl_method, curl_headers, curl_data, curl_data_opt->count() > 0, curl_output);

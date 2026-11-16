@@ -289,6 +289,7 @@ file_browser& file_browser::set_accent(std::string colour) {
 }
 file_browser& file_browser::set_search(bool on) { search_ = on; return *this; }
 file_browser& file_browser::set_show_hidden(bool on) { show_hidden_ = on; return *this; }
+file_browser& file_browser::set_show_dates(bool on) { show_dates_ = on; return *this; }
 file_browser& file_browser::set_safe_mode(bool on) { safe_mode_ = on; return *this; }
 file_browser& file_browser::set_zip(bool on) { zip_ = on; return *this; }
 file_browser& file_browser::set_powered_by(bool on) { powered_by_ = on; return *this; }
@@ -322,6 +323,7 @@ void file_browser::mount(server& s, const std::string& base) const {
     const std::string config = "{\"base\":" + json_string(prefix) + ",\"theme\":" + json_string(theme_name(theme_)) + ",\"accent\":" + json_string(accent_) +
                                ",\"search\":" + (search_ ? "true" : "false") + ",\"view\":" + json_string(view_name(view_)) + ",\"sort\":" + json_string(sort_name(sort_)) +
                                ",\"limit\":" + std::to_string(max_entries_) +
+                               ",\"dates\":" + (show_dates_ ? "true" : "false") +
                                ",\"safe\":" + (safe_mode_ ? "true" : "false") +
                                ",\"zip\":" + (zip_ ? "true" : "false") +
                                ",\"powered\":" + (powered_by_ ? "true" : "false") + "}";
@@ -342,8 +344,9 @@ void file_browser::mount(server& s, const std::string& base) const {
     else { s.get(prefix, page); s.get(prefix + "/", page); }
 
     const bool show_hidden = show_hidden_;
+    const bool show_dates = show_dates_;
     const std::size_t limit = max_entries_;
-    s.get(prefix + "/api/list", [real_root, show_hidden, limit](const server_request& req, response& res) {
+    s.get(prefix + "/api/list", [real_root, show_hidden, show_dates, limit](const server_request& req, response& res) {
         std::string rel, dir;
         const path_result pr = clean_path(req.query_param("path"), show_hidden, rel);
         if (pr == path_result::bad) { res = json_error(400, "bad path"); return; }
@@ -364,7 +367,7 @@ void file_browser::mount(server& s, const std::string& base) const {
         for (std::size_t i = 0; i < items.size(); i++) {
             if (i) body += ',';
             body += "{\"name\":" + json_string(items[i].name) + ",\"type\":\"" + (items[i].dir ? "dir" : "file") + "\",\"size\":" + std::to_string(items[i].size) +
-                    ",\"mtime\":" + std::to_string(items[i].mtime) + "}";
+                    (show_dates ? ",\"mtime\":" + std::to_string(items[i].mtime) : std::string()) + "}";
         }
         body += std::string("],\"truncated\":") + (truncated ? "true" : "false") + ",\"limit\":" + std::to_string(limit) + "}";
         res.status = 200;
@@ -377,7 +380,8 @@ void file_browser::mount(server& s, const std::string& base) const {
     if (zip_) {
         const std::size_t zip_limit = max_zip_entries_;
         const std::string zip_stem = zip_file_stem(title_);
-        auto zip_route = [real_root, show_hidden, zip_limit, zip_stem](const server_request& req, response& res) {
+        const bool zip_dates = show_dates_;
+        auto zip_route = [real_root, show_hidden, zip_limit, zip_stem, zip_dates](const server_request& req, response& res) {
             std::string dir_in;
             std::vector<std::string> names;
             if (req.method == "POST") {
@@ -423,6 +427,8 @@ void file_browser::mount(server& s, const std::string& base) const {
             if (!within_limit) { res = json_error(413, "too many files"); return; }
             if (items.empty()) { res = json_error(404, "not found"); return; }
 
+            if (!zip_dates)
+                for (detail::zip_item& it : items) it.mtime = 0; // before 1980 a DOS date says 1980-01-01 (zip_stream::dos_stamp): the same for every entry
             auto z = std::make_shared<detail::zip_stream>(std::move(items));
             res.status = 200;
             res.headers.emplace_back("Content-Type", "application/zip");
@@ -435,7 +441,7 @@ void file_browser::mount(server& s, const std::string& base) const {
         s.post(prefix + "/api/zip", zip_route);
     }
 
-    directory(path(real_root)).set_index(false).set_show_hidden(show_hidden_).set_download_active(true).set_inline_active(!safe_mode_).mount(s, prefix + "/raw");
+    directory(path(real_root)).set_index(false).set_show_hidden(show_hidden_).set_show_dates(show_dates_).set_download_active(true).set_inline_active(!safe_mode_).mount(s, prefix + "/raw");
 }
 
 } // namespace httpp

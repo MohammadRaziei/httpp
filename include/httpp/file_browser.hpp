@@ -43,6 +43,9 @@ public:
     HTTPP_API file_browser& set_accent(std::string colour);        // "#rrggbb" (any case) or empty for the default colour; default empty
     HTTPP_API file_browser& set_search(bool on);                   // the filter box (it filters the folder that is open, in the browser); default true
     HTTPP_API file_browser& set_show_hidden(bool on);              // false: names that start with '.' are not listed and answer 404 when asked for by name; default false
+    // false: no file or folder time anywhere. The page has no "Modified" column and cannot sort by date, `api/list` has no "mtime", the files under
+    // `base/raw` carry no "Last-Modified" or "ETag" (see directory::set_show_dates) and a ZIP stamps every entry 1980-01-01. Default true.
+    HTTPP_API file_browser& set_show_dates(bool on);
     HTTPP_API file_browser& set_max_entries(std::size_t count);    // a folder with more entries is cut at this many and flagged "truncated"; must be above 0; default 5000
     HTTPP_API file_browser& set_view(view_mode view);              // default list
     HTTPP_API file_browser& set_sort(sort_key sort);               // default name
@@ -73,6 +76,7 @@ private:
     sort_key sort_ = sort_key::name;
     bool search_ = true;
     bool show_hidden_ = false;
+    bool show_dates_ = true;
     bool safe_mode_ = false;
     bool zip_ = false;
     bool powered_by_ = true;

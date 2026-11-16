@@ -267,6 +267,7 @@ struct mount_entry {
     bool show_hidden = true;
     bool download_active = false;
     bool inline_active = false;
+    bool show_dates = true;
 };
 
 // True on the threads that run an engine (the I/O threads) while the server listens.
@@ -903,13 +904,15 @@ struct server::impl {
     bool answer_file(const server_request& req, const send_fn& send, const std::string& full, long long size, const mount_entry& options) {
         {
             const httpp::path::status stamp = httpp::path(full).stat();
-            const bool stamped = stamp.type == httpp::path::kind::file;
+            // show_dates off: no validators at all (the ETag holds the mtime too), so nothing below can reveal or test it.
+            const bool stamped = options.show_dates && stamp.type == httpp::path::kind::file;
             std::string etag = stamped ? make_etag(size, stamp) : std::string();
             // The headers of a download_active answer depend on the mode (attachment or sandboxed inline), so the validator does too: a browser that
             // cached the file under one mode must get a full answer, not a 304 that keeps the old Content-Disposition, after the mode is changed.
             if (stamped && options.download_active) etag.insert(etag.size() - 1, std::string("-") + download_class(full, options.inline_active));
             const std::string modified = stamped ? format_http_date(stamp.mtime) : std::string();
             bool honour_range = true;
+            if (!options.show_dates && !req.header("If-Range").empty()) honour_range = false; // nothing to compare it with: the whole file
             if (stamped) {
                 const precondition p = evaluate_preconditions(req, etag, stamp.mtime, honour_range);
                 if (p != precondition::proceed) {
@@ -934,6 +937,7 @@ struct server::impl {
                 res.headers.emplace_back("ETag", etag);
                 res.headers.emplace_back("Last-Modified", modified);
             }
+            if (!options.show_dates && !options.download_active) res.headers.emplace_back("Cache-Control", "no-cache"); // always ask again: there is no validator to answer a 304 with
             if (options.download_active) {
                 add_download_headers(req, full, res, options.inline_active);
                 // Always revalidate (a cheap 304 when nothing changed): the headers depend on the mount's mode, and a browser must not keep
@@ -1376,12 +1380,13 @@ directory& directory::set_index(bool on) { index_ = on; return *this; }
 directory& directory::set_show_hidden(bool on) { show_hidden_ = on; return *this; }
 directory& directory::set_download_active(bool on) { download_active_ = on; return *this; }
 directory& directory::set_inline_active(bool on) { inline_active_ = on; return *this; }
+directory& directory::set_show_dates(bool on) { show_dates_ = on; return *this; }
 
 void directory::mount(server& s, const std::string& base) const {
     if (base.empty() || base[0] != '/') throw std::invalid_argument("directory: base must start with '/'");
     std::string prefix = base;
     while (!prefix.empty() && prefix.back() == '/') prefix.pop_back(); // "/" -> "" (the root)
-    s.impl_->mounts.push_back({std::move(prefix), root_.str(), index_, show_hidden_, download_active_, inline_active_});
+    s.impl_->mounts.push_back({std::move(prefix), root_.str(), index_, show_hidden_, download_active_, inline_active_, show_dates_});
 }
 
 int server::bind_to_any_port(const std::string& host) {

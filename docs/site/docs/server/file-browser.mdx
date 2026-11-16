@@ -75,6 +75,7 @@ Every setting is a method that returns the browser, so they chain, and the same 
 | `set_accent("#rrggbb")` | empty | accent colour, empty for the default |
 | `set_search(bool)` | `true` | show the filter box (it filters the open folder in the browser) |
 | `set_show_hidden(bool)` | `false` | list and serve names that start with a dot |
+| `set_show_dates(bool)` | `true` | `false`: no file time anywhere: no Modified column or sort by date, no `mtime` in `api/list`, no `Last-Modified` or `ETag` on the files, every ZIP entry dated 1980-01-01 |
 | `set_max_entries(count)` | `5000` | a larger folder is cut at this many and flagged `"truncated"`; must be above 0 |
 | `set_view(view)` | `list` | first view, `View.LIST` or `View.GRID` |
 | `set_sort(key)` | `name` | first sort, `Sort.NAME`, `Sort.SIZE` or `Sort.DATE` |

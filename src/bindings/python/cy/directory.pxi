@@ -5,6 +5,7 @@ cdef class Directory:
 
         Directory("./public").set_index(False).mount(app, "/static")
         Directory("./public", show_hidden=False, download_active=True).mount(app, "/static")   # the same, with keywords
+        Directory("./public", show_dates=False).mount(app, "/static")   # no Last-Modified and no ETag
 
     `Server.serve_directory(path, folder)` is `Directory(folder).mount(app, path)` with the defaults. Range, conditional requests and
     HEAD work, large files stream, and nothing outside the folder is ever served. `mount` raises ValueError when `base` does not start
@@ -12,10 +13,11 @@ cdef class Directory:
     """
     cdef cpp_directory* _d
 
-    def __cinit__(self, root, *, index=None, show_hidden=None, download_active=None, inline_active=None):
+    def __cinit__(self, root, *, index=None, show_hidden=None, show_dates=None, download_active=None, inline_active=None):
         self._d = new cpp_directory(_fs(root))
         if index is not None: self.set_index(index)
         if show_hidden is not None: self.set_show_hidden(show_hidden)
+        if show_dates is not None: self.set_show_dates(show_dates)
         if download_active is not None: self.set_download_active(download_active)
         if inline_active is not None: self.set_inline_active(inline_active)
 
@@ -31,6 +33,12 @@ cdef class Directory:
     def set_show_hidden(self, bint on):
         """False: a path with a segment that starts with "." is a 404, whatever is on disk. Default True."""
         self._d.set_show_hidden(on)
+        return self
+
+    def set_show_dates(self, bint on):
+        """False: no "Last-Modified" and no "ETag" (it holds the time), so no 304; an If-Range cannot be checked, so a range request that carries
+        one gets the whole file; every answer says "Cache-Control: no-cache". Keeps the times of the files private. Default True."""
+        self._d.set_show_dates(on)
         return self
 
     def set_download_active(self, bint on):

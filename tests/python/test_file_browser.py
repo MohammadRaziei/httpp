@@ -77,7 +77,7 @@ def test_the_defaults_are_those_of_the_cpp_class(tree):
     FileBrowser(tree).mount(app, "/files")
     with running(app) as url:
         page = httpp.get(f"{url}/files").text
-        for fragment in ('"theme":"auto"', '"view":"list"', '"sort":"name"', '"accent":""', '"search":true', '"limit":5000', '"powered":true', '"zip":false'):
+        for fragment in ('"theme":"auto"', '"view":"list"', '"sort":"name"', '"accent":""', '"search":true', '"limit":5000', '"powered":true', '"zip":false', '"dates":true'):
             assert fragment in page
 
 
@@ -110,6 +110,42 @@ def test_html_and_svg_are_shown_behind_a_sandbox_by_default_and_safe_mode_makes_
             for name in ("p.html", "x.svg", "x.xml"):
                 r = httpp.get(f"{url}/files/raw/{name}")
                 assert "attachment" in r.header("Content-Disposition") and "sandbox" not in (r.header("Content-Security-Policy") or "")
+
+
+def _zip_dates(url, query):
+    import io
+    import urllib.request
+    import zipfile
+
+    with urllib.request.urlopen(f"{url}/files/api/zip?{query}") as r:
+        return {i.filename: i.date_time for i in zipfile.ZipFile(io.BytesIO(r.read())).infolist()}
+
+
+def test_show_dates_false_shows_and_sends_no_file_time(tree):
+    app, dated = Server(), Server()
+    fb = FileBrowser(tree, zip=True)
+    assert fb.set_show_dates(False) is fb
+    fb.mount(app, "/files")
+    FileBrowser(tree, zip=True).mount(dated, "/files")
+    with running(dated) as url:
+        assert '"dates":true' in httpp.get(f"{url}/files").text
+        assert '"mtime":' in httpp.get(f"{url}/files/api/list").text
+        assert httpp.get(f"{url}/files/raw/a.txt").header("Last-Modified") is not None
+        assert _zip_dates(url, "path=/&name=a.txt")["a.txt"][:3] != (1980, 1, 1)
+    with running(app) as url:
+        assert '"dates":false' in httpp.get(f"{url}/files").text
+        listing = httpp.get(f"{url}/files/api/list").text
+        assert "a.txt" in listing and "mtime" not in listing
+        raw = httpp.get(f"{url}/files/raw/a.txt")
+        assert raw.status == 200 and raw.header("ETag") is None and raw.header("Last-Modified") is None
+        assert set(_zip_dates(url, "path=/").values()) == {(1980, 1, 1, 0, 0, 0)}
+
+
+def test_the_show_dates_keyword_is_the_same_as_the_setter(tree):
+    app = Server()
+    FileBrowser(tree, show_dates=False).mount(app, "/files")
+    with running(app) as url:
+        assert '"dates":false' in httpp.get(f"{url}/files").text
 
 
 def test_the_setters_chain_and_one_browser_mounts_twice(tree):

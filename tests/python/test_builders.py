@@ -44,6 +44,38 @@ def test_directory_settings_chain_and_change_the_answer(tmp_path):
         assert status(url + "/site/index.html") == 200
 
 
+def _get(url, **request_headers):
+    """(status, headers, body) of a GET with the given request headers; a 304 or 206 is an answer, not an error."""
+    req = urllib.request.Request(url, headers=request_headers)
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, r.headers, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers, e.read()
+
+
+def test_directory_show_dates_false_sends_no_validator_and_never_answers_304(tmp_path):
+    (tmp_path / "a.txt").write_text("hello world")
+    app = Server()
+    d = Directory(tmp_path)
+    assert d.set_show_dates(False) is d
+    d.mount(app, "/off")
+    Directory(tmp_path).mount(app, "/on")
+    Directory(tmp_path, show_dates=False).mount(app, "/kw")
+    with running(app) as url:
+        code, on, _ = _get(url + "/on/a.txt")
+        assert code == 200 and on["ETag"] and on["Last-Modified"]
+        assert _get(url + "/on/a.txt", **{"If-None-Match": on["ETag"]})[0] == 304
+        for base in ("/off", "/kw"):
+            code, off, body = _get(url + base + "/a.txt")
+            assert code == 200 and body == b"hello world"
+            assert off["ETag"] is None and off["Last-Modified"] is None and off["Cache-Control"] == "no-cache"
+            assert _get(url + base + "/a.txt", **{"If-None-Match": "*"})[0] == 200
+            assert _get(url + base + "/a.txt", **{"If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT"})[0] == 200
+            assert _get(url + base + "/a.txt", Range="bytes=0-4")[0::2] == (206, b"hello")
+            assert _get(url + base + "/a.txt", Range="bytes=0-4", **{"If-Range": '"x"'})[0::2] == (200, b"hello world")  # nothing to compare it with: the whole file
+
+
 def test_directory_keywords_and_defaults(tmp_path):
     (tmp_path / "index.html").write_text("<h1>home</h1>")
     (tmp_path / ".dot").write_text("x")

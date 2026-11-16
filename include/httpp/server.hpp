@@ -315,6 +315,10 @@ public:
     HTTPP_API directory& set_index(bool on);
     // false: a path with a segment that starts with '.' is a 404, whatever is on disk. Default: true.
     HTTPP_API directory& set_show_hidden(bool on);
+    // false: a file's modified time is not sent: no "Last-Modified" and no "ETag" (the ETag holds the time), so no 304 either, and an
+    // "If-Range" cannot be checked, so a range request that carries one gets the whole file. Every answer says "Cache-Control: no-cache".
+    // Use it to keep the times of the files private. Default: true.
+    HTTPP_API directory& set_show_dates(bool on);
     // true: send "X-Content-Type-Options: nosniff", and a file that is not plainly harmless to show (everything but plain text, JSON,
     // common images, PDF, audio and video) or that is asked for with "?download=1" gets "Content-Disposition: attachment" with a
     // filename and filename*=UTF-8''... Default: false.
@@ -332,6 +336,7 @@ private:
     bool show_hidden_ = true;
     bool download_active_ = false;
     bool inline_active_ = false;
+    bool show_dates_ = true;
 };
 
 // The Content-Type httpp gives a file by its extension (case-insensitive, the last dot after the last slash). Mounted directories use

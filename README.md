@@ -317,7 +317,7 @@ httpp browse ~/Downloads --port 8000 --theme auto
 ```
 
 Lists folders, opens text and images, downloads files; nothing can be written, renamed or deleted. The folder you give is a ceiling:
-`..`, absolute paths and symlinks that leave it are refused, dotfiles are hidden (404 too) unless `show_hidden=True` / `--hidden`, and html, svg and
+`..`, absolute paths and symlinks that leave it are refused, dotfiles are hidden (404 too) unless `show_hidden=True` / `--hidden`, `show_dates=False` / `--no-dates` removes every file time (the Modified column, `mtime`, `Last-Modified`, `ETag`, ZIP dates), and html, svg and
 other active types are downloads, but html and svg are rendered by "Open raw", sandboxed so no script runs (`safe_mode=True` / `--safe` makes them downloads too). A folder is cut at `max_entries` (5000). With `zip=True` (on in `httpp browse`, `--no-zip` turns it off) the page selects files (checkboxes, a dragged rectangle, Ctrl+A), has its own right-click menu, and downloads the selection or a folder as one streamed, uncompressed ZIP (Zip64, UTF-8 names). It has **no login**: it listens on 127.0.0.1 by default, and for anything
 else put a `before_request` hook in front of it. A bad option or folder raises `ValueError`.
 
@@ -404,7 +404,7 @@ touched by several threads at once.
 `httpp` is a command that starts a native executable (`httpp/sdk/bin/httpp` inside the package; `bin/httpp` of a C++ SDK install runs on its own). The commands below need no Python and run without the GIL:
 
 ```sh
-httpp server ./site --port 8000          # serve a directory
+httpp server ./site --port 8000          # serve a directory (dot names answer 404 unless --hidden; --no-dates sends no file times)
 httpp browse ~/Downloads                 # read-only file browser (see below)
 httpp download https://example.com/f.zip -o f.zip
 httpp curl https://example.com/api -X POST -H "X-Key: 1" -d "a=1"

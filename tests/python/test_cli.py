@@ -177,6 +177,86 @@ def test_server_reports_a_port_that_is_taken(httpp_exe, tmp_path):
 
 
 @posix_only
+def _serve(httpp_exe, directory, *flags):
+    port = free_port()
+    proc = subprocess.Popen([*httpp_exe, "server", str(directory), "--host", "127.0.0.1", "--port", str(port), *flags],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return proc, f"http://127.0.0.1:{port}"
+
+
+def test_server_hides_names_that_start_with_a_dot_unless_hidden_is_given(httpp_exe, tmp_path, stop_process):
+    (tmp_path / "hello.txt").write_text("hi")
+    (tmp_path / ".env").write_text("SECRET=1")
+    (tmp_path / ".well-known").mkdir()
+    (tmp_path / ".well-known" / "acme").write_text("token")
+    proc, url = _serve(httpp_exe, tmp_path)
+    try:
+        assert wait_for(f"{url}/hello.txt", proc).status == 200
+        assert httpp.get(f"{url}/.env").status == 404
+        assert httpp.get(f"{url}/.well-known/acme").status == 404
+    finally:
+        stop_process(proc)
+    proc, url = _serve(httpp_exe, tmp_path, "--hidden")
+    try:
+        assert wait_for(f"{url}/hello.txt", proc).status == 200
+        assert httpp.get(f"{url}/.env").text == "SECRET=1"
+        assert httpp.get(f"{url}/.well-known/acme").text == "token"
+    finally:
+        stop_process(proc)
+
+
+def test_server_no_dates_sends_no_file_time(httpp_exe, tmp_path, stop_process):
+    (tmp_path / "hello.txt").write_text("hi")
+    for flags, validators in (((), True), (("--no-dates",), False)):
+        proc, url = _serve(httpp_exe, tmp_path, *flags)
+        try:
+            r = wait_for(f"{url}/hello.txt", proc)
+            assert r.status == 200
+            assert (r.header("ETag") is not None) == validators and (r.header("Last-Modified") is not None) == validators
+        finally:
+            stop_process(proc)
+
+
+@posix_only
+@pytest.mark.parametrize("command", ["server", "browse"])
+def test_the_banner_is_for_a_terminal_only(httpp_exe, tmp_path, command, stop_process):
+    import pty
+    import select
+
+    art = "|_||_\\__|\\__| .__/ .__/"
+
+    def started(extra, tty):
+        port = free_port()
+        args = [*httpp_exe, command, str(tmp_path), "--port", str(port), *extra]
+        if tty:
+            master, slave = pty.openpty()
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=slave, close_fds=True)
+            os.close(slave)
+        else:
+            master, proc = None, subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        for _ in range(100):  # wait until it listens
+            if httpp.get(f"http://127.0.0.1:{port}/").status != 0:
+                break
+            time.sleep(0.1)
+        text = ""
+        if tty:
+            while select.select([master], [], [], 0.3)[0]:
+                chunk = os.read(master, 4096)
+                if not chunk:
+                    break
+                text += chunk.decode(errors="replace")
+            os.close(master)
+        _, err = stop_process(proc)
+        if tty:
+            return text
+        return err.decode(errors="replace") if isinstance(err, bytes) else err
+
+    assert art in started([], tty=True)                        # a terminal gets it
+    assert art not in started([], tty=False)                   # a pipe or a log file does not
+    assert art not in started(["--no-banner"], tty=True)
+    assert art not in started(["--log-level", "off"], tty=True)
+
+
 @pytest.mark.parametrize("command", ["server", "browse"])
 def test_ctrl_c_and_sigterm_stop_the_server_cleanly(httpp_exe, tmp_path, command):
     import signal

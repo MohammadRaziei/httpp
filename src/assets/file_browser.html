@@ -89,7 +89,8 @@ dialog h2 { margin:0; font-size:1.05rem; line-height:1.3; overflow-wrap:anywhere
 #toast.show { opacity:1; transform:translate(-50%,0); }
 #mq { position:absolute; z-index:4; pointer-events:none; border:1px solid var(--accent); border-radius:2px; } #mq::before { content:""; position:absolute; inset:0; background:var(--accent); opacity:.18; }
 body.dragging, body.dragging * { user-select:none; cursor:crosshair !important; }
-@media (max-width:40rem) { .head, .row { grid-template-columns:minmax(0,1fr) 5rem; } .meta.date, .head .date, .meta.type, .head .type { display:none; } .pl .vol, .pl .sp { display:none; } }
+.nodates .head, .nodates .row { grid-template-columns:minmax(0,1fr) 6rem 7rem; } .nodates .meta.date, .nodates .head .date { display:none; }
+@media (max-width:40rem) { .nodates .head, .nodates .row { grid-template-columns:minmax(0,1fr) 5rem; } .head, .row { grid-template-columns:minmax(0,1fr) 5rem; } .meta.date, .head .date, .meta.type, .head .type { display:none; } .pl .vol, .pl .sp { display:none; } }
 </style>
 </head>
 <body>
@@ -128,6 +129,8 @@ body.dragging, body.dragging * { user-select:none; cursor:crosshair !important; 
 (function () {
 "use strict";
 var C = __CONFIG__;
+C.dates = C.dates !== false;  // false: the server sends no file times, so there is no Modified column and no sort by date
+if (!C.dates) document.documentElement.classList.add("nodates");
 var ICON = {
   dir: '<svg viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2.5h9A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>',
   up: '<svg viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></svg>',
@@ -174,7 +177,7 @@ function kindLabel(e) {
 }
 var $ = function (id) { return document.getElementById(id); };
 var root = document.documentElement;
-var state = { path: "/", entries: [], view: C.view, key: C.sort, desc: false, filter: "", theme: C.theme, truncated: false };
+var state = { path: "/", entries: [], view: C.view, key: !C.dates && C.sort === "date" ? "name" : C.sort, desc: false, filter: "", theme: C.theme, truncated: false };
 function store(k, v) { try { if (v === undefined) return localStorage.getItem("httpp-fb-" + k); localStorage.setItem("httpp-fb-" + k, v); } catch (e) {} return null; }
 if (C.accent) root.style.setProperty("--accent", C.accent);
 var saved = store("theme"); if (saved === "light" || saved === "dark" || saved === "auto") state.theme = saved;
@@ -426,7 +429,7 @@ function render(error) {
   if (error) { main.appendChild(el("div", "error", error)); $("stat").textContent = ""; return; }
   var box = el("div", state.view === "grid" ? "grid" : "list");
   var head = el("div", "head");
-  [["name", "Name"], ["type", "Type"], ["size", "Size"], ["date", "Modified"]].forEach(function (c) {
+  [["name", "Name"], ["type", "Type"], ["size", "Size"], ["date", "Modified"]].filter(function (c) { return C.dates || c[0] !== "date"; }).forEach(function (c) {
     var b = el("button", c[0] === "date" || c[0] === "type" ? c[0] : "", c[1] + (state.key === c[0] ? (state.desc ? " ▾" : " ▴") : ""));
     b.type = "button"; b.setAttribute("aria-pressed", state.key === c[0]);
     b.onclick = function () { if (state.key === c[0]) state.desc = !state.desc; else { state.key = c[0]; state.desc = false; } render(); };
