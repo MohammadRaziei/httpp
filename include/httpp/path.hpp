@@ -135,14 +135,14 @@ public:
         f.open(native(), mode);
         return f;
     }
-    // The whole file; throws std::runtime_error when it cannot be read / written.
-    HTTPP_API std::string read_text() const;
+    // The whole file, or with `start` and `end` the bytes [start, end) of it (cut at the end of the file; empty when
+    // start is at or past it or end <= start); throws std::runtime_error when it cannot be read / written. For a short
+    // line in a file that may be large (a checksum): read_text(0, 1025).
+    static constexpr std::size_t npos = static_cast<std::size_t>(-1);
+    HTTPP_API std::string read_text(std::size_t start = 0, std::size_t end = npos) const;
     HTTPP_API void write_text(const std::string& data) const;
-    // The first `limit` bytes at most (less when the file is shorter); empty when it cannot be read. Never throws. For a
-    // short line in a file that may be large or may not be there (a checksum, a lock's heartbeat).
-    HTTPP_API std::string read_prefix(std::size_t limit) const;
     // write_text() as a protocol other readers and writers can rely on: the data goes to a file of its own beside this one
-    // ("<name>.tmp.<pid>.<n>", on the same disk), and rename() then puts it in place, so at every moment the path holds
+    // ("<name>.tmp.<random>.<n>", on the same disk), and rename() then puts it in place, so at every moment the path holds
     // the whole old text or the whole new one, for another thread and for another process alike; a crash or a full disk
     // leaves the old file as it was. Throws std::runtime_error (and leaves no temporary file) when it cannot. Two of
     // these at once do not corrupt anything: the last rename wins. It does not make read-modify-write safe (take a lock

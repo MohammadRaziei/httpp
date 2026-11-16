@@ -270,7 +270,7 @@ UTEST(path, zz_cleanup) {
     ASSERT_FALSE(area.exists());
 }
 
-// ---- write_text_atomic and read_prefix ----
+// ---- write_text_atomic and read_text ranges ----
 
 namespace {
 path scratch_dir(const char* name) {
@@ -360,14 +360,31 @@ UTEST(path, a_reader_sees_only_whole_texts_while_writers_replace_the_file) {
     d.rmdir();
 }
 
-UTEST(path, read_prefix_reads_at_most_the_limit_and_is_empty_when_unreadable) {
-    const path d = scratch_dir("prefix");
+UTEST(path, read_text_takes_a_byte_range) {
+    const path d = scratch_dir("range");
     const path f = d / "line.txt";
     f.write_text("abcdefghij");
-    ASSERT_TRUE(f.read_prefix(4) == "abcd");
-    ASSERT_TRUE(f.read_prefix(100) == "abcdefghij");
-    ASSERT_TRUE(f.read_prefix(0).empty());
-    ASSERT_TRUE((d / "missing").read_prefix(10).empty());
+    ASSERT_TRUE(f.read_text(0, 4) == "abcd");
+    ASSERT_TRUE(f.read_text(3, 6) == "def");
+    ASSERT_TRUE(f.read_text(7, 100) == "hij");  // cut at the end of the file
+    ASSERT_TRUE(f.read_text(0, 100) == "abcdefghij");
+    ASSERT_TRUE(f.read_text(5) == "fghij");      // from start to the end
+    ASSERT_TRUE(f.read_text(10, 20).empty());    // start at the end
+    ASSERT_TRUE(f.read_text(50, 60).empty());    // start past it
+    ASSERT_TRUE(f.read_text(4, 4).empty());
+    ASSERT_TRUE(f.read_text(6, 2).empty());      // end before start
+    ASSERT_TRUE(f.read_text() == "abcdefghij");
+    bool threw = false;
+    try {
+        (d / "missing").read_text(0, 10);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    ASSERT_TRUE(threw);
+    // a range larger than the read buffer
+    f.write_text(std::string(20000, 'x') + "END");
+    ASSERT_TRUE(f.read_text(19998, 30000) == "xxEND");
+    ASSERT_TRUE(f.read_text(0, 17000).size() == 17000u);
     f.unlink();
     d.rmdir();
 }

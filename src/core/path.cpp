@@ -1,5 +1,4 @@
 #include "httpp/path.hpp"
-#include "internal/process.hpp"
 
 #include <cctype>
 #include <cerrno>
@@ -7,6 +6,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <random>
 #include <stdexcept>
 
 #ifdef _WIN32
@@ -234,10 +234,23 @@ long long path::size() const {
     return i.type == kind::file ? i.size : -1;
 }
 
-std::string path::read_text() const {
+std::string path::read_text(std::size_t start, std::size_t end) const {
     std::ifstream in(native(), std::ios::binary);
     if (!in) throw std::runtime_error("cannot read " + text_);
-    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    if (start == 0 && end == npos) return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    if (end <= start) return std::string();
+    in.seekg(static_cast<std::streamoff>(start));
+    std::size_t want = end - start;  // npos - start does not overflow: end > start
+    std::string text;
+    char buf[8192];
+    while (want > 0 && in) {
+        in.read(buf, static_cast<std::streamsize>(want < sizeof buf ? want : sizeof buf));
+        const std::size_t got = static_cast<std::size_t>(in.gcount());
+        text.append(buf, got);
+        want -= got;
+        if (got == 0) break;
+    }
+    return text;
 }
 
 void path::write_text(const std::string& data) const {
@@ -247,18 +260,12 @@ void path::write_text(const std::string& data) const {
     if (!out) throw std::runtime_error("cannot write " + text_);
 }
 
-std::string path::read_prefix(std::size_t limit) const {
-    std::ifstream in(native(), std::ios::binary);
-    std::string text(limit, '\0');
-    in.read(&text[0], static_cast<std::streamsize>(limit));
-    text.resize(static_cast<std::size_t>(in.gcount()));
-    return text;
-}
-
 void path::write_text_atomic(const std::string& data) const {
-    // The name must not repeat between threads (the counter) or processes (the pid), or two writers would share a file.
+    // The name must not repeat between threads (the counter) or between processes (a random number per process, drawn
+    // once), or two writers would share a file.
+    static const unsigned long long process_id = (static_cast<unsigned long long>(std::random_device{}()) << 32) ^ std::random_device{}();
     static std::atomic<unsigned long long> counter{0};
-    const path tmp(text_ + ".tmp." + std::to_string(detail::current_pid()) + "." + std::to_string(++counter));
+    const path tmp(text_ + ".tmp." + std::to_string(process_id) + "." + std::to_string(++counter));
     try {
         tmp.write_text(data);
     } catch (...) {
