@@ -1,9 +1,11 @@
 """The native `httpp` command line (ADR-0041): server, browse (see also test_file_browser.py), download, curl, `py`, exit codes."""
 
 import base64
+import http.client
 import json
 import os
 import socket
+import ssl
 import stat
 import subprocess
 import sys
@@ -18,6 +20,7 @@ from httpp import Server
 
 import httpp_cli
 from pathlib import Path
+from test_tls import certs  # noqa: F401  (fixture: a self-signed certificate, its key, and a key that does not belong to it)
 
 posix_only = pytest.mark.skipif(os.name == "nt", reason="uses a script as the interpreter")
 
@@ -154,6 +157,114 @@ def test_the_native_commands_log_the_address_and_each_request(httpp_exe, tmp_pat
         _, err = stop_process(proc)
     assert f"listening on http://127.0.0.1:{port}" in err, err
     assert "GET /nope.txt 404" in err, err
+
+
+# --- TLS (server and browse, the same options as `httpp run`) -----------------------------------
+
+
+def _https_get(port, cafile, path="/"):
+    conn = http.client.HTTPSConnection("127.0.0.1", port, context=ssl.create_default_context(cafile=cafile), timeout=5)
+    try:
+        conn.request("GET", path)
+        r = conn.getresponse()
+        return r.status, r.read()
+    finally:
+        conn.close()
+
+
+def _wait_for_port(port, proc, attempts=100):
+    for _ in range(attempts):
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=1).close()
+            return
+        except OSError:
+            assert proc.poll() is None, proc.stderr.read() if proc.stderr else "exited"
+            time.sleep(0.1)
+    raise AssertionError("the server never listened")
+
+
+@pytest.fixture
+def encrypted_key(certs, tmp_path):  # noqa: F811
+    """The test key again, encrypted with AES under the password 'pw'."""
+    out = str(tmp_path / "encrypted_key.pem")
+    subprocess.run(["openssl", "pkey", "-in", certs[1], "-aes256", "-passout", "pass:pw", "-out", out], check=True, capture_output=True)
+    return out
+
+
+@pytest.mark.parametrize("command", ["server", "browse"])
+def test_the_native_commands_serve_https_when_given_a_certificate(httpp_exe, tmp_path, stop_process, certs, command):  # noqa: F811
+    cert, key, _ = certs
+    (tmp_path / "hello.txt").write_text("hi there")
+    page = "/hello.txt" if command == "server" else "/"  # server has no folder page; browse answers / with one
+    port = free_port()
+    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port), "--ssl-certfile", cert, "--ssl-keyfile", key],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        _wait_for_port(port, proc)
+        assert _https_get(port, cert, page)[0] == 200
+        assert httpp.get(f"http://127.0.0.1:{port}{page}").status != 200  # one port serves TLS or plain HTTP, never both
+    finally:
+        out, err = stop_process(proc)
+    assert f"https://127.0.0.1:{port}/" in out, out
+    assert f"listening on https://127.0.0.1:{port}" in err, err
+
+
+def test_server_over_https_serves_the_files(httpp_exe, tmp_path, stop_process, certs):  # noqa: F811
+    cert, key, _ = certs
+    (tmp_path / "hello.txt").write_text("hi there")
+    port = free_port()
+    proc = subprocess.Popen([*httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", str(port), "--ssl-certfile", cert, "--ssl-keyfile", key],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        _wait_for_port(port, proc)
+        assert _https_get(port, cert, "/hello.txt") == (200, b"hi there")
+        assert _https_get(port, cert, "/nope.txt")[0] == 404
+    finally:
+        stop_process(proc)
+
+
+@pytest.mark.parametrize("how", ["argument", "environment"])
+def test_an_encrypted_key_takes_its_password_from_an_argument_or_the_environment(httpp_exe, tmp_path, stop_process, certs, encrypted_key, how):  # noqa: F811
+    cert = certs[0]
+    (tmp_path / "hello.txt").write_text("hi there")
+    port = free_port()
+    flags = ["--ssl-keyfile-password", "pw"] if how == "argument" else []
+    env = {**os.environ, **({"HTTPP_SSL_KEYFILE_PASSWORD": "pw"} if how == "environment" else {})}
+    proc = subprocess.Popen([*httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", str(port), "--ssl-certfile", cert, "--ssl-keyfile", encrypted_key, *flags],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+    try:
+        _wait_for_port(port, proc)
+        assert _https_get(port, cert, "/hello.txt") == (200, b"hi there")
+    finally:
+        stop_process(proc)
+
+
+@pytest.mark.parametrize("command", ["server", "browse"])
+def test_the_certificate_and_the_key_come_together(httpp_exe, tmp_path, certs, command):  # noqa: F811
+    cert, key, _ = certs
+    for flags, missing in ((["--ssl-certfile", cert], "--ssl-keyfile"), (["--ssl-keyfile", key], "--ssl-certfile")):
+        r = run(httpp_exe, command, str(tmp_path), *flags)
+        assert r.returncode == 2 and f"requires {missing}" in r.stderr, r.stderr
+
+
+def test_a_missing_certificate_file_is_a_usage_error(httpp_exe, tmp_path, certs):  # noqa: F811
+    r = run(httpp_exe, "server", str(tmp_path), "--ssl-certfile", str(tmp_path / "nope.pem"), "--ssl-keyfile", certs[1])
+    assert r.returncode == 2 and "nope.pem" in r.stderr, r.stderr
+
+
+@pytest.mark.parametrize("command", ["server", "browse"])
+def test_a_key_that_does_not_belong_to_the_certificate_fails_naming_the_file(httpp_exe, tmp_path, certs, command):  # noqa: F811
+    cert, _, other = certs
+    r = run(httpp_exe, command, str(tmp_path), "--ssl-certfile", cert, "--ssl-keyfile", other)
+    assert r.returncode == 1 and "does not match" in r.stderr and os.path.basename(other) in r.stderr, r.stderr
+
+
+def test_an_encrypted_key_without_its_password_says_so_and_a_wrong_one_fails(httpp_exe, tmp_path, certs, encrypted_key):  # noqa: F811
+    cert = certs[0]
+    r = run(httpp_exe, "server", str(tmp_path), "--ssl-certfile", cert, "--ssl-keyfile", encrypted_key, env={"HTTPP_SSL_KEYFILE_PASSWORD": ""})
+    assert r.returncode == 1 and "encrypted" in r.stderr and "no password" in r.stderr, r.stderr
+    r = run(httpp_exe, "server", str(tmp_path), "--ssl-certfile", cert, "--ssl-keyfile", encrypted_key, "--ssl-keyfile-password", "wrong")
+    assert r.returncode == 1 and "password" in r.stderr, r.stderr
 
 
 @pytest.mark.parametrize("command", ["server", "browse"])

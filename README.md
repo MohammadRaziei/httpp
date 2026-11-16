@@ -406,6 +406,7 @@ touched by several threads at once.
 ```sh
 httpp server ./site --port 8000          # serve a directory (dot names answer 404 unless --hidden; --no-dates sends no file times)
 httpp browse ~/Downloads                 # read-only file browser (see below)
+httpp server ./site --ssl-certfile cert.pem --ssl-keyfile key.pem   # https; browse takes the same options
 httpp download https://example.com/f.zip -o f.zip
 httpp curl https://example.com/api -X POST -H "X-Key: 1" -d "a=1"
 httpp curl https://example.com -L -i -m 10   # follow redirects, print status and headers, give up after 10 s (also -I, -v, -u user:password)

@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <csignal>
 #include <cctype>
 #include <chrono>
 #include <cstring>
@@ -454,6 +455,8 @@ struct server::impl {
     std::size_t pool_max = 0; // 0 = 4 x base
     std::chrono::microseconds pool_grow_after{500};
     bool tls_on = false; // set_tls() was called: the log says https
+    std::string bound_host; // what bind()/listen()/bind_to_any_port() last bound: url() says it
+    int bound_port = -1;
     std::atomic<bool> draining{false}; // shutdown() was called: an engine that finishes early must not stop the others (ADR-0038)
     std::atomic<int> async_timeout{60};
 
@@ -1382,17 +1385,41 @@ directory& directory::set_download_active(bool on) { download_active_ = on; retu
 directory& directory::set_inline_active(bool on) { inline_active_ = on; return *this; }
 directory& directory::set_show_dates(bool on) { show_dates_ = on; return *this; }
 
-void directory::mount(server& s, const std::string& base) const {
+server& directory::mount(server& s, const std::string& base) const {
     if (base.empty() || base[0] != '/') throw std::invalid_argument("directory: base must start with '/'");
     std::string prefix = base;
     while (!prefix.empty() && prefix.back() == '/') prefix.pop_back(); // "/" -> "" (the root)
     s.impl_->mounts.push_back({std::move(prefix), root_.str(), index_, show_hidden_, download_active_, inline_active_, show_dates_});
+    return s;
 }
 
 int server::bind_to_any_port(const std::string& host) {
     const int port = impl_->bind_all(host, 0);
-    if (port >= 0) { HTTPP_LOG(info) << "listening on " << (impl_->tls_on ? "https" : "http") << "://" << host << ':' << port; }
+    if (port >= 0) {
+        impl_->bound_host = host;
+        impl_->bound_port = port;
+        HTTPP_LOG(info) << "listening on " << (impl_->tls_on ? "https" : "http") << "://" << host << ':' << port;
+    }
     return port;
+}
+
+bool server::bind(const std::string& host, int port) {
+    const int bound = impl_->bind_all(host, port);
+    if (bound < 0) {
+        HTTPP_LOG(error) << "cannot listen on " << host << ':' << port;
+        return false;
+    }
+    impl_->bound_host = host;
+    impl_->bound_port = bound;
+    HTTPP_LOG(info) << "listening on " << (impl_->tls_on ? "https" : "http") << "://" << host << ':' << bound;  // after the bind, so a taken port never says it
+    return true;
+}
+
+std::string server::url() const {
+    if (impl_->bound_port < 0) return "";
+    const std::string& h = impl_->bound_host;
+    const bool v6 = h.find(':') != std::string::npos && h.front() != '[';
+    return std::string(impl_->tls_on ? "https" : "http") + "://" + (v6 ? "[" + h + "]" : h) + ":" + std::to_string(impl_->bound_port) + "/";
 }
 
 bool server::listen_after_bind() {
@@ -1451,14 +1478,36 @@ bool server::listen_after_bind() {
     return ok && others_ok.load();
 }
 
-bool server::listen(const std::string& host, int port) {
-    const int bound = impl_->bind_all(host, port);
-    if (bound < 0) {
-        HTTPP_LOG(error) << "cannot listen on " << host << ':' << port;
-        return false;
+bool server::listen(const std::string& host, int port) { return bind(host, port) && listen_after_bind(); }
+
+namespace {
+std::atomic<int> g_stop_signals{0};
+static_assert(std::atomic<int>::is_always_lock_free, "the signal handler needs a lock-free atomic");
+extern "C" void on_stop_signal(int) { g_stop_signals.fetch_add(1); }
+}  // namespace
+
+// shutdown() and stop() do nothing until the loops run, so they are repeated until listen_after_bind() has returned.
+bool server::listen_until_signal(std::chrono::milliseconds grace) {
+    if (impl_->bound_port < 0) return false;
+    g_stop_signals = 0;
+    const auto old_int = std::signal(SIGINT, on_stop_signal);
+    const auto old_term = std::signal(SIGTERM, on_stop_signal);
+    std::atomic<bool> finished{false};
+    bool ok = false;
+    std::thread listener([&] {
+        ok = listen_after_bind();
+        finished.store(true);
+    });
+    while (!finished.load()) {
+        const int n = g_stop_signals.load();
+        if (n >= 2) stop();
+        else if (n == 1) shutdown(grace);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
-    HTTPP_LOG(info) << "listening on " << (impl_->tls_on ? "https" : "http") << "://" << host << ':' << bound;  // after the bind, so a taken port never says it
-    return listen_after_bind();
+    listener.join();
+    std::signal(SIGINT, old_int);
+    std::signal(SIGTERM, old_term);
+    return ok;
 }
 
 void server::stop() { for (auto& e : impl_->engines) e->stop(); }

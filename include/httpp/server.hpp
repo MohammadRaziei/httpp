@@ -222,7 +222,17 @@ public:
     // Block until stop(). Return false if the socket could not be bound/listened on
     // (e.g. port already in use), true after a normal stop().
     HTTPP_API bool listen_after_bind();
+    // Bind the socket now and listen later (listen_after_bind, listen_until_signal): url() is known in between. Returns false when
+    // it cannot be bound (the port is in use); listen(host, port) is bind() then listen_after_bind().
+    HTTPP_API bool bind(const std::string& host, int port);
     HTTPP_API bool listen(const std::string& host, int port);
+    // The address the server is bound to, "https://127.0.0.1:8000/" (https after set_tls, an IPv6 host in brackets, the port that was
+    // really bound), or "" before a bind. The host is the one that was asked for: "0.0.0.0" stays "0.0.0.0".
+    HTTPP_API std::string url() const;
+    // After bind(): listen until SIGINT or SIGTERM. The first signal is shutdown(grace), a second one is stop(). It replaces the
+    // process's SIGINT and SIGTERM handlers while it runs and puts them back before it returns, so call it from one place (one server)
+    // at a time. Returns false when it could not listen, true after a normal stop.
+    HTTPP_API bool listen_until_signal(std::chrono::milliseconds grace = std::chrono::seconds(10));
     HTTPP_API void stop();
     // Graceful stop (ADR-0038), from any thread; listen() returns once it is done. The listener closes at once (new connections
     // are refused), idle keep-alive connections and WebSocket connections are closed at once, and a request that is being
@@ -328,7 +338,7 @@ public:
     // active type (xml, js, unknown) stays a download, and "?download=1" still forces one. Only has an effect together with
     // set_download_active(true). Default: false.
     HTTPP_API directory& set_inline_active(bool on);
-    HTTPP_API void mount(server& s, const std::string& base = "/") const;
+    HTTPP_API server& mount(server& s, const std::string& base = "/") const;  // returns `s` itself (no copy), so .set_tls(...) can follow
 
 private:
     path root_;

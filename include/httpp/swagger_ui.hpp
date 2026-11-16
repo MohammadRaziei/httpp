@@ -39,7 +39,7 @@ public:
     HTTPP_API swagger_ui& set_docs_path(std::string path);      // default "/docs"
     HTTPP_API swagger_ui& set_openapi_url(std::string url);     // where the page loads the OpenAPI document from; default "/openapi.json"
     HTTPP_API swagger_ui& set_title(std::string title);         // shown in the tab (escaped); default "API"
-    HTTPP_API void mount(server& s) const;
+    HTTPP_API server& mount(server& s) const;  // returns `s` itself (no copy)
 
 private:
     std::string docs_path_;

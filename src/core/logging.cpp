@@ -878,6 +878,19 @@ state& st() {
 
 void set_log_level(log_level level) { st().level = static_cast<int>(level); }
 
+bool set_log_level(std::string_view name) {
+    std::string low(name);
+    for (char& c : low) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    static const std::pair<const char*, log_level> levels[] = {{"trace", log_level::trace}, {"debug", log_level::debug}, {"info", log_level::info},
+                                                               {"warning", log_level::warning}, {"error", log_level::error}, {"off", log_level::off}};
+    for (const auto& l : levels)
+        if (low == l.first) {
+            set_log_level(l.second);
+            return true;
+        }
+    return false;
+}
+
 bool set_log_file(const path& file) {
     const std::string& path = file.str();
     auto& s = st();

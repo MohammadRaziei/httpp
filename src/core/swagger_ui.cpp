@@ -110,7 +110,7 @@ swagger_ui& swagger_ui::set_docs_path(std::string path) {
 swagger_ui& swagger_ui::set_openapi_url(std::string url) { openapi_url_ = std::move(url); return *this; }
 swagger_ui& swagger_ui::set_title(std::string title) { title_ = std::move(title); return *this; }
 
-void swagger_ui::mount(server& s) const {
+server& swagger_ui::mount(server& s) const {
     const std::string& openapi_url = openapi_url_;
     const std::string& title = title_;
     std::string base = docs_path_;
@@ -155,6 +155,7 @@ void swagger_ui::mount(server& s) const {
             }
         });
     }
+    return s;
 }
 
 } // namespace httpp

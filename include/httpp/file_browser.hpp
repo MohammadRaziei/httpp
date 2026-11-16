@@ -65,7 +65,7 @@ public:
 
     // Adds the routes to `s` under `base` (must start with '/'). Throws std::invalid_argument for a bad `base`, a root that is not a folder, or the root
     // of the file system. The browser can be mounted more than once (on several servers, or under several bases).
-    HTTPP_API void mount(server& s, const std::string& base = "/") const;
+    HTTPP_API server& mount(server& s, const std::string& base = "/") const;  // returns `s` itself (no copy), so .set_tls(...) can follow
 
 private:
     path root_;

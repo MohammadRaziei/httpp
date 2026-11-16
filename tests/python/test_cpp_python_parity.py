@@ -58,6 +58,7 @@ TARGETS = {
     ("server.hpp", "directory"): httpp.Directory,
     ("server.hpp", "server_request"): httpp.ServerRequest,  # httpp::server_request: the handler's request object
     ("url.hpp", ""): httpp.URL,  # the codec helpers and fetch_public_suffix_list are statics of URL (httpp::url is urlparser::url)
+    ("banner.hpp", ""): None,  # the terminal banner of the httpp commands (ADR-0078); a Python program prints its own
     ("logging.hpp", ""): httpp,  # set_log_* live in httpp; the module functions (level_name, get_logger, ...) imitate Python's own `logging` (ADR-0057), see NOT_EXPOSED
     ("path.hpp", "path"): None,  # pathlib.Path is the Python side of httpp::path: every path argument takes one (ADR-0055)
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
@@ -123,6 +124,9 @@ CTOR_ARGS["https_redirect"] = {"set_trust_forwarded_proto": ("trust_forwarded_pr
 # Public C++ names that Python deliberately does not carry (ADR-0017 rule 3). An entry must still be unbound (a test
 # checks), so adding the binding later forces the entry to go.
 NOT_EXPOSED = {
+    ("server", "bind"): "not necessary: Server.run binds and serves in one call; bind_to_any_port covers the ephemeral-port case (ADR-0078)",
+    ("server", "url"): "not necessary: Python knows the host and the port it passed to Server.run (ADR-0078)",
+    ("server", "listen_until_signal"): "not necessary: Server.run already serves until a signal (ADR-0078)",
     ("server", "route_io"): "not necessary: Python handlers need the GIL anyway, so add_loop_route is the fast path",
     ("server", "route_shared"): "not necessary: add_route already hands Python the request on a pool thread",
     ("server", "route_ws"): "Python registers WebSocket routes with the Server.websocket decorator (ADR-0027)",

@@ -154,7 +154,8 @@ std::shared_ptr<const tls_context> make_tls_server_context(const std::string& ce
     if (r != 0) { error = "cannot parse the certificate file '" + cert_file + "' (PEM expected): " + mbed_error(r); return nullptr; }
     r = mbedtls_pk_parse_key(&c->own_key, reinterpret_cast<const unsigned char*>(key.c_str()), key.size() + 1,
                              password.empty() ? nullptr : reinterpret_cast<const unsigned char*>(password.data()), password.size());
-    if (r != 0) { error = "cannot parse the key file '" + key_file + "' (PEM expected" + (password.empty() ? "" : ", or the password is wrong, or the key is encrypted with 3DES, which is not supported: use AES") + "): " + mbed_error(r); return nullptr; }
+    if (r != 0) { error = "cannot parse the key file '" + key_file + "' (PEM expected" + (!password.empty() ? ", or the password is wrong, or the key is encrypted with 3DES, which is not supported: use AES"
+                                                                                        : key.find("ENCRYPTED") != std::string::npos ? ", but the key is encrypted and no password was given" : "") + "): " + mbed_error(r); return nullptr; }
     {
         // The key belongs to the certificate when both give the same public key. Compared as DER rather than with mbedtls_pk_check_pair,
         // which signs and verifies a test message through PSA and fails for RSA keys in this build.

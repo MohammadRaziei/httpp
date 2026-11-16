@@ -528,6 +528,8 @@ enum class log_level { trace, debug, info, warning, error, off };
 
 // Messages below this level are dropped. Thread-safe.
 HTTPP_API void set_log_level(log_level level);
+// By name: "trace", "debug", "info", "warning", "error" or "off" (case does not matter). Another name returns false and changes nothing.
+HTTPP_API bool set_log_level(std::string_view name);
 
 // Writes the log to this file (truncated) instead of stderr; "" goes back to stderr.
 // Returns false (and keeps the previous output) if the file cannot be opened.

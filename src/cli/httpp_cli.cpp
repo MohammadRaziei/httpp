@@ -24,17 +24,15 @@
 #include "httpp/server.hpp"
 #include "httpp/url.hpp"
 
-#include <atomic>
 #include <chrono>
-#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <stdexcept>
 #include <initializer_list>
 #include <iostream>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -76,61 +74,36 @@ std::string absolute_path(const std::string& dir) {
 // --log-level changes it (ADR-0011). The library itself stays at warning for listen(); only these commands raise it.
 const std::initializer_list<std::string> k_log_levels = {"trace", "debug", "info", "warning", "error", "off"};
 
-void apply_log_level(const std::string& name) {
-    using httpp::log_level;
-    static const std::pair<const char*, log_level> levels[] = {{"trace", log_level::trace}, {"debug", log_level::debug}, {"info", log_level::info},
-                                                               {"warning", log_level::warning}, {"error", log_level::error}, {"off", log_level::off}};
-    for (const auto& l : levels)
-        if (name == l.first) httpp::set_log_level(l.second);  // the option values are checked by CLI11 against k_log_levels
+// What `server` and `browse` do once their server is built: set the log level, show the banner, bind (so the address is known), say where it is,
+// then serve until Ctrl+C or SIGTERM. All of it is calls into the library.
+int run_server(httpp::server& srv, const std::string& what, const std::string& host, int port, double grace, bool banner, const std::string& log_level) {
+    httpp::set_log_level(log_level);  // the option values are checked by CLI11 against k_log_levels
+    if (banner && log_level != "off") httpp::print_banner();  // a terminal only: a pipe, a log file and a CI run never see it
+    if (!srv.bind(host, port)) return fail("cannot listen on " + host + ":" + std::to_string(port));
+    std::cout << what << " at " << srv.url() << std::endl;
+    return srv.listen_until_signal(std::chrono::milliseconds(static_cast<long long>(grace * 1000.0))) ? 0 : 1;
 }
 
-// A small banner for the two commands that stay up (server, browse). It goes to stderr and only when that is a terminal, so a pipe, a log
-// file and a CI run never see it; --log-level off and --no-banner turn it off for a terminal too.
-bool stderr_is_terminal() {
-#ifdef _WIN32
-    return _isatty(_fileno(stderr)) != 0;
-#else
-    return ::isatty(::fileno(stderr)) != 0;
-#endif
-}
+// HTTPS for the two commands that stay up (server, browse), with the same option names as `httpp run`. The password of an encrypted key
+// can come from the environment so it stays out of the process list.
+struct tls_args {
+    std::string certfile;
+    std::string keyfile;
+    std::string keyfile_password;
+    bool on() const { return !certfile.empty(); }
+};
 
-void print_banner(bool enabled, const std::string& log_level) {
-    if (!enabled || log_level == "off" || !stderr_is_terminal()) return;
-    std::cerr << " _   _   _\n"
-                 "| |_| |_| |_ _ __ _ __\n"
-                 "| ' \\  _|  _| '_ \\ '_ \\\n"
-                 "|_||_\\__|\\__| .__/ .__/\n"
-                 "            |_|  |_|\n"
-                 "  v" << k_version << "\n\n";
-}
-
-// --- serving until Ctrl+C or SIGTERM ---
-
-std::atomic<int> g_signals{0};
-static_assert(std::atomic<int>::is_always_lock_free, "the signal handler needs a lock-free atomic");
-
-extern "C" void on_signal(int) { g_signals.fetch_add(1); }
-
-// Blocks until the server is done. The first signal drains (requests in progress finish within `grace`), the second cuts at once.
-// shutdown() and stop() do nothing until the port is bound, so they are repeated until listen() has returned.
-bool serve(httpp::server& srv, const std::string& host, int port, double grace) {
-    std::signal(SIGINT, on_signal);
-    std::signal(SIGTERM, on_signal);
-    std::atomic<bool> finished{false};
-    bool listened = false;
-    std::thread listener([&] {
-        listened = srv.listen(host, port);
-        finished.store(true);
-    });
-    const auto grace_ms = std::chrono::milliseconds(static_cast<long long>(grace * 1000.0));
-    while (!finished.load()) {
-        int n = g_signals.load();
-        if (n >= 2) srv.stop();
-        else if (n == 1) srv.shutdown(grace_ms);
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-    listener.join();
-    return listened;
+void add_tls_options(CLI::App* cmd, tls_args& t) {
+    CLI::Validator existing_file = CLI::ExistingFile;
+    existing_file.description("");  // otherwise the help says FILE:FILE
+    auto* cert = cmd->add_option("--ssl-certfile", t.certfile, "Serve https: the certificate chain (PEM, leaf first)")
+                     ->type_name("FILE")->check(existing_file);
+    auto* key = cmd->add_option("--ssl-keyfile", t.keyfile, "The private key (PEM) of --ssl-certfile")
+                    ->type_name("FILE")->check(existing_file);
+    cert->needs(key);
+    key->needs(cert);
+    cmd->add_option("--ssl-keyfile-password", t.keyfile_password, "The password of an encrypted --ssl-keyfile (or set HTTPP_SSL_KEYFILE_PASSWORD, which keeps it out of the process list)")
+        ->type_name("PASSWORD")->envname("HTTPP_SSL_KEYFILE_PASSWORD");
 }
 
 struct server_args {
@@ -142,6 +115,7 @@ struct server_args {
     bool hidden = false;
     bool no_dates = false;
     bool no_banner = false;
+    tls_args tls;
 };
 
 int cmd_server(const server_args& a) {
@@ -151,14 +125,11 @@ int cmd_server(const server_args& a) {
         // The same as serve_directory("/", dir), with the two privacy settings: names that start with a dot answer 404 unless --hidden, and
         // --no-dates sends no file times.
         httpp::directory(httpp::path(a.directory)).set_show_hidden(a.hidden).set_show_dates(!a.no_dates).mount(srv, "/");
+        if (a.tls.on()) srv.set_tls(httpp::path(a.tls.certfile), httpp::path(a.tls.keyfile), a.tls.keyfile_password);
     } catch (const std::exception& e) {
         return fail(e.what());
     }
-    print_banner(!a.no_banner, a.log_level);
-    std::cout << "Serving '" << a.directory << "' at http://" << a.host << ":" << a.port << "/" << std::endl;
-    apply_log_level(a.log_level);
-    if (!serve(srv, a.host, a.port, a.grace)) return fail("cannot listen on " + a.host + ":" + std::to_string(a.port));
-    return 0;
+    return run_server(srv, "Serving '" + a.directory + "'", a.host, a.port, a.grace, !a.no_banner, a.log_level);
 }
 
 struct browse_args {
@@ -180,6 +151,7 @@ struct browse_args {
     bool no_powered_by = false;
     bool no_dates = false;
     bool no_banner = false;
+    tls_args tls;
 };
 
 int cmd_browse(const browse_args& a) {
@@ -194,14 +166,11 @@ int cmd_browse(const browse_args& a) {
         const fb::sort_key sort = a.sort == "size" ? fb::sort_key::size : a.sort == "date" ? fb::sort_key::date : fb::sort_key::name;
         fb(root).set_title(a.title).set_theme(theme).set_accent(a.accent).set_search(!a.no_search).set_show_hidden(a.hidden).set_show_dates(!a.no_dates)
             .set_max_entries(a.max_entries).set_view(view).set_sort(sort).set_safe_mode(a.safe).set_zip(!a.no_zip).set_powered_by(!a.no_powered_by).mount(srv, "/");
+        if (a.tls.on()) srv.set_tls(httpp::path(a.tls.certfile), httpp::path(a.tls.keyfile), a.tls.keyfile_password);
     } catch (const std::exception& e) {
         return fail(e.what());
     }
-    print_banner(!a.no_banner, a.log_level);
-    std::cout << "Browsing '" << root << "' (read-only) at http://" << a.host << ":" << a.port << "/" << std::endl;
-    apply_log_level(a.log_level);
-    if (!serve(srv, a.host, a.port, a.grace)) return fail("cannot listen on " + a.host + ":" + std::to_string(a.port));
-    return 0;
+    return run_server(srv, "Browsing '" + root + "' (read-only)", a.host, a.port, a.grace, !a.no_banner, a.log_level);
 }
 
 // Standard output as plain bytes. On Windows a text-mode stdout turns every "\n" into "\r\n", which corrupts a body.
@@ -472,6 +441,7 @@ int main(int argc, char** argv) {
     c_server->add_flag("--hidden", sv.hidden, "Serve names that start with a dot too (otherwise they answer 404)");
     c_server->add_flag("--no-dates", sv.no_dates, "Send no file times: no Last-Modified and no ETag (every answer says Cache-Control: no-cache)");
     c_server->add_flag("--no-banner", sv.no_banner, "Do not print the banner on a terminal");
+    add_tls_options(c_server, sv.tls);
     c_server->add_option("--shutdown-timeout", sv.grace, "On Ctrl+C or SIGTERM, how long requests in progress may take to finish")
         ->check(CLI::NonNegativeNumber)->capture_default_str()->type_name("SECONDS");
     c_server->add_option("--log-level", sv.log_level, "What goes to stderr: info is the address and one line per request, off is nothing")
@@ -492,6 +462,7 @@ int main(int argc, char** argv) {
     c_browse->add_flag("--no-zip", b.no_zip, "Do not offer selecting files and downloading them as one ZIP (it is on here; the library default is off)");
     c_browse->add_flag("--no-dates", b.no_dates, "Show and send no file times: no Modified column, no sort by date, no Last-Modified or ETag, ZIP entries dated 1980-01-01");
     c_browse->add_flag("--no-banner", b.no_banner, "Do not print the banner on a terminal");
+    add_tls_options(c_browse, b.tls);
     c_browse->add_flag("--no-powered-by", b.no_powered_by, "Hide the \"Powered by httpp\" line at the bottom of the page");
     c_browse->add_option("--max-entries", b.max_entries, "Longest folder listing")->check(CLI::PositiveNumber)->capture_default_str()->type_name("N");
     c_browse->add_option("--view", b.view)->check(CLI::IsMember({"list", "grid"}))->capture_default_str();

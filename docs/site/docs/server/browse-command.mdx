@@ -103,6 +103,8 @@ The same page fits a narrow screen: the toolbar wraps and the type and date colu
 | `--no-zip` | off | no selecting and no ZIP downloads |
 | `--no-dates` | off | show and send no file times (see above) |
 | `--no-banner` | off | do not print the banner on a terminal |
+| `--ssl-certfile FILE`, `--ssl-keyfile FILE` | none | serve `https` (see [HTTPS](#https)); give both |
+| `--ssl-keyfile-password PASSWORD` | none | the password of an encrypted key; `HTTPP_SSL_KEYFILE_PASSWORD` works too |
 | `--no-powered-by` | off | hide the "Powered by httpp" line |
 | `--max-entries N` | `5000` | longest folder listing |
 | `--view` | `list` | first view: `list` or `grid` |
@@ -119,5 +121,17 @@ The same page fits a narrow screen: the toolbar wraps and the type and date colu
 All the settings above exist as methods in both languages, and the [reference page](file-browser.mdx) lists them.
 
 ## Before you share it
+
+## HTTPS
+
+Give a certificate and its private key (both PEM) and the command serves `https` instead of `http`:
+
+```sh
+httpp browse ~/Downloads --ssl-certfile cert.pem --ssl-keyfile key.pem
+```
+
+The address it prints starts with `https://`. The certificate file holds the chain with the server's own certificate first. One port serves TLS or plain HTTP, never both, so a plain `http://` request to it is dropped. For a key encrypted with a password, pass `--ssl-keyfile-password`, or set `HTTPP_SSL_KEYFILE_PASSWORD` in the environment so the password stays out of the process list. The options are the ones `httpp run` has, and the command refuses to start, naming the file, if one cannot be read or the key does not belong to the certificate.
+
+For use on your own computer, a certificate your browser trusts is easiest to make with [mkcert](https://github.com/FiloSottile/mkcert); `openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 30 -subj /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1 -keyout key.pem -out cert.pem` makes a self-signed one, which the browser warns about once.
 
 The page is read-only: nothing can be uploaded, renamed or deleted. It has no login, and it listens on `127.0.0.1` by default, so only your own computer can reach it. `--host 0.0.0.0` opens it to everyone on the network, so use it only where that is fine. Names that start with a dot stay hidden unless you pass `--hidden`, links that lead out of the folder are refused, and `--no-dates` keeps the times of your files from the viewers. In your own program, the `before` hook is the place to ask for a key (see [hooks](hooks.mdx)).
