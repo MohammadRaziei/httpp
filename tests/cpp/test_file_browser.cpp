@@ -447,7 +447,10 @@ UTEST(httpp_file_browser, zip_is_off_by_default_and_the_page_does_not_offer_it) 
     local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).mount(s, "/files"); });
     EXPECT_EQ(404, httpp::client::fetch(srv.url("/files/api/zip?path=/sub")).status);
     httpp::client c("127.0.0.1", srv.port);
-    EXPECT_EQ(404, c.post("/files/api/zip", "path=%2Fsub").status);
+    // The value goes through a variable: EXPECT_EQ puts the text of its arguments into a printf format, and a "%2F"
+    // in it would be read as a conversion (-Wformat, and undefined behaviour when the expectation fails).
+    const int posted_status = c.post("/files/api/zip", "path=%2Fsub").status;
+    EXPECT_EQ(404, posted_status);
     auto page = httpp::client::fetch(srv.url("/files"));
     ASSERT_EQ(200, page.status);
     EXPECT_TRUE(contains(page.body, "\"zip\":false"));
@@ -514,7 +517,8 @@ UTEST(httpp_file_browser, zip_refuses_what_the_other_routes_refuse_and_too_many_
     EXPECT_EQ(400, status("path=/../outside"));
     EXPECT_EQ(400, status("path=/sub&name=.."));
     EXPECT_EQ(400, status("path=/&name=sub/deep"));        // one name in the folder, not a path
-    EXPECT_EQ(400, status("path=/&name=a%5Cb"));            // backslash
+    const int backslash_status = status("path=/&name=a%5Cb");  // a variable: see the note in the test above
+    EXPECT_EQ(400, backslash_status);                          // backslash
     EXPECT_EQ(404, status("path=/&name=.dotfile"));         // hidden
     EXPECT_EQ(404, status("path=/.hidden"));
     EXPECT_EQ(404, status("path=/&name=nope.txt"));

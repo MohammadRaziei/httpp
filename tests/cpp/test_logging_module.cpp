@@ -1,5 +1,6 @@
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -389,6 +390,131 @@ UTEST(httpp_logging_tests, test_many_threads_log_without_losing_or_interleaving_
     log.remove_handler(h);
     ASSERT_EQ(int(counted), threads * each);
     ASSERT_TRUE(whole);
+    log.set_level(lg::level::notset);
+}
+
+// ---- callback_handler(fn, serialized = false) (ADR-0074) ---------------------------------------------------
+
+// Runs `body` in its own thread. A deadlock ends the program with a message (the stuck threads cannot be
+// joined) instead of leaving the test run to hang until an outside timeout kills it.
+template <class F>
+void run_or_abort(const char* what, F body) {
+    std::atomic<bool> done{false};
+    std::thread runner([&] {
+        body();
+        done = true;
+    });
+    const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!done.load() && std::chrono::steady_clock::now() < limit)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    if (!done.load()) {
+        std::fprintf(stderr, "deadlock: %s\n", what);
+        std::abort();
+    }
+    runner.join();
+}
+
+UTEST(httpp_logging_tests, test_a_serialized_callback_handler_never_runs_two_records_at_once) {
+    lg::logger& log = lg::get_logger("test.logging.serialized");
+    log.set_level(lg::level::info);
+    std::atomic<int> inside{0}, most{0}, seen{0};
+    auto& h = log.add_handler(lg::callback_handler([&](const lg::record&) {
+        const int now = ++inside;
+        int old = most.load();
+        while (now > old && !most.compare_exchange_weak(old, now)) {}
+        std::this_thread::sleep_for(std::chrono::microseconds(200));  // long enough for another thread to try
+        --inside;
+        ++seen;
+    }));
+    std::vector<std::thread> pool;
+    for (int t = 0; t < 4; ++t)
+        pool.emplace_back([&log] {
+            for (int i = 0; i < 40; ++i) log.info("x");
+        });
+    for (std::thread& th : pool) th.join();
+    log.remove_handler(h);
+    ASSERT_EQ(seen.load(), 160);
+    ASSERT_EQ(most.load(), 1);
+    log.set_level(lg::level::notset);
+}
+
+UTEST(httpp_logging_tests, test_an_unserialized_callback_handler_lets_threads_in_together) {
+    lg::logger& log = lg::get_logger("test.logging.unserialized");
+    log.set_level(lg::level::info);
+    std::atomic<int> arrived{0}, saw_the_other{0};
+    auto& h = log.add_handler(lg::callback_handler(
+        [&](const lg::record&) {
+            ++arrived;
+            // Each thread waits, still inside the callback, until the other one has come in as well. With the
+            // lock held the second thread cannot come in, and the first gives up at the limit.
+            const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (arrived.load() < 2 && std::chrono::steady_clock::now() < limit) std::this_thread::yield();
+            if (arrived.load() >= 2) ++saw_the_other;
+        },
+        false));
+    std::thread a([&log] { log.info("a"); });
+    std::thread b([&log] { log.info("b"); });
+    a.join();
+    b.join();
+    log.remove_handler(h);
+    ASSERT_EQ(saw_the_other.load(), 2);
+    log.set_level(lg::level::notset);
+}
+
+// The Python GIL, played by a recursive mutex: the callback needs it (as Python's `with gil` does), and a
+// "Python" thread holds it while it logs. With the handler's lock held around the callback this is a
+// deadlock: the library thread holds the lock and waits for the GIL, the Python thread holds the GIL and
+// waits for the lock. The order is forced (not left to luck): the Python thread takes the GIL, the library
+// thread logs and gets stuck inside the callback, and only then does the Python thread log.
+UTEST(httpp_logging_tests, test_an_unserialized_callback_that_waits_for_a_lock_the_logging_thread_holds_does_not_deadlock) {
+    lg::logger& log = lg::get_logger("test.logging.gil");
+    log.set_level(lg::level::info);
+    std::recursive_mutex gil;
+    std::atomic<int> seen{0};
+    std::atomic<bool> python_has_gil{false}, library_is_logging{false};
+    auto& h = log.add_handler(lg::callback_handler(
+        [&](const lg::record&) {
+            std::lock_guard<std::recursive_mutex> hold(gil);
+            ++seen;
+        },
+        false));
+    run_or_abort("an unserialized callback_handler waited for a lock held by a logging thread", [&] {
+        std::thread python_thread([&] {  // holds the "GIL" around a call that logs
+            std::lock_guard<std::recursive_mutex> hold(gil);
+            python_has_gil = true;
+            while (!library_is_logging.load()) std::this_thread::yield();
+            // Give the library thread time to get into the callback and wait for the GIL (a short sleep is
+            // enough: the test cannot pass by luck, it can only wait longer than needed).
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            log.info("python");
+        });
+        std::thread library_thread([&] {  // not a Python thread: it holds nothing while it logs
+            while (!python_has_gil.load()) std::this_thread::yield();
+            library_is_logging = true;
+            log.info("library");
+        });
+        python_thread.join();
+        library_thread.join();
+    });
+    log.remove_handler(h);
+    ASSERT_EQ(seen.load(), 2);
+    log.set_level(lg::level::notset);
+}
+
+UTEST(httpp_logging_tests, test_an_unserialized_callback_may_log_again) {
+    lg::logger& log = lg::get_logger("test.logging.relog");
+    lg::logger& other = lg::get_logger("test.logging.relog.other");  // a child: its records also reach `log`'s handler
+    log.set_level(lg::level::info);
+    std::atomic<int> seen{0};
+    auto& h = log.add_handler(lg::callback_handler(
+        [&](const lg::record& r) {
+            ++seen;
+            if (r.name == "test.logging.relog") other.info("again");  // would be a self-deadlock with the lock held
+        },
+        false));
+    run_or_abort("an unserialized callback_handler locked itself", [&] { log.info("first"); });
+    log.remove_handler(h);
+    ASSERT_EQ(seen.load(), 2);
     log.set_level(lg::level::notset);
 }
 

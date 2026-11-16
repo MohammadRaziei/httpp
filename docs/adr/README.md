@@ -77,6 +77,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0071](0071-client-pool-keeps-every-connection-of-a-burst.md) | The client pool keeps every connection of a burst (idle limit 8 to 256): `httpp.Client` scaling on free-threaded Python | accepted |
 | [0072](0072-httpp-url-is-liburlparser-url.md) | `httpp::url` is `urlparser::url` (liburlparser 2.3.0, shared); `url_*` policy functions; `fetch_public_suffix_list` | accepted |
 | [0073](0073-file-times-off-hidden-default-and-banner.md) | File times can be switched off (`show_dates`, `--no-dates`), `httpp server` hides dot names (`--hidden`), and the two commands print a small banner on a terminal | accepted |
+| [0074](0074-callback-handler-can-run-unserialized.md) | `callback_handler(fn, serialized = false)` calls `fn` without the handler's lock, so a callback that waits for the Python GIL cannot deadlock | accepted |
 
 ## Not decided yet
 

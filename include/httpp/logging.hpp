@@ -108,7 +108,8 @@ using filter_fn = std::function<bool(const record&)>;  // return false to drop t
 //     };
 //
 // emit() is called with the handler's lock held, only for a record that passed the level and the filters,
-// so it needs no locking of its own. A handler can be moved but not copied.
+// so it needs no locking of its own. A handler can be moved but not copied. (The one exception is a
+// callback_handler made with serialized = false, see below.)
 class HTTPP_API handler {
 public:
     handler();
@@ -130,6 +131,10 @@ protected:
     virtual void emit(const record& r) = 0;
     virtual void do_flush() {}
     std::string format(const record& r) const;  // with this handler's formatter (the default one if none)
+    // false: handle() releases the lock before emit(), so several threads can be inside emit() at once and
+    // emit() can log again. Such an emit() must do its own locking and must not call format() (it reads the
+    // formatter that set_formatter() replaces under the lock). Set it once, before the handler is added.
+    void set_serialized(bool on) noexcept;
 
 private:
     struct state;
@@ -177,9 +182,16 @@ private:
 
 // Calls a function with each record (not formatted; format it with a formatter if you want a line). This
 // is how the Python binding hands records to Python's logging.
+//
+// By default `fn` is called with the handler's lock held, one record at a time. That is a deadlock when `fn`
+// has to wait for something that a logging thread holds while it logs: Python's GIL is the case that
+// matters (a library thread waits in `fn` for the GIL with the lock held, while a Python thread that holds
+// the GIL logs through the same handler and waits for the lock). Pass serialized = false and `fn` is called
+// without the lock: nothing is held while it waits, `fn` may be running in several threads at once (it
+// serializes itself, as taking the GIL does) and it may log again, so it must not log without a limit.
 class HTTPP_API callback_handler : public handler {
 public:
-    explicit callback_handler(std::function<void(const record&)> fn);
+    explicit callback_handler(std::function<void(const record&)> fn, bool serialized = true);
 
 protected:
     void emit(const record& r) override;

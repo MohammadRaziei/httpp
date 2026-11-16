@@ -244,6 +244,7 @@ const std::string& formatter::pattern() const noexcept { return impl_->pattern; 
 
 struct handler::state {
     std::atomic<int> lv{int(level::notset)};
+    std::atomic<bool> serialized{true};  // emit() under `mu` (default), or after it is released
     std::mutex mu;
     formatter fmt;
     std::vector<filter_fn> filters;
@@ -267,11 +268,14 @@ void handler::add_filter(filter_fn f) {
     st_->filters.push_back(std::move(f));
 }
 
+void handler::set_serialized(bool on) noexcept { st_->serialized.store(on); }
+
 void handler::handle(const record& r) {
     if (int(r.levelno) < st_->lv.load()) return;
-    std::lock_guard<std::mutex> lock(st_->mu);
+    std::unique_lock<std::mutex> lock(st_->mu);
     for (const filter_fn& f : st_->filters)
         if (f && !f(r)) return;
+    if (!st_->serialized.load()) lock.unlock();  // the filters ran under the lock; emit() waits for nobody's lock
     emit(r);
 }
 
@@ -341,7 +345,9 @@ void file_handler::emit(const record& r) {
 
 void file_handler::do_flush() { out_.flush(); }
 
-callback_handler::callback_handler(std::function<void(const record&)> fn) : fn_(std::move(fn)) {}
+callback_handler::callback_handler(std::function<void(const record&)> fn, bool serialized) : fn_(std::move(fn)) {
+    set_serialized(serialized);
+}
 
 void callback_handler::emit(const record& r) {
     if (fn_) fn_(r);
