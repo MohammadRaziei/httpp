@@ -91,6 +91,11 @@ if(DEFINED SKBUILD)
     # (see examples/find_httpp_via_python/ for a full working example.)
     # httpp::url is urlparser::url (ADR-0072), so the SDK carries liburlparser's shared library and its one header: the
     # exported httpp_core links it PUBLIC. Both land in the same export set as httpp_core.
+    # liburlparser names its own install include dir ("include", or "liburlparser/include" in its wheel), which is not where
+    # this SDK keeps urlparser.h: point the exported target at httpp/sdk/include, or a consumer's find_package(httpp) fails with
+    # 'Imported target "httpp::httpp_core" includes non-existent path <prefix>/include'.
+    set_target_properties(urlparser PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
+        "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src/third_party/liburlparser/include>;$<INSTALL_INTERFACE:httpp/sdk/include>")
     install(TARGETS httpp_core urlparser
         EXPORT httppTargets
         ARCHIVE DESTINATION httpp/sdk/lib COMPONENT httpp_wheel
