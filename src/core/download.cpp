@@ -1,4 +1,5 @@
 #include "httpp/download.hpp"
+#include "httpp/file_lock.hpp"
 #include "httpp/url.hpp"
 #include "httpp/progress.hpp"
 #include "httpp/sha256.hpp"
@@ -9,14 +10,12 @@
 #include <cctype>
 #include <cerrno>
 #include <chrono>
-#include <condition_variable>
-#include <mutex>
+#include <future>
 #include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <memory>
-#include <random>
 #include <stdexcept>
 #include <utility>
 
@@ -224,109 +223,6 @@ download_result run_resumable(const std::string& url_str, const std::string& des
     return result;
 }
 
-// The first `limit` bytes of a small file that may not be there (a checksum, a lock's heartbeat): empty when unreadable.
-std::string read_head(const httpp::path& file, std::size_t limit) {
-    try {
-        return file.read_text(0, limit);
-    } catch (const std::runtime_error&) {
-        return std::string();
-    }
-}
-
-// ---- the cross-process lock (download::lock) -------------------------------------------------------------------
-// Creating a directory is atomic everywhere, so whoever creates "<dest>.lock" owns it (path::mkdir). Liveness is
-// judged by the waiter's own clock from whether `alive` *changes*, not from file times, so clock skew and coarse mtimes
-// do not matter.
-
-class dir_lock {
-public:
-    // `stale_after`: how long `alive` may stay unchanged before its owner is taken for dead (the download's timeout).
-    dir_lock(std::string path, std::chrono::milliseconds stale_after) : path_(std::move(path)) {
-        using clock = std::chrono::steady_clock;
-        // the owner proves it lives twice per wait window (at most every 200 ms); waiters look more often than that
-        // at most 200 ms: a waiter's threshold is whole seconds (>= 1 s), so it always sees several beats
-        heartbeat_ = clamp(stale_after / 2, std::chrono::milliseconds(200));
-        const auto poll = clamp(stale_after / 15, std::chrono::milliseconds(200));
-        std::string last_seen;
-        auto last_change = clock::now();
-        bool first = true;
-        for (;;) {
-            const httpp::path dir(path_);
-            if (dir.mkdir()) {
-                owned_ = true;
-                break;
-            }
-            if (!dir.is_dir()) break; // cannot create it (read-only directory?): go on without a lock
-            waited_ = true;
-            const std::string seen = read_head(httpp::path(path_) / "alive", 64);
-            const auto now = clock::now();
-            if (first || seen != last_seen) { // the owner is alive (or this is the first look)
-                last_seen = seen;
-                last_change = now;
-                first = false;
-            } else if (now - last_change > stale_after) { // no sign of life for the whole timeout: its owner died
-                (httpp::path(path_) / "alive").unlink();
-                httpp::path(path_).rmdir();
-                first = true;
-                continue;
-            }
-            // ponytail: a lock that keeps being updated is waited for without limit; upgrade path: a cap
-            std::this_thread::sleep_for(poll);
-        }
-        if (owned_) {
-            beat(0);
-            heart_ = std::thread([this] { run_heartbeat(); });
-        }
-    }
-
-    ~dir_lock() {
-        if (!owned_) return; // never touch a lock that belongs to someone else
-        {
-            std::lock_guard<std::mutex> guard(mutex_);
-            stop_ = true;
-        }
-        wake_.notify_all();
-        if (heart_.joinable()) heart_.join();
-        (httpp::path(path_) / "alive").unlink();
-        httpp::path(path_).rmdir();
-    }
-
-    dir_lock(const dir_lock&) = delete;
-    dir_lock& operator=(const dir_lock&) = delete;
-
-    // true if someone else held the lock at some point, i.e. the file may have been downloaded meanwhile
-    bool waited() const { return waited_; }
-
-private:
-    void beat(unsigned long long n) const {
-        std::ofstream out((httpp::path(path_) / "alive").native(), std::ios::binary | std::ios::trunc);
-        out << token_ << ' ' << n << '\n';  // the token tells one owner's heartbeat from the next owner's
-    }
-
-    void run_heartbeat() {
-        std::unique_lock<std::mutex> lk(mutex_);
-        unsigned long long n = 0;
-        while (!stop_) {
-            beat(++n);
-            wake_.wait_for(lk, heartbeat_, [this] { return stop_; });
-        }
-    }
-
-    static std::chrono::milliseconds clamp(std::chrono::milliseconds v, std::chrono::milliseconds most) {
-        return v < std::chrono::milliseconds(5) ? std::chrono::milliseconds(5) : (v > most ? most : v);
-    }
-
-    std::string path_;
-    const unsigned long long token_ = (static_cast<unsigned long long>(std::random_device{}()) << 32) ^ std::random_device{}();
-    std::chrono::milliseconds heartbeat_{1000};
-    bool owned_ = false;
-    bool waited_ = false;
-    bool stop_ = false;
-    std::mutex mutex_;
-    std::condition_variable wake_;
-    std::thread heart_;
-};
-
 // Everything one download needs, copied out of the builder so run_async() can outlive it.
 struct job {
     std::string url, dest;
@@ -364,7 +260,11 @@ bool expected_digest(const job& j, std::string& digest, std::string& error) {
             error = "could not download the checksum file " + sum_url + ": " + got.error;
             return false;
         }
-        const std::string text = read_head(httpp::path(tmp), 1025);
+        std::string text;
+        try {
+            text = httpp::path(tmp).read_text(0, 1025);  // one short line; more is read only to reject it
+        } catch (const std::runtime_error&) {
+        }
         httpp::path(tmp).unlink();
         try {
             digest = parse_sha256_checksum(text, file_name_of(j.url));
@@ -389,7 +289,7 @@ download_result execute(const job& j) {
     // Locked first: the checksum file is fetched to a temporary name next to dest, which two processes must not share.
     const long timeout = j.timeout_seconds > 0 ? j.timeout_seconds : 15;
     const auto stale_after = std::min(std::chrono::milliseconds(timeout * 1000), j.max_wait);
-    const auto lock = std::make_unique<dir_lock>(j.dest + ".lock", stale_after);
+    const auto lock = std::make_unique<httpp::file_lock>(httpp::path(j.dest), stale_after);
 
     std::string expected, error;
     if (!expected_digest(j, expected, error)) return failure(error);  // before the file, so nothing is downloaded

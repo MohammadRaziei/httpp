@@ -66,6 +66,7 @@ TARGETS = {
     ("swagger_ui.hpp", ""): httpp,  # find_swagger_ui_asset only (NOT_EXPOSED)
     ("swagger_ui.hpp", "swagger_ui"): httpp.SwaggerUI,
     ("file_browser.hpp", "file_browser"): httpp.FileBrowser,
+    ("file_lock.hpp", "file_lock"): httpp.FileLock,
     ("middleware.hpp", "cors"): httpp.middleware.CORSMiddleware,
     ("middleware.hpp", "trusted_host"): httpp.middleware.TrustedHostMiddleware,
     ("middleware.hpp", "https_redirect"): httpp.middleware.HTTPSRedirectMiddleware,

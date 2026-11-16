@@ -290,7 +290,7 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
     cdef cppclass microseconds "std::chrono::microseconds":
         microseconds(long long)
     cdef cppclass cpp_milliseconds "std::chrono::milliseconds":
-        cpp_milliseconds(long long)
+        cpp_milliseconds(long long) noexcept nogil
 
     cdef cppclass cpp_download "httpp::download":
         cpp_download(string url, string dest_path) except +
@@ -306,6 +306,12 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         cpp_download& set_max_wait(cpp_milliseconds max_wait) except +
         download_result run() except + nogil
 
+
+cdef extern from "httpp/file_lock.hpp" namespace "httpp":
+    cdef cppclass cpp_file_lock "httpp::file_lock":
+        cpp_file_lock(string target, cpp_milliseconds stale_after) except + nogil
+        cbool owned() noexcept
+        cbool waited() noexcept
 
 cdef extern from "httpp/sha256.hpp" namespace "httpp":
     string cpp_sha256_hex "httpp::sha256_hex"(const void* data, size_t size) except + nogil
