@@ -45,8 +45,7 @@ UTEST(httpp_client_request, sends_custom_headers) {
         (void)req;
         res.status = 200;
         // httpp::server_request doesn't expose headers yet - this test only
-        // checks the call succeeds; header content is checked at the
-        // curl::request builder level in the next test.
+        // checks the call succeeds.
         res.body = "ok";
     });
     running_server rs(std::move(s));

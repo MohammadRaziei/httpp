@@ -22,6 +22,7 @@
 #include "httpp/file_browser.hpp"
 #include "httpp/logging.hpp"
 #include "httpp/server.hpp"
+#include "httpp/url.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -38,6 +39,7 @@
 #include <vector>
 
 #ifdef _WIN32
+#  include <fcntl.h>
 #  include <io.h>
 #  include <process.h>
 #  include <sys/stat.h>
@@ -202,6 +204,13 @@ int cmd_browse(const browse_args& a) {
     return 0;
 }
 
+// Standard output as plain bytes. On Windows a text-mode stdout turns every "\n" into "\r\n", which corrupts a body.
+void stdout_binary() {
+#ifdef _WIN32
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
+}
+
 int cmd_download(const std::string& url, const std::string& output, bool quiet) {
     if (!output.empty()) {
         // A real download to a file, with a terminal progress bar: all of it is httpp::download.
@@ -218,43 +227,104 @@ int cmd_download(const std::string& url, const std::string& output, bool quiet) 
         std::cerr << "error: request failed with status " << res.status << std::endl;
         return 1;
     }
+    stdout_binary();
     std::fwrite(res.body.data(), 1, res.body.size(), stdout);
-    std::fputc('\n', stdout);
     std::fflush(stdout);
     return 0;
 }
 
-int cmd_curl(const std::string& url, const std::string& method, const std::vector<std::string>& headers, const std::string& data,
-             bool has_data, const std::string& output) {
-    httpp::request req(url);
-    if (!method.empty()) req.method(method);
-    for (const std::string& h : headers) {
+std::string trim_ws(const std::string& s) {
+    const char* ws = " \t\r\n";
+    std::size_t b = s.find_first_not_of(ws);
+    if (b == std::string::npos) return std::string();
+    return s.substr(b, s.find_last_not_of(ws) - b + 1);
+}
+
+// The status line and the headers of a response, ended by an empty line, the way they come off the wire. The engine speaks
+// HTTP/1.1 and the response carries neither a version nor a reason phrase, so the line is "HTTP/1.1 <status>".
+std::string head_text(const httpp::response& res) {
+    std::string out = "HTTP/1.1 " + std::to_string(res.status) + "\r\n";
+    for (const auto& [name, value] : res.headers) out += name + ": " + value + "\r\n";
+    out += "\r\n";
+    return out;
+}
+
+// Everything `httpp curl` takes from the command line.
+struct curl_args {
+    std::string url, method, data, output, user;
+    std::vector<std::string> headers;
+    bool has_data = false;
+    bool has_user = false;
+    bool include_headers = false; // -i
+    bool head_only = false;       // -I
+    bool verbose = false;         // -v
+    bool location = false;        // -L
+    long max_time = 0;            // -m, in seconds; 0 when not given
+};
+
+int cmd_curl(const curl_args& a) {
+    httpp::request req(a.url);
+
+    // The method that will be sent, as curl picks it: -X wins, then -I, then POST when there is a body.
+    std::string effective = a.method;
+    if (effective.empty()) effective = a.head_only ? "HEAD" : (a.has_data ? "POST" : "GET");
+    if (!a.method.empty() || a.head_only) req.method(effective);
+
+    std::vector<std::pair<std::string, std::string>> sent;
+    for (const std::string& h : a.headers) {
         std::size_t colon = h.find(':');
         if (colon == std::string::npos) {
             std::cerr << "error: malformed header (expected 'Name: value'): '" << h << "'" << std::endl;
             return 1;
         }
-        auto trim = [](std::string s) {
-            const char* ws = " \t\r\n";
-            std::size_t b = s.find_first_not_of(ws);
-            if (b == std::string::npos) return std::string();
-            return s.substr(b, s.find_last_not_of(ws) - b + 1);
-        };
-        req.header(trim(h.substr(0, colon)), trim(h.substr(colon + 1)));
+        sent.emplace_back(trim_ws(h.substr(0, colon)), trim_ws(h.substr(colon + 1)));
+        req.header(sent.back().first, sent.back().second);
     }
-    if (has_data) req.data(data);
-
-    httpp::response res = req.run();
-    if (!output.empty()) {
-        std::ofstream out(httpp::path(output).native(), std::ios::binary);
-        if (!out) {
-            std::cerr << "error: cannot write '" << output << "'" << std::endl;
+    if (a.has_data) req.data(a.data);
+    if (a.location) req.follow_redirects(true);
+    if (a.max_time > 0) req.timeout(a.max_time);
+    if (a.has_user) {
+        std::size_t colon = a.user.find(':'); // only the first colon splits: a password may contain more
+        if (colon == std::string::npos) {
+            std::cerr << "error: malformed --user (expected 'user:password')" << std::endl;
             return 1;
         }
-        out.write(res.body.data(), static_cast<std::streamsize>(res.body.size()));
+        req.basic_auth(a.user.substr(0, colon), a.user.substr(colon + 1));
+    }
+
+    if (a.verbose) {
+        httpp::url target = httpp::parse_url(a.url);
+        std::string path = httpp::url_path(target);
+        std::string query = httpp::url_query(target);
+        if (!query.empty()) path += "?" + query;
+        std::cerr << "> " << effective << " " << path << " HTTP/1.1\n";
+        for (const auto& [name, value] : sent) std::cerr << "> " << name << ": " << value << "\n";
+        std::cerr << ">" << std::endl;
+    }
+
+    httpp::response res = req.run();
+
+    if (a.verbose && res.status != 0) {
+        std::cerr << "< HTTP/1.1 " << res.status << "\n";
+        for (const auto& [name, value] : res.headers) std::cerr << "< " << name << ": " << value << "\n";
+        std::cerr << "<" << std::endl;
+    }
+
+    // -i and -I put the head in front of the body (-I has no body). A failed transfer has no head to show.
+    std::string out;
+    if ((a.include_headers || a.head_only) && res.status != 0) out += head_text(res);
+    if (!a.head_only) out += res.body;
+
+    if (!a.output.empty()) {
+        std::ofstream file(httpp::path(a.output).native(), std::ios::binary);
+        if (!file) {
+            std::cerr << "error: cannot write '" << a.output << "'" << std::endl;
+            return 1;
+        }
+        file.write(out.data(), static_cast<std::streamsize>(out.size()));
     } else {
-        std::fwrite(res.body.data(), 1, res.body.size(), stdout);
-        std::fputc('\n', stdout);
+        stdout_binary();
+        std::fwrite(out.data(), 1, out.size(), stdout);
         std::fflush(stdout);
     }
     if (!res.ok()) {
@@ -440,14 +510,19 @@ int main(int argc, char** argv) {
     c_download->add_flag("--quiet,-q", dl_quiet, "With -o, suppress the progress bar");
 
     // curl
-    std::string curl_url, curl_method, curl_data, curl_output;
-    std::vector<std::string> curl_headers;
-    auto* c_curl = app.add_subcommand("curl", "Make a request (limited curl-like subset: -X/-H/-d).");
-    c_curl->add_option("url", curl_url)->required();
-    c_curl->add_option("--request,-X", curl_method, "HTTP method (default: GET, or POST if -d is given)");
-    c_curl->add_option("--header,-H", curl_headers, "Extra header 'Name: value' (repeatable)")->type_name("HEADER");
-    auto* curl_data_opt = c_curl->add_option("--data,-d", curl_data, "Request body");
-    c_curl->add_option("--output,-o", curl_output, "Write the response body to this file instead of stdout");
+    curl_args ca;
+    auto* c_curl = app.add_subcommand("curl", "Make a request (a small curl-like subset: -X -H -d -o -i -I -v -L -m -u).");
+    c_curl->add_option("url", ca.url)->required();
+    c_curl->add_option("--request,-X", ca.method, "HTTP method (default: GET, or POST if -d is given, or HEAD with -I)");
+    c_curl->add_option("--header,-H", ca.headers, "Extra header 'Name: value' (repeatable)")->type_name("HEADER");
+    auto* curl_data_opt = c_curl->add_option("--data,-d", ca.data, "Request body");
+    c_curl->add_option("--output,-o", ca.output, "Write the response body to this file instead of stdout");
+    c_curl->add_flag("--include,-i", ca.include_headers, "Print the status line and the response headers before the body");
+    c_curl->add_flag("--head,-I", ca.head_only, "Send HEAD and print only the status line and the headers");
+    c_curl->add_flag("--verbose,-v", ca.verbose, "Print the request line and the -H headers, then the response status and headers, to stderr");
+    c_curl->add_flag("--location,-L", ca.location, "Follow redirects");
+    c_curl->add_option("--max-time,-m", ca.max_time, "Give up after this many seconds")->check(CLI::Range(1L, 2147483647L))->type_name("SECONDS");
+    auto* curl_user_opt = c_curl->add_option("--user,-u", ca.user, "Basic authentication as 'user:password'")->type_name("USER:PASSWORD");
 
     // `py` exists for --help only: the real work is done before parsing.
     app.add_subcommand("py", "Python commands: run, path (need a Python with httpp installed). Everything after `py` goes to Python.");
@@ -462,7 +537,11 @@ int main(int argc, char** argv) {
     if (c_server->parsed()) return cmd_server(sv);
     if (c_browse->parsed()) return cmd_browse(b);
     if (c_download->parsed()) return cmd_download(dl_url, dl_output, dl_quiet);
-    if (c_curl->parsed()) return cmd_curl(curl_url, curl_method, curl_headers, curl_data, curl_data_opt->count() > 0, curl_output);
+    if (c_curl->parsed()) {
+        ca.has_data = curl_data_opt->count() > 0;
+        ca.has_user = curl_user_opt->count() > 0;
+        return cmd_curl(ca);
+    }
 
     std::cout << app.help() << std::flush;
     return 1;

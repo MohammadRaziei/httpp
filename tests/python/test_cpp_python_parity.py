@@ -51,7 +51,6 @@ TARGETS = {
     ("client.hpp", "client"): httpp.Client,
     ("client.hpp", "async_client"): httpp.AsyncClient,
     ("client.hpp", "request"): httpp.Request,
-    ("curl.hpp", "request"): httpp.Request,  # httpp::curl::request: Python's Request has the same builder names
     ("download.hpp", "download"): httpp.Download,
     ("progress.hpp", "bar"): httpp.progress.bar,
     ("server.hpp", "server"): httpp.Server,

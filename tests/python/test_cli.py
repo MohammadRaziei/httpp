@@ -1,5 +1,6 @@
 """The native `httpp` command line (ADR-0041): server, browse (see also test_file_browser.py), download, curl, `py`, exit codes."""
 
+import base64
 import json
 import os
 import socket
@@ -69,11 +70,20 @@ def echo_app():
 
     @app.route("/echo", ("GET", "POST", "PUT", "DELETE"))
     def echo(request):
-        return json.dumps({"method": request.method, "body": request.body.decode(), "x": request.headers.get("x-test"), "ct": request.headers.get("content-type")})
+        return json.dumps({"method": request.method, "body": request.body.decode(), "x": request.headers.get("x-test"), "ct": request.headers.get("content-type"), "auth": request.headers.get("authorization")})
 
     @app.get("/text")
     def text():
         return "plain body"
+
+    @app.get("/old")
+    def old():
+        return httpp.redirect("/text")
+
+    @app.get("/slow")
+    def slow():
+        time.sleep(2)
+        return "late"
 
     return app
 
@@ -294,7 +304,7 @@ def test_download_to_a_file(httpp_exe, tmp_path):
 def test_download_to_stdout(httpp_exe, echo_app):
     with running(echo_app) as url:
         r = run(httpp_exe, "download", f"{url}/text")
-    assert r.returncode == 0 and r.stdout == "plain body\n"
+    assert r.returncode == 0 and r.stdout == "plain body"
 
 
 def test_download_failure_exits_1(httpp_exe, echo_app, tmp_path):
@@ -364,6 +374,87 @@ def test_curl_a_failed_request_exits_1(httpp_exe, echo_app):
     assert r.returncode == 1 and "status 404" in r.stderr
     r = run(httpp_exe, "curl", f"http://127.0.0.1:{free_port()}/")
     assert r.returncode == 1 and "status 0" in r.stderr
+
+
+def test_curl_prints_the_body_byte_for_byte(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/text")
+    assert r.returncode == 0 and r.stdout == "plain body"  # no newline added, like curl
+
+
+def test_curl_i_prints_status_and_headers_before_the_body(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/text", "-i")
+    assert r.returncode == 0, r.stderr
+    out = r.stdout.replace("\r\n", "\n")  # subprocess text mode turns CRLF into LF on Windows only
+    head, _, body = out.partition("\n\n")
+    assert head.splitlines()[0] == "HTTP/1.1 200"
+    assert "content-type" in head.lower()
+    assert body == "plain body"
+
+
+def test_curl_capital_i_sends_head_and_prints_only_the_headers(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/text", "-I")
+    assert r.returncode == 0, r.stderr
+    out = r.stdout.replace("\r\n", "\n")
+    assert out.splitlines()[0].startswith("HTTP/1.1 200")
+    assert "plain body" not in out
+    assert out.endswith("\n\n")  # the empty line that ends the head
+
+
+def test_curl_v_shows_the_exchange_on_stderr_and_keeps_stdout_clean(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/echo", "-v", "-H", "X-Test: seen")
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["x"] == "seen"
+    assert "> GET /echo" in r.stderr and "> X-Test: seen" in r.stderr
+    assert "< HTTP/1.1 200" in r.stderr and "< content-type" in r.stderr.lower()
+
+
+def test_curl_follows_redirects_only_with_l(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        plain = run(httpp_exe, "curl", f"{url}/old", "-i")
+        followed = run(httpp_exe, "curl", f"{url}/old", "-L")
+        long_form = run(httpp_exe, "curl", f"{url}/old", "--location")
+    assert plain.stdout.startswith("HTTP/1.1 302") and "location" in plain.stdout.lower()
+    assert followed.returncode == 0 and followed.stdout == "plain body"
+    assert long_form.stdout == "plain body"
+
+
+def test_curl_max_time_stops_a_slow_server(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        started = time.monotonic()
+        r = run(httpp_exe, "curl", f"{url}/slow", "-m", "1")
+        elapsed = time.monotonic() - started
+    assert r.returncode == 1 and "status 0" in r.stderr
+    assert elapsed < 2
+
+
+def test_curl_max_time_must_be_a_number(httpp_exe):
+    assert run(httpp_exe, "curl", "http://127.0.0.1:1/", "-m", "soon").returncode == 2
+
+
+def test_curl_u_sends_basic_auth(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/echo", "-u", "alice:s3:cret")
+        long_form = run(httpp_exe, "curl", f"{url}/echo", "--user", "alice:s3:cret")
+    expected = "Basic " + base64.b64encode(b"alice:s3:cret").decode()  # only the first colon splits
+    assert json.loads(r.stdout)["auth"] == expected
+    assert json.loads(long_form.stdout)["auth"] == expected
+
+
+def test_curl_u_without_a_password_is_an_error(httpp_exe):
+    r = run(httpp_exe, "curl", "http://127.0.0.1:1/", "-u", "alice")
+    assert r.returncode == 1 and "user:password" in r.stderr
+
+
+def test_curl_i_with_o_writes_the_head_to_the_file_too(httpp_exe, echo_app, tmp_path):
+    out = tmp_path / "with-head.txt"
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/text", "-i", "-o", str(out))
+    assert r.returncode == 0 and r.stdout == ""
+    assert out.read_text().startswith("HTTP/1.1 200") and out.read_text().endswith("plain body")
 
 
 # --- py: the Python half -----------------------------------------------------------------------

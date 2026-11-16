@@ -408,6 +408,7 @@ httpp server ./site --port 8000          # serve a directory (dot names answer 4
 httpp browse ~/Downloads                 # read-only file browser (see below)
 httpp download https://example.com/f.zip -o f.zip
 httpp curl https://example.com/api -X POST -H "X-Key: 1" -d "a=1"
+httpp curl https://example.com -L -i -m 10   # follow redirects, print status and headers, give up after 10 s (also -I, -v, -u user:password)
 ```
 
 Commands that run your Python code go behind `py`; everything after `py` goes to Python as typed (the SDK's own `bin/httpp` starts the Python named by `HTTPP_PYTHON`, or the one on PATH):
