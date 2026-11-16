@@ -42,6 +42,10 @@ such changes are listed under **Changed**).
 - **`httpp/curl.hpp` and `httpp::curl::request` (ADR-0077, breaking for C++ code).** It was a curl-flavoured subset of `httpp::request` (`method`, `header`, `data`, `content_type`, `timeout`, `follow_redirects`) that nothing used. Use `httpp::request`, which has all of those and more. (`httpp/curl_compat.h` followed it, see the next entry.)
 - **`httpp/curl_compat.h` (the libcurl-style `curl_easy_*` C API) (ADR-0078, breaking for C++ code).** A subset of 15 options that nothing in the project used and that could not keep the promise of a header swap (no auth, proxy, TLS options, cookies or `multi`; the numeric error codes differed from libcurl's). Use `httpp::request`. The README now presents `httpp curl` and `httpp::request` as the modern counterpart of curl instead of a migration path.
 
+### Fixed
+
+- **Percent-encoded file names on macOS (Content-Disposition, `file://` URIs, URL escaping).** The encoders asked `std::isalnum` about bytes of 0x80 and above, which on macOS (a UTF-8 locale) says yes for some of them, so a UTF-8 file name such as the Persian `.zip` name of a file browser download came out with raw lead bytes instead of `%D9%81...`. Only ASCII letters and digits are left unescaped now, whatever the locale.
+
 ## [0.9.0] - 2026-11-14
 
 ### Added

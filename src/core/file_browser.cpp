@@ -201,7 +201,7 @@ std::string content_disposition(const std::string& file_name) {
     std::string ascii, encoded;
     for (unsigned char c : file_name) {
         ascii += (c >= 0x20 && c < 0x7f) ? static_cast<char>(c) : '_';
-        if (std::isalnum(c) || c == '.' || c == '-' || c == '_') encoded += static_cast<char>(c);
+        if ((c < 0x80 && std::isalnum(c)) || c == '.' || c == '-' || c == '_') encoded += static_cast<char>(c);
         else { encoded += '%'; encoded += hex[c >> 4]; encoded += hex[c & 15]; }
     }
     return "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + encoded;

@@ -112,7 +112,7 @@ std::string encode(const std::string& s, bool keep_slash) {
     static const char* hex = "0123456789ABCDEF";
     std::string out;
     for (unsigned char c : s) {
-        if (std::isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~' || (keep_slash && c == '/')) out += static_cast<char>(c);
+        if ((c < 0x80 && std::isalnum(c)) || c == '-' || c == '.' || c == '_' || c == '~' || (keep_slash && c == '/')) out += static_cast<char>(c);
         else { out += '%'; out += hex[c >> 4]; out += hex[c & 15]; }
     }
     return out;

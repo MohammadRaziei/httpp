@@ -870,7 +870,7 @@ struct server::impl {
         std::string ascii, encoded;
         static const char hex[] = "0123456789ABCDEF";
         for (unsigned char c : name) {
-            const bool unreserved = std::isalnum(c) || c == '.' || c == '-' || c == '_' || c == '~';
+            const bool unreserved = (c < 0x80 && std::isalnum(c)) || c == '.' || c == '-' || c == '_' || c == '~';
             if (unreserved) encoded += static_cast<char>(c); else { encoded += '%'; encoded += hex[c >> 4]; encoded += hex[c & 15]; }
             ascii += (c >= 0x20 && c < 0x7f && c != '"' && c != '\\' && c != '%') ? static_cast<char>(c) : '_';
         }

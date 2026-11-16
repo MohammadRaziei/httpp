@@ -219,7 +219,7 @@ std::string path::as_uri() const {
     std::string out = "file://";
     if (abs.empty() || abs[0] != '/') out += '/'; // "C:/a" -> "file:///C:/a"
     for (unsigned char c : abs) {
-        if (std::isalnum(c) || c == '/' || c == ':' || c == '-' || c == '.' || c == '_' || c == '~') out += static_cast<char>(c);
+        if ((c < 0x80 && std::isalnum(c)) || c == '/' || c == ':' || c == '-' || c == '.' || c == '_' || c == '~') out += static_cast<char>(c);
         else { out += '%'; out += hex[c >> 4]; out += hex[c & 15]; }
     }
     return out;
