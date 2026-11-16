@@ -50,7 +50,7 @@
 #include "httpp/client.hpp"
 #include "httpp/server.hpp"
 #include "httpp/router.hpp"
-#include "httpp/log.hpp"
+#include "httpp/logging.hpp"
 #include "httpp/progress.hpp"
 #include "httpp/download.hpp"
 #include "httpp/curl_compat.h"

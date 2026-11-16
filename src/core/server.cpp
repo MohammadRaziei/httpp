@@ -5,7 +5,7 @@
 // static files, hooks and response building live here; the engine only moves bytes.
 
 #include "internal/async_server.hpp"
-#include "internal/log.hpp"
+#include "internal/logging.hpp"
 #include "internal/response_compression.hpp"
 #include "internal/urlencoded.hpp"
 #include "internal/websocket.hpp"

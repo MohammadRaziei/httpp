@@ -3,6 +3,7 @@
 #include <mutex>
 #include <cstdio>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -11,6 +12,8 @@
 
 #include "utest/utest.h"
 #include "httpp/logging.hpp"
+#include "httpp/client.hpp"
+#include "local_server.hpp"
 
 // httpp::logging: levels, the logger tree, handlers, the formatter. Every test uses its own logger names
 // ("test.logging.<case>") and handlers it adds itself, so tests do not see each other and the root logger
@@ -568,4 +571,187 @@ UTEST(httpp_logging_tests, test_formatter_rejects_a_bad_pattern) {
     ASSERT_THROWS(lg::formatter("%(message)f"), std::invalid_argument);
     ASSERT_THROWS(lg::formatter("%x"), std::invalid_argument);
     ASSERT_SAME(lg::formatter("%(name)s %(levelno)d").pattern(), "%(name)s %(levelno)d");
+}
+
+// ---- The library's own log: set_log_level, set_log_file, set_log_callback, set_log_system (formerly test_log.cpp) ----
+
+namespace {
+
+struct captured {
+    std::mutex mu;
+    std::vector<std::pair<httpp::log_level, std::string>> lines;
+    std::string where;
+    bool contains(const std::string& needle) {
+        std::lock_guard<std::mutex> lk(mu);
+        for (auto& l : lines) if (l.second.find(needle) != std::string::npos) return true;
+        return false;
+    }
+};
+
+// Restores the defaults when a test ends, so tests do not leak logging state into each other.
+struct log_guard {
+    ~log_guard() {
+        httpp::set_log_callback({});
+        httpp::set_log_level(httpp::log_level::warning);
+    }
+};
+
+void install(captured& c) {
+    httpp::set_log_callback([&c](httpp::log_level l, const std::string& where, const std::string& msg) {
+        std::lock_guard<std::mutex> lk(c.mu);
+        c.lines.emplace_back(l, msg);
+        c.where = where;
+    });
+}
+
+// A route that throws, with no exception handler: the library logs it and answers 500.
+void trigger_warning() {
+    testutil::local_server srv([](httpp::server& s) {
+        s.get("/boom", [](const httpp::server_request&, httpp::response&) { throw std::runtime_error("kaboom"); });
+    });
+    auto r = httpp::client::fetch(srv.url("/boom"));
+    (void)r;
+}
+
+} // namespace
+
+UTEST(log, a_swallowed_handler_exception_is_logged_as_a_warning) {
+    log_guard g;
+    captured c;
+    install(c);
+    httpp::set_log_level(httpp::log_level::warning);
+    trigger_warning();
+    ASSERT_TRUE(c.contains("kaboom"));
+    ASSERT_TRUE(c.contains("/boom"));
+    std::lock_guard<std::mutex> lk(c.mu);
+    ASSERT_TRUE(c.lines.front().first == httpp::log_level::warning);
+    ASSERT_FALSE(c.where.empty());
+}
+
+UTEST(log, the_level_filters_messages) {
+    log_guard g;
+    captured c;
+    install(c);
+    httpp::set_log_level(httpp::log_level::error); // a warning is below this
+    trigger_warning();
+    ASSERT_FALSE(c.contains("kaboom"));
+    httpp::set_log_level(httpp::log_level::off);
+    trigger_warning();
+    ASSERT_FALSE(c.contains("kaboom"));
+    httpp::set_log_level(httpp::log_level::warning);
+    trigger_warning();
+    ASSERT_TRUE(c.contains("kaboom"));
+}
+
+UTEST(log, debug_level_shows_connection_level_detail) {
+    log_guard g;
+    captured c;
+    install(c);
+    httpp::set_log_level(httpp::log_level::trace);
+    trigger_warning();
+    std::lock_guard<std::mutex> lk(c.mu);
+    ASSERT_TRUE(c.lines.size() >= 2); // the warning plus trace/debug lines (connection closed ...)
+}
+
+UTEST(log, a_file_name_is_utf8_and_a_missing_directory_is_reported) {
+    log_guard g;
+    const std::string path = "httpp_test_log_\xD9\x84\xD9\x88\xD8\xAC.txt"; // a Persian word, in UTF-8
+    std::remove(path.c_str());
+    ASSERT_TRUE(httpp::set_log_file(path));
+    httpp::set_log_level(httpp::log_level::warning);
+    trigger_warning();
+    httpp::set_log_file("");
+    std::ifstream in(path);
+    ASSERT_TRUE(in.good());
+    in.close();
+    std::remove(path.c_str());
+    ASSERT_FALSE(httpp::set_log_file("no_such_directory_for_httpp/log.txt"));
+}
+
+UTEST(log, can_write_to_a_file_and_back_to_stderr) {
+    log_guard g;
+    const std::string path = "httpp_test_log.txt";
+    std::remove(path.c_str());
+    ASSERT_TRUE(httpp::set_log_file(path));
+    httpp::set_log_level(httpp::log_level::warning);
+    trigger_warning();
+    httpp::set_log_file(""); // closes and flushes the file sink
+    std::ifstream in(path);
+    std::stringstream text;
+    text << in.rdbuf();
+    ASSERT_TRUE(text.str().find("kaboom") != std::string::npos);
+    ASSERT_TRUE(text.str().find("httpp") != std::string::npos); // the tag
+    std::remove(path.c_str());
+}
+
+UTEST(log, an_unwritable_file_is_reported_and_keeps_the_previous_output) {
+    log_guard g;
+    captured c;
+    install(c);
+    ASSERT_FALSE(httpp::set_log_file("/no/such/dir/x.log"));
+    trigger_warning();
+    ASSERT_TRUE(c.contains("kaboom")); // still going to the callback
+}
+
+UTEST(log, std_clog_is_left_alone) {
+    // Whatever the library does, it must neither redirect the process-wide std::clog nor write into it.
+    std::ostringstream mine;
+    std::streambuf* original = std::clog.rdbuf(mine.rdbuf());
+    {
+        log_guard g;
+        captured c;
+        install(c);
+        trigger_warning();
+        httpp::set_log_callback({}); // back to the default sink (stderr)
+        trigger_warning();
+    }
+    std::streambuf* during = std::clog.rdbuf(original);
+    ASSERT_TRUE(during == mine.rdbuf()); // still our buffer: nobody swapped it
+    ASSERT_TRUE(mine.str().empty());     // and nothing was written through it
+}
+
+// --- access log: one info line per answered request (method, target, status) ---------------------
+
+namespace {
+void fetch_ok_and_missing() {
+    testutil::local_server srv([](httpp::server& s) {
+        s.get("/ok", [](const httpp::server_request&, httpp::response& res) { res.status = 200; res.body = "hi"; });
+    });
+    (void)httpp::client::fetch(srv.url("/ok?x=1"));
+    (void)httpp::client::fetch(srv.url("/nope"));
+}
+} // namespace
+
+UTEST(log, info_level_logs_one_access_line_per_request) {
+    log_guard g;
+    captured c;
+    install(c);
+    httpp::set_log_level(httpp::log_level::info);
+    fetch_ok_and_missing();
+    ASSERT_TRUE(c.contains("GET /ok?x=1 200"));
+    ASSERT_TRUE(c.contains("GET /nope 404")); // answers the server makes itself are logged too
+    std::lock_guard<std::mutex> lk(c.mu);
+    for (auto& l : c.lines) ASSERT_TRUE(l.first == httpp::log_level::info);
+}
+
+UTEST(log, the_default_level_does_not_log_requests) {
+    log_guard g;
+    captured c;
+    install(c);
+    httpp::set_log_level(httpp::log_level::warning);
+    fetch_ok_and_missing();
+    ASSERT_FALSE(c.contains("GET /ok"));
+}
+
+UTEST(log, info_level_says_where_the_server_is_listening) {
+    log_guard g;
+    captured c;
+    install(c);
+    httpp::set_log_level(httpp::log_level::info);
+    { testutil::local_server srv([](httpp::server&) {}); }
+    ASSERT_TRUE(c.contains("listening on http://127.0.0.1:"));
+    c.lines.clear();
+    httpp::set_log_level(httpp::log_level::warning);
+    { testutil::local_server srv([](httpp::server&) {}); }
+    ASSERT_FALSE(c.contains("listening on"));
 }

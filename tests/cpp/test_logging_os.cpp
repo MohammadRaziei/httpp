@@ -2,7 +2,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "internal/logging_os.hpp"
+#include "httpp/logging.hpp"
 #include "utest/utest.h"
 
 // The handlers that write to the log of the operating system (stb/logging_os.hpp). What each system
@@ -151,7 +151,7 @@ UTEST(logging_os, an_event_log_handler_registers_its_source_and_can_be_moved) {
 #endif
 
 // The public switch (httpp/log.hpp): the platform's native log, and the others refused when absent.
-#include "httpp/log.hpp"
+#include "httpp/logging.hpp"
 
 UTEST(logging_os, set_log_system_switches_to_the_native_log_and_back) {
 #if HTTPP_LOG_HAS_SYSLOG || HTTPP_LOG_HAS_ANDROID || HTTPP_LOG_HAS_UNIFIED || HTTPP_LOG_HAS_DEBUGSTRING

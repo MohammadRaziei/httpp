@@ -6,7 +6,7 @@
 # thread may hold while it waits for the GIL.
 # ---------------------------------------------------------------------------------------------
 
-cdef extern from "httpp/log.hpp" namespace "httpp":
+cdef extern from "httpp/logging.hpp" namespace "httpp":
     cdef enum class log_level:
         trace
         debug
@@ -27,7 +27,7 @@ cdef extern from "httpp/log.hpp" namespace "httpp":
 
 cdef extern from *:
     """
-    #include "httpp/log.hpp"
+    #include "httpp/logging.hpp"
     typedef void (*httpp_py_log_fn)(void*, int, const std::string&, const std::string&);
     static void httpp_py_set_log_callback(void* ctx, httpp_py_log_fn fn) {
         if (!fn) { httpp::set_log_callback({}); return; }

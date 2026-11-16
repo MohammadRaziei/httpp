@@ -1,5 +1,5 @@
 #include "internal/websocket.hpp"
-#include "internal/log.hpp"
+#include "internal/logging.hpp"
 
 #include <psa/crypto.h>
 

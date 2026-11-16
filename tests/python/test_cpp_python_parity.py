@@ -59,9 +59,8 @@ TARGETS = {
     ("server.hpp", "directory"): httpp.Directory,
     ("server.hpp", "server_request"): httpp.ServerRequest,  # httpp::server_request: the handler's request object
     ("url.hpp", ""): httpp.URL,  # the codec helpers and fetch_public_suffix_list are statics of URL (httpp::url is urlparser::url)
-    ("logging.hpp", ""): None,  # the C++ module imitates Python's own `logging`, which is the Python side (ADR-0057)
+    ("logging.hpp", ""): httpp,  # set_log_* live in httpp; the module functions (level_name, get_logger, ...) imitate Python's own `logging` (ADR-0057), see NOT_EXPOSED
     ("path.hpp", "path"): None,  # pathlib.Path is the Python side of httpp::path: every path argument takes one (ADR-0055)
-    ("log.hpp", ""): httpp,
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("server.hpp", ""): httpp.utils,  # mime_type_for, the same way
     ("swagger_ui.hpp", ""): httpp,  # find_swagger_ui_asset only (NOT_EXPOSED)
@@ -132,6 +131,10 @@ NOT_EXPOSED = {
     ("router", "route_io"): "same as server::route_io",
     ("router", "route_shared"): "same as server::route_shared",
     ("", "find_swagger_ui_asset"): "internal lookup behind swagger_ui::mount, not meant for users",
+    ("", "level_name"): "the logging module imitates Python's own `logging`, which is the Python side (ADR-0057)",
+    ("", "level_from_string"): "same: Python's logging.getLevelName",
+    ("", "get_logger"): "same: logging.getLogger; the \"httpp\" logger is bridged to it (httpp/_log.py)",
+    ("", "basic_config"): "same: logging.basicConfig",
 }
 
 

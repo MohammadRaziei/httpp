@@ -1,6 +1,6 @@
 #pragma once
 
-// Internal. The macro used inside the library to log; src/core/log.cpp turns it into a record of the
+// Internal. The macro used inside the library to log; src/core/logging.cpp turns it into a record of the
 // logging module (httpp/logging.hpp, ADR-0050, 0057).
 //
 //   HTTPP_LOG(warning) << "handler threw: " << what;
@@ -8,7 +8,7 @@
 // A disabled level costs one atomic load; the message is not even built.
 
 #include "httpp/export.hpp"
-#include "httpp/log.hpp"
+#include "httpp/logging.hpp"
 
 #include <sstream>
 #include <string>

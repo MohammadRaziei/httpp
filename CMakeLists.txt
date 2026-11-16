@@ -238,7 +238,7 @@ if(WIN32)
     target_compile_definitions(httpp_core PRIVATE _WIN32_WINNT=0x0A00)
     target_link_libraries(httpp_core PRIVATE ws2_32 mswsock crypt32)
 endif()
-# The operating system log handlers (src/core/logging_os.cpp, ADR-0056): the Event Log lives in advapi32, logcat in liblog.
+# The operating system log handlers (src/core/logging.cpp, ADR-0056): the Event Log lives in advapi32, logcat in liblog.
 if(WIN32)
     target_link_libraries(httpp_core PRIVATE advapi32)
 elseif(ANDROID)

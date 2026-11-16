@@ -98,7 +98,7 @@ A C++ HTTP library (async server on Asio + llhttp, clients, downloads, progress 
 include/httpp/        public API (client, server, websocket, download, url, progress, router, file_browser, swagger_ui ...)
 src/core/             async_server.cpp (Asio engine + llhttp; tunnel for upgrades), server.cpp (router, hooks, static files, run_ws),
                       websocket.cpp + internal/websocket.hpp, websocket_api.cpp, async_http.cpp (async client), client.cpp / download.cpp /
-                      curl.cpp (thin face on client::request), file_browser.cpp, inflate/deflate/content_decode (vendored stb codecs), log.cpp, tls_session.cpp
+                      curl.cpp (thin face on client::request), file_browser.cpp, inflate/deflate/content_decode (vendored stb codecs), logging.cpp (the module and the library log), tls_session.cpp
 src/assets/           file_browser.html (embedded with COMPRESS)
 src/bindings/python/  httpp_cy.pyx (Cython glue: cimports plus textual includes of cy/*.pxi, one module, one .so), httpp/server.py, _params.py, _websocket.py, _run.py, _validate*.py, _router.py, __main__.py ...
 tests/cpp  tests/python  benchmarks/  tools/autobahn/  docs/adr/  docs/Architecture.md  checklist.md

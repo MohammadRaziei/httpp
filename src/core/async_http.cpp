@@ -1,6 +1,6 @@
 #include "internal/async_http.hpp"
 #include "internal/content_decode.hpp"
-#include "internal/log.hpp"
+#include "internal/logging.hpp"
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN

@@ -1,5 +1,5 @@
 #include "internal/async_server.hpp"
-#include "internal/log.hpp"
+#include "internal/logging.hpp"
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN

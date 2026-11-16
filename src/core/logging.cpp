@@ -1,6 +1,41 @@
 #include "httpp/logging.hpp"
+#include "internal/logging.hpp"
 
 
+// System headers of the OS handlers. Their macros stay in this file, and the Windows ones are pruned right away
+// (NOGDI keeps ERROR, NOMINMAX min/max out; the #undefs below are a second guard for what a build still defines).
+#if HTTPP_LOG_HAS_SYSLOG
+#include <syslog.h>
+#endif
+#if HTTPP_LOG_HAS_ANDROID
+#include <android/log.h>
+#endif
+#if HTTPP_LOG_HAS_UNIFIED
+#include <os/log.h>
+#include <unordered_map>
+#endif
+#if HTTPP_LOG_HAS_DEBUGSTRING || HTTPP_LOG_HAS_EVENTLOG
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef NOGDI
+#define NOGDI
+#endif
+#include <windows.h>
+#ifdef ERROR
+#undef ERROR
+#endif
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+#endif
+#include <climits>
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -573,3 +608,362 @@ void basic_config(level lv) {
 }
 
 }  // namespace httpp::logging
+
+// ---- Handlers for the log of the operating system (ADR-0056) ----
+
+namespace httpp::logging {
+
+// ------------------------------------------------------------------------------------------ syslog
+
+#if HTTPP_LOG_HAS_SYSLOG
+
+struct syslog_handler::state {
+    std::string ident;  // openlog() keeps this pointer, so the string stays where it is: the state is on the heap
+    ~state() { closelog(); }
+};
+
+namespace {
+
+int syslog_facility_code(syslog_facility f) noexcept {
+    switch (f) {
+        case syslog_facility::user: return LOG_USER;
+        case syslog_facility::daemon: return LOG_DAEMON;
+        case syslog_facility::local0: return LOG_LOCAL0;
+        case syslog_facility::local1: return LOG_LOCAL1;
+        case syslog_facility::local2: return LOG_LOCAL2;
+        case syslog_facility::local3: return LOG_LOCAL3;
+        case syslog_facility::local4: return LOG_LOCAL4;
+        case syslog_facility::local5: return LOG_LOCAL5;
+        case syslog_facility::local6: return LOG_LOCAL6;
+        case syslog_facility::local7: return LOG_LOCAL7;
+    }
+    return LOG_USER;
+}
+
+int syslog_priority(level lv) noexcept {
+    switch (detail::severity_rank(lv)) {
+        case detail::rank_critical: return LOG_CRIT;
+        case detail::rank_error: return LOG_ERR;
+        case detail::rank_warning: return LOG_WARNING;
+        case detail::rank_info: return LOG_INFO;
+        default: return LOG_DEBUG;
+    }
+}
+
+}  // namespace
+
+syslog_handler::syslog_handler(std::string ident, syslog_facility facility, bool log_pid)
+    : st_(std::make_unique<state>()) {
+    st_->ident = std::move(ident);
+    openlog(st_->ident.c_str(), log_pid ? LOG_PID : 0, syslog_facility_code(facility));
+    set_formatter(formatter("%(name)s: %(message)s"));
+}
+
+syslog_handler::~syslog_handler() = default;
+syslog_handler::syslog_handler(syslog_handler&&) noexcept = default;
+syslog_handler& syslog_handler::operator=(syslog_handler&&) noexcept = default;
+
+void syslog_handler::emit(const record& r) {
+    const std::string line = format(r);
+    syslog(syslog_priority(r.levelno), "%s", line.c_str());  // never the text as the format
+}
+
+#endif  // HTTPP_LOG_HAS_SYSLOG
+
+// ----------------------------------------------------------------------------------------- Android
+
+#if HTTPP_LOG_HAS_ANDROID
+
+namespace {
+
+int android_priority(level lv) noexcept {
+    switch (detail::severity_rank(lv)) {
+        case detail::rank_critical: return ANDROID_LOG_FATAL;
+        case detail::rank_error: return ANDROID_LOG_ERROR;
+        case detail::rank_warning: return ANDROID_LOG_WARN;
+        case detail::rank_info: return ANDROID_LOG_INFO;
+        default: return ANDROID_LOG_DEBUG;
+    }
+}
+
+}  // namespace
+
+android_handler::android_handler(std::string tag) : tag_(std::move(tag)) {
+    set_formatter(formatter("%(message)s"));
+}
+
+void android_handler::emit(const record& r) {
+    const std::string line = format(r);
+    const std::string tag = tag_.empty() ? std::string(r.name) : tag_;
+    __android_log_write(android_priority(r.levelno), tag.c_str(), line.c_str());
+}
+
+#endif  // HTTPP_LOG_HAS_ANDROID
+
+// --------------------------------------------------------------------------- Apple unified logging
+
+#if HTTPP_LOG_HAS_UNIFIED
+
+struct unified_log_handler::state {
+    std::string subsystem;
+    std::unordered_map<std::string, os_log_t> logs;  // one os_log object per category (= logger name), made on first use
+
+    os_log_t log_for(std::string_view category) {
+        const std::string key(category);
+        const auto it = logs.find(key);
+        if (it != logs.end()) return it->second;
+        os_log_t made = os_log_create(subsystem.c_str(), key.c_str());
+        if (made == nullptr) return OS_LOG_DEFAULT;  // not kept: nothing to release
+        logs.emplace(key, made);
+        return made;
+    }
+
+    ~state() {
+        for (const auto& entry : logs) os_release(entry.second);
+    }
+};
+
+namespace {
+
+os_log_type_t unified_type(level lv) noexcept {
+    switch (detail::severity_rank(lv)) {
+        case detail::rank_critical: return OS_LOG_TYPE_FAULT;
+        case detail::rank_error: return OS_LOG_TYPE_ERROR;
+        case detail::rank_warning: return OS_LOG_TYPE_DEFAULT;
+        case detail::rank_info: return OS_LOG_TYPE_INFO;
+        default: return OS_LOG_TYPE_DEBUG;
+    }
+}
+
+}  // namespace
+
+unified_log_handler::unified_log_handler(std::string subsystem) : st_(std::make_unique<state>()) {
+    st_->subsystem = std::move(subsystem);
+    set_formatter(formatter("%(message)s"));
+}
+
+unified_log_handler::~unified_log_handler() = default;
+unified_log_handler::unified_log_handler(unified_log_handler&&) noexcept = default;
+unified_log_handler& unified_log_handler::operator=(unified_log_handler&&) noexcept = default;
+
+void unified_log_handler::emit(const record& r) {
+    const std::string line = format(r);
+    const os_log_t log = st_->log_for(r.name);  // emit() runs under the handler's lock: the map needs none
+    os_log_with_type(log, unified_type(r.levelno), "%{public}s", line.c_str());
+}
+
+#endif  // HTTPP_LOG_HAS_UNIFIED
+
+// ------------------------------------------------------------------------------------------ Windows
+
+#if HTTPP_LOG_HAS_DEBUGSTRING || HTTPP_LOG_HAS_EVENTLOG
+
+namespace {
+
+// UTF-8 to UTF-16, which is what the wide Windows calls take. Invalid bytes become U+FFFD.
+std::wstring widen(const std::string& s) {
+    if (s.empty()) return std::wstring();
+    const int len = static_cast<int>(s.size() > static_cast<std::size_t>(INT_MAX) ? static_cast<std::size_t>(INT_MAX) : s.size());
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), len, nullptr, 0);
+    if (n <= 0) return std::wstring();
+    std::wstring w(static_cast<std::size_t>(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), len, w.data(), n);
+    return w;
+}
+
+}  // namespace
+
+#endif
+
+#if HTTPP_LOG_HAS_DEBUGSTRING
+
+debug_string_handler::debug_string_handler() { set_formatter(formatter("[%(levelname)s] %(name)s: %(message)s")); }
+
+void debug_string_handler::emit(const record& r) {
+    const std::wstring line = widen(format(r) + "\n");
+    OutputDebugStringW(line.c_str());
+}
+
+#endif  // HTTPP_LOG_HAS_DEBUGSTRING
+
+#if HTTPP_LOG_HAS_EVENTLOG
+
+struct event_log_handler::state {
+    HANDLE source = nullptr;
+    ~state() {
+        if (source != nullptr) DeregisterEventSource(source);
+    }
+};
+
+event_log_handler::event_log_handler(std::string source) : st_(std::make_unique<state>()) {
+    const std::wstring name = widen(source);
+    st_->source = RegisterEventSourceW(nullptr, name.c_str());
+    if (st_->source == nullptr)
+        throw std::runtime_error("cannot register the event source " + source);
+    set_formatter(formatter("%(name)s: %(message)s"));
+}
+
+event_log_handler::~event_log_handler() = default;
+event_log_handler::event_log_handler(event_log_handler&&) noexcept = default;
+event_log_handler& event_log_handler::operator=(event_log_handler&&) noexcept = default;
+
+void event_log_handler::emit(const record& r) {
+    constexpr std::size_t max_chars = 31000;  // the Event Log refuses a string of 31,839 characters or more
+    std::wstring text = widen(format(r));
+    if (text.size() > max_chars) text.resize(max_chars);
+    const int severity = detail::severity_rank(r.levelno);
+    const WORD type = static_cast<WORD>(severity <= detail::rank_info      ? EVENTLOG_INFORMATION_TYPE
+                                        : severity == detail::rank_warning ? EVENTLOG_WARNING_TYPE
+                                                                           : EVENTLOG_ERROR_TYPE);
+    LPCWSTR strings[1] = {text.c_str()};
+    ReportEventW(st_->source, type, 0, static_cast<DWORD>(1 + severity), nullptr, 1, 0, strings, nullptr);
+}
+
+#endif  // HTTPP_LOG_HAS_EVENTLOG
+
+}  // namespace httpp::logging
+
+// ---- The library's own log: set_log_* and the HTTPP_LOG back end (formerly src/core/log.cpp) ----
+
+namespace httpp {
+namespace {
+
+logging::level to_level(log_level l) {
+    switch (l) {
+        case log_level::trace: return logging::level::trace;
+        case log_level::debug: return logging::level::debug;
+        case log_level::info: return logging::level::info;
+        case log_level::warning: return logging::level::warning;
+        case log_level::error: return logging::level::error;
+        case log_level::off: break;
+    }
+    return logging::level::critical;
+}
+
+log_level from_level(logging::level l) {
+    if (int(l) <= int(logging::level::trace)) return log_level::trace;
+    if (int(l) <= int(logging::level::debug)) return log_level::debug;
+    if (int(l) <= int(logging::level::info)) return log_level::info;
+    if (int(l) <= int(logging::level::warning)) return log_level::warning;
+    return log_level::error;
+}
+
+constexpr const char* k_pattern = "%(asctime)s [%(levelname)s] %(name)s (%(funcName)s): %(message)s";
+
+struct state {
+    std::mutex mu;                                 // swapping the output, so a line never meets a half-changed setup
+    std::atomic<int> level{static_cast<int>(log_level::warning)};
+    logging::logger* lg;
+
+    state() : lg(&logging::get_logger("httpp")) {
+        lg->set_level(logging::level::trace);      // the filtering is done by `level` above (one atomic load, no message built)
+        lg->set_propagate(false);                  // the application's own logging setup is never touched
+        use_stderr();
+    }
+    template <class H>
+    void use(H h, const char* pattern = k_pattern) {
+        h.set_formatter(logging::formatter(pattern));
+        lg->clear_handlers();
+        lg->add_handler(std::move(h));
+    }
+    void use_stderr() { use(logging::stream_handler(stderr)); }
+};
+
+state& st() {
+    static state* s = new state; // leaked on purpose: a late thread may still log while the process exits
+    return *s;
+}
+
+} // namespace
+
+void set_log_level(log_level level) { st().level = static_cast<int>(level); }
+
+bool set_log_file(const path& file) {
+    const std::string& path = file.str();
+    auto& s = st();
+    std::lock_guard<std::mutex> lk(s.mu);
+    if (path.empty()) {
+        s.use_stderr();
+        return true;
+    }
+    try {
+        s.use(logging::file_handler(path, false)); // truncates; throws when the file cannot be opened
+    } catch (const std::exception&) {
+        return false; // the previous output is kept
+    }
+    return true;
+}
+
+bool set_log_system(log_system which, const std::string& name) {
+    auto& s = st();
+    std::lock_guard<std::mutex> lk(s.mu);
+    constexpr const char* plain = "%(funcName)s: %(message)s"; // the system adds time, level and process itself
+    if (which == log_system::native) {
+#if HTTPP_LOG_HAS_ANDROID
+        which = log_system::android;
+#elif HTTPP_LOG_HAS_UNIFIED
+        which = log_system::unified;
+#elif HTTPP_LOG_HAS_DEBUGSTRING
+        which = log_system::debug_string;
+#else
+        which = log_system::syslog;
+#endif
+    }
+    try {
+        switch (which) {
+#if HTTPP_LOG_HAS_SYSLOG
+            case log_system::syslog:
+                s.lg->clear_handlers(); // closelog() of the old handler must not come after our openlog()
+                s.use(logging::syslog_handler(name.empty() ? "httpp" : name), plain);
+                return true;
+#endif
+#if HTTPP_LOG_HAS_ANDROID
+            case log_system::android:
+                s.use(logging::android_handler(name == "httpp" ? std::string() : name), plain);
+                return true;
+#endif
+#if HTTPP_LOG_HAS_UNIFIED
+            case log_system::unified:
+                s.use(logging::unified_log_handler(name.empty() ? "httpp" : name), plain);
+                return true;
+#endif
+#if HTTPP_LOG_HAS_DEBUGSTRING
+            case log_system::debug_string:
+                s.use(logging::debug_string_handler(), "[%(levelname)s] %(funcName)s: %(message)s");
+                return true;
+            case log_system::event_log:
+                s.use(logging::event_log_handler(name.empty() ? "httpp" : name), plain);
+                return true;
+#endif
+            default: break;
+        }
+    } catch (const std::exception&) {
+    }
+    return false; // not on this platform, or it could not be opened: the previous output is kept
+}
+
+void set_log_callback(log_callback fn) {
+    auto& s = st();
+    std::lock_guard<std::mutex> lk(s.mu);
+    if (!fn) {
+        s.use_stderr();
+        return;
+    }
+    s.use(logging::callback_handler([fn = std::move(fn)](const logging::record& r) {
+        fn(from_level(r.levelno), std::string(r.where), std::string(r.message));
+    }));
+}
+
+namespace detail {
+
+bool log_enabled(log_level level) {
+    return static_cast<int>(level) >= st().level.load(std::memory_order_relaxed) && level != log_level::off;
+}
+
+void log_write(log_level level, const char* where, const std::string& message) {
+    if (!log_enabled(level)) return;
+    st().lg->log_from(to_level(level), where, message);
+}
+
+} // namespace detail
+} // namespace httpp
