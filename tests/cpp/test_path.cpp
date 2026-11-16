@@ -4,8 +4,13 @@
 #include "httpp/sha256.hpp"
 #include "local_server.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <iterator>
+#include <stdexcept>
 #include <string>
+#include <thread>
+#include <vector>
 
 using httpp::path;
 
@@ -263,4 +268,106 @@ UTEST(path, zz_cleanup) {
     fresh();
     area.rmdir();
     ASSERT_FALSE(area.exists());
+}
+
+// ---- write_text_atomic and read_prefix ----
+
+namespace {
+path scratch_dir(const char* name) {
+    path d = path(std::string("test_tmp_path_") + name);
+    for (const path& e : [&] { std::vector<path> v; d.iterdir(v); return v; }()) e.unlink();
+    d.mkdir();
+    return d;
+}
+int leftovers(const path& d, const std::string& keep) {
+    std::vector<path> v;
+    d.iterdir(v);
+    int n = 0;
+    for (const path& e : v) n += e.name() != keep;
+    return n;
+}
+}  // namespace
+
+UTEST(path, write_text_atomic_creates_and_replaces_a_file_and_leaves_nothing_behind) {
+    const path d = scratch_dir("atomic");
+    const path f = d / "state.txt";
+    f.write_text_atomic("first");
+    ASSERT_TRUE(f.read_text() == "first");
+    f.write_text_atomic("second, a longer text");
+    ASSERT_TRUE(f.read_text() == "second, a longer text");
+    f.write_text_atomic("");
+    ASSERT_TRUE(f.exists() && f.read_text().empty());
+    ASSERT_EQ(0, leftovers(d, "state.txt"));  // no ".tmp.*" files
+    f.unlink();
+    d.rmdir();
+}
+
+UTEST(path, write_text_atomic_throws_and_leaves_no_file_when_the_directory_is_missing) {
+    const path f = path("test_tmp_path_no_such_dir") / "x" / "state.txt";
+    bool threw = false;
+    try {
+        f.write_text_atomic("data");
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    ASSERT_TRUE(threw);
+    ASSERT_FALSE(f.exists());
+}
+
+UTEST(path, write_text_atomic_keeps_the_old_file_when_the_target_cannot_be_replaced) {
+    const path d = scratch_dir("blocked");
+    const path target = d / "dir_in_the_way";
+    target.mkdir();  // rename() of a file over a directory fails
+    bool threw = false;
+    try {
+        target.write_text_atomic("data");
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    ASSERT_TRUE(threw);
+    ASSERT_TRUE(target.is_dir());
+    ASSERT_EQ(0, leftovers(d, "dir_in_the_way"));  // the temporary file was removed
+    target.rmdir();
+    d.rmdir();
+}
+
+// A reader never sees a half-written file, however often a writer replaces it (write_text() would show an empty or cut one).
+UTEST(path, a_reader_sees_only_whole_texts_while_writers_replace_the_file) {
+    const path d = scratch_dir("race");
+    const path f = d / "shared.txt";
+    const std::string a(200000, 'a'), b(300000, 'b');
+    f.write_text_atomic(a);
+    std::atomic<bool> stop{false};
+    std::atomic<int> torn{0}, reads{0};
+    std::thread w1([&] { while (!stop) f.write_text_atomic(a); });
+    std::thread w2([&] { while (!stop) f.write_text_atomic(b); });
+    std::thread r([&] {
+        while (!stop) {
+            const std::string got = f.read_text();
+            ++reads;
+            if (got != a && got != b) ++torn;
+        }
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    stop = true;
+    w1.join();
+    w2.join();
+    r.join();
+    ASSERT_TRUE(reads > 0);
+    ASSERT_EQ(0, torn.load());
+    ASSERT_EQ(0, leftovers(d, "shared.txt"));
+    f.unlink();
+    d.rmdir();
+}
+
+UTEST(path, read_prefix_reads_at_most_the_limit_and_is_empty_when_unreadable) {
+    const path d = scratch_dir("prefix");
+    const path f = d / "line.txt";
+    f.write_text("abcdefghij");
+    ASSERT_TRUE(f.read_prefix(4) == "abcd");
+    ASSERT_TRUE(f.read_prefix(100) == "abcdefghij");
+    ASSERT_TRUE(f.read_prefix(0).empty());
+    ASSERT_TRUE((d / "missing").read_prefix(10).empty());
+    f.unlink();
+    d.rmdir();
 }

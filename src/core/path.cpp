@@ -1,8 +1,11 @@
 #include "httpp/path.hpp"
+#include "internal/process.hpp"
 
 #include <cctype>
 #include <cerrno>
+#include <atomic>
 #include <cstdlib>
+#include <fstream>
 #include <iterator>
 #include <stdexcept>
 
@@ -242,6 +245,30 @@ void path::write_text(const std::string& data) const {
     if (!out) throw std::runtime_error("cannot write " + text_);
     out.write(data.data(), static_cast<std::streamsize>(data.size()));
     if (!out) throw std::runtime_error("cannot write " + text_);
+}
+
+std::string path::read_prefix(std::size_t limit) const {
+    std::ifstream in(native(), std::ios::binary);
+    std::string text(limit, '\0');
+    in.read(&text[0], static_cast<std::streamsize>(limit));
+    text.resize(static_cast<std::size_t>(in.gcount()));
+    return text;
+}
+
+void path::write_text_atomic(const std::string& data) const {
+    // The name must not repeat between threads (the counter) or processes (the pid), or two writers would share a file.
+    static std::atomic<unsigned long long> counter{0};
+    const path tmp(text_ + ".tmp." + std::to_string(detail::current_pid()) + "." + std::to_string(++counter));
+    try {
+        tmp.write_text(data);
+    } catch (...) {
+        tmp.unlink();  // a failed write may have left a partial file
+        throw;
+    }
+    if (!tmp.rename(*this)) {
+        tmp.unlink();
+        throw std::runtime_error("cannot replace " + text_);
+    }
 }
 
 } // namespace httpp

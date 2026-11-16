@@ -138,6 +138,16 @@ public:
     // The whole file; throws std::runtime_error when it cannot be read / written.
     HTTPP_API std::string read_text() const;
     HTTPP_API void write_text(const std::string& data) const;
+    // The first `limit` bytes at most (less when the file is shorter); empty when it cannot be read. Never throws. For a
+    // short line in a file that may be large or may not be there (a checksum, a lock's heartbeat).
+    HTTPP_API std::string read_prefix(std::size_t limit) const;
+    // write_text() as a protocol other readers and writers can rely on: the data goes to a file of its own beside this one
+    // ("<name>.tmp.<pid>.<n>", on the same disk), and rename() then puts it in place, so at every moment the path holds
+    // the whole old text or the whole new one, for another thread and for another process alike; a crash or a full disk
+    // leaves the old file as it was. Throws std::runtime_error (and leaves no temporary file) when it cannot. Two of
+    // these at once do not corrupt anything: the last rename wins. It does not make read-modify-write safe (take a lock
+    // for that, as download does), and it does not fsync.
+    HTTPP_API void write_text_atomic(const std::string& data) const;
 
 private:
     std::size_t name_start() const {

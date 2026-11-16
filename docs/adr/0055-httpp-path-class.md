@@ -14,13 +14,15 @@ ADR-0054 gave the library an internal file system module on UTF-8 strings. Every
 - pathlib-shaped members: `name`, `stem`, `suffix`, `parent`, `with_name`, `with_suffix`, `is_absolute`, `operator/`, `as_posix`, `as_uri`, `path::cwd()`, `absolute`, `exists`, `is_file`, `is_dir`, `size`, `mkdir`, `unlink`, `rename`, and `open(mode)` (a `std::fstream`, opened through the wide API on Windows), plus `read_text` / `write_text`. Not covered: iterating the parts, `relative_to`, `glob`, `resolve`.
 - The disk members call `httpp::fs` (ADR-0054), which stays the internal low-level layer: no second implementation. (Superseded by ADR-0058: `fs` was merged into `path`.)
 - Public API that names a file takes `const path&`: `download` (constructor and `output`), `sha256_file`, `set_log_file`, `set_ca_file` (client, async_client, `request::ca_file`), `server::set_tls`, `mount_file_browser` (root), and `response::file`, so a route serves a file with `res.file = dir / "page.html"`.
+- Concurrent access (added with the atomic write): `path` has no lock inside, since a process-wide mutex does not protect against other processes, serializes all file I/O and does not survive a crash. `write_text()` / `read_text()` stay as they are (like pathlib) and are not thread safe. `write_text_atomic(data)` is the protocol for a file others may read meanwhile: write `<name>.tmp.<pid>.<n>` beside the target, then `rename()` over it (atomic on POSIX and Windows), so readers see the whole old text or the whole new one and a failure leaves the old file untouched and no temporary file behind; two writers at once do not corrupt it (the last rename wins). It is not read-modify-write (take a lock for that: download's `<dest>.lock` directory, which stays private to `download.cpp`) and it does not `fsync`. `read_prefix(limit)` (at most `limit` bytes, empty when unreadable, never throws) and `detail::current_pid()` (`internal/process.hpp`) moved here from `download.cpp`, which uses them.
 - Python does not get a path class of its own. Every path argument takes `str`, `bytes` or any `os.PathLike` (`os.fsencode` at the Cython boundary), and `file()` / `FileResponse` already did. A route cannot return a bare `Path` (a `str` is text; use `httpp.file(path)`).
 
 ## Consequences
 
 - `response::file` changed type from `std::string` to `path`: assigning a string still works; code that read it as a string uses `.str()`.
 - The Windows half (`path::native`, `open`) shares ADR-0054's caveat: written without a Windows machine.
-- The parity test maps `path.hpp` to `None` (pathlib.Path is the Python counterpart).
+- The parity test maps `path.hpp` to `None` (pathlib.Path is the Python counterpart), so the two new members need no Python side.
+- `write_text_atomic` is not verified on Windows (the rename-replace is the one download already uses) and does not `fsync`.
 
 ## Related
 

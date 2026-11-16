@@ -18,11 +18,7 @@
 #include <memory>
 #include <stdexcept>
 #include <utility>
-#ifdef _WIN32
-#include <process.h> // _getpid
-#else
-#include <unistd.h>  // getpid
-#endif
+#include "internal/process.hpp"
 
 namespace httpp {
 
@@ -228,27 +224,10 @@ download_result run_resumable(const std::string& url_str, const std::string& des
     return result;
 }
 
-// The checksum file is one short line; anything longer is read only as far as parse_sha256_checksum needs to reject it.
-std::string read_prefix(const std::string& file, std::size_t limit) {
-    std::ifstream in(httpp::path(file).native(), std::ios::binary);
-    std::string text(limit, '\0');
-    in.read(&text[0], static_cast<std::streamsize>(limit));
-    text.resize(static_cast<std::size_t>(in.gcount()));
-    return text;
-}
-
 // ---- the cross-process lock (download::lock) -------------------------------------------------------------------
 // Creating a directory is atomic everywhere, so whoever creates "<dest>.lock" owns it (path::mkdir). Liveness is
 // judged by the waiter's own clock from whether `alive` *changes*, not from file times, so clock skew and coarse mtimes
 // do not matter.
-
-long current_pid() {
-#ifdef _WIN32
-    return static_cast<long>(_getpid());
-#else
-    return static_cast<long>(getpid());
-#endif
-}
 
 class dir_lock {
 public:
@@ -270,7 +249,7 @@ public:
             }
             if (!dir.is_dir()) break; // cannot create it (read-only directory?): go on without a lock
             waited_ = true;
-            const std::string seen = read_prefix((httpp::path(path_) / "alive").str(), 64);
+            const std::string seen = (httpp::path(path_) / "alive").read_prefix(64);
             const auto now = clock::now();
             if (first || seen != last_seen) { // the owner is alive (or this is the first look)
                 last_seen = seen;
@@ -312,7 +291,7 @@ public:
 private:
     void beat(unsigned long long n) const {
         std::ofstream out((httpp::path(path_) / "alive").native(), std::ios::binary | std::ios::trunc);
-        out << current_pid() << ' ' << n << '\n';
+        out << detail::current_pid() << ' ' << n << '\n';
     }
 
     void run_heartbeat() {
@@ -375,7 +354,7 @@ bool expected_digest(const job& j, std::string& digest, std::string& error) {
             error = "could not download the checksum file " + sum_url + ": " + got.error;
             return false;
         }
-        const std::string text = read_prefix(tmp, 1025);
+        const std::string text = httpp::path(tmp).read_prefix(1025);
         httpp::path(tmp).unlink();
         try {
             digest = parse_sha256_checksum(text, file_name_of(j.url));
