@@ -479,12 +479,40 @@ def test_curl_malformed_header_exits_1(httpp_exe):
     assert r.returncode == 1 and "malformed header" in r.stderr
 
 
-def test_curl_a_failed_request_exits_1(httpp_exe, echo_app):
+def test_curl_an_http_error_is_still_a_response_exit_0(httpp_exe, echo_app):
     with running(echo_app) as url:
-        r = run(httpp_exe, "curl", f"{url}/nothing-here")
-    assert r.returncode == 1 and "status 404" in r.stderr
-    r = run(httpp_exe, "curl", f"http://127.0.0.1:{free_port()}/")
-    assert r.returncode == 1 and "status 0" in r.stderr
+        r = run(httpp_exe, "curl", f"{url}/nothing-here", "-i")
+    assert r.returncode == 0, r.stderr  # like curl: without -f a 404 is just an answer
+    assert r.stdout.startswith("HTTP/1.1 404")
+
+
+def test_curl_f_fails_on_http_errors_with_22_and_prints_no_body(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/nothing-here", "-f")
+        ok = run(httpp_exe, "curl", f"{url}/text", "--fail")
+        redirect = run(httpp_exe, "curl", f"{url}/old", "-f")
+    assert r.returncode == 22 and r.stdout == "" and "404" in r.stderr
+    assert ok.returncode == 0 and ok.stdout == "plain body"
+    assert redirect.returncode == 0  # -f only fails on 400 and above
+
+
+def test_curl_f_does_not_write_the_output_file_on_an_http_error(httpp_exe, echo_app, tmp_path):
+    out = tmp_path / "never.txt"
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/nothing-here", "-f", "-o", str(out))
+    assert r.returncode == 22 and not out.exists()
+
+
+def test_curl_a_refused_connection_exits_7_and_says_why(httpp_exe, tmp_path):
+    out = tmp_path / "never.txt"
+    r = run(httpp_exe, "curl", f"http://127.0.0.1:{free_port()}/", "-o", str(out))
+    assert r.returncode == 7 and r.stderr.startswith("error:") and "status 0" not in r.stderr
+    assert not out.exists()  # a transfer that never happened leaves no file behind
+
+
+def test_curl_a_bad_url_exits_3(httpp_exe):
+    r = run(httpp_exe, "curl", "not a url")
+    assert r.returncode == 3 and r.stderr.startswith("error:")
 
 
 def test_curl_prints_the_body_byte_for_byte(httpp_exe, echo_app):
@@ -538,8 +566,16 @@ def test_curl_max_time_stops_a_slow_server(httpp_exe, echo_app):
         started = time.monotonic()
         r = run(httpp_exe, "curl", f"{url}/slow", "-m", "1")
         elapsed = time.monotonic() - started
-    assert r.returncode == 1 and "status 0" in r.stderr
+    assert r.returncode == 28 and r.stderr.startswith("error:")
     assert elapsed < 2
+
+
+def test_curl_repeated_d_joins_the_values_with_an_ampersand(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", "-d", "a=1", "-d", "b=2", f"{url}/echo")  # the url may come last
+        one = run(httpp_exe, "curl", f"{url}/echo", "--data", "x=y")
+    assert json.loads(r.stdout)["body"] == "a=1&b=2" and json.loads(r.stdout)["method"] == "POST"
+    assert json.loads(one.stdout)["body"] == "x=y"
 
 
 def test_curl_max_time_must_be_a_number(httpp_exe):

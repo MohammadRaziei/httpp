@@ -145,7 +145,7 @@ response client::fetch(const url& target) {
     return detail::run_blocking(std::make_shared<request_spec>(std::move(spec)));
 }
 
-// --- request (fluent builder; also what curl_compat.cpp is built on) ---
+// --- request (fluent builder; also what the `httpp curl` command runs on) ---
 
 struct request::impl {
     std::string url;

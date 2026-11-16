@@ -10,6 +10,7 @@ such changes are listed under **Changed**).
 ### Added
 
 - **`httpp::path::write_text_atomic(data)` and `read_text(start, end)` (ADR-0055).** The first writes the text to a temporary file beside the target and `rename`s it into place, so another thread or process reads the whole old text or the whole new one, never an empty or cut file, and a failure leaves the old file untouched. `read_text` now also takes a byte range (`read_text(0, 1025)` reads at most the first 1025 bytes). `download` uses the same helpers.
+- **`httpp curl -f/--fail` and repeated `-d` (ADR-0078).** With `-f` a status of 400 or more prints nothing and exits with 22 (and writes no `-o` file). Several `-d` are joined with `&`, as curl does, and the URL may come before or after them.
 - **`httpp curl` takes `-i`, `-I`, `-v`, `-L`, `-m` and `-u` (ADR-0077).** `-i` prints the status line and the headers before the body, `-I` sends `HEAD` and prints the head only, `-v` shows the request line and the `-H` headers and the response status and headers on stderr, `-L` follows redirects, `-m SECONDS` gives up after that many seconds and `-u user:password` sends basic authentication. A head is printed as `HTTP/1.1 <status>` plus the headers (the engine speaks HTTP/1.1; there is no reason phrase).
 
 
@@ -28,6 +29,7 @@ such changes are listed under **Changed**).
 
 ### Changed
 
+- **`httpp curl` exit codes and error lines follow curl (ADR-0078, behaviour change).** An HTTP error status is an answer, so a 404 now exits 0 and prints its body (use `-f` for the old "fail on 4xx/5xx"). A transfer that produced no answer says why on stderr (`error: connection failed (...)`, `error: timed out`, ...) instead of `status 0`, writes no `-o` file, and exits with curl's code: 3 bad URL, 7 connection, 28 timeout, 35 TLS, 47 too many redirects, 63 response too large, 1 anything else. A failed lookup is reported as 7 because the engine does not tell it apart from other connection errors.
 - **`httpp curl` and `httpp download` print the body byte for byte (ADR-0077).** They no longer add a newline after it, and stdout is binary on Windows, so a downloaded image or archive written to a pipe is not corrupted.
 - **`httpp/log.hpp` is merged into `httpp/logging.hpp` (ADR-0075, breaking for C++ code).** Include `httpp/logging.hpp` for `set_log_level`, `set_log_file`, `set_log_system`, `set_log_callback`, `log_level` and `log_system`; nothing else changed. The operating system handlers (`syslog_handler`, `android_handler`, `unified_log_handler`, `debug_string_handler`, `event_log_handler`, each on the platform that has it, `HTTPP_LOG_HAS_*`) are now public in the same header.
 - **`httpp::url` is now liburlparser's `urlparser::url` (ADR-0072, breaking for C++ code).** The wrapper class is gone. `httpp::url::parse`, `valid()`, `is_http()` and the static codec functions are removed: use `httpp::parse_url`, `url_valid`, `url_is_http`, `url_port`, `url_scheme`, `url_host`, `url_username`, `url_password`, `url_path`, `url_query`, and `httpp::encode_component`, `decode_component`, `build_query` (the Python `URL` statics, same names). `host()` is `host_text()`, `scheme()` is `protocol()`. Constructing a url from a text with a bad port (`http://h:99999/`) now throws `std::invalid_argument` (`parse_url` returns an invalid url instead), and `str()` rebuilds the text. liburlparser is a shared library shipped in the wheel SDK together with `urlparser.h`. Python `URL` is unchanged.
@@ -36,7 +38,8 @@ such changes are listed under **Changed**).
 
 ### Removed
 
-- **`httpp/curl.hpp` and `httpp::curl::request` (ADR-0077, breaking for C++ code).** It was a curl-flavoured subset of `httpp::request` (`method`, `header`, `data`, `content_type`, `timeout`, `follow_redirects`) that nothing used. Use `httpp::request`, which has all of those and more. `httpp/curl_compat.h` (the libcurl-style C API) stays.
+- **`httpp/curl.hpp` and `httpp::curl::request` (ADR-0077, breaking for C++ code).** It was a curl-flavoured subset of `httpp::request` (`method`, `header`, `data`, `content_type`, `timeout`, `follow_redirects`) that nothing used. Use `httpp::request`, which has all of those and more. (`httpp/curl_compat.h` followed it, see the next entry.)
+- **`httpp/curl_compat.h` (the libcurl-style `curl_easy_*` C API) (ADR-0078, breaking for C++ code).** A subset of 15 options that nothing in the project used and that could not keep the promise of a header swap (no auth, proxy, TLS options, cookies or `multi`; the numeric error codes differed from libcurl's). Use `httpp::request`. The README now presents `httpp curl` and `httpp::request` as the modern counterpart of curl instead of a migration path.
 
 ## [0.9.0] - 2026-11-14
 

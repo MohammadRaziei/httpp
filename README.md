@@ -62,7 +62,7 @@ installed system-wide (no `apt`, `brew` or `choco`).
   exceptions, sessions, an `AsyncClient`, timeouts, redirects, TLS verification.
 - **Downloads** that can resume, with a tqdm-style progress bar (drawn on stderr, so piped output
   stays clean). The features above exist in both C++ and Python, with similar APIs.
-- **A migration path for `libcurl` code**: `httpp/curl_compat.h` provides a `curl_easy_*` subset.
+- **A modern `curl`**: `httpp curl URL` covers the everyday flags (`-X -H -d -o -f -i -I -v -L -m -u`) and uses curl's exit codes; in C++ the same job is `httpp::request`, in Python `httpp.Request`.
 - **No system dependencies.** Nothing to install system-wide; the only build-time download is the
   header-only Asio (about 3 MB, pinned by hash), which can be supplied locally instead.
 
@@ -409,7 +409,7 @@ httpp browse ~/Downloads                 # read-only file browser (see below)
 httpp server ./site --ssl-certfile cert.pem --ssl-keyfile key.pem   # https; browse takes the same options
 httpp download https://example.com/f.zip -o f.zip
 httpp curl https://example.com/api -X POST -H "X-Key: 1" -d "a=1"
-httpp curl https://example.com -L -i -m 10   # follow redirects, print status and headers, give up after 10 s (also -I, -v, -u user:password)
+httpp curl https://example.com -L -i -m 10   # follow redirects, print status and headers, give up after 10 s (also -I, -v, -f, -u user:password)
 ```
 
 Commands that run your Python code go behind `py`; everything after `py` goes to Python as typed (the SDK's own `bin/httpp` starts the Python named by `HTTPP_PYTHON`, or the one on PATH):
@@ -596,7 +596,7 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
   cannot be mounted on it yet.
 - cpp-httplib is no longer used: the server, the client (blocking and async) and downloads all run on our own
   engines (Asio + llhttp + mbedTLS), see ADR-0051 to ADR-0053.
-- The libcurl compatibility layer covers a subset of `curl_easy_*`.
+- `httpp curl` is a subset of curl (no `-s`, `-w`, `-O`, `-T`, `--retry`, `--compressed`, several URLs); there is no libcurl-style C API.
 - `--workers` is Linux only.
 
 Issues and pull requests are welcome.

@@ -179,11 +179,9 @@ private:
     std::unique_ptr<impl> impl_;
 };
 
-// A small, curl-flavored fluent request builder for the less common
-// cases (custom method, headers, a body) that get()/fetch() don't
-// cover. Also what httpp/curl_compat.h's `curl_easy_*` C API is built on
-// (see src/core/curl_compat.cpp) - one implementation of "run an HTTP
-// request" in httpp, not two.
+// A fluent request builder for the less common cases (custom method,
+// headers, a body, auth, cookies, a proxy) that get()/fetch() don't cover.
+// It is also what the `httpp curl` command runs on.
 //
 // Named like Python's httpp.Request. The request a server handler receives is httpp::server_request (Python:
 // httpp.ServerRequest), so the two names say which side they belong to: httpp::server_request(url)....run()

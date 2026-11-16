@@ -4,7 +4,6 @@
 // It exercises every major piece of the public API to prove the installed
 // package is actually complete and usable, not just able to parse a URL.
 #include <httpp.h>
-#include <httpp/curl_compat.h>
 
 #include <cstdio>
 #include <cstring>
@@ -33,12 +32,6 @@ std::string read_file(const std::string& path) {
     std::ostringstream ss;
     ss << in.rdbuf();
     return ss.str();
-}
-
-size_t write_to_string(char* ptr, size_t size, size_t nmemb, void* userdata) {
-    auto* out = static_cast<std::string*>(userdata);
-    out->append(ptr, size * nmemb);
-    return size * nmemb;
 }
 
 } // namespace
@@ -86,22 +79,7 @@ int main() {
         check(res.status == 404, "httpp::request sends a custom DELETE method");
     }
 
-    // 4) httpp/curl_compat.h (libcurl-style C API)
-    {
-        CURL* curl = curl_easy_init();
-        std::string body;
-        curl_easy_setopt(curl, CURLOPT_URL, (base + "/hello").c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_string);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
-        CURLcode rc = curl_easy_perform(curl);
-        long http_code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-        check(rc == CURLE_OK && http_code == 200 && body == "world",
-              "curl_easy_perform (compat layer) GETs successfully");
-        curl_easy_cleanup(curl);
-    }
-
-    // 5) httpp::download (fluent builder + progress bar plumbing)
+    // 4) httpp::download (fluent builder + progress bar plumbing)
     {
         const std::string dest = "consumer_download_output.txt";
         std::remove(dest.c_str());
@@ -113,7 +91,7 @@ int main() {
         std::remove(dest.c_str());
     }
 
-    // 6) httpp::progress::range (trange-like)
+    // 5) httpp::progress::range (trange-like)
     {
         std::size_t count = 0;
         for (auto i : httpp::progress::range(5, "consumer-check")) {

@@ -220,10 +220,11 @@ std::string head_text(const httpp::response& res) {
 
 // Everything `httpp curl` takes from the command line.
 struct curl_args {
-    std::string url, method, data, output, user;
+    std::string url, method, output, user;
     std::vector<std::string> headers;
-    bool has_data = false;
+    std::vector<std::string> data; // every -d; joined with '&' like curl
     bool has_user = false;
+    bool fail = false;            // -f
     bool include_headers = false; // -i
     bool head_only = false;       // -I
     bool verbose = false;         // -v
@@ -231,12 +232,43 @@ struct curl_args {
     long max_time = 0;            // -m, in seconds; 0 when not given
 };
 
+// What went wrong with a transfer, in a few words, for the "error:" line.
+const char* error_label(httpp::error_kind kind) {
+    switch (kind) {
+        case httpp::error_kind::invalid_url: return "invalid URL";
+        case httpp::error_kind::unsupported_method: return "unsupported method";
+        case httpp::error_kind::connection: return "connection failed";
+        case httpp::error_kind::timeout: return "timed out";
+        case httpp::error_kind::tls: return "TLS failed";
+        case httpp::error_kind::too_many_redirects: return "too many redirects";
+        case httpp::error_kind::too_large: return "response too large";
+        case httpp::error_kind::canceled: return "canceled";
+        default: return "request failed";
+    }
+}
+
+// The exit code curl uses for the same trouble, so a script can tell them apart.
+int curl_exit_code(httpp::error_kind kind) {
+    switch (kind) {
+        case httpp::error_kind::invalid_url: return 3;          // CURLE_URL_MALFORMAT
+        case httpp::error_kind::connection: return 7;           // CURLE_COULDNT_CONNECT (a failed lookup lands here too)
+        case httpp::error_kind::timeout: return 28;             // CURLE_OPERATION_TIMEDOUT
+        case httpp::error_kind::tls: return 35;                 // CURLE_SSL_CONNECT_ERROR
+        case httpp::error_kind::too_many_redirects: return 47;  // CURLE_TOO_MANY_REDIRECTS
+        case httpp::error_kind::too_large: return 63;           // CURLE_FILESIZE_EXCEEDED
+        default: return 1;
+    }
+}
+
+constexpr int curl_exit_http_error = 22; // CURLE_HTTP_RETURNED_ERROR, with -f
+
 int cmd_curl(const curl_args& a) {
     httpp::request req(a.url);
 
     // The method that will be sent, as curl picks it: -X wins, then -I, then POST when there is a body.
+    const bool has_data = !a.data.empty();
     std::string effective = a.method;
-    if (effective.empty()) effective = a.head_only ? "HEAD" : (a.has_data ? "POST" : "GET");
+    if (effective.empty()) effective = a.head_only ? "HEAD" : (has_data ? "POST" : "GET");
     if (!a.method.empty() || a.head_only) req.method(effective);
 
     std::vector<std::pair<std::string, std::string>> sent;
@@ -249,7 +281,11 @@ int cmd_curl(const curl_args& a) {
         sent.emplace_back(trim_ws(h.substr(0, colon)), trim_ws(h.substr(colon + 1)));
         req.header(sent.back().first, sent.back().second);
     }
-    if (a.has_data) req.data(a.data);
+    if (has_data) {
+        std::string body;
+        for (const std::string& piece : a.data) body += (body.empty() ? "" : "&") + piece;
+        req.data(body);
+    }
     if (a.location) req.follow_redirects(true);
     if (a.max_time > 0) req.timeout(a.max_time);
     if (a.has_user) {
@@ -262,10 +298,14 @@ int cmd_curl(const curl_args& a) {
     }
 
     if (a.verbose) {
-        httpp::url target = httpp::parse_url(a.url);
-        std::string path = httpp::url_path(target);
-        std::string query = httpp::url_query(target);
-        if (!query.empty()) path += "?" + query;
+        std::string path = a.url; // shown as typed when it does not parse; the request then fails below
+        try {
+            httpp::url target = httpp::parse_url(a.url);
+            path = httpp::url_path(target);
+            std::string query = httpp::url_query(target);
+            if (!query.empty()) path += "?" + query;
+        } catch (const std::exception&) {
+        }
         std::cerr << "> " << effective << " " << path << " HTTP/1.1\n";
         for (const auto& [name, value] : sent) std::cerr << "> " << name << ": " << value << "\n";
         std::cerr << ">" << std::endl;
@@ -273,15 +313,28 @@ int cmd_curl(const curl_args& a) {
 
     httpp::response res = req.run();
 
-    if (a.verbose && res.status != 0) {
+    if (res.failed()) { // no HTTP answer to show, and no file to leave behind
+        std::cerr << "error: " << error_label(res.error);
+        if (!res.error_message.empty() && res.error_message != error_label(res.error)) std::cerr << " (" << res.error_message << ")";
+        std::cerr << std::endl;
+        return curl_exit_code(res.error);
+    }
+
+    if (a.verbose) {
         std::cerr << "< HTTP/1.1 " << res.status << "\n";
         for (const auto& [name, value] : res.headers) std::cerr << "< " << name << ": " << value << "\n";
         std::cerr << "<" << std::endl;
     }
 
-    // -i and -I put the head in front of the body (-I has no body). A failed transfer has no head to show.
+    // Like curl, an HTTP error status is an answer, not a failure, unless -f asks for one.
+    if (a.fail && res.status >= 400) {
+        std::cerr << "error: the requested URL returned error: " << res.status << std::endl;
+        return curl_exit_http_error;
+    }
+
+    // -i and -I put the head in front of the body (-I has no body).
     std::string out;
-    if ((a.include_headers || a.head_only) && res.status != 0) out += head_text(res);
+    if (a.include_headers || a.head_only) out += head_text(res);
     if (!a.head_only) out += res.body;
 
     if (!a.output.empty()) {
@@ -295,10 +348,6 @@ int cmd_curl(const curl_args& a) {
         stdout_binary();
         std::fwrite(out.data(), 1, out.size(), stdout);
         std::fflush(stdout);
-    }
-    if (!res.ok()) {
-        std::cerr << "error: request failed with status " << res.status << std::endl;
-        return 1;
     }
     return 0;
 }
@@ -482,12 +531,13 @@ int main(int argc, char** argv) {
 
     // curl
     curl_args ca;
-    auto* c_curl = app.add_subcommand("curl", "Make a request (a small curl-like subset: -X -H -d -o -i -I -v -L -m -u).");
+    auto* c_curl = app.add_subcommand("curl", "Make a request (a small curl-like subset: -X -H -d -o -f -i -I -v -L -m -u).");
     c_curl->add_option("url", ca.url)->required();
     c_curl->add_option("--request,-X", ca.method, "HTTP method (default: GET, or POST if -d is given, or HEAD with -I)");
     c_curl->add_option("--header,-H", ca.headers, "Extra header 'Name: value' (repeatable)")->type_name("HEADER");
-    auto* curl_data_opt = c_curl->add_option("--data,-d", ca.data, "Request body");
+    c_curl->add_option("--data,-d", ca.data, "Request body (repeatable: the values are joined with '&')")->allow_extra_args(false);
     c_curl->add_option("--output,-o", ca.output, "Write the response body to this file instead of stdout");
+    c_curl->add_flag("--fail,-f", ca.fail, "Exit with 22 and print nothing when the status is 400 or more");
     c_curl->add_flag("--include,-i", ca.include_headers, "Print the status line and the response headers before the body");
     c_curl->add_flag("--head,-I", ca.head_only, "Send HEAD and print only the status line and the headers");
     c_curl->add_flag("--verbose,-v", ca.verbose, "Print the request line and the -H headers, then the response status and headers, to stderr");
@@ -509,7 +559,6 @@ int main(int argc, char** argv) {
     if (c_browse->parsed()) return cmd_browse(b);
     if (c_download->parsed()) return cmd_download(dl_url, dl_output, dl_quiet);
     if (c_curl->parsed()) {
-        ca.has_data = curl_data_opt->count() > 0;
         ca.has_user = curl_user_opt->count() > 0;
         return cmd_curl(ca);
     }
