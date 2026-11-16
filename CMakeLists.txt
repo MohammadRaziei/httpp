@@ -161,6 +161,14 @@ set_target_properties(httpp_core PROPERTIES
     MACOSX_RPATH ON
     INSTALL_NAME_DIR "@rpath"
 )
+# libhttpp_core needs liburlparser (ADR-0072), which is installed in the same folder (httpp/sdk/lib in the wheel, <prefix>/lib in
+# an install). Its own RPATH must name that folder: delocate (macOS wheel repair) and auditwheel resolve a library's dependencies
+# through that library's RPATH, not through the module that loads it ("@rpath/liburlparser.2.dylib not found").
+if(APPLE)
+    set_target_properties(httpp_core PROPERTIES INSTALL_RPATH "@loader_path")
+elseif(NOT WIN32)
+    set_target_properties(httpp_core PROPERTIES INSTALL_RPATH "$ORIGIN")
+endif()
 
 target_include_directories(httpp_core
     PUBLIC
