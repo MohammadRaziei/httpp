@@ -4,6 +4,7 @@ import base64
 import http.client
 import json
 import os
+import re
 import socket
 import ssl
 import stat
@@ -530,6 +531,43 @@ def test_curl_a_refused_connection_exits_7_and_says_why(httpp_exe, tmp_path):
 def test_curl_a_bad_url_exits_3(httpp_exe):
     r = run(httpp_exe, "curl", "not a url")
     assert r.returncode == 3 and r.stderr.startswith("error:")
+
+
+def test_curl_a_url_without_a_scheme_means_http(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        bare = url[len("http://"):]  # 127.0.0.1:PORT, as typed in `curl host:port/path`
+        r = run(httpp_exe, "curl", f"{bare}/text")
+        upper = run(httpp_exe, "curl", f"HTTP://{bare}/text")
+        verbose = run(httpp_exe, "curl", f"{bare}/text", "-v")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == "plain body"
+    assert upper.returncode == 0 and upper.stdout == "plain body"  # a scheme that is there is left alone
+    assert "> GET /text HTTP/1.1" in verbose.stderr
+
+
+def test_curl_version_names_httpp_and_the_curl_it_follows(httpp_exe):
+    for flag in ("--version", "-V"):
+        r = run(httpp_exe, "curl", flag)
+        assert r.returncode == 0, r.stderr
+        assert re.fullmatch(r"httpp curl \d+\.\d+\.\d+ compatible with curl \d+\.\d+\.\d+\s*", r.stdout), r.stdout
+
+
+def test_curl_announces_itself_as_curl_unless_told_otherwise(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        default = run(httpp_exe, "curl", f"{url}/echo")
+        chosen = run(httpp_exe, "curl", f"{url}/echo", "-A", "probe/1")
+    assert re.fullmatch(r"curl/\d+\.\d+\.\d+", json.loads(default.stdout)["ua"])
+    assert json.loads(chosen.stdout)["ua"] == "probe/1"
+
+
+def test_curl_a_url_with_a_space_is_rejected_and_never_sent(httpp_exe):
+    r = run(httpp_exe, "curl", f"127.0.0.1:{free_port()}/a b", "-v")
+    assert r.returncode == 3 and r.stderr.startswith("error:") and "> GET" not in r.stderr
+
+
+def test_curl_a_bare_host_that_does_not_exist_is_not_a_bad_url(httpp_exe):
+    r = run(httpp_exe, "curl", f"127.0.0.1:{free_port()}")
+    assert r.returncode == 7  # refused, which proves it was read as http://127.0.0.1:PORT and not rejected as a URL
 
 
 def test_curl_prints_the_body_byte_for_byte(httpp_exe, echo_app):

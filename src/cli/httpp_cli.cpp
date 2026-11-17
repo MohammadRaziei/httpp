@@ -59,7 +59,9 @@ namespace {
 
 #define HTTPP_CLI_STR2(x) #x
 #define HTTPP_CLI_STR(x) HTTPP_CLI_STR2(x)
-const char* const k_version = HTTPP_CLI_STR(HTTPP_VERSION_MAJOR) "." HTTPP_CLI_STR(HTTPP_VERSION_MINOR) "." HTTPP_CLI_STR(HTTPP_VERSION_PATCH);
+// The curl release whose behaviour `httpp curl` follows: it is in the default User-Agent and in `httpp curl --version`.
+const char* const k_curl_compat_version = "8.18.0";
+const char* const k_version =HTTPP_CLI_STR(HTTPP_VERSION_MAJOR) "." HTTPP_CLI_STR(HTTPP_VERSION_MINOR) "." HTTPP_CLI_STR(HTTPP_VERSION_PATCH);
 
 int fail(const std::string& message) {
     std::cerr << "httpp: error: " << message << std::endl;
@@ -347,6 +349,16 @@ std::string with_upload_name(const std::string& url, const std::string& name) {
     return head + name + tail;
 }
 
+// curl reads a URL with no "://" as http://, so `httpp curl parrot.live` and `httpp curl localhost:8080/x` work.
+std::string with_default_scheme(const std::string& url) {
+    return url.find("://") == std::string::npos ? "http://" + url : url;
+}
+
+// curl rejects a URL with a space or a control character (exit 3) instead of sending a broken request line.
+bool url_has_unsafe_character(const std::string& url) {
+    return std::any_of(url.begin(), url.end(), [](unsigned char c) { return c <= 0x20 || c == 0x7f; });
+}
+
 std::string response_header(const httpp::response& res, const char* name) {
     for (const auto& [key, value] : res.headers)
         if (same_header_name(key, name)) return value;
@@ -413,7 +425,7 @@ void write_stdout(const std::string& bytes) {
 
 // One transfer. Returns its exit code.
 int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_url, const std::string& output) {
-    std::string url = given_url;
+    std::string url = with_default_scheme(given_url);
     if (!a.upload_file.empty() && a.upload_file != "-") url = with_upload_name(url, file_base_name(a.upload_file));
 
     // The method that will be sent, as curl picks it: -X wins, then -I, then PUT for -T, then POST when there is a body.
@@ -433,7 +445,9 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         if (a.has_user) req.basic_auth(plan.user_name, plan.user_password);
     };
 
-    if (a.verbose) {
+    const bool malformed = url_has_unsafe_character(url);
+
+    if (a.verbose && !malformed) {
         std::string path = url; // shown as typed when it does not parse; the request then fails below
         try {
             httpp::url target = httpp::parse_url(url);
@@ -448,6 +462,12 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
     }
 
     auto attempt = [&]() {
+        if (malformed) { // never sent: not transient, so no retry either
+            httpp::response bad;
+            bad.error = httpp::error_kind::invalid_url;
+            bad.error_message = "not a usable http(s) URL: " + given_url;
+            return bad;
+        }
         httpp::request req(url);
         fill(req);
         return req.run();
@@ -535,7 +555,8 @@ int cmd_curl(const curl_args& a) {
         for (const auto& h : plan.sent) if (same_header_name(h.first, name)) return;
         plan.sent.emplace_back(name, value);
     };
-    add_unless_given("User-Agent", a.user_agent);
+    // Like curl, announce ourselves as curl/<version> unless -A or -H says otherwise: some sites (parrot.live) answer only that.
+    add_unless_given("User-Agent", a.user_agent.empty() ? std::string("curl/") + k_curl_compat_version : a.user_agent);
     add_unless_given("Referer", a.referer);
 
     if (a.has_user) {
@@ -785,6 +806,7 @@ int main(int argc, char** argv) {
     curl_args ca;
     auto* c_curl = app.add_subcommand("curl", "Make requests (a curl-like subset: -X -H -d -o -O -f -s -S -i -I -v -L -m -u -A -e -w -T -D -d @file --compressed --retry; several URLs).");
     c_curl->add_option("url", ca.urls, "URL (several are fetched in turn; a failure does not stop the rest, the first one sets the exit code)")->required();
+    c_curl->set_version_flag("--version,-V", std::string("httpp curl ") + k_version + " compatible with curl " + k_curl_compat_version);
     c_curl->add_option("--request,-X", ca.method, "HTTP method (default: GET, or POST if -d is given, PUT with -T, HEAD with -I)");
     c_curl->add_option("--header,-H", ca.headers, "Extra header 'Name: value' (repeatable)")->type_name("HEADER")->allow_extra_args(false);
     c_curl->add_option("--data,-d", ca.data, "Request body (repeatable: joined with '&'; '@file' reads a file without its line breaks, '@-' stdin)")->allow_extra_args(false);

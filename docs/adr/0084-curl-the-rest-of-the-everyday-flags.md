@@ -20,12 +20,14 @@ After ADR-0083 `httpp curl` behaved like curl on errors, but a script still coul
 - `--compressed` is accepted and does nothing: the client always sends `Accept-Encoding: gzip, deflate` and decodes the answer (an explicit `-H` still wins).
 - `--retry N`, `--retry-delay SECONDS` and `--retry-connrefused`: another try after a timeout or a status of 408, 429, 500, 502, 503 or 504 (a failed connection only with `--retry-connrefused`). The wait is 1, 2, 4, ... seconds up to 600, or the given delay. `Retry-After` is not read.
 - Several URLs are fetched in turn. `-o` is matched with the URLs by position; every other option applies to all of them. A failure does not stop the rest and the exit code is the one of the first failure. (This choice was made here and was not checked against what curl returns.)
+- A URL with no `://` is read as `http://` (curl does the same), and a URL with a space or a control character is exit code 3 before anything is sent (curl: "URL rejected"). The check is in the command, not in `httpp::url`: the URL parser still accepts a space in a path, which a library caller meets as `invalid request line` from the server. ponytail: moving the check into `url_is_http` is the better home and is not done here.
+- Default `User-Agent` of `httpp curl` is `curl/8.18.0`, the curl release whose behavior the command follows (`k_curl_compat_version`); `-A` and `-H` win. `httpp curl --version` and `-V` print `httpp curl <version> compatible with curl <curl version>`. `httpp::request` keeps its own User-Agent: only the command presents itself as curl, because it is meant to replace it in scripts (parrot.live, for one, streams only to `curl/...` and redirects every other agent).
 - The documentation gets a page, *The httpp curl command*, and the server pages use `httpp curl`. Their `# HTTP/1.1 201 Created` comments lose the reason phrase, because `httpp curl -i` prints `HTTP/1.1 201`.
 
 ## Consequences
 
 - `-o` changed from one value to a list; one `-o` with one URL works as before.
-- Still missing: `-F`, `--json`, `-G`, `-b`, `-x`, `-k`, `--cacert`, `--data-binary`, `-C`, `-r`, `--http2`. `httpp::request` has proxies, cookies, TLS options, JSON and form bodies; the command does not expose them yet. `-m` still limits each step, not the whole transfer.
+- Still missing: `-F`, `--json`, `-G`, `-b`, `-x`, `-k`, `--cacert`, `--data-binary`, `-C`, `-r`, `--http2`. `httpp::request` has proxies, cookies, TLS options, JSON and form bodies; the command does not expose them yet. `-m` still limits each step, not the whole transfer. The command still collects the whole body in `response::body` and writes it at the end, so an endless answer prints nothing and a big file sits in memory; the fix is to write each piece as it arrives (a public streaming hook on `request`, dual in C++ and Python, built on the engine's `body_sink` of ADR-0052). Not done yet.
 
 ## Related
 
