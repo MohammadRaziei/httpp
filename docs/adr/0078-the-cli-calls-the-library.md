@@ -1,6 +1,6 @@
 # ADR-0078: the `httpp` commands call the library; `mount` returns the server
 
-- **Status:** accepted
+- **Status:** accepted; the first decision (`mount` returns the `server&`) is superseded by ADR-0081 (`mount` takes and returns a `server` handle by value)
 - **Decided by:** the project owner (the commands should only call functions, not hold logic)
 - **Source:** `include/httpp/server.hpp` (`mount`, `bind`, `url`, `listen_until_signal`), `include/httpp/banner.hpp`, `include/httpp/logging.hpp` (`set_log_level(name)`), `src/core/tls_session.cpp`, `src/cli/httpp_cli.cpp` (`run_server`), `tests/cpp/test_server_lifecycle.cpp`
 

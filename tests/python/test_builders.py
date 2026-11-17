@@ -1,4 +1,4 @@
-"""httpp.Directory and httpp.SwaggerUI: the builder classes of ADR-0066 through the Python API (the HTTP behaviour is tested in C++)."""
+"""httpp.Directory and httpp.Swagger: the builder classes of ADR-0066 through the Python API (the HTTP behaviour is tested in C++)."""
 
 import threading
 import time
@@ -8,7 +8,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from httpp import Directory, Server, SwaggerUI
+from httpp import Directory, Server, Swagger
 
 
 @contextmanager
@@ -112,25 +112,39 @@ def test_directory_refuses_a_base_without_a_slash(tmp_path):
         Directory(tmp_path).mount(Server(), "site")
 
 
-def test_swagger_ui_builder_serves_the_page_and_refuses_a_bad_path():
-    s = SwaggerUI()
-    with pytest.raises(ValueError):
-        s.set_docs_path("docs")
-    with pytest.raises(ValueError):
-        s.set_docs_path("/")
+def test_swagger_builder_serves_the_page_and_refuses_a_bad_base():
+    s = Swagger("/openapi.json")
     app = Server()
-    assert s.set_docs_path("/api/docs").set_title("T") is s
-    s.mount(app)  # the refused values left "/docs" default untouched until the valid one
+    for bad in ("docs", "/", ""):
+        with pytest.raises(ValueError):
+            s.mount(app, bad)
+    assert s.set_title("T") is s
+    s.mount(app, "/api/docs")  # the refused bases mounted nothing
     with running(app) as url:
         body = urllib.request.urlopen(url + "/api/docs").read().decode()
         assert "swagger-ui" in body and "T - Swagger UI" in body
+        assert "/api/docs/swagger-ui.css" in body
 
 
-def test_swagger_ui_keywords():
-    app = Server()
-    SwaggerUI(docs_path="/d", openapi_url="/o.json", title="K").mount(app)
+def test_swagger_needs_an_openapi_url_and_the_base_defaults_to_docs():
+    with pytest.raises(TypeError):
+        Swagger()
+    with pytest.raises(ValueError):
+        Swagger("")
+    app = Server(docs_url=None)  # a Server serves its own /docs by default
+    Swagger("/o.json", title="K").mount(app)
     with running(app) as url:
-        assert "/o.json" in urllib.request.urlopen(url + "/d").read().decode()
+        body = urllib.request.urlopen(url + "/docs").read().decode()
+        assert "/o.json" in body and "K - Swagger UI" in body
+
+
+def test_one_swagger_object_mounts_on_two_bases():
+    app = Server()
+    s = Swagger("/o.json")
+    s.mount(app, "/a")
+    s.mount(app, "/b/ui")
+    with running(app) as url:
+        assert "/b/ui/swagger-ui.css" in urllib.request.urlopen(url + "/b/ui").read().decode()
 
 
 def test_proxy_is_one_url_in_every_client(tmp_path):

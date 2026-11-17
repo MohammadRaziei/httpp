@@ -7,7 +7,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Server',
-      items: ['server/get-route', 'server/request-data', 'server/responses', 'server/swagger', 'server/send-file', 'server/serve-directory', 'server/browse-command', 'server/file-browser', 'server/hooks'],
+      items: ['server/get-route', 'server/request-data', 'server/responses', 'server/swagger', 'server/send-file', 'server/serve-directory', 'server/server-handle', 'server/browse-command', 'server/file-browser', 'server/hooks'],
     },
     {
       type: 'category',

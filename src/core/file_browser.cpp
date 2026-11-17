@@ -306,7 +306,7 @@ file_browser& file_browser::set_max_entries(std::size_t count) {
 file_browser& file_browser::set_view(view_mode view) { view_ = view; return *this; }
 file_browser& file_browser::set_sort(sort_key sort) { sort_ = sort; return *this; }
 
-server& file_browser::mount(server& s, const std::string& base) const {
+server file_browser::mount(server s, const std::string& base) const {
     const std::string& root = root_.str();
     std::string prefix = base;
     while (!prefix.empty() && prefix.back() == '/') prefix.pop_back(); // "/" -> "" (the root of the server)

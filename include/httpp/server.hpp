@@ -168,16 +168,27 @@ using io_handler = std::function<void(std::shared_ptr<const server_request>, res
 // src/core/server.cpp); that engine never appears in this public header.
 class directory;
 class forwarded_headers;
+class server_stopper;
 
 class server {
 public:
+    // A `server` is a handle (ADR-0081): copying it gives a second handle to the SAME server, with the same routes, settings and
+    // sockets, so mounting or configuring through any handle changes all of them. The server closes when the last handle is
+    // destroyed (or by stop()/shutdown()). A handler must not capture a `server` (that is a cycle: the server keeps the handler,
+    // the handler keeps the server, and it is never freed); capture stopper() instead. A moved-from handle can only be assigned
+    // to or destroyed.
     HTTPP_API server();
     HTTPP_API ~server();
 
+    HTTPP_API server(const server&) noexcept;
     HTTPP_API server(server&&) noexcept;
+    HTTPP_API server& operator=(const server&) noexcept;
     HTTPP_API server& operator=(server&&) noexcept;
-    server(const server&) = delete;
-    server& operator=(const server&) = delete;
+
+    // True when both handles are the same server (handles are copied, so their addresses say nothing).
+    HTTPP_API bool same_as(const server& other) const noexcept;
+    // A handle that can stop this server but does not keep it alive; see server_stopper.
+    HTTPP_API server_stopper stopper() const;
 
     // `path` may contain {name} or {name:int|float} segments ("/users/{id}"), captured into
     // request::path_params. `method` is GET/POST/PUT/PATCH/DELETE/OPTIONS
@@ -252,23 +263,29 @@ public:
     using after_hook = std::function<void(const server_request&, response&)>;
     using error_hook = std::function<void(const server_request&, response&)>;
     using exception_hook = std::function<void(const server_request&, response&, std::exception_ptr)>;
-    HTTPP_API server& before(before_hook hook);
-    HTTPP_API server& after(after_hook hook);
-    HTTPP_API server& set_error_handler(error_hook hook);
-    HTTPP_API server& set_exception_handler(exception_hook hook);
+    HTTPP_API server& before(before_hook hook) &;
+    server before(before_hook hook) && { before(std::move(hook)); return std::move(*this); }
+    HTTPP_API server& after(after_hook hook) &;
+    server after(after_hook hook) && { after(std::move(hook)); return std::move(*this); }
+    HTTPP_API server& set_error_handler(error_hook hook) &;
+    server set_error_handler(error_hook hook) && { set_error_handler(std::move(hook)); return std::move(*this); }
+    HTTPP_API server& set_exception_handler(exception_hook hook) &;
+    server set_exception_handler(exception_hook hook) && { set_exception_handler(std::move(hook)); return std::move(*this); }
     // TLS (ADR-0040): serve https and wss instead of http and ws, with a certificate chain (PEM, leaf first) and its private key (PEM,
     // `key_password` when it is encrypted). Files are read now: a missing or unreadable file, bad PEM, a wrong password or a key that does
     // not belong to the certificate throws std::runtime_error naming the file. TLS 1.2 and 1.3, no client certificates, no session
     // resumption. Call it before listening; the files are not watched (set it again, or restart, after renewing a certificate).
     // One port serves either TLS or plain HTTP, never both: a plain request to a TLS port is dropped.
-    HTTPP_API server& set_tls(const path& cert_file, const path& key_file, const std::string& key_password = "");
+    HTTPP_API server& set_tls(const path& cert_file, const path& key_file, const std::string& key_password = "") &;
+    server set_tls(const path& cert_file, const path& key_file, const std::string& key_password = "") && { set_tls(cert_file, key_file, key_password); return std::move(*this); }
     // Middleware (ADR-0037): a before and an after hook that sit next to the application's own, so any number
     // can be added (see httpp/middleware.hpp for the ready-made ones). Either may be empty. Before hooks run in
     // the order of the use() calls, then the application's before(); the first that returns true answers and
     // the rest are skipped. After hooks run for every answer (also the ones a before hook gave): the
     // application's after() first, then the middleware in the reverse order. before() and after() never
     // remove middleware. Call it before listening.
-    HTTPP_API server& use(before_hook before, after_hook after = {});
+    HTTPP_API server& use(before_hook before, after_hook after = {}) &;
+    server use(before_hook before, after_hook after = {}) && { use(std::move(before), std::move(after)); return std::move(*this); }
 
     // --- Settings; call them before listening. Each returns *this. ---
     // Worker threads for sync handlers: `base` are kept, up to `max` are used under load
@@ -277,44 +294,79 @@ public:
     // at once, long keeps CPU-bound handlers on few threads (more of them only fight over a lock, such as
     // Python's GIL).
     HTTPP_API server& set_thread_pool(std::size_t base, std::size_t max = 0,
-                                      std::chrono::microseconds grow_after = std::chrono::microseconds(500));
-    HTTPP_API server& set_read_timeout(int seconds);        // reading a request (default 5)
-    HTTPP_API server& set_write_timeout(int seconds);       // writing a response (default 5)
-    HTTPP_API server& set_keep_alive_timeout(int seconds);  // idle keep-alive connection (default 5)
-    HTTPP_API server& set_keep_alive_max(std::size_t requests); // requests per connection (default 1000, 0 = no limit)
-    HTTPP_API server& set_max_body(std::size_t bytes);      // largest request body accepted; 0 = no limit
-    HTTPP_API server& set_header_timeout(int seconds);      // whole request head must arrive within this (slowloris); default 10, 0 = no limit
-    HTTPP_API server& set_body_timeout(int seconds);        // whole request body must arrive within this after its head (slow drip); default 120, 0 = no limit
-    HTTPP_API server& set_max_connections(std::size_t n);   // open connections allowed; one more gets a 503; default 0 = no limit
-    HTTPP_API server& set_async_timeout(int seconds);       // route_async: answer within this or 504; 0 = never
+                                      std::chrono::microseconds grow_after = std::chrono::microseconds(500)) &;
+    server set_thread_pool(std::size_t base, std::size_t max = 0,
+                           std::chrono::microseconds grow_after = std::chrono::microseconds(500)) && {
+        set_thread_pool(base, max, grow_after);
+        return std::move(*this);
+    }
+    HTTPP_API server& set_read_timeout(int seconds) &;        // reading a request (default 5)
+    server set_read_timeout(int seconds) && { set_read_timeout(seconds); return std::move(*this); }
+    HTTPP_API server& set_write_timeout(int seconds) &;       // writing a response (default 5)
+    server set_write_timeout(int seconds) && { set_write_timeout(seconds); return std::move(*this); }
+    HTTPP_API server& set_keep_alive_timeout(int seconds) &;  // idle keep-alive connection (default 5)
+    server set_keep_alive_timeout(int seconds) && { set_keep_alive_timeout(seconds); return std::move(*this); }
+    HTTPP_API server& set_keep_alive_max(std::size_t requests) &; // requests per connection (default 1000, 0 = no limit)
+    server set_keep_alive_max(std::size_t requests) && { set_keep_alive_max(requests); return std::move(*this); }
+    HTTPP_API server& set_max_body(std::size_t bytes) &;      // largest request body accepted; 0 = no limit
+    server set_max_body(std::size_t bytes) && { set_max_body(bytes); return std::move(*this); }
+    HTTPP_API server& set_header_timeout(int seconds) &;      // whole request head must arrive within this (slowloris); default 10, 0 = no limit
+    server set_header_timeout(int seconds) && { set_header_timeout(seconds); return std::move(*this); }
+    HTTPP_API server& set_body_timeout(int seconds) &;        // whole request body must arrive within this after its head (slow drip); default 120, 0 = no limit
+    server set_body_timeout(int seconds) && { set_body_timeout(seconds); return std::move(*this); }
+    HTTPP_API server& set_max_connections(std::size_t n) &;   // open connections allowed; one more gets a 503; default 0 = no limit
+    server set_max_connections(std::size_t n) && { set_max_connections(n); return std::move(*this); }
+    HTTPP_API server& set_async_timeout(int seconds) &;       // route_async: answer within this or 504; 0 = never
+    server set_async_timeout(int seconds) && { set_async_timeout(seconds); return std::move(*this); }
     // Gzip text answers (text/*, JSON, XML, JavaScript, SVG) of at least `min_size` bytes when the client sends
     // Accept-Encoding with gzip. Off by default; min_size 0 turns it off. `level` is zlib's 1 (fastest, default)
     // to 9 (smallest), else std::invalid_argument. Files, streamed bodies, partial answers and bodies that
     // already have a Content-Encoding are never touched. Compressing a body takes CPU time on the thread that
     // answers, so use a larger min_size or a lower level when answers are big and latency matters.
-    HTTPP_API server& set_compression(std::size_t min_size, int level = 1);
+    HTTPP_API server& set_compression(std::size_t min_size, int level = 1) &;
+    server set_compression(std::size_t min_size, int level = 1) && { set_compression(min_size, level); return std::move(*this); }
     // Let several processes listen on the same port, the kernel balancing connections between them
     // (SO_REUSEPORT: Linux only; elsewhere listening fails). Off by default, because it also lets an
     // unrelated process of the same user bind the port silently.
-    HTTPP_API server& set_reuse_port(bool on);
+    HTTPP_API server& set_reuse_port(bool on) &;
+    server set_reuse_port(bool on) && { set_reuse_port(on); return std::move(*this); }
     // How many I/O threads read, parse and answer (default 1). Each runs its own event loop and its own
     // acceptor on the same port (SO_REUSEPORT), the kernel spreads new connections over them, and a
     // connection stays on its thread for good, so the requests of one connection never overlap. route_io
     // handlers run on these threads. Needs SO_REUSEPORT (Linux, macOS, BSD): where it is missing, or the bind
     // fails, the server keeps one thread. Setting it turns reuse_port on (see above for the catch).
     // set_max_connections is then a total, shared out evenly. Call before listening.
-    HTTPP_API server& set_io_threads(std::size_t n);
+    HTTPP_API server& set_io_threads(std::size_t n) &;
+    server set_io_threads(std::size_t n) && { set_io_threads(n); return std::move(*this); }
 
 private:
     friend class directory;
     friend class forwarded_headers;
+    friend class server_stopper;
     // Runs on every request right after it is parsed and before any hook, on the thread that parses it; one per server (a second replaces it).
     void set_request_rewrite(std::function<void(server_request&)> rewrite);
     struct impl;
-    std::unique_ptr<impl> impl_;
+    std::shared_ptr<impl> impl_;
 };
 
-// A folder served as static files (ADR-0066): `directory(dir).set_index(false).mount(server, "/static")`. Honours Range, If-Modified-Since,
+// What a route handler (or a signal watcher, or another thread) holds to stop a server without keeping it alive (ADR-0081). It is a
+// weak reference: once the last `server` handle is gone, stop() and shutdown() do nothing and alive() is false. Capture this in a
+// handler, never a `server`: a handler that holds a `server` makes a cycle (server -> handler -> server) and the server is never freed.
+//     auto srv = httpp::server();
+//     srv.get("/quit", [stop = srv.stopper()](const httpp::server_request&, httpp::response& res) { stop.shutdown(); res.body = "bye"; });
+class server_stopper {
+public:
+    server_stopper() = default;                                          // not tied to any server: alive() is false
+    HTTPP_API void stop() const noexcept;                                // as server::stop()
+    HTTPP_API void shutdown(std::chrono::milliseconds grace = std::chrono::seconds(10)) const;  // as server::shutdown()
+    HTTPP_API bool alive() const noexcept;                               // some `server` handle still holds the server
+
+private:
+    friend class server;
+    std::weak_ptr<server::impl> impl_;
+};
+
+// A folder served as static files (ADR-0066): `directory(dir).set_index(false).mount(server, "/static")` (see server for what mounting a handle means). Honours Range, If-Modified-Since,
 // ETag and HEAD, streams large files, and never leaves `dir` (".." segments and links out of it are refused). A setting is validated when
 // it is set; mount() throws std::invalid_argument when the mount path does not start with '/'. The folder is read when requests arrive,
 // so it may be created after mounting.
@@ -338,7 +390,9 @@ public:
     // active type (xml, js, unknown) stays a download, and "?download=1" still forces one. Only has an effect together with
     // set_download_active(true). Default: false.
     HTTPP_API directory& set_inline_active(bool on);
-    HTTPP_API server& mount(server& s, const std::string& base = "/") const;  // returns `s` itself (no copy), so .set_tls(...) can follow
+    // `s` is a handle (ADR-0081): the folder is mounted on the server it points to, so the caller's own `server` sees it. Returns that
+    // handle, so the chain goes on: `auto srv = directory(p).mount(server(), "/").set_tls(cert, key);`
+    HTTPP_API server mount(server s, const std::string& base = "/") const;
 
 private:
     path root_;

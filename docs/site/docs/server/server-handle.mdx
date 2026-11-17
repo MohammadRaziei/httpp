@@ -1,0 +1,51 @@
+---
+id: server-handle
+title: The server handle (C++)
+---
+
+In C++, `httpp::server` is a **handle**. Copying it does not make a second server: you get another handle to the same one, with the same routes, settings and sockets. Python's `Server` is an ordinary object and works as it always did.
+
+```cpp
+auto srv = httpp::directory("public").set_show_hidden(false)
+               .mount(httpp::server(), "/")
+               .set_tls("cert.pem", "key.pem");
+srv.listen("0.0.0.0", 8443);
+```
+
+`mount` takes the server by value and gives it back, so a temporary works, and a `server` you already have sees what was mounted:
+
+```cpp
+httpp::server app;
+httpp::directory("public").mount(app, "/static");   // `app` now serves /static
+```
+
+## What sharing means
+
+- **Copies share one server and its configuration.** Mounting or configuring through any handle changes all of them. `a.same_as(b)` tells whether two handles are the same server (their addresses differ).
+- **The server closes when the last handle is destroyed**, or when you call `stop()` or `shutdown()`. It is no longer "when the original goes out of scope". A thread inside `listen()` holds a handle of its own, so the server lives while it runs.
+- **Configure from one thread, before listening.** Registering routes through two handles at the same time is not supported, as it was not for one server.
+- A moved-from handle has no server; assign to it or destroy it.
+
+## Stopping from a handler
+
+A handler that must stop the server captures `srv.stopper()`, **never a `server`**. A handler that holds a `server` makes a cycle (the server keeps the handler, the handler keeps the server) and the server is never freed.
+
+```cpp
+httpp::server srv;
+srv.get("/quit", [stop = srv.stopper()](const httpp::server_request&, httpp::response& res) {
+    stop.shutdown(std::chrono::seconds(2));
+    res.body = "bye";
+});
+```
+
+A `server_stopper` is a copyable weak handle with `stop()`, `shutdown(grace)` and `alive()`. It does not keep the server alive; once the server is gone, `stop()` and `shutdown()` do nothing.
+
+## Write `auto srv = chain...;`
+
+A chain on a temporary returns a handle, not a reference into the temporary, so this is safe:
+
+```cpp
+auto srv = httpp::directory(".").mount(httpp::server(), "/").set_tls("cert.pem", "key.pem");
+```
+
+and a reference to the temporary does not compile: `auto& r = httpp::server().set_tls(...)` is an error, where it would have dangled at the end of the statement.

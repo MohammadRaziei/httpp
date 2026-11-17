@@ -15,7 +15,7 @@ namespace httpp {
 //
 // The bytes are stored gzip-compressed (about a quarter of the size, ADR-0031) unless libhttpp was built with
 // -DHTTPP_EMBED_COMPRESS=OFF. `data` is what is stored: when `gzip` is true it is a gzip stream (RFC 1952), not the
-// file; `raw_size` is the size of the file itself either way. swagger_ui::mount() sends the stored bytes as they are to
+// file; `raw_size` is the size of the file itself either way. swagger::mount() sends the stored bytes as they are to
 // a client that accepts gzip, and inflates them for one that does not.
 struct swagger_ui_asset {
     std::string_view name;          // "swagger-ui-bundle.js"
@@ -29,20 +29,20 @@ struct swagger_ui_asset {
 HTTPP_API const swagger_ui_asset* find_swagger_ui_asset(std::string_view name) noexcept;
 
 // Swagger UI served from the bytes compiled into the library (nothing is read from disk, ADR-0066):
-// `swagger_ui().set_docs_path("/docs").set_openapi_url("/openapi.json").set_title("My API").mount(server)`.
-// The page is at the docs path (with or without a trailing '/') and the three files under <docs path>/<name>. The OpenAPI document is
-// served by you. set_docs_path throws std::invalid_argument unless the path starts with '/' and names more than the root (a trailing '/'
-// is accepted: "/docs/" and "/docs" give the same file URLs); a refused value leaves the object unchanged.
-class swagger_ui {
+// `swagger("/openapi.json").set_title("My API").mount(server, "/docs")` (ADR-0082).
+// `openapi_url` is where the page loads the OpenAPI document from. It is required, because this class does not make or serve that
+// document: you do, on that URL (any valid OpenAPI JSON). It is used as it is, so when the server is not mounted at the root, give the
+// whole URL. mount() puts the page at `base` (with or without a trailing '/') and the three files under <base>/<name>; base defaults
+// to "/docs" and must start with '/' and name more than the root, or mount() throws std::invalid_argument.
+class swagger {
 public:
-    HTTPP_API swagger_ui();
-    HTTPP_API swagger_ui& set_docs_path(std::string path);      // default "/docs"
-    HTTPP_API swagger_ui& set_openapi_url(std::string url);     // where the page loads the OpenAPI document from; default "/openapi.json"
-    HTTPP_API swagger_ui& set_title(std::string title);         // shown in the tab (escaped); default "API"
-    HTTPP_API server& mount(server& s) const;  // returns `s` itself (no copy)
+    // Throws std::invalid_argument when `openapi_url` is empty.
+    HTTPP_API explicit swagger(std::string openapi_url);
+    HTTPP_API swagger& set_title(std::string title);            // shown in the tab (escaped); default "API"
+    // `s` is a handle (ADR-0081): the page goes on the server it points to. Returns that handle. May be called more than once.
+    HTTPP_API server mount(server s, const std::string& base = "/docs") const;
 
 private:
-    std::string docs_path_;
     std::string openapi_url_;
     std::string title_;
 };

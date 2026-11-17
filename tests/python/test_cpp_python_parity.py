@@ -64,7 +64,7 @@ TARGETS = {
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("server.hpp", ""): httpp.utils,  # mime_type_for, the same way
     ("swagger_ui.hpp", ""): httpp,  # find_swagger_ui_asset only (NOT_EXPOSED)
-    ("swagger_ui.hpp", "swagger_ui"): httpp.SwaggerUI,
+    ("swagger_ui.hpp", "swagger"): httpp.Swagger,
     ("file_browser.hpp", "file_browser"): httpp.FileBrowser,
     ("file_lock.hpp", "file_lock"): httpp.FileLock,
     ("middleware.hpp", "cors"): httpp.middleware.CORSMiddleware,
@@ -73,6 +73,7 @@ TARGETS = {
     ("middleware.hpp", "forwarded_headers"): httpp.middleware.ProxyHeadersMiddleware,
     ("middleware.hpp", "basic_auth"): httpp.middleware.BasicAuthMiddleware,
     ("middleware.hpp", "rate_limit"): httpp.middleware.RateLimitMiddleware,
+    ("server.hpp", "server_stopper"): None,  # what a C++ handler captures to stop its server without a cycle (ADR-0081); Python's Server already stops on a signal and owns its handlers
     ("server.hpp", "responder"): None,  # handed to route_async handlers; Python handlers just return or await
     ("websocket.hpp", "websocket"): None,  # Python's WebSocket is its own awaitable API over a mailbox (ADR-0027), not this handle
     ("websocket.hpp", "ws_acceptor"): None,  # Python's handler accepts through `await websocket.accept()`
@@ -132,13 +133,15 @@ NOT_EXPOSED = {
     ("server", "bind"): "not necessary: Server.run binds and serves in one call; bind_to_any_port covers the ephemeral-port case (ADR-0078)",
     ("server", "url"): "not necessary: Python knows the host and the port it passed to Server.run (ADR-0078)",
     ("server", "listen_until_signal"): "not necessary: Server.run already serves until a signal (ADR-0078)",
+    ("server", "same_as"): "not necessary: a Python Server is its own object, `is` compares it; the shared handle is a C++ idea (ADR-0081)",
+    ("server", "stopper"): "not necessary: Python handlers hold the Server (Python's garbage collector breaks the cycle) and Server.run stops on a signal (ADR-0081)",
     ("server", "route_io"): "not necessary: Python handlers need the GIL anyway, so add_loop_route is the fast path",
     ("server", "route_shared"): "not necessary: add_route already hands Python the request on a pool thread",
     ("server", "route_ws"): "Python registers WebSocket routes with the Server.websocket decorator (ADR-0027)",
     ("router", "route_ws"): "Python registers WebSocket routes with the APIRouter.websocket decorator (ADR-0048)",
     ("router", "route_io"): "same as server::route_io",
     ("router", "route_shared"): "same as server::route_shared",
-    ("", "find_swagger_ui_asset"): "internal lookup behind swagger_ui::mount, not meant for users",
+    ("", "find_swagger_ui_asset"): "internal lookup behind swagger::mount, not meant for users",
     ("", "level_name"): "the logging module imitates Python's own `logging`, which is the Python side (ADR-0057)",
     ("", "level_from_string"): "same: Python's logging.getLevelName",
     ("", "get_logger"): "same: logging.getLogger; the \"httpp\" logger is bridged to it (httpp/_log.py)",

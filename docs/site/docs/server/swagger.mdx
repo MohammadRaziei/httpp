@@ -157,7 +157,7 @@ To move the page, give both addresses: `Server(docs_url="/api/docs", openapi_url
 
 ## In C++
 
-C++ has the page but not the generator. `httpp::swagger_ui` serves the same Swagger UI from files compiled into the library, and you serve the OpenAPI document yourself, written by hand or read from a file. The header is not part of `httpp.h`.
+C++ has the page but not the generator. `httpp::swagger` serves the same Swagger UI from files compiled into the library, and you serve the OpenAPI document yourself, written by hand or read from a file. The header is not part of `httpp.h`.
 
 ```cpp
 #include <httpp.h>
@@ -186,13 +186,15 @@ int main() {
 })");
     });
 
-    httpp::swagger_ui().set_docs_path("/docs").set_openapi_url("/openapi.json").set_title("Hello API").mount(app);
+    httpp::swagger("/openapi.json").set_title("Hello API").mount(app, "/docs");
 
     app.listen("127.0.0.1", 8201);
 }
 ```
 
-`set_docs_path` takes a path that starts with `/` and names more than the root, or it throws `std::invalid_argument`. The page is at that path, and its three files are under it. The Python class `httpp.SwaggerUI` does the same for a document of your own: `httpp.SwaggerUI(docs_path="/docs", title="Mine").mount(app)`.
+`httpp::swagger` takes the address of the OpenAPI document in its constructor. It is required, because the library does not make or serve that document: you do, on that address, and any valid OpenAPI JSON will do. The address is used as it is, so when you mount the page under another base, give the whole address. `mount(app, base)` puts the page at `base` and its three files under it; `base` defaults to `"/docs"`, must start with `/` and name more than the root, or `mount` throws `std::invalid_argument`. One `swagger` object can be mounted more than once.
+
+The Python class `httpp.Swagger` does the same for a document of your own: `httpp.Swagger("/openapi.json", title="Mine").mount(app, "/docs")`.
 
 ## Before you publish it
 

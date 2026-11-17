@@ -1,5 +1,5 @@
-// What a program does around a server (ADR-0078): mount() hands the same server back, bind() before listening, url(), listen_until_signal(),
-// the log level by name, the banner.
+// What a program does around a server (ADR-0078, ADR-0081): `server` is a shared handle, mount() takes and returns it, bind() before
+// listening, url(), listen_until_signal(), stopper(), the log level by name, the banner.
 #include "utest/utest.h"
 #include "httpp.h"
 #include "httpp/banner.hpp"
@@ -7,11 +7,17 @@
 #include "httpp/server.hpp"
 #include "httpp/swagger_ui.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <type_traits>
+#include <utility>
 
 namespace {
 
@@ -21,25 +27,169 @@ int port_of(const std::string& url) {  // "http://127.0.0.1:8000/" -> 8000
 
 }  // namespace
 
-UTEST(httpp_mount, mount_returns_the_server_it_was_given_and_not_a_copy) {
+// The dangling form cannot compile: a chain on a temporary hands back a server (a handle), never a reference into the temporary.
+static_assert(std::is_same<decltype(std::declval<httpp::server&>().set_max_body(1)), httpp::server&>::value, "on a named server the chain returns a reference");
+static_assert(std::is_same<decltype(std::declval<httpp::server&&>().set_max_body(1)), httpp::server>::value, "on a temporary the chain returns a handle");
+static_assert(std::is_same<decltype(std::declval<httpp::server&&>().set_tls("a", "b")), httpp::server>::value, "set_tls on a temporary returns a handle");
+static_assert(std::is_same<decltype(httpp::directory(".").mount(httpp::server(), "/")), httpp::server>::value, "mount returns a handle");
+
+UTEST(httpp_mount, mount_returns_a_handle_to_the_server_it_was_given) {
     httpp::server srv;
-    httpp::server& a = httpp::directory(".").mount(srv, "/files");
-    ASSERT_TRUE(&a == &srv);
-    httpp::server& b = httpp::file_browser(".").mount(srv, "/browse");
-    ASSERT_TRUE(&b == &srv);
-    httpp::server& c = httpp::swagger_ui().mount(srv);
-    ASSERT_TRUE(&c == &srv);
+    httpp::server a = httpp::directory(".").mount(srv, "/files");
+    ASSERT_TRUE(a.same_as(srv));
+    httpp::server b = httpp::file_browser(".").mount(srv, "/browse");
+    ASSERT_TRUE(b.same_as(srv));
+    httpp::server c = httpp::swagger("/openapi.json").mount(srv);
+    ASSERT_TRUE(c.same_as(srv));
+    httpp::server other;
+    ASSERT_FALSE(other.same_as(srv));
+}
+
+UTEST(httpp_mount, the_owners_chain_works_with_a_temporary_server) {
+    auto srv = httpp::directory(".").set_show_hidden(false).mount(httpp::server(), "/");
+    ASSERT_TRUE(srv.bind("127.0.0.1", 0));
+    ASSERT_TRUE(srv.url().rfind("http://127.0.0.1:", 0) == 0);
 }
 
 UTEST(httpp_mount, the_chain_goes_on_into_set_tls_which_names_the_file_it_cannot_read) {
-    httpp::server srv;
     std::string message;
     try {
-        httpp::directory(".").mount(srv, "/").set_tls("no_such_cert.pem", "no_such_key.pem");
+        auto srv = httpp::directory(".").mount(httpp::server(), "/").set_tls("no_such_cert.pem", "no_such_key.pem");
     } catch (const std::runtime_error& e) {
         message = e.what();
     }
     ASSERT_TRUE(message.find("no_such_cert.pem") != std::string::npos);
+
+    httpp::server named;
+    message.clear();
+    try {
+        httpp::directory(".").mount(named, "/").set_tls("no_such_cert.pem", "no_such_key.pem");
+    } catch (const std::runtime_error& e) {
+        message = e.what();
+    }
+    ASSERT_TRUE(message.find("no_such_cert.pem") != std::string::npos);
+}
+
+UTEST(httpp_server_handle, a_copy_shares_the_server_bind_through_one_and_url_through_the_other) {
+    httpp::server a;
+    httpp::server b = a;
+    ASSERT_TRUE(a.same_as(b));
+    ASSERT_STREQ("", b.url().c_str());
+    ASSERT_TRUE(a.bind("127.0.0.1", 0));
+    ASSERT_TRUE(b.url().rfind("http://127.0.0.1:", 0) == 0);
+    ASSERT_STREQ(a.url().c_str(), b.url().c_str());
+
+    httpp::server c;
+    c = b;  // assignment gives another handle to the same server too
+    ASSERT_TRUE(c.same_as(a));
+}
+
+UTEST(httpp_server_handle, mounting_through_one_handle_is_served_by_the_other) {
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "httpp_shared_handle_test";
+    std::filesystem::create_directories(dir);
+    { std::ofstream(dir / "hello.txt") << "hello"; }
+
+    httpp::server a;
+    httpp::server b = a;
+    httpp::directory(dir.string()).mount(a, "/f");  // through `a`
+    ASSERT_TRUE(b.bind("127.0.0.1", 0));
+    const std::string url = b.url();
+    std::thread t([b]() mutable { b.listen_after_bind(); });  // and `b` serves it
+    auto res = httpp::client::fetch(url + "f/hello.txt");
+    a.stop();
+    t.join();
+    ASSERT_EQ(200, res.status);
+    ASSERT_STREQ("hello", res.body.c_str());
+    std::filesystem::remove_all(dir);
+}
+
+UTEST(httpp_server_handle, the_last_handle_closes_the_server_and_its_port_can_be_bound_again) {
+    int port = 0;
+    {
+        httpp::server a;
+        httpp::server b = a;
+        ASSERT_TRUE(a.bind("127.0.0.1", 0));
+        port = port_of(a.url());
+    }
+    // every handle is gone: nothing holds the port
+    httpp::server again;
+    ASSERT_TRUE(again.bind("127.0.0.1", port));
+
+    // one handle left is enough to keep it
+    httpp::server keep;
+    ASSERT_TRUE(keep.bind("127.0.0.1", 0));
+    const int kept = port_of(keep.url());
+    {
+        httpp::server copy = keep;
+    }  // the copy goes, the server stays
+    httpp::server second;
+    ASSERT_FALSE(second.bind("127.0.0.1", kept));
+}
+
+UTEST(httpp_server_handle, a_moved_handle_keeps_the_server) {
+    httpp::server a;
+    httpp::server witness = a;
+    httpp::server moved = std::move(a);
+    ASSERT_TRUE(moved.same_as(witness));
+}
+
+UTEST(httpp_server_stopper, does_not_keep_the_server_alive_and_does_nothing_once_it_is_gone) {
+    httpp::server_stopper stop;
+    ASSERT_FALSE(stop.alive());  // not tied to a server
+    stop.stop();
+    int port = 0;
+    {
+        httpp::server srv;
+        ASSERT_TRUE(srv.bind("127.0.0.1", 0));
+        port = port_of(srv.url());
+        stop = srv.stopper();
+        ASSERT_TRUE(stop.alive());
+        httpp::server_stopper copy = stop;  // a stopper is copyable
+        ASSERT_TRUE(copy.alive());
+    }
+    ASSERT_FALSE(stop.alive());
+    stop.stop();  // no crash, nothing to stop
+    stop.shutdown(std::chrono::milliseconds(10));
+    httpp::server again;
+    ASSERT_TRUE(again.bind("127.0.0.1", port));  // the stopper did not hold the port
+}
+
+UTEST(httpp_server_stopper, stops_a_listening_server_from_another_thread) {
+    httpp::server srv;
+    ASSERT_TRUE(srv.bind("127.0.0.1", 0));
+    std::atomic<bool> finished{false};
+    std::thread t([srv, &finished]() mutable {
+        srv.listen_after_bind();
+        finished = true;
+    });
+    const auto stop = srv.stopper();
+    for (int i = 0; i < 400 && !finished; ++i) {  // stop() does nothing until the loop runs, so it is repeated
+        stop.stop();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    t.join();
+    ASSERT_TRUE(finished);
+}
+
+UTEST(httpp_server_stopper, a_handler_that_captures_a_stopper_can_end_the_server_and_nothing_leaks) {
+    std::weak_ptr<int> probe;
+    {
+        auto token = std::make_shared<int>(1);  // lives exactly as long as the handler that captures it
+        probe = token;
+        httpp::server srv;
+        srv.get("/quit", [stop = srv.stopper(), token](const httpp::server_request&, httpp::response& res) {
+            stop.shutdown(std::chrono::seconds(2));
+            res.body = "bye";
+        });
+        ASSERT_TRUE(srv.bind("127.0.0.1", 0));
+        const std::string url = srv.url();
+        std::thread t([srv]() mutable { srv.listen_after_bind(); });
+        auto res = httpp::client::fetch(url + "quit");
+        t.join();
+        ASSERT_EQ(200, res.status);
+    }
+    // the last handle is gone: the server, its routes and the handler were freed (a captured `server` would have kept them forever)
+    ASSERT_TRUE(probe.expired());
 }
 
 UTEST(httpp_server_url, is_empty_before_a_bind_and_names_the_bound_port_after) {

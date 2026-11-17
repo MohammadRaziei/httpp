@@ -82,6 +82,8 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0076](0076-https-for-httpp-server-and-browse.md) | `httpp server` and `httpp browse` serve HTTPS with `--ssl-certfile`, `--ssl-keyfile` and `--ssl-keyfile-password`, the names `httpp run` has | accepted |
 | [0078](0078-the-cli-calls-the-library.md) | The `httpp` commands only call the library: `mount` returns the `server&`, and `bind`, `url`, `listen_until_signal`, `set_log_level(name)` and `banner()` are library API | accepted |
 | [0080](0080-bridge-any-cpp-logger-tree-into-python-logging.md) | `httpp.bridge_logger(name)` sends a C++ logger tree (`libspeech`, `libspeech.dsp.stft`, ...) into Python's `logging` under the same names, the Python levels deciding the C++ levels | accepted |
+| [0081](0081-server-is-a-shared-handle.md) | `server` is a copyable handle that shares its state; `mount` takes and returns it by value; `server_stopper` breaks handler cycles | accepted |
+| [0082](0082-swagger-takes-its-openapi-url-and-its-base.md) | `swagger(openapi_url)` replaces `swagger_ui` + `set_docs_path` + `set_openapi_url`; the base is the argument of `mount` | accepted |
 
 ## Not decided yet
 

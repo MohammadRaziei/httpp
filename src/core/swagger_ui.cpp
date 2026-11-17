@@ -96,25 +96,19 @@ const swagger_ui_asset* find_swagger_ui_asset(std::string_view name) noexcept {
     return nullptr;
 }
 
-swagger_ui::swagger_ui() : docs_path_("/docs"), openapi_url_("/openapi.json"), title_("API") {}
-
-swagger_ui& swagger_ui::set_docs_path(std::string path) {
-    std::string base = path;
-    while (!base.empty() && base.back() == '/') base.pop_back();
-    if (path.empty() || path[0] != '/' || base.empty())
-        throw std::invalid_argument("swagger_ui: docs_path must start with '/' and be more than the root");
-    docs_path_ = std::move(path);
-    return *this;
+swagger::swagger(std::string openapi_url) : openapi_url_(std::move(openapi_url)), title_("API") {
+    if (openapi_url_.empty()) throw std::invalid_argument("swagger: openapi_url must not be empty");
 }
 
-swagger_ui& swagger_ui::set_openapi_url(std::string url) { openapi_url_ = std::move(url); return *this; }
-swagger_ui& swagger_ui::set_title(std::string title) { title_ = std::move(title); return *this; }
+swagger& swagger::set_title(std::string title) { title_ = std::move(title); return *this; }
 
-server& swagger_ui::mount(server& s) const {
+server swagger::mount(server s, const std::string& docs_base) const {
     const std::string& openapi_url = openapi_url_;
     const std::string& title = title_;
-    std::string base = docs_path_;
+    std::string base = docs_base;
     while (!base.empty() && base.back() == '/') base.pop_back();
+    if (docs_base.empty() || docs_base[0] != '/' || base.empty())
+        throw std::invalid_argument("swagger: base must start with '/' and be more than the root");
 
     const std::string safe_base = html_escape(base);
     const std::string page =

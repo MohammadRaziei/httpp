@@ -49,12 +49,10 @@ cdef extern from "httpp/swagger_ui.hpp" namespace "httpp":
         string_view data
         bint gzip
     const swagger_ui_asset_t* find_swagger_ui_asset(string_view name) noexcept
-    cdef cppclass cpp_swagger_ui "httpp::swagger_ui":
-        cpp_swagger_ui() except +
-        cpp_swagger_ui& set_docs_path(string path) except +
-        cpp_swagger_ui& set_openapi_url(string url)
-        cpp_swagger_ui& set_title(string title)
-        void mount(cpp_server& s) except +
+    cdef cppclass cpp_swagger "httpp::swagger":
+        cpp_swagger(string openapi_url) except +
+        cpp_swagger& set_title(string title)
+        void mount(cpp_server s, const string& base) except +
 
 
 cdef extern from "httpp/file_browser.hpp" namespace "httpp":
@@ -70,7 +68,7 @@ cdef extern from "httpp/file_browser.hpp" namespace "httpp":
         cpp_file_browser& set_zip(bint on)
         cpp_file_browser& set_powered_by(bint on)
         cpp_file_browser& set_max_zip_entries(size_t count) except +
-        void mount(cpp_server& s, const string& base) except +
+        void mount(cpp_server s, const string& base) except +
 
 # The three enum setters take the enum's number: the numbers are checked against the C++ enums right here, so a reordering there fails the build.
 cdef extern from *:
@@ -99,7 +97,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cpp_directory& set_show_dates(bint on)
         cpp_directory& set_download_active(bint on)
         cpp_directory& set_inline_active(bint on)
-        void mount(cpp_server& s, const string& base) except +
+        void mount(cpp_server s, const string& base) except +
 
 cdef extern from "httpp/middleware.hpp" namespace "httpp":
     cdef cppclass cpp_cors "httpp::cors":

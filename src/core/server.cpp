@@ -1256,10 +1256,18 @@ struct server::impl {
     }
 };
 
-server::server() : impl_(std::make_unique<impl>()) {}
+server::server() : impl_(std::make_shared<impl>()) {}
 server::~server() = default;
+server::server(const server&) noexcept = default;
 server::server(server&&) noexcept = default;
+server& server::operator=(const server&) noexcept = default;
 server& server::operator=(server&&) noexcept = default;
+bool server::same_as(const server& other) const noexcept { return impl_ == other.impl_; }
+server_stopper server::stopper() const {
+    server_stopper st;
+    st.impl_ = impl_;
+    return st;
+}
 
 void server::route(const std::string& method, const std::string& path, handler h) {
     route_entry r;
@@ -1315,9 +1323,9 @@ static void rebuild_hooks(config& c) {
     };
 }
 
-server& server::before(before_hook hook) { impl_->cfg->app_before = std::move(hook); rebuild_hooks(*impl_->cfg); return *this; }
-server& server::after(after_hook hook) { impl_->cfg->app_after = std::move(hook); rebuild_hooks(*impl_->cfg); return *this; }
-server& server::use(before_hook before, after_hook after) {
+server& server::before(before_hook hook) & { impl_->cfg->app_before = std::move(hook); rebuild_hooks(*impl_->cfg); return *this; }
+server& server::after(after_hook hook) & { impl_->cfg->app_after = std::move(hook); rebuild_hooks(*impl_->cfg); return *this; }
+server& server::use(before_hook before, after_hook after) & {
     config& c = *impl_->cfg;
     if (before) c.mw_before.push_back(std::move(before));
     if (after) c.mw_after.push_back(std::move(after));
@@ -1325,10 +1333,10 @@ server& server::use(before_hook before, after_hook after) {
     return *this;
 }
 void server::set_request_rewrite(std::function<void(server_request&)> rewrite) { impl_->cfg->rewrite = std::move(rewrite); }
-server& server::set_error_handler(error_hook hook) { impl_->cfg->error = std::move(hook); return *this; }
-server& server::set_exception_handler(exception_hook hook) { impl_->cfg->exception = std::move(hook); return *this; }
+server& server::set_error_handler(error_hook hook) & { impl_->cfg->error = std::move(hook); return *this; }
+server& server::set_exception_handler(exception_hook hook) & { impl_->cfg->exception = std::move(hook); return *this; }
 
-server& server::set_thread_pool(std::size_t base, std::size_t max, std::chrono::microseconds grow_after) {
+server& server::set_thread_pool(std::size_t base, std::size_t max, std::chrono::microseconds grow_after) & {
     if (base == 0) base = 1;
     if (max < base) max = base * 4;
     impl_->pool_base = base;
@@ -1336,12 +1344,12 @@ server& server::set_thread_pool(std::size_t base, std::size_t max, std::chrono::
     impl_->pool_grow_after = grow_after.count() > 0 ? grow_after : std::chrono::microseconds(1);
     return *this;
 }
-server& server::set_read_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_read_timeout(seconds); }); return *this; }
-server& server::set_write_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_write_timeout(seconds); }); return *this; }
-server& server::set_keep_alive_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_keep_alive_timeout(seconds); }); return *this; }
-server& server::set_keep_alive_max(std::size_t requests) { impl_->configure([requests](detail::async_server& e) { e.set_keep_alive_max(requests); }); return *this; }
-server& server::set_max_body(std::size_t bytes) { impl_->configure([bytes](detail::async_server& e) { e.set_max_body(bytes); }); return *this; }
-server& server::set_tls(const path& cert_file, const path& key_file, const std::string& key_password) {
+server& server::set_read_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.set_read_timeout(seconds); }); return *this; }
+server& server::set_write_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.set_write_timeout(seconds); }); return *this; }
+server& server::set_keep_alive_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.set_keep_alive_timeout(seconds); }); return *this; }
+server& server::set_keep_alive_max(std::size_t requests) & { impl_->configure([requests](detail::async_server& e) { e.set_keep_alive_max(requests); }); return *this; }
+server& server::set_max_body(std::size_t bytes) & { impl_->configure([bytes](detail::async_server& e) { e.set_max_body(bytes); }); return *this; }
+server& server::set_tls(const path& cert_file, const path& key_file, const std::string& key_password) & {
     std::string error;
     auto ctx = detail::make_tls_server_context(cert_file.str(), key_file.str(), key_password, error);
     if (!ctx) throw std::runtime_error("set_tls: " + error);
@@ -1349,11 +1357,11 @@ server& server::set_tls(const path& cert_file, const path& key_file, const std::
     impl_->tls_on = true;
     return *this;
 }
-server& server::set_header_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_header_timeout(seconds); }); return *this; }
-server& server::set_body_timeout(int seconds) { impl_->configure([seconds](detail::async_server& e) { e.set_body_timeout(seconds); }); return *this; }
-server& server::set_max_connections(std::size_t n) { impl_->max_conn_total = n; impl_->share_max_connections(); return *this; }
-server& server::set_reuse_port(bool on) { impl_->configure([on](detail::async_server& e) { e.set_reuse_port(on); }); return *this; }
-server& server::set_io_threads(std::size_t n) {
+server& server::set_header_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.set_header_timeout(seconds); }); return *this; }
+server& server::set_body_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.set_body_timeout(seconds); }); return *this; }
+server& server::set_max_connections(std::size_t n) & { impl_->max_conn_total = n; impl_->share_max_connections(); return *this; }
+server& server::set_reuse_port(bool on) & { impl_->configure([on](detail::async_server& e) { e.set_reuse_port(on); }); return *this; }
+server& server::set_io_threads(std::size_t n) & {
 #ifdef _WIN32
     n = 1; // no SO_REUSEPORT to share the port with
 #endif
@@ -1365,11 +1373,11 @@ server& server::set_io_threads(std::size_t n) {
     impl_->share_max_connections();
     return *this;
 }
-server& server::set_compression(std::size_t min_size, int level) {
+server& server::set_compression(std::size_t min_size, int level) & {
     impl_->cfg->compression.configure(min_size, level);
     return *this;
 }
-server& server::set_async_timeout(int seconds) {
+server& server::set_async_timeout(int seconds) & {
     impl_->async_timeout = seconds < 0 ? 0 : seconds;
     return *this;
 }
@@ -1385,7 +1393,7 @@ directory& directory::set_download_active(bool on) { download_active_ = on; retu
 directory& directory::set_inline_active(bool on) { inline_active_ = on; return *this; }
 directory& directory::set_show_dates(bool on) { show_dates_ = on; return *this; }
 
-server& directory::mount(server& s, const std::string& base) const {
+server directory::mount(server s, const std::string& base) const {
     if (base.empty() || base[0] != '/') throw std::invalid_argument("directory: base must start with '/'");
     std::string prefix = base;
     while (!prefix.empty() && prefix.back() == '/') prefix.pop_back(); // "/" -> "" (the root)
@@ -1515,6 +1523,21 @@ void server::shutdown(std::chrono::milliseconds grace) {
     impl_->draining = true;
     for (auto& e : impl_->engines) e->drain(grace);
 }
+
+// ponytail: lock() makes the server live for the length of the call, so a stop() that races with the last handle going away either
+// finds it (and stops it) or finds nothing. Upgrade path: none needed.
+void server_stopper::stop() const noexcept {
+    try {
+        if (auto p = impl_.lock()) for (auto& e : p->engines) e->stop();
+    } catch (...) {}
+}
+void server_stopper::shutdown(std::chrono::milliseconds grace) const {
+    if (auto p = impl_.lock()) {
+        p->draining = true;
+        for (auto& e : p->engines) e->drain(grace);
+    }
+}
+bool server_stopper::alive() const noexcept { return !impl_.expired(); }
 
 const char* mime_type_for(const std::string& path) { return mime_for(path); }
 
