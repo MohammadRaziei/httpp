@@ -114,3 +114,54 @@ class ProxyHeadersMiddleware:
 
     def install(self, app) -> None:
         app._add_forwarded_headers(self.trusted_proxies, self.trust_forwarded_host)
+
+
+class BasicAuthMiddleware:
+    """HTTP Basic authentication (RFC 7617): a request without valid credentials gets 401 and a `WWW-Authenticate` challenge.
+
+    users: {"name": "password"} (or pairs). Passwords are compared in constant time and kept in memory in clear text: this is a gate for a
+    small tool or an internal service, not a user database. Credentials travel in clear text, so use it with TLS. path_prefix limits the check
+    to the paths under it ("/admin" covers "/admin" and "/admin/x", not "/administrator"); the default "/" covers everything. Add
+    CORSMiddleware first, so a browser's preflight (which carries no credentials) is answered before this one runs.
+    A user name must not be empty or contain ":"; an empty `users`, a realm with a quote, a backslash or a control character, or a prefix
+    that does not start with "/" raises ValueError in add_middleware.
+    """
+
+    def __init__(self, users=None, realm: str = "Restricted", path_prefix: str = "/"):
+        items = users.items() if hasattr(users, "items") else (users or ())
+        self.users = []
+        for name, password in items:
+            if not isinstance(name, str) or not isinstance(password, str):
+                raise TypeError("users maps str to str")
+            if not name or ":" in name:
+                raise ValueError("a user name must not be empty or contain ':'")
+            self.users.append(f"{name}:{password}")
+        if not isinstance(realm, str) or not isinstance(path_prefix, str):
+            raise TypeError("realm and path_prefix must be strings")
+        self.realm = realm
+        self.path_prefix = path_prefix
+
+    def install(self, app) -> None:
+        app._add_basic_auth(self.users, self.realm, self.path_prefix)
+
+
+class RateLimitMiddleware:
+    """A token bucket per client address: `requests_per_second` are earned, up to `burst` can be spent at once.
+
+    A request that finds the bucket empty is answered 429 "Too Many Requests" with `Retry-After` (whole seconds) and never reaches a handler.
+    The client is request.client_ip: behind a proxy add ProxyHeadersMiddleware first, or every request seems to come from the proxy. The
+    table holds at most `max_clients` addresses (idle ones are dropped first). A rate not above 0, or a burst or max_clients below 1, raises
+    ValueError.
+    """
+
+    def __init__(self, requests_per_second: float = 10.0, burst: int = 20, max_clients: int = 100000):
+        if not requests_per_second > 0 or requests_per_second == float("inf"):
+            raise ValueError("requests_per_second must be above 0")
+        if int(burst) < 1 or int(max_clients) < 1:
+            raise ValueError("burst and max_clients must be at least 1")
+        self.requests_per_second = float(requests_per_second)
+        self.burst = int(burst)
+        self.max_clients = int(max_clients)
+
+    def install(self, app) -> None:
+        app._add_rate_limit(self.requests_per_second, self.burst, self.max_clients)

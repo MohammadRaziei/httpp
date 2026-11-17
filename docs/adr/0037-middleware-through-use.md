@@ -21,6 +21,12 @@ The server had one `before` and one `after` hook, and the Python layer chained a
 4. Python: `Server.add_middleware(CORSMiddleware, **options)` with the same option names; the classes validate their options and install the C++ middleware. Arbitrary ASGI middleware is not
    supported (there is no ASGI layer). The C++ `use()` has no Python counterpart on purpose: Python code that wants its own hooks has `before_request` and `after_request`.
 
+5. Added later: `basic_auth` (Python `BasicAuthMiddleware(users, realm, path_prefix)`) and `rate_limit` (Python `RateLimitMiddleware(requests_per_second, burst, max_clients)`), both builders with `install(server&)` like the others, requested by the project owner.
+   - `basic_auth` checks `Authorization: Basic` (RFC 7617: strict base64, the first `:` splits the decoded text), compares every configured entry in constant time, and answers 401 with `WWW-Authenticate: Basic realm="...", charset="UTF-8"`. Users are entries `"user:password"` in memory (a gate for a small tool, not a user database; pointless without TLS). `set_path_prefix` limits it to the paths under a prefix. It is a plain before hook, so `cors` must be installed first or a preflight, which carries no credentials, is refused.
+   - `rate_limit` is a token bucket per `server_request::client_ip` (so `forwarded_headers` goes first behind a proxy), answers 429 with `Retry-After`, and bounds its table (`max_clients`: idle clients are dropped first, then an arbitrary one). The state lives in the hook, one table per `install`. Single process only: several worker processes each count alone.
+   - Cookies needed nothing new: `server_request::cookie`, `response::set_cookie` and `httpp.set_cookie` already exist. There is no `request.basic_auth()` helper; a handler that needs the user name can read the header itself.
+   - Not done: hashed passwords or a verifier callback (a Python callback would take the GIL per request, against the point of these classes), per-route limits, `RateLimit-*` headers, a shared limit across processes.
+
 ## Rejected alternatives
 
 - Replace `before` and `after` by a list: a breaking change for no gain; `use()` keeps both APIs.

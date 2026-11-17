@@ -1246,7 +1246,7 @@ class Server(_Server):
 
     def add_middleware(self, middleware_class, **options):
         """app.add_middleware(CORSMiddleware, allow_origins=["*"]): install a ready-made middleware from
-        httpp.middleware (CORSMiddleware, TrustedHostMiddleware, GZipMiddleware, HTTPSRedirectMiddleware, ProxyHeadersMiddleware). They run in C++ without the GIL,
+        httpp.middleware (CORSMiddleware, TrustedHostMiddleware, GZipMiddleware, HTTPSRedirectMiddleware, ProxyHeadersMiddleware, BasicAuthMiddleware, RateLimitMiddleware). They run in C++ without the GIL,
         before_request hooks run after them, and after_request hooks before them. Options are validated here."""
         if not (isinstance(middleware_class, type) and callable(getattr(middleware_class, "install", None))):
             raise TypeError("add_middleware() takes a class from httpp.middleware (arbitrary ASGI middleware is not supported)")

@@ -125,6 +125,18 @@ cdef extern from "httpp/middleware.hpp" namespace "httpp":
         cpp_https_redirect() except +
         cpp_https_redirect& set_trust_forwarded_proto(cbool v) except +
         void install(cpp_server& s) except +
+    cdef cppclass cpp_basic_auth "httpp::basic_auth":
+        cpp_basic_auth(string realm) except +
+        cpp_basic_auth& set_realm(string v) except +
+        cpp_basic_auth& set_users(vector[string] v) except +
+        cpp_basic_auth& set_path_prefix(string v) except +
+        void install(cpp_server& s) except +
+    cdef cppclass cpp_rate_limit "httpp::rate_limit":
+        cpp_rate_limit() except +
+        cpp_rate_limit& set_rate(double v) except +
+        cpp_rate_limit& set_burst(size_t v) except +
+        cpp_rate_limit& set_max_clients(size_t v) except +
+        void install(cpp_server& s) except +
 
 
 cdef extern from "httpp/server.hpp" namespace "httpp":

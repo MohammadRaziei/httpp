@@ -7,6 +7,10 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
+#include <cmath>
+#include <mutex>
+#include <unordered_map>
 #include <memory>
 #include <regex>
 #include <set>
@@ -407,6 +411,195 @@ void https_redirect::install(server& s) const {
         char sep = '?';
         for (const auto& [k, v] : req.query) { target += sep; target += encode(k, false) + "=" + encode(v, false); sep = '&'; }
         res.redirect(target, 307);
+        return true;
+    });
+}
+
+namespace {
+// ---------------------------------------------------------------- Basic authentication
+
+// Strict base64 (RFC 4648, padding required, no whitespace); false for anything else.
+bool base64_decode(const std::string& in, std::string& out) {
+    out.clear();
+    if (in.empty() || in.size() % 4 != 0) return false;
+    auto value = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+    for (std::size_t i = 0; i < in.size(); i += 4) {
+        const bool last = i + 4 == in.size();
+        int v[4];
+        int pad = 0;
+        for (int k = 0; k < 4; k++) {
+            const char c = in[i + k];
+            if (c == '=') {
+                if (!last || k < 2) return false;
+                v[k] = 0;
+                pad++;
+            } else {
+                if (pad) return false; // data after padding
+                v[k] = value(c);
+                if (v[k] < 0) return false;
+            }
+        }
+        const unsigned triple = (static_cast<unsigned>(v[0]) << 18) | (static_cast<unsigned>(v[1]) << 12) | (static_cast<unsigned>(v[2]) << 6) | static_cast<unsigned>(v[3]);
+        out += static_cast<char>((triple >> 16) & 0xFF);
+        if (pad < 2) out += static_cast<char>((triple >> 8) & 0xFF);
+        if (pad < 1) out += static_cast<char>(triple & 0xFF);
+    }
+    return true;
+}
+
+// 1 when equal; the time depends on the longer length only, not on where the first difference is.
+bool same_text(const std::string& a, const std::string& b) {
+    const std::size_t n = std::max(a.size(), b.size());
+    unsigned diff = static_cast<unsigned>(a.size() ^ b.size());
+    for (std::size_t i = 0; i < n; i++) {
+        const unsigned char x = i < a.size() ? static_cast<unsigned char>(a[i]) : 0;
+        const unsigned char y = i < b.size() ? static_cast<unsigned char>(b[i]) : 0;
+        diff |= static_cast<unsigned>(x ^ y);
+    }
+    return diff == 0;
+}
+
+bool bad_header_char(const std::string& s) {
+    for (unsigned char c : s) if (c < 0x20 || c == 0x7f) return true;
+    return false;
+}
+
+} // namespace
+
+basic_auth::basic_auth(std::string realm) { set_realm(std::move(realm)); }
+
+basic_auth& basic_auth::set_realm(std::string realm) {
+    if (bad_header_char(realm) || realm.find('"') != std::string::npos || realm.find('\\') != std::string::npos)
+        throw std::invalid_argument("basic_auth: the realm must not contain '\"', '\\' or control characters");
+    realm_ = std::move(realm);
+    return *this;
+}
+
+basic_auth& basic_auth::set_users(std::vector<std::string> credentials) {
+    for (const auto& c : credentials) {
+        const auto colon = c.find(':');
+        if (colon == std::string::npos || colon == 0)
+            throw std::invalid_argument("basic_auth: a user entry is \"user:password\" with a user name that is not empty");
+    }
+    users_ = std::move(credentials);
+    return *this;
+}
+
+basic_auth& basic_auth::set_path_prefix(std::string prefix) {
+    while (prefix.size() > 1 && prefix.back() == '/') prefix.pop_back();
+    if (prefix.empty() || prefix[0] != '/') throw std::invalid_argument("basic_auth: the path prefix must start with '/'");
+    prefix_ = std::move(prefix);
+    return *this;
+}
+
+void basic_auth::install(server& s) const {
+    if (users_.empty()) throw std::invalid_argument("basic_auth: no users are configured, every request would be refused");
+    struct policy {
+        std::string challenge, prefix;
+        std::vector<std::pair<std::string, std::string>> users;
+    };
+    auto p = std::make_shared<policy>();
+    p->challenge = "Basic realm=\"" + realm_ + "\", charset=\"UTF-8\"";
+    p->prefix = prefix_;
+    for (const auto& c : users_) { const auto colon = c.find(':'); p->users.emplace_back(c.substr(0, colon), c.substr(colon + 1)); }
+    s.use([p](const server_request& req, response& res) {
+        if (p->prefix != "/") {
+            const std::string& path = req.path;
+            if (path.compare(0, p->prefix.size(), p->prefix) != 0 || (path.size() > p->prefix.size() && path[p->prefix.size()] != '/')) return false;
+        }
+        bool ok = false;
+        const std::string header = trim(req.header("Authorization"));
+        if (header.size() > 6 && lower(header.substr(0, 5)) == "basic" && (header[5] == ' ' || header[5] == '\t')) {
+            std::string decoded;
+            if (base64_decode(trim(header.substr(6)), decoded)) {
+                const auto colon = decoded.find(':');
+                if (colon != std::string::npos) {
+                    const std::string user = decoded.substr(0, colon), pass = decoded.substr(colon + 1);
+                    for (const auto& [u, pw] : p->users) { // every entry is compared, so the time does not tell which user exists
+                        const bool match = same_text(u, user) & same_text(pw, pass);
+                        ok = ok || match;
+                    }
+                }
+            }
+        }
+        if (ok) return false;
+        res.status = 401;
+        res.headers.emplace_back("Content-Type", "text/plain; charset=utf-8");
+        res.headers.emplace_back("WWW-Authenticate", p->challenge);
+        res.body = "Unauthorized";
+        return true;
+    });
+}
+
+// ---------------------------------------------------------------- rate limit
+
+rate_limit::rate_limit() = default;
+
+rate_limit& rate_limit::set_rate(double requests_per_second) {
+    if (!std::isfinite(requests_per_second) || requests_per_second <= 0) throw std::invalid_argument("rate_limit: the rate must be above 0");
+    rate_ = requests_per_second;
+    return *this;
+}
+
+rate_limit& rate_limit::set_burst(std::size_t burst) {
+    if (burst == 0) throw std::invalid_argument("rate_limit: the burst must be at least 1");
+    burst_ = burst;
+    return *this;
+}
+
+rate_limit& rate_limit::set_max_clients(std::size_t max_clients) {
+    if (max_clients == 0) throw std::invalid_argument("rate_limit: max_clients must be at least 1");
+    max_clients_ = max_clients;
+    return *this;
+}
+
+void rate_limit::install(server& s) const {
+    using clock = std::chrono::steady_clock;
+    struct bucket { double tokens; clock::time_point seen; };
+    struct table {
+        double rate, burst;
+        std::size_t max_clients;
+        std::mutex lock;
+        std::unordered_map<std::string, bucket> clients;
+    };
+    auto t = std::make_shared<table>();
+    t->rate = rate_;
+    t->burst = static_cast<double>(burst_);
+    t->max_clients = max_clients_;
+    s.use([t](const server_request& req, response& res) {
+        const auto now = clock::now();
+        double wait = 0; // seconds until one token is there; 0 = allowed
+        {
+            std::lock_guard<std::mutex> g(t->lock);
+            auto it = t->clients.find(req.client_ip);
+            if (it == t->clients.end()) {
+                if (t->clients.size() >= t->max_clients) {
+                    for (auto i = t->clients.begin(); i != t->clients.end();) { // idle clients: their bucket is full again, so forgetting them changes nothing
+                        const double refilled = i->second.tokens + std::chrono::duration<double>(now - i->second.seen).count() * t->rate;
+                        i = refilled >= t->burst ? t->clients.erase(i) : std::next(i);
+                    }
+                    if (t->clients.size() >= t->max_clients) t->clients.erase(t->clients.begin());
+                }
+                it = t->clients.emplace(req.client_ip, bucket{t->burst, now}).first;
+            }
+            bucket& b = it->second;
+            b.tokens = std::min(t->burst, b.tokens + std::chrono::duration<double>(now - b.seen).count() * t->rate);
+            b.seen = now;
+            if (b.tokens >= 1) b.tokens -= 1;
+            else wait = (1 - b.tokens) / t->rate;
+        }
+        if (wait <= 0) return false;
+        res.status = 429;
+        res.headers.emplace_back("Content-Type", "text/plain; charset=utf-8");
+        res.headers.emplace_back("Retry-After", std::to_string(std::max<long long>(1, static_cast<long long>(std::ceil(wait)))));
+        res.body = "Too Many Requests";
         return true;
     });
 }

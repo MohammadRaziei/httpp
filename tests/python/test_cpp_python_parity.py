@@ -71,6 +71,8 @@ TARGETS = {
     ("middleware.hpp", "trusted_host"): httpp.middleware.TrustedHostMiddleware,
     ("middleware.hpp", "https_redirect"): httpp.middleware.HTTPSRedirectMiddleware,
     ("middleware.hpp", "forwarded_headers"): httpp.middleware.ProxyHeadersMiddleware,
+    ("middleware.hpp", "basic_auth"): httpp.middleware.BasicAuthMiddleware,
+    ("middleware.hpp", "rate_limit"): httpp.middleware.RateLimitMiddleware,
     ("server.hpp", "responder"): None,  # handed to route_async handlers; Python handlers just return or await
     ("websocket.hpp", "websocket"): None,  # Python's WebSocket is its own awaitable API over a mailbox (ADR-0027), not this handle
     ("websocket.hpp", "ws_acceptor"): None,  # Python's handler accepts through `await websocket.accept()`
@@ -121,6 +123,8 @@ CTOR_ARGS["cors"] = {
 CTOR_ARGS["trusted_host"] = {"set_allowed_hosts": ("allowed_hosts", ["example.com"]), "set_www_redirect": ("www_redirect", False)}
 CTOR_ARGS["forwarded_headers"] = {"set_trusted_proxies": ("trusted_proxies", ["10.0.0.0/8"]), "set_trust_forwarded_host": ("trust_forwarded_host", True)}
 CTOR_ARGS["https_redirect"] = {"set_trust_forwarded_proto": ("trust_forwarded_proto", True)}
+CTOR_ARGS["basic_auth"] = {"set_realm": ("realm", "Tools"), "set_users": ("users", {"u": "p"}), "set_path_prefix": ("path_prefix", "/admin")}
+CTOR_ARGS["rate_limit"] = {"set_rate": ("requests_per_second", 5.0), "set_burst": ("burst", 3), "set_max_clients": ("max_clients", 10)}
 
 # Public C++ names that Python deliberately does not carry (ADR-0017 rule 3). An entry must still be unbound (a test
 # checks), so adding the binding later forces the entry to go.
@@ -201,10 +205,11 @@ def test_cpp_setters_are_accepted_as_constructor_arguments():
     for owner, cls in (("client", httpp.Client), ("async_client", httpp.AsyncClient),
                        ("cors", httpp.middleware.CORSMiddleware), ("trusted_host", httpp.middleware.TrustedHostMiddleware),
                        ("https_redirect", httpp.middleware.HTTPSRedirectMiddleware),
-                       ("forwarded_headers", httpp.middleware.ProxyHeadersMiddleware)):
+                       ("forwarded_headers", httpp.middleware.ProxyHeadersMiddleware),
+                       ("basic_auth", httpp.middleware.BasicAuthMiddleware), ("rate_limit", httpp.middleware.RateLimitMiddleware)):
         for setter, (keyword, value) in CTOR_ARGS[owner].items():
             try:
-                args = () if owner in ("cors", "trusted_host", "https_redirect", "forwarded_headers") else ("http://127.0.0.1:1",)
+                args = () if owner in ("cors", "trusted_host", "https_redirect", "forwarded_headers", "basic_auth", "rate_limit") else ("http://127.0.0.1:1",)
                 cls(*args, **{keyword: value})
             except TypeError as e:
                 pytest.fail(f"{owner}::{setter} should be {cls.__name__}({keyword}=...): {e}")

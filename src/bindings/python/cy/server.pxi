@@ -44,6 +44,24 @@ cdef class Server:
         r.set_trust_forwarded_proto(trust_forwarded_proto)
         r.install(self._srv[0])
 
+    def _add_basic_auth(self, users, realm, path_prefix):
+        """Install the C++ Basic authentication middleware; use Server.add_middleware(BasicAuthMiddleware, ...)."""
+        cdef cpp_basic_auth* b = new cpp_basic_auth((<str>realm).encode("utf-8"))
+        try:
+            b.set_users([x.encode("utf-8") for x in users])
+            b.set_path_prefix((<str>path_prefix).encode("utf-8"))
+            b.install(self._srv[0])
+        finally:
+            del b
+
+    def _add_rate_limit(self, double requests_per_second, size_t burst, size_t max_clients):
+        """Install the C++ rate-limit middleware; use Server.add_middleware(RateLimitMiddleware, ...)."""
+        cdef cpp_rate_limit r
+        r.set_rate(requests_per_second)
+        r.set_burst(burst)
+        r.set_max_clients(max_clients)
+        r.install(self._srv[0])
+
     def set_tls(self, cert_file, key_file, password=None):
         """Serve https and wss: a certificate chain (PEM, leaf first) and its private key (PEM; `password` when encrypted).
         The files are read now; ValueError names the file for a missing or unreadable file, bad PEM, a wrong password or a

@@ -101,4 +101,49 @@ private:
     bool host_ = false;
 };
 
+// HTTP Basic authentication (RFC 7617). A request whose Authorization header is missing, is not "Basic", does not decode or names an unknown
+// user or a wrong password is answered 401 with `WWW-Authenticate: Basic realm="...", charset="UTF-8"`; the rest goes on. Passwords are compared
+// in constant time against the configured list, which is kept in memory in clear text: this is a gate for a small tool or an internal service,
+// not a user database. Credentials travel in clear text too, so use it on a TLS server (or behind a proxy that terminates TLS).
+// A browser's preflight carries no credentials: install cors before this, so the preflight is answered first. `set_path_prefix` limits the check
+// to the paths under a prefix ("/admin" covers "/admin" and "/admin/x", not "/administrator"); the default "/" covers everything.
+// Users are entries "user:password" (the first ':' separates them, so a password may contain ':'; a user may not, and may not be empty); no
+// users at all throws at install(), since every request would be refused. Every setter validates its argument and throws
+// std::invalid_argument, leaving the object unchanged.
+class basic_auth {
+public:
+    HTTPP_API explicit basic_auth(std::string realm = "Restricted");
+    // No '"', '\\' or control characters (the realm goes into a quoted header value).
+    HTTPP_API basic_auth& set_realm(std::string realm);
+    HTTPP_API basic_auth& set_users(std::vector<std::string> credentials);
+    HTTPP_API basic_auth& set_path_prefix(std::string prefix);
+    HTTPP_API void install(server& s) const;
+
+private:
+    std::string realm_;
+    std::vector<std::string> users_;
+    std::string prefix_ = "/";
+};
+
+// A token bucket for every client address (server_request::client_ip, so put forwarded_headers first behind a proxy, or every request seems to come
+// from the proxy): `rate` requests per second are earned, up to `burst` can be spent at once. A request that finds the bucket empty is answered
+// 429 "Too Many Requests" with `Retry-After` (whole seconds, at least 1) and does not reach a handler. The table is bounded: at `max_clients`
+// addresses the idle ones (full buckets) are dropped first, then an arbitrary one, so a flood of fresh addresses cannot grow memory without limit.
+// The state lives in the installed hooks, so installing one object on two servers gives each its own table. Setters throw std::invalid_argument
+// (rate not above 0 or not finite, burst or max_clients 0) and leave the object unchanged. Defaults: 10 requests per second, burst 20,
+// 100000 clients.
+class rate_limit {
+public:
+    HTTPP_API rate_limit();
+    HTTPP_API rate_limit& set_rate(double requests_per_second);
+    HTTPP_API rate_limit& set_burst(std::size_t burst);
+    HTTPP_API rate_limit& set_max_clients(std::size_t max_clients);
+    HTTPP_API void install(server& s) const;
+
+private:
+    double rate_ = 10;
+    std::size_t burst_ = 20;
+    std::size_t max_clients_ = 100000;
+};
+
 } // namespace httpp

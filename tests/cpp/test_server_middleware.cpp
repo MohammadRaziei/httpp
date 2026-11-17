@@ -7,8 +7,11 @@
 
 #include <asio.hpp>
 
+#include <chrono>
+#include <cmath>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 using testutil::local_server;
@@ -337,4 +340,134 @@ UTEST(httpp_forwarded_headers, bad_entries_are_refused_and_change_nothing) {
     httpp::server s;
     f.install(s);
     f.install(s); // a second install replaces the first
+}
+
+// ---------------------------------------------------------------- basic_auth
+
+namespace {
+void auth_site(httpp::server& s) {
+    ok_route(s);
+    s.get("/admin/panel", [](const httpp::server_request&, httpp::response& res) { res.body = "panel"; });
+    s.get("/administrator", [](const httpp::server_request&, httpp::response& res) { res.body = "open"; });
+    httpp::basic_auth("Tools").set_users({"alice:s3cret", "bob:pa:ss", u8"علی:رمز"}).set_path_prefix("/admin/").install(s);
+}
+std::string base64_text(const std::string& in) {
+    static const char tab[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    for (std::size_t i = 0; i < in.size(); i += 3) {
+        const unsigned a = static_cast<unsigned char>(in[i]);
+        const unsigned b = i + 1 < in.size() ? static_cast<unsigned char>(in[i + 1]) : 0;
+        const unsigned c = i + 2 < in.size() ? static_cast<unsigned char>(in[i + 2]) : 0;
+        const unsigned t = (a << 16) | (b << 8) | c;
+        out += tab[(t >> 18) & 63];
+        out += tab[(t >> 12) & 63];
+        out += i + 1 < in.size() ? tab[(t >> 6) & 63] : '=';
+        out += i + 2 < in.size() ? tab[t & 63] : '=';
+    }
+    return out;
+}
+std::string basic(const std::string& user_pass) { return "Basic " + base64_text(user_pass); }
+} // namespace
+
+UTEST(httpp_basic_auth, a_protected_path_needs_a_known_user_and_the_right_password) {
+    local_server srv(auth_site);
+    httpp::client c(srv.url());
+    auto none = c.get("/admin/panel");
+    ASSERT_EQ(401, none.status);
+    ASSERT_STREQ("Basic realm=\"Tools\", charset=\"UTF-8\"", none.header("WWW-Authenticate").c_str());
+    ASSERT_EQ(401, c.get("/admin/panel", {{"Authorization", basic("alice:wrong")}}).status);
+    ASSERT_EQ(401, c.get("/admin/panel", {{"Authorization", basic("carol:s3cret")}}).status);
+    ASSERT_EQ(401, c.get("/admin/panel", {{"Authorization", basic("alice")}}).status);       // no ':' in the decoded text
+    ASSERT_EQ(401, c.get("/admin/panel", {{"Authorization", "Basic !!!!"}}).status);          // not base64
+    ASSERT_EQ(401, c.get("/admin/panel", {{"Authorization", "Bearer abc"}}).status);
+    auto ok = c.get("/admin/panel", {{"Authorization", basic("alice:s3cret")}});
+    ASSERT_EQ(200, ok.status);
+    ASSERT_STREQ("panel", ok.body.c_str());
+    ASSERT_EQ(200, c.get("/admin/panel", {{"Authorization", "basic " + basic("bob:pa:ss").substr(6)}}).status); // scheme in any case, ':' inside the password
+    ASSERT_EQ(200, c.get("/admin/panel", {{"Authorization", basic(u8"علی:رمز")}}).status);
+}
+
+UTEST(httpp_basic_auth, only_paths_under_the_prefix_are_checked) {
+    local_server srv(auth_site);
+    httpp::client c(srv.url());
+    ASSERT_EQ(200, c.get("/x").status);
+    ASSERT_EQ(200, c.get("/administrator").status); // "/admin" is a prefix of the text but not of the path
+}
+
+UTEST(httpp_basic_auth, the_whole_site_is_checked_by_default) {
+    local_server srv([](httpp::server& s) { ok_route(s); httpp::basic_auth().set_users({"u:p"}).install(s); });
+    httpp::client c(srv.url());
+    auto r = c.get("/x");
+    ASSERT_EQ(401, r.status);
+    ASSERT_STREQ("Basic realm=\"Restricted\", charset=\"UTF-8\"", r.header("WWW-Authenticate").c_str());
+    ASSERT_EQ(200, c.get("/x", {{"Authorization", basic("u:p")}}).status);
+}
+
+UTEST(httpp_basic_auth, bad_settings_are_refused_and_change_nothing) {
+    httpp::basic_auth a;
+    ASSERT_TRUE(rejects([&] { a.set_realm("a\"b"); }));
+    ASSERT_TRUE(rejects([&] { a.set_realm("a\\b"); }));
+    ASSERT_TRUE(rejects([&] { a.set_realm("a\nb"); }));
+    ASSERT_TRUE(rejects([&] { a.set_users({"nocolon"}); }));
+    ASSERT_TRUE(rejects([&] { a.set_users({":nouser"}); }));
+    ASSERT_TRUE(rejects([&] { a.set_path_prefix("admin"); }));
+    ASSERT_TRUE(rejects([&] { a.set_path_prefix(""); }));
+    httpp::server s;
+    ASSERT_TRUE(rejects([&] { a.install(s); })); // no users
+}
+
+// ---------------------------------------------------------------- rate_limit
+
+UTEST(httpp_rate_limit, a_burst_passes_then_429_with_retry_after_and_the_bucket_refills) {
+    local_server srv([](httpp::server& s) { ok_route(s); httpp::rate_limit().set_rate(10).set_burst(2).install(s); });
+    httpp::client c(srv.url());
+    ASSERT_EQ(200, c.get("/x").status);
+    ASSERT_EQ(200, c.get("/x").status);
+    auto limited = c.get("/x");
+    ASSERT_EQ(429, limited.status);
+    ASSERT_STREQ("1", limited.header("Retry-After").c_str());
+    ASSERT_STREQ("Too Many Requests", limited.body.c_str());
+    std::this_thread::sleep_for(std::chrono::milliseconds(250)); // 10 per second: two or three tokens are back
+    ASSERT_EQ(200, c.get("/x").status);
+}
+
+UTEST(httpp_rate_limit, a_slow_rate_asks_for_a_longer_wait) {
+    local_server srv([](httpp::server& s) { ok_route(s); httpp::rate_limit().set_rate(0.1).set_burst(1).install(s); });
+    httpp::client c(srv.url());
+    ASSERT_EQ(200, c.get("/x").status);
+    auto limited = c.get("/x");
+    ASSERT_EQ(429, limited.status);
+    const int wait = std::stoi(limited.header("Retry-After"));
+    ASSERT_TRUE(wait >= 9 && wait <= 10);
+}
+
+UTEST(httpp_rate_limit, clients_are_told_apart_by_the_forwarded_address) {
+    local_server srv([](httpp::server& s) {
+        ok_route(s);
+        httpp::forwarded_headers().set_trusted_proxies({"*"}).install(s);
+        httpp::rate_limit().set_rate(0.01).set_burst(1).install(s);
+    });
+    httpp::client c(srv.url());
+    ASSERT_EQ(200, c.get("/x", {{"X-Forwarded-For", "203.0.113.1"}}).status);
+    ASSERT_EQ(429, c.get("/x", {{"X-Forwarded-For", "203.0.113.1"}}).status);
+    ASSERT_EQ(200, c.get("/x", {{"X-Forwarded-For", "203.0.113.2"}}).status);
+}
+
+UTEST(httpp_rate_limit, a_small_table_stays_small_and_keeps_serving) {
+    local_server srv([](httpp::server& s) {
+        ok_route(s);
+        httpp::forwarded_headers().set_trusted_proxies({"*"}).install(s);
+        httpp::rate_limit().set_rate(0.01).set_burst(1).set_max_clients(3).install(s);
+    });
+    httpp::client c(srv.url());
+    for (int i = 1; i <= 20; i++) ASSERT_EQ(200, c.get("/x", {{"X-Forwarded-For", "198.51.100." + std::to_string(i)}}).status);
+}
+
+UTEST(httpp_rate_limit, bad_settings_are_refused) {
+    httpp::rate_limit r;
+    ASSERT_TRUE(rejects([&] { r.set_rate(0); }));
+    ASSERT_TRUE(rejects([&] { r.set_rate(-1); }));
+    ASSERT_TRUE(rejects([&] { r.set_rate(std::nan("")); }));
+    ASSERT_TRUE(rejects([&] { r.set_burst(0); }));
+    ASSERT_TRUE(rejects([&] { r.set_max_clients(0); }));
 }
