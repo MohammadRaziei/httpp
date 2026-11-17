@@ -126,6 +126,26 @@ The page also checks the limits of a parameter by itself. With `limit=500` it sh
 
 Each error says the `type`, where it is (`loc`), a `msg`, the `input` that was refused and the limit that it broke (`ctx`). This is the shape that `HTTPValidationError` describes in the document.
 
+## Authorize
+
+Declare how the API is protected and Swagger UI shows an **Authorize** button and a lock on the operations that need it, so **Try it out** can send the credentials:
+
+```python
+from httpp import Server, security
+
+app = Server(security_schemes={"basic": security.basic(), "jwt": security.bearer("JWT")}, security=["jwt"])
+
+@app.get("/admin", security=["basic"])   # needs Basic credentials
+def admin(): ...
+
+@app.get("/health", security=[])         # public, although the default asks for a JWT
+def health(): ...
+```
+
+`security.basic()`, `security.bearer()` and `security.api_key(name, "header" | "query" | "cookie")` write the scheme objects. `Server(security=...)` is the requirement of every route, a route's `security=` replaces it (`[]` makes it public), and `APIRouter(security=...)` is the default of that router's routes. A list means any one of them; a dict `{"basic": [], "key": []}` means both together. A name that was not declared raises `ValueError` where the route is written.
+
+This only describes the API. Nothing is checked because of it: add `BasicAuthMiddleware`, or read `request.basic_auth()` or the `Authorization` header in a dependency, and verify a token with a library of your choice. A document that says a route is open while a middleware refuses it is a lie you can test for: call the route without credentials and expect `401`.
+
 ## The models
 
 The **Schemas** section lists the models, and the rules of the fields show up in it: the length of `title`, the range of `year`, the descriptions and the examples.

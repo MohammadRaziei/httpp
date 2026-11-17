@@ -21,7 +21,7 @@ path parameter (`{x}`, `<x>`, `:x`); a scalar or a list of scalars is a query pa
   (suggestion: change the test and move everything to `{"detail": [...]}`).
 - If a route's own parameters are invalid, its dependencies are not run (only those errors are reported).
 - Cleanup of `yield` dependencies happens after the handler and **before** the response is written (FastAPI's order differs slightly).
-- Not there: forms and files, `Security()`, `servers`, response `examples`.
+- Not there: forms and files, `Security()` (the FastAPI dependency that also extracts credentials), `servers`, response `examples`. Security schemes are declared for documentation only: `httpp.security.basic()` / `bearer()` / `api_key()`, `Server(security_schemes=..., security=...)`, a route's `security=`; the check itself stays with `BasicAuthMiddleware` or the caller's own code.
 
 ## Related
 

@@ -339,6 +339,8 @@ def _operation(route, method, defs):
         op["tags"] = list(meta["tags"])
     if meta.get("deprecated"):
         op["deprecated"] = True
+    if meta.get("security") is not None:  # already checked; [] is "none", which overrides the document's default
+        op["security"] = meta["security"]
 
     # the route's own parameters and those of every dependency below it, once each
     params, seen, body, form = [], set(), [], []
@@ -406,8 +408,9 @@ def _operation(route, method, defs):
     return op, with_422
 
 
-def build_openapi(routes, *, title, version, description=None):
-    """The OpenAPI 3.1 document for `routes` (a list of _params.Route)."""
+def build_openapi(routes, *, title, version, description=None, security_schemes=None, security=None):
+    """The OpenAPI 3.1 document for `routes` (a list of _params.Route). `security_schemes` {name: scheme} and `security` (the default
+    requirements, a list) come already checked from httpp.security."""
     defs = Defs("#/components/schemas/{model}")
     paths, uses_422 = {}, False
     for route in routes:
@@ -424,6 +427,13 @@ def build_openapi(routes, *, title, version, description=None):
     schemas = dict(defs.schemas)
     if uses_422:
         schemas.update(_VALIDATION_SCHEMAS)
+    components = {}
     if schemas:
-        doc["components"] = {"schemas": schemas}
+        components["schemas"] = schemas
+    if security_schemes:
+        components["securitySchemes"] = security_schemes
+    if components:
+        doc["components"] = components
+    if security is not None:
+        doc["security"] = security
     return doc

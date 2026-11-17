@@ -41,13 +41,15 @@ class APIRouter:
     api = APIRouter("/api"); api.include(users)    # GET /api/users/{user_id}
     app.include(api, "/v1")         # GET /v1/api/users/{user_id}
 
-    `tags` are added to the OpenAPI tags of the routes registered on this router. The route options are those of
+    `tags` are added to the OpenAPI tags of the routes registered on this router; `security` (see httpp.security) is the documented
+    requirement of the routes that give none of their own ([] there marks a route public). The route options are those of
     Server.route(); a wrong one raises TypeError here, an unsupported HTTP method when the router is included.
     """
 
-    def __init__(self, prefix="", *, tags=None):
+    def __init__(self, prefix="", *, tags=None, security=None):
         self._prefix = _clean_prefix(prefix)
         self._tags = list(tags or ())
+        self._security = security  # checked against the Server's schemes when the router is included
         self._routes = []
         self._ws_routes = []
 
@@ -89,6 +91,8 @@ class APIRouter:
         methods = tuple(methods)
         if self._tags:
             meta = dict(meta, tags=self._tags + list(meta.get("tags") or ()))
+        if self._security is not None and "security" not in meta:
+            meta = dict(meta, security=self._security)
 
         def register(fn):
             self._routes.append(RouterEntry(_clean_path(path), methods, fn, meta))

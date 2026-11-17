@@ -61,6 +61,7 @@ import time
 import traceback
 
 from . import _background, _forms, _log, _params, _router, _schema
+from . import security as _security
 from . import _validate as V
 from .httpp_cy import Server as _Server, Swagger, mime_type_for, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, _set_lanes, parse_form as _parse_form, _cookie_header, _parse_cookies, _parse_basic
 from ._websocket import WebSocket, WebSocketDisconnect
@@ -68,7 +69,7 @@ from .models import BaseModel, to_jsonable
 from .responses import HTTPException, Response as _ResponseBase
 
 
-_ROUTE_META = frozenset(("summary", "description", "tags", "response_model", "status_code", "deprecated", "include_in_schema"))
+_ROUTE_META = frozenset(("summary", "description", "tags", "response_model", "status_code", "deprecated", "include_in_schema", "security"))
 
 class ServerRequest:
     """What a route handler receives as `request`.
@@ -1050,7 +1051,8 @@ class Server(_Server):
     def __init__(self, *, threads=None, max_threads=None, read_timeout=None, write_timeout=None,
                  keep_alive_timeout=None, keep_alive_max=None, max_body=None, header_timeout=None,
                  body_timeout=None, compression=None, compression_level=1, max_connections=None, handler_timeout=60,
-                 io_threads=None, inline_async=None, title="httpp", version="0.1.0", description=None, openapi_url="/openapi.json", docs_url="/docs"):
+                 io_threads=None, inline_async=None, title="httpp", version="0.1.0", description=None, openapi_url="/openapi.json", docs_url="/docs",
+                 security_schemes=None, security=None):
         _Server.__init__(self)
         cpus = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
         if io_threads is None:
@@ -1069,6 +1071,9 @@ class Server(_Server):
         self._inline_async = (cpus <= 2) if inline_async is None else bool(inline_async)
         self._routes, self._openapi_doc = [], None
         self._title, self._version, self._description = title, version, description
+        # OpenAPI security: documentation for the Swagger "Authorize" button, see httpp/security.py
+        self._security_schemes = _security.check_schemes(security_schemes)
+        self._security = _security.requirements(security, self._security_schemes, "Server(security=...)")
         self._before, self._after, self._startup, self._shutdown = [], [], [], []
         self._error_handlers, self._exception_handlers = {}, {}
         self._exception_sink = None  # a list while httpp.testclient is watching: unhandled handler exceptions are appended to it
@@ -1120,11 +1125,14 @@ class Server(_Server):
 
         Also FastAPI's per-route options: summary, description, tags, deprecated, include_in_schema (these
         shape the OpenAPI document), status_code (the status when the handler returns just a body) and
-        response_model (a type the returned value is validated against and serialized with)."""
+        response_model (a type the returned value is validated against and serialized with). `security` (a scheme
+        name or a list of them, see httpp.security) documents what the route needs; [] marks it public."""
         unknown = set(meta) - _ROUTE_META
         if unknown:
             raise TypeError(f"route() got unexpected options {sorted(unknown)}; known: {sorted(_ROUTE_META)}")
         _params.path_types(path)  # a malformed path fails here, when the decorator is made
+        if "security" in meta:  # a wrong name fails here, not when /openapi.json is first read
+            meta = dict(meta, security=_security.requirements(meta["security"], self._security_schemes, f"route {path!r}"))
         pattern = path  # the C++ router parses {name} / {name:int} itself
 
         def register(fn):
@@ -1220,7 +1228,8 @@ class Server(_Server):
         """The OpenAPI 3.1 document for the routes registered so far (what /openapi.json serves)."""
         if self._openapi_doc is None:
             self._openapi_doc = _schema.build_openapi(self._routes, title=self._title, version=self._version,
-                                                      description=self._description)
+                                                      description=self._description, security_schemes=self._security_schemes,
+                                                      security=self._security)
         return self._openapi_doc
 
     def _add_docs(self, openapi_url, docs_url):
