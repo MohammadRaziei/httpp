@@ -11,7 +11,7 @@ import sys
 import httpp
 import pytest
 from httpp import _log
-from httpp.httpp_cy import _log_from_cpp
+from httpp.httpp_utils_python import _log_from_cpp
 
 ROOT = "acme"
 NAMES = (ROOT, ROOT + ".dsp", ROOT + ".dsp.fft", ROOT + ".models", ROOT + ".audio")
@@ -124,7 +124,7 @@ def test_a_logger_inside_one_already_bridged_is_refused(name):
 SCENARIO = """
 import logging
 import httpp
-from httpp.httpp_cy import _log_from_cpp
+from httpp.httpp_utils_python import _log_from_cpp
 
 lines = []
 

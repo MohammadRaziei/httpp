@@ -37,7 +37,7 @@ import urllib.parse
 from .errors import HTTPError, TooManyRedirects
 from ._http import request as _request
 from ._websocket import WebSocketDisconnect
-from .httpp_cy import mime_type_for
+from .httpp_python import mime_type_for
 
 __all__ = ["TestClient", "TestResponse", "WebSocketTestSession"]
 

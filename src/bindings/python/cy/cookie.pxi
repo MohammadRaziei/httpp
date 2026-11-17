@@ -1,5 +1,5 @@
 # Cookies and Basic credentials: the rules live in C++ (httpp/cookie.hpp, server_request), Python only calls them, so both sides agree.
-# Included by httpp_cy.pyx. The helpers build a throwaway server_request around the header, which is the public way to reach cookies() and basic_auth().
+# Included by httpp_python.pyx. The helpers build a throwaway server_request around the header, which is the public way to reach cookies() and basic_auth().
 
 cdef extern from *:
     """

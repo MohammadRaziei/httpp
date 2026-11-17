@@ -89,6 +89,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0083](0083-curl-exit-codes-and-curl-compat-retired.md) | `httpp curl` follows curl on errors (`-f`, exit codes 3/7/22/28/35/47/63, a 404 is exit 0) and repeated `-d`; `httpp/curl_compat.h` is retired | accepted |
 | [0084](0084-curl-the-rest-of-the-everyday-flags.md) | `httpp curl` gets `-s -S -w -O -T -D -d @file --compressed --retry` and several URLs; the docs get a page for it and use `httpp curl` in their examples | accepted |
 | [0085](0085-one-log-level-type.md) | `httpp::logging::level` is the only level type (gains `off`); `log_level` is removed; `set_log_level(name)` uses `level_from_string` | accepted |
+| [0086](0086-httpp-utils-base-library.md) | `httpp_utils`: a shared base library (logging, path, sformat, progress) below `httpp_core`; one logger registry per process; two export macros; core file is `libhttpp` | accepted |
 
 ## Not decided yet
 

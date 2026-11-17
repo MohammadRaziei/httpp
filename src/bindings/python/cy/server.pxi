@@ -1,4 +1,4 @@
-# Server. Included by httpp_cy.pyx (a textual include: the order of the includes matters).
+# Server. Included by httpp_python.pyx (a textual include: the order of the includes matters).
 
 cdef class Server:
     """Minimal HTTP server. Replaces spinning up cpp-httplib/libcurl

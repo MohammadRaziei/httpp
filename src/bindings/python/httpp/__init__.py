@@ -18,7 +18,7 @@ _lib_dir = _os.path.join(_sdk_dir, "lib")
 _bin_dir = _os.path.join(_sdk_dir, "bin")
 
 # On Windows, a .pyd's own directory (and its dependencies' directory) isn't
-# automatically searched for dependent DLLs - libhttpp_core.dll lives in
+# automatically searched for dependent DLLs - libhttpp.dll lives in
 # httpp/sdk/bin/ (next to httpp.exe, which has no RPATH), not inside httpp/. Linux/macOS solve the
 # equivalent problem at link time via RPATH ($ORIGIN/sdk/lib / @loader_path/sdk/lib,
 # see src/bindings/python/CMakeLists.txt), so this only runs on win32.
@@ -26,8 +26,8 @@ if _sys.platform == "win32" and hasattr(_os, "add_dll_directory"):
     _os.add_dll_directory(_bin_dir)
 
 # Import the compiled Cython module
-from .httpp_cy import Client, Directory, download, Download, DownloadResult, FileBrowser, FileLock, Request, Response, Swagger, URL
-from .httpp_cy import set_log_file, set_log_system, set_log_callback
+from .httpp_python import Client, Directory, download, Download, DownloadResult, FileBrowser, FileLock, Request, Response, Swagger, URL
+from .httpp_utils_python import set_log_file, set_log_system, set_log_callback
 from . import _log
 from ._log import bridge_logger, set_log_level
 from . import progress, utils

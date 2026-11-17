@@ -28,3 +28,18 @@
 #else
 #  define HTTPP_API __attribute__((visibility("default")))
 #endif
+
+// The second export macro: httpp_utils (libhttpp_utils: logging, path, sformat, progress) is a shared library of its own, below
+// httpp_core. On Windows a symbol must be dllexport in the DLL that defines it and dllimport everywhere else, which one macro for two
+// DLLs cannot give: HTTPP_UTILS_API is dllexport only while httpp_utils's own sources are compiled (HTTPP_BUILDING_UTILS_DLL),
+// HTTPP_API is dllexport only while httpp_core's are (HTTPP_BUILDING_DLL). Headers of httpp_utils (logging.hpp, path.hpp, progress.hpp)
+// use HTTPP_UTILS_API; everything else keeps HTTPP_API.
+#if defined(_WIN32)
+#  if defined(HTTPP_BUILDING_UTILS_DLL)
+#    define HTTPP_UTILS_API __declspec(dllexport)
+#  else
+#    define HTTPP_UTILS_API __declspec(dllimport)
+#  endif
+#else
+#  define HTTPP_UTILS_API __attribute__((visibility("default")))
+#endif

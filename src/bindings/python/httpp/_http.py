@@ -6,7 +6,7 @@ API too (httpp::request, httpp::client, httpp::async_client).
 
 import asyncio
 
-from .httpp_cy import Client, Request, _AsyncClientCore
+from .httpp_python import Client, Request, _AsyncClientCore
 
 
 def request(method, url, *, params=None, headers=None, data=None, json=None, form=None,

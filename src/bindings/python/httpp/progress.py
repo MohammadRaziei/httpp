@@ -11,7 +11,7 @@ Drawn on stderr, so redirecting a program's output stays clean.
 
 import builtins
 
-from .httpp_cy import Bar as bar
+from .httpp_python import Bar as bar
 
 
 class range:  # shadows the builtin inside this module only; builtins.range is used below

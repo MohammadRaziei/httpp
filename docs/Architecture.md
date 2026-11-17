@@ -63,7 +63,7 @@ graph TB
         PY["decorators, sync/async adapters,<br/>parameter type conversion, hooks, ServerRequest"]
     end
 
-    subgraph "Cython Binding (httpp_cy.pyx)"
+    subgraph "Cython Binding (httpp_python.pyx)"
         BIND["data conversion + inbox queue for async def"]
     end
 

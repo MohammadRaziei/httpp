@@ -61,7 +61,7 @@ embed_files(
 # liburlparser (git submodule, built from source - no system package) does the real URL parsing
 # (scheme/host/port/path, IPv4/IPv6). Its url type IS httpp::url (ADR-0072), so <httpp/url.hpp>
 # includes <urlparser.h> and the library is linked PUBLIC. It is built SHARED on purpose: the Public
-# Suffix List is process-wide state (urlparser::psl::instance()), and a static copy inside libhttpp_core
+# Suffix List is process-wide state (urlparser::psl::instance()), and a static copy inside libhttpp
 # plus another in the application would be two lists, so httpp::fetch_public_suffix_list() would load into
 # the wrong one. It is built without the embedded list (httpp never needs it; the function loads one on demand).
 set(BUILD_PYTHON OFF CACHE BOOL "" FORCE)
@@ -142,6 +142,52 @@ set_target_properties(httpp_llhttp PROPERTIES
 target_compile_options(httpp_llhttp PRIVATE
     $<IF:$<C_COMPILER_ID:MSVC>,/w,-w>)
 
+# --- httpp_utils: the base library (ADR-0086) ---
+# logging (httpp/logging.hpp, with sformat), path (httpp/path.hpp) and progress (httpp/progress.hpp). Rule of membership: a source goes
+# here only if it needs nothing but the standard library, the operating system and header-only code: no httpp_core, TLS, asio, urlparser
+# or curl. A program that only wants to log links this and ships a few hundred KB, not the HTTP stack.
+# SHARED on purpose, never static: the logger registry (get_logger("libspeech.dsp")) must exist once per process. With two copies, a
+# logger made by a library and the handler the Python bridge installs would sit in different registries and records would be lost.
+file(GLOB HTTPP_UTILS_SOURCES ${PROJECT_SOURCE_DIR}/src/utils/*.cpp)
+add_library(httpp_utils SHARED ${HTTPP_UTILS_SOURCES})
+add_library(httpp::utils ALIAS httpp_utils)
+# HTTPP_UTILS_API is dllexport only while this library's own sources are compiled (see include/httpp/export.hpp).
+target_compile_definitions(httpp_utils PRIVATE HTTPP_BUILDING_UTILS_DLL)
+set_target_properties(httpp_utils PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+    MACOSX_RPATH ON
+    INSTALL_NAME_DIR "@rpath"
+)
+# Same folder as libhttpp: delocate / auditwheel resolve a library's dependencies through that library's own RPATH.
+if(APPLE)
+    set_target_properties(httpp_utils PROPERTIES INSTALL_RPATH "@loader_path")
+elseif(NOT WIN32)
+    set_target_properties(httpp_utils PROPERTIES INSTALL_RPATH "$ORIGIN")
+endif()
+target_include_directories(httpp_utils
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:httpp/sdk/include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
+)
+# indicators (progress.cpp) is vendored and header-only: no library comes with it.
+target_include_directories(httpp_utils SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party)
+if(WIN32)
+    target_link_libraries(httpp_utils PRIVATE advapi32)  # the Event Log (ADR-0056)
+elseif(ANDROID)
+    target_link_libraries(httpp_utils PRIVATE log)       # logcat
+endif()
+find_package(Threads REQUIRED)
+target_link_libraries(httpp_utils PUBLIC Threads::Threads)
+target_compile_options(httpp_utils PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4 /EHsc>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>
+)
+apply_optimization_flags(httpp_utils)
+
 add_library(httpp_core SHARED ${HTTPP_CORE_SOURCES})
 add_library(httpp::core ALIAS httpp_core)
 
@@ -149,19 +195,21 @@ add_library(httpp::core ALIAS httpp_core)
 # resolves to __declspec(dllexport) only when HTTPP_BUILDING_DLL is defined.
 # It must be defined while compiling httpp_core's OWN translation units
 # (client.cpp/server.cpp/url.cpp) so the public classes are actually
-# exported from httpp_core.dll - and must NOT be defined for anyone
+# exported from httpp.dll - and must NOT be defined for anyone
 # consuming the already-built DLL (they need dllimport instead), hence
 # PRIVATE, not PUBLIC/INTERFACE.
 target_compile_definitions(httpp_core PRIVATE HTTPP_BUILDING_DLL)
 
 set_target_properties(httpp_core PROPERTIES
+    OUTPUT_NAME httpp          # libhttpp.so, libhttpp.dylib, httpp.dll (the target keeps the name httpp_core)
+    PDB_NAME httpp_lib         # not httpp.pdb: the command line httpp.exe has that one
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
     MACOSX_RPATH ON
     INSTALL_NAME_DIR "@rpath"
 )
-# libhttpp_core needs liburlparser (ADR-0072), which is installed in the same folder (httpp/sdk/lib in the wheel, <prefix>/lib in
+# libhttpp needs liburlparser (ADR-0072) and libhttpp_utils (ADR-0086), which is installed in the same folder (httpp/sdk/lib in the wheel, <prefix>/lib in
 # an install). Its own RPATH must name that folder: delocate (macOS wheel repair) and auditwheel resolve a library's dependencies
 # through that library's RPATH, not through the module that loads it ("@rpath/liburlparser.2.dylib not found").
 if(APPLE)
@@ -179,13 +227,16 @@ target_include_directories(httpp_core
 # warnings (e.g. indicators.hpp's narrowing-conversion C4244/C4267 on MSVC)
 # aren't ours to fix and shouldn't surface under our own -Wall/-Wextra/-W4
 # below - without patching vendored code to silence its own warnings.
-target_include_directories(httpp_core PRIVATE ${HTTPP_GENERATED_DIR})
+target_include_directories(httpp_core PRIVATE ${HTTPP_GENERATED_DIR} ${PROJECT_SOURCE_DIR}/src/utils)  # src/utils: internal/logging.hpp
 target_include_directories(httpp_core SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party
 )
 
 find_package(Threads REQUIRED)
 target_link_libraries(httpp_core PUBLIC Threads::Threads)
+# PUBLIC: the public headers of httpp_core include httpp/path.hpp and httpp/logging.hpp, so everything that links httpp::core keeps
+# working unchanged. libhttpp finds libhttpp_utils through its own RPATH (below), both in the same folder.
+target_link_libraries(httpp_core PUBLIC httpp_utils)
 target_link_libraries(httpp_core PRIVATE httpp_llhttp)
 # PUBLIC: httpp::url is urlparser::url, so every consumer compiles against urlparser.h and links the shared library. The real target name is used, not the
 # liburlparser:: alias, so the wheel's httppTargets export can carry it.
@@ -238,12 +289,7 @@ if(WIN32)
     target_compile_definitions(httpp_core PRIVATE _WIN32_WINNT=0x0A00)
     target_link_libraries(httpp_core PRIVATE ws2_32 mswsock crypt32)
 endif()
-# The operating system log handlers (src/core/logging.cpp, ADR-0056): the Event Log lives in advapi32, logcat in liblog.
-if(WIN32)
-    target_link_libraries(httpp_core PRIVATE advapi32)
-elseif(ANDROID)
-    target_link_libraries(httpp_core PRIVATE log)
-endif()
+# The operating system log handlers (src/utils/logging.cpp, ADR-0056) link in httpp_utils (advapi32, liblog).
 if(MSVC)
     # Asio's templates produce very large object files.
     set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")
@@ -252,7 +298,7 @@ endif()
 # macOS: src/core/tls_session.cpp reads the system trust store via the Keychain APIs,
 # which pulls in CoreFoundation/Security symbols (e.g. SecTrustSettingsCopyCertificates).
 # These aren't linked by default and must be added explicitly, or the final
-# link of libhttpp_core.dylib fails with "symbol(s) not found for architecture".
+# link of libhttpp.dylib fails with "symbol(s) not found for architecture".
 if(APPLE)
     find_library(COREFOUNDATION_LIBRARY CoreFoundation REQUIRED)
     find_library(SECURITY_LIBRARY Security REQUIRED)
@@ -280,7 +326,7 @@ if(HTTPP_BUILD_CLI)
     )
     target_link_libraries(httpp_cli PRIVATE httpp_core)
     target_include_directories(httpp_cli SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/src/third_party/CLI11)
-    target_include_directories(httpp_cli PRIVATE ${PROJECT_SOURCE_DIR}/src/core)
+    target_include_directories(httpp_cli PRIVATE ${PROJECT_SOURCE_DIR}/src/core ${PROJECT_SOURCE_DIR}/src/utils)
     target_compile_definitions(httpp_cli PRIVATE CLI11_HAS_FILESYSTEM=0)
     if(WIN32)
         target_compile_definitions(httpp_cli PRIVATE _WIN32_WINNT=0x0A00 NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -292,10 +338,10 @@ if(HTTPP_BUILD_CLI)
     apply_optimization_flags(httpp_cli)
 
     # The executable sits in a bin/ folder next to lib/ (<prefix>/bin and <prefix>/lib for an SDK install, httpp/sdk/bin and
-    # httpp/sdk/lib inside the wheel), so one relative RPATH finds libhttpp_core in both.
+    # httpp/sdk/lib inside the wheel), so one relative RPATH finds libhttpp in both.
     if(APPLE)
         # @loader_path, not @executable_path: for the executable itself they are the same folder at run time, but delocate
-        # (cibuildwheel's repair step) resolves @loader_path and fails with "@rpath/libhttpp_core.dylib not found" on @executable_path.
+        # (cibuildwheel's repair step) resolves @loader_path and fails with "@rpath/libhttpp.dylib not found" on @executable_path.
         set(_httpp_cli_origin "@loader_path")
     else()
         set(_httpp_cli_origin "$ORIGIN")
@@ -316,7 +362,7 @@ if(HTTPP_BUILD_PYTHON OR DEFINED SKBUILD)
 endif()
 
 # Installation
-install(TARGETS httpp_core
+install(TARGETS httpp_utils httpp_core
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
     RUNTIME DESTINATION bin  # the DLL on Windows, next to bin/httpp.exe

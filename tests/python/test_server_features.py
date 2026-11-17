@@ -12,7 +12,7 @@ import pytest
 
 import httpp
 from httpp import Request, ResponseHead, Server
-from httpp.httpp_cy import Server as RawServer
+from httpp.httpp_python import Server as RawServer
 import httpp.server as server_mod
 
 

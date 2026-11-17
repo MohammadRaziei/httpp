@@ -16,21 +16,21 @@ namespace httpp::progress {
 // src/core/progress.cpp) and never appears in this public header.
 class bar {
 public:
-    explicit HTTPP_API bar(std::size_t total, std::string description = "");
-    HTTPP_API ~bar();
+    explicit HTTPP_UTILS_API bar(std::size_t total, std::string description = "");
+    HTTPP_UTILS_API ~bar();
 
-    HTTPP_API bar(bar&&) noexcept;
-    HTTPP_API bar& operator=(bar&&) noexcept;
+    HTTPP_UTILS_API bar(bar&&) noexcept;
+    HTTPP_UTILS_API bar& operator=(bar&&) noexcept;
     bar(const bar&) = delete;
     bar& operator=(const bar&) = delete;
 
-    HTTPP_API void update(std::size_t n = 1);          // advance by n
-    HTTPP_API void set_progress(std::size_t current);  // set an absolute position
-    HTTPP_API void finish();                           // jump to total and stop
+    HTTPP_UTILS_API void update(std::size_t n = 1);          // advance by n
+    HTTPP_UTILS_API void set_progress(std::size_t current);  // set an absolute position
+    HTTPP_UTILS_API void finish();                           // jump to total and stop
 
-    HTTPP_API std::size_t total() const;
-    HTTPP_API std::size_t current() const;
-    HTTPP_API bool is_finished() const;
+    HTTPP_UTILS_API std::size_t total() const;
+    HTTPP_UTILS_API std::size_t current() const;
+    HTTPP_UTILS_API bool is_finished() const;
 
 private:
     struct impl;
@@ -43,7 +43,7 @@ private:
 //   for (auto i : httpp::progress::range(100, "working")) { ... }
 //
 // Entirely defined inline here (calls only bar's already-exported members),
-// so - unlike bar itself - this class needs no HTTPP_API at all: nothing
+// so - unlike bar itself - this class needs no HTTPP_UTILS_API at all: nothing
 // about it is compiled into the DLL for a consumer to link against.
 class range {
 public:

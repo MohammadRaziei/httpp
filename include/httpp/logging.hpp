@@ -105,11 +105,11 @@ namespace httpp::logging {
 enum class level : int { notset = 0, trace = 5, debug = 10, info = 20, warning = 30, error = 40, critical = 50, off = 60 };
 
 // "DEBUG", "INFO", ... "OFF"; "Level 15" for a number in between (as Python does).
-HTTPP_API std::string level_name(level lv);
+HTTPP_UTILS_API std::string level_name(level lv);
 
 // "debug", "WARNING", "warn", "fatal", "off" (case does not matter) or a whole number: 25 is a level between
 // info and warning. Anything else gives nullopt.
-HTTPP_API std::optional<level> level_from_string(std::string_view text);
+HTTPP_UTILS_API std::optional<level> level_from_string(std::string_view text);
 
 // ---------------------------------------------------------------------------------------- records
 
@@ -129,7 +129,7 @@ struct record {
 // alignment, "%(levelname)-8s", and %(created) a precision, "%(created).3f". asctime is local time:
 // "2026-11-04 10:38:12,345", or, when `datefmt` is given, strftime(datefmt) (no milliseconds). A pattern
 // that is malformed or names an unknown field throws std::invalid_argument. Cheap to copy.
-class HTTPP_API formatter {
+class HTTPP_UTILS_API formatter {
 public:
     static constexpr const char* default_pattern = "%(asctime)s [%(levelname)s] %(name)s: %(message)s";
 
@@ -156,7 +156,7 @@ using filter_fn = std::function<bool(const record&)>;  // return false to drop t
 // emit() is called with the handler's lock held, only for a record that passed the level and the filters,
 // so it needs no locking of its own. A handler can be moved but not copied. (The one exception is a
 // callback_handler made with serialized = false, see below.)
-class HTTPP_API handler {
+class HTTPP_UTILS_API handler {
 public:
     handler();
     virtual ~handler();
@@ -189,7 +189,7 @@ private:
 
 // Discards everything. Python's NullHandler: put one on a library's logger to say "no output unless the
 // application configures it".
-class HTTPP_API null_handler : public handler {
+class HTTPP_UTILS_API null_handler : public handler {
 protected:
     void emit(const record&) override {}
 };
@@ -199,7 +199,7 @@ enum class color_mode { automatic, always, never };
 // One line per record on a C stream (stderr by default), flushed after every record. With
 // color_mode::automatic the line is colored by level when the stream is a terminal and NO_COLOR is not
 // set (never on Windows, where ANSI sequences need the console set up by the program: use always).
-class HTTPP_API stream_handler : public handler {
+class HTTPP_UTILS_API stream_handler : public handler {
 public:
     explicit stream_handler(std::FILE* file = stderr, color_mode color = color_mode::automatic);
 
@@ -214,7 +214,7 @@ private:
 
 // One line per record appended to a file (append = false truncates it first), flushed after every record.
 // Throws std::runtime_error when the file cannot be opened. (httpp::path, not std::filesystem::path: ADR-0054, 0055.)
-class HTTPP_API file_handler : public handler {
+class HTTPP_UTILS_API file_handler : public handler {
 public:
     explicit file_handler(const httpp::path& file, bool append = true);
 
@@ -235,7 +235,7 @@ private:
 // the GIL logs through the same handler and waits for the lock). Pass serialized = false and `fn` is called
 // without the lock: nothing is held while it waits, `fn` may be running in several threads at once (it
 // serializes itself, as taking the GIL does) and it may log again, so it must not log without a limit.
-class HTTPP_API callback_handler : public handler {
+class HTTPP_UTILS_API callback_handler : public handler {
 public:
     explicit callback_handler(std::function<void(const record&)> fn, bool serialized = true);
 
@@ -253,7 +253,7 @@ struct manager;
 }
 
 // Get loggers with get_logger(); they live until the program ends, so a reference stays valid.
-class HTTPP_API logger {
+class HTTPP_UTILS_API logger {
 public:
     ~logger();
     logger(const logger&) = delete;
@@ -316,11 +316,11 @@ private:
 // logging.getLogger(name). The same name gives the same logger. "" (or "root") is the root logger. Dotted
 // names form the tree: "httpp.server" is a child of "httpp", which is a child of the root. The root's level
 // is warning.
-HTTPP_API logger& get_logger(std::string_view name = {});
+HTTPP_UTILS_API logger& get_logger(std::string_view name = {});
 
 // logging.basicConfig: when the root logger has no handler, adds a stream_handler on stderr with the default
 // formatter; then sets the root level.
-HTTPP_API void basic_config(level lv = level::warning);
+HTTPP_UTILS_API void basic_config(level lv = level::warning);
 
 // printf for std::string, used by the logger and the formatter.
 namespace detail {
@@ -414,7 +414,7 @@ enum class syslog_facility { user, daemon, local0, local1, local2, local3, local
 // syslog has ONE connection per process: constructing a handler calls openlog(), so the most recent
 // ident and facility win for every syslog user in the program, and destroying a handler calls
 // closelog(). Use one syslog_handler per program, on the logger you want to send (usually "httpp").
-class HTTPP_API syslog_handler : public handler {
+class HTTPP_UTILS_API syslog_handler : public handler {
 public:
     explicit syslog_handler(std::string ident = "httpp", syslog_facility facility = syslog_facility::user,
                             bool log_pid = true);
@@ -438,7 +438,7 @@ private:
 // critical). `tag` is what `adb logcat <tag>:D *:S` filters on; empty (the default) uses the name of
 // the record's logger, so "httpp.simd" can be switched on by itself. The default pattern is just
 // "%(message)s": logcat adds the time, level, tag and pid. logcat cuts a message at about 4 KB.
-class HTTPP_API android_handler : public handler {
+class HTTPP_UTILS_API android_handler : public handler {
 public:
     explicit android_handler(std::string tag = {});
 
@@ -459,7 +459,7 @@ private:
 // unless a profile or `log config` asks for more); warning is the default type, error is error and
 // critical is fault. The text is logged as public: it is not redacted to "<private>". The default
 // pattern is "%(message)s".
-class HTTPP_API unified_log_handler : public handler {
+class HTTPP_UTILS_API unified_log_handler : public handler {
 public:
     explicit unified_log_handler(std::string subsystem = "httpp");
     ~unified_log_handler() override;
@@ -483,7 +483,7 @@ private:
 // (the text is converted to UTF-16 first). Nothing is written when nobody is listening, and the
 // call costs next to nothing then. The default pattern is "[%(levelname)s] %(name)s: %(message)s":
 // a debugger shows no level of its own.
-class HTTPP_API debug_string_handler : public handler {
+class HTTPP_UTILS_API debug_string_handler : public handler {
 public:
     debug_string_handler();
 
@@ -504,7 +504,7 @@ protected:
 // rights) Event Viewer shows the text after a note that "the description for event id N cannot be
 // found". The text is all there. A message longer than 31,000 characters is cut. Throws
 // std::runtime_error when the event source cannot be registered; a write that fails later is ignored.
-class HTTPP_API event_log_handler : public handler {
+class HTTPP_UTILS_API event_log_handler : public handler {
 public:
     explicit event_log_handler(std::string source = "httpp");
     ~event_log_handler() override;
@@ -529,14 +529,14 @@ namespace httpp {
 
 // Messages below this level are dropped; logging::level::off drops all. Thread-safe. The library logs at trace, debug, info,
 // warning and error.
-HTTPP_API void set_log_level(logging::level level);
+HTTPP_UTILS_API void set_log_level(logging::level level);
 // By name, the names of logging::level_from_string ("trace", "debug", "info", "warning", "error", "off", ... in any case, or a number).
 // Another name returns false and changes nothing.
-HTTPP_API bool set_log_level(std::string_view name);
+HTTPP_UTILS_API bool set_log_level(std::string_view name);
 
 // Writes the log to this file (truncated) instead of stderr; "" goes back to stderr.
 // Returns false (and keeps the previous output) if the file cannot be opened.
-HTTPP_API bool set_log_file(const path& file);
+HTTPP_UTILS_API bool set_log_file(const path& file);
 
 // The log of the operating system, so the lines show up where the platform's own tools look: journalctl for
 // syslog, `adb logcat`, the Console app for unified logging, Visual Studio's output window and DebugView, Event Viewer.
@@ -555,13 +555,13 @@ enum class log_system { native, syslog, android, unified, debug_string, event_lo
 // Returns false, and keeps the previous output, when this platform does not have `which` or it cannot be opened.
 // syslog has one connection per process: the newest `name` wins for every syslog user in the program.
 // Pass "" or call set_log_file("") to go back to stderr.
-HTTPP_API bool set_log_system(log_system which = log_system::native, const std::string& name = "httpp");
+HTTPP_UTILS_API bool set_log_system(log_system which = log_system::native, const std::string& name = "httpp");
 
 // Sends every message that passes the level to `fn(level, where, message)`, replacing stderr/file
 // output. `where` is the function that logged. `fn` may be called from any library thread, one call
 // at a time, and must not log through httpp itself. An empty function restores stderr.
 using log_callback = std::function<void(logging::level level, const std::string& where, const std::string& message)>;
-HTTPP_API void set_log_callback(log_callback fn);
+HTTPP_UTILS_API void set_log_callback(log_callback fn);
 
 } // namespace httpp
 

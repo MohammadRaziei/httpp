@@ -9,6 +9,6 @@
 They are bound so Python can check the C++ code against `hashlib`; for ordinary hashing `hashlib` is fine too.
 """
 
-from .httpp_cy import sha256_hex, sha256_file, parse_sha256_checksum, mime_type_for
+from .httpp_python import sha256_hex, sha256_file, parse_sha256_checksum, mime_type_for
 
 __all__ = ["sha256_hex", "sha256_file", "parse_sha256_checksum", "mime_type_for"]

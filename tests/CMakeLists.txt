@@ -6,6 +6,7 @@ add_custom_target(httpp_test
 )
 
 add_subdirectory(${HTTPP_TEST_SOURCE_DIR}/cpp)
+add_subdirectory(${HTTPP_TEST_SOURCE_DIR}/utils)  # httpp_utils on its own (ADR-0086)
 
 # embed_files(... COMPRESS), compressed and not (see cmake/EmbedFile.cmake). Needs no Python.
 foreach(mode ON OFF)

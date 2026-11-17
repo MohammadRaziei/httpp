@@ -7,7 +7,7 @@ if(DEFINED SKBUILD)
     find_package(Cython MODULE REQUIRED VERSION 3.0)
     include(UseCython)
 
-    cython_transpile(${CMAKE_CURRENT_SOURCE_DIR}/httpp_cy.pyx
+    cython_transpile(${CMAKE_CURRENT_SOURCE_DIR}/httpp_python.pyx
         LANGUAGE CXX
         OUTPUT_VARIABLE httpp_cxx_file)
 
@@ -21,18 +21,18 @@ if(DEFINED SKBUILD)
     # Create the Python extension module. httpp_core (mbedtls and the
     # parsers compiled in, hidden visibility) is linked PRIVATE, so they never leak
     # into this .so's public symbols or into the Python package's headers.
-    python_add_library(httpp_cy MODULE "${httpp_cxx_file}" WITH_SOABI ${USE_SABI})
+    python_add_library(httpp_python MODULE "${httpp_cxx_file}" WITH_SOABI ${USE_SABI})
 
-    target_link_libraries(httpp_cy PRIVATE httpp::core)
-    if(WIN32) # httpp_py_inbox_push (in httpp_cy.pyx) calls send() and WSAGetLastError() itself
-        target_link_libraries(httpp_cy PRIVATE ws2_32)
+    target_link_libraries(httpp_python PRIVATE httpp::core)
+    if(WIN32) # httpp_py_inbox_push (in httpp_python.pyx) calls send() and WSAGetLastError() itself
+        target_link_libraries(httpp_python PRIVATE ws2_32)
     endif()
 
-    target_compile_definitions(httpp_cy PRIVATE
+    target_compile_definitions(httpp_python PRIVATE
         VERSION_INFO=${PROJECT_VERSION}
     )
 
-    # libhttpp_core is installed under `httpp/sdk/lib/` (the wheel's SDK folder:
+    # libhttpp is installed under `httpp/sdk/lib/` (the wheel's SDK folder:
     # `httpp/sdk/{bin,include,lib}`, the shape of an SDK install prefix - see
     # below), not next to the Python module itself. So the loader needs to look
     # in a folder below wherever it is:
@@ -46,7 +46,21 @@ if(DEFINED SKBUILD)
         set(_httpp_rpath "$ORIGIN/sdk/lib")
     endif()
     if(_httpp_rpath)
-        set_target_properties(httpp_cy PROPERTIES
+        set_target_properties(httpp_python PROPERTIES
+            INSTALL_RPATH "${_httpp_rpath}"
+            BUILD_WITH_INSTALL_RPATH TRUE
+        )
+    endif()
+
+    # The log part (ADR-0086): its own extension module, linked against libhttpp_utils only, so `import httpp._log` does not need
+    # libhttpp (the HTTP stack). Same RPATH as httpp_python.
+    cython_transpile(${CMAKE_CURRENT_SOURCE_DIR}/httpp_utils_python.pyx
+        LANGUAGE CXX
+        OUTPUT_VARIABLE httpp_utils_cxx_file)
+    python_add_library(httpp_utils_python MODULE "${httpp_utils_cxx_file}" WITH_SOABI ${USE_SABI})
+    target_link_libraries(httpp_utils_python PRIVATE httpp::utils)
+    if(_httpp_rpath)
+        set_target_properties(httpp_utils_python PROPERTIES
             INSTALL_RPATH "${_httpp_rpath}"
             BUILD_WITH_INSTALL_RPATH TRUE
         )
@@ -60,7 +74,7 @@ if(DEFINED SKBUILD)
     python_add_library(_validate_cy MODULE "${validate_cxx_file}" WITH_SOABI ${USE_SABI})
 
     # Install the compiled extension modules + the pure-Python package files
-    install(TARGETS httpp_cy _validate_cy
+    install(TARGETS httpp_python httpp_utils_python _validate_cy
         DESTINATION httpp
         COMPONENT httpp_wheel
     )
@@ -90,13 +104,14 @@ if(DEFINED SKBUILD)
     #
     # (see examples/find_httpp_via_python/ for a full working example.)
     # httpp::url is urlparser::url (ADR-0072), so the SDK carries liburlparser's shared library and its one header: the
-    # exported httpp_core links it PUBLIC. Both land in the same export set as httpp_core.
+    # exported httpp_core links it PUBLIC. Both land in the same export set as httpp_core, and so does httpp_utils (ADR-0086:
+    # logging, path, progress), which httpp_core links PUBLIC too. find_package(httpp) gives httpp::httpp_utils, httpp::httpp_core.
     # liburlparser names its own install include dir ("include", or "liburlparser/include" in its wheel), which is not where
     # this SDK keeps urlparser.h: point the exported target at httpp/sdk/include, or a consumer's find_package(httpp) fails with
     # 'Imported target "httpp::httpp_core" includes non-existent path <prefix>/include'.
     set_target_properties(urlparser PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
         "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src/third_party/liburlparser/include>;$<INSTALL_INTERFACE:httpp/sdk/include>")
-    install(TARGETS httpp_core urlparser
+    install(TARGETS httpp_utils httpp_core urlparser
         EXPORT httppTargets
         ARCHIVE DESTINATION httpp/sdk/lib COMPONENT httpp_wheel
         LIBRARY DESTINATION httpp/sdk/lib COMPONENT httpp_wheel
@@ -160,4 +175,4 @@ ExternalProject_Add(build_python
     INSTALL_COMMAND ${CMAKE_COMMAND} --install . --config Release --component httpp_wheel
     BUILD_ALWAYS 1
 )
-add_dependencies(build_python httpp_core)
+add_dependencies(build_python httpp_core httpp_utils)

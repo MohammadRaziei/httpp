@@ -36,7 +36,7 @@ public:
     bool empty() const { return text_.empty(); }
     // The path as the standard file streams take it: the string itself, on Windows its UTF-16 form.
 #ifdef _WIN32
-    HTTPP_API std::wstring native() const;
+    HTTPP_UTILS_API std::wstring native() const;
 #else
     const std::string& native() const { return text_; }
 #endif
@@ -83,10 +83,10 @@ public:
     const std::string& as_posix() const { return text_; }
 
     // --- needs the current directory ---
-    HTTPP_API static path cwd();                // pathlib: Path.cwd()
-    HTTPP_API path absolute() const;            // cwd() / this, unless it is absolute already
+    HTTPP_UTILS_API static path cwd();                // pathlib: Path.cwd()
+    HTTPP_UTILS_API path absolute() const;            // cwd() / this, unless it is absolute already
     // "file:///dir/f.txt", percent-encoded, made absolute first (pathlib: as_uri, which refuses a relative path).
-    HTTPP_API std::string as_uri() const;
+    HTTPP_UTILS_API std::string as_uri() const;
 
     // "/" or "C:/": a path that has no parent (a resolve() result).
     bool is_root() const { return text_ == "/" || (text_.size() == 3 && text_[1] == ':' && text_[2] == '/'); }
@@ -108,26 +108,26 @@ public:
         long mtime_nsec = 0;  // the sub-second part where the platform has one, else 0
         bool link = false;    // lstat() only: the path itself is a symbolic link
     };
-    HTTPP_API status stat() const;  // follows symbolic links
-    HTTPP_API status lstat() const; // does not (on Windows both are the same)
+    HTTPP_UTILS_API status stat() const;  // follows symbolic links
+    HTTPP_UTILS_API status lstat() const; // does not (on Windows both are the same)
     // The absolute path with every link resolved, "" when it does not exist (pathlib: resolve(strict=True) without the error).
-    HTTPP_API path resolve() const;
+    HTTPP_UTILS_API path resolve() const;
     // The entries of a directory without "." and "..", in no particular order. False when it cannot be read.
-    HTTPP_API bool iterdir(std::vector<path>& entries) const;
+    HTTPP_UTILS_API bool iterdir(std::vector<path>& entries) const;
     // A regular file this process may run (Windows: a file that exists).
-    HTTPP_API bool is_executable() const;
-    HTTPP_API bool exists() const;
-    HTTPP_API bool is_file() const;
-    HTTPP_API bool is_dir() const;
-    HTTPP_API long long size() const;           // bytes of a file, -1 when it is not one
+    HTTPP_UTILS_API bool is_executable() const;
+    HTTPP_UTILS_API bool exists() const;
+    HTTPP_UTILS_API bool is_file() const;
+    HTTPP_UTILS_API bool is_dir() const;
+    HTTPP_UTILS_API long long size() const;           // bytes of a file, -1 when it is not one
     // One level. True only when THIS call created the directory: creating one is atomic, so the winner owns it (the
     // download lock stands on that). False: it was there already (is_dir() tells) or it could not be made.
-    HTTPP_API bool mkdir() const;
-    HTTPP_API bool rmdir() const;                // an empty directory
-    HTTPP_API bool unlink() const;               // a file
+    HTTPP_UTILS_API bool mkdir() const;
+    HTTPP_UTILS_API bool rmdir() const;                // an empty directory
+    HTTPP_UTILS_API bool unlink() const;               // a file
     // Moves this over `to`, replacing it. std::rename does that on POSIX only (on Windows it fails when `to` exists);
     // this is atomic on both.
-    HTTPP_API bool rename(const path& to) const;
+    HTTPP_UTILS_API bool rename(const path& to) const;
 
     // pathlib's open(): the stream is closed when it goes out of scope. Check it with `if (!f)`.
     std::fstream open(std::ios::openmode mode = std::ios::in | std::ios::binary) const {
@@ -139,15 +139,15 @@ public:
     // start is at or past it or end <= start); throws std::runtime_error when it cannot be read / written. For a short
     // line in a file that may be large (a checksum): read_text(0, 1025).
     static constexpr std::size_t npos = static_cast<std::size_t>(-1);
-    HTTPP_API std::string read_text(std::size_t start = 0, std::size_t end = npos) const;
-    HTTPP_API void write_text(const std::string& data) const;
+    HTTPP_UTILS_API std::string read_text(std::size_t start = 0, std::size_t end = npos) const;
+    HTTPP_UTILS_API void write_text(const std::string& data) const;
     // write_text() as a protocol other readers and writers can rely on: the data goes to a file of its own beside this one
     // ("<name>.tmp.<random>.<n>", on the same disk), and rename() then puts it in place, so at every moment the path holds
     // the whole old text or the whole new one, for another thread and for another process alike; a crash or a full disk
     // leaves the old file as it was. Throws std::runtime_error (and leaves no temporary file) when it cannot. Two of
     // these at once do not corrupt anything: the last rename wins. It does not make read-modify-write safe (take a lock
     // for that, as download does), and it does not fsync.
-    HTTPP_API void write_text_atomic(const std::string& data) const;
+    HTTPP_UTILS_API void write_text_atomic(const std::string& data) const;
 
 private:
     std::size_t name_start() const {
@@ -155,7 +155,7 @@ private:
         return slash == std::string::npos ? 0 : slash + 1;
     }
     path parent_for_join() const { return text_.find('/') == std::string::npos ? path() : parent(); }
-    static HTTPP_API std::string clean(std::string text);
+    static HTTPP_UTILS_API std::string clean(std::string text);
     std::string text_;
 };
 

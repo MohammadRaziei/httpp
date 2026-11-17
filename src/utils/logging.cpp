@@ -834,11 +834,10 @@ constexpr const char* k_pattern = "%(asctime)s [%(levelname)s] %(name)s (%(funcN
 
 struct state {
     std::mutex mu;                                 // swapping the output, so a line never meets a half-changed setup
-    std::atomic<int> level{static_cast<int>(logging::level::warning)};
     logging::logger* lg;
 
     state() : lg(&logging::get_logger("httpp")) {
-        lg->set_level(logging::level::trace);      // the filtering is done by `level` above (one atomic load, no message built)
+        lg->set_level(logging::level::trace);      // the filtering is done by detail::own_log_level (one atomic load, no message built)
         lg->set_propagate(false);                  // the application's own logging setup is never touched
         use_stderr();
     }
@@ -858,7 +857,7 @@ state& st() {
 
 } // namespace
 
-void set_log_level(logging::level level) { st().level = static_cast<int>(level); }
+void set_log_level(logging::level level) { detail::own_log_level.store(static_cast<int>(level)); }
 
 bool set_log_level(std::string_view name) {
     const auto parsed = logging::level_from_string(name);  // the one table of names
@@ -945,9 +944,7 @@ void set_log_callback(log_callback fn) {
 
 namespace detail {
 
-bool log_enabled(logging::level level) {
-    return static_cast<int>(level) >= st().level.load(std::memory_order_relaxed) && level != logging::level::off;
-}
+std::atomic<int> own_log_level{static_cast<int>(logging::level::warning)};
 
 void log_write(logging::level level, const char* where, const std::string& message) {
     if (!log_enabled(level)) return;

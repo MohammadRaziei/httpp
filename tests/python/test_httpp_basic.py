@@ -5,7 +5,7 @@ import threading
 
 
 def test_server_serves_a_directory(tmp_path):
-    from httpp.httpp_cy import Server, Client
+    from httpp.httpp_python import Server, Client
 
     (tmp_path / "index.html").write_text("hello from httpp")
 
@@ -26,7 +26,7 @@ def test_server_serves_a_directory(tmp_path):
 
 
 def test_a_served_file_has_validators_and_answers_a_conditional_request_with_304(tmp_path):
-    from httpp.httpp_cy import Server, Client
+    from httpp.httpp_python import Server, Client
 
     (tmp_path / "a.txt").write_text("hello world")
 
@@ -54,7 +54,7 @@ def test_a_served_file_has_validators_and_answers_a_conditional_request_with_304
 
 
 def test_client_returns_404_for_missing_path():
-    from httpp.httpp_cy import Server, Client
+    from httpp.httpp_python import Server, Client
 
     srv = Server()
     port = srv.bind_to_any_port("127.0.0.1")
@@ -72,7 +72,7 @@ def test_client_returns_404_for_missing_path():
 
 
 def test_client_fetch_parses_full_url(tmp_path):
-    from httpp.httpp_cy import Server, Client
+    from httpp.httpp_python import Server, Client
 
     (tmp_path / "index.html").write_text("fetched via full url")
 

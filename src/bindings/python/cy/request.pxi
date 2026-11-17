@@ -1,4 +1,4 @@
-# RawRequest (a server request read on demand) and form parsing. Included by httpp_cy.pyx (a textual include: the order of the includes matters).
+# RawRequest (a server request read on demand) and form parsing. Included by httpp_python.pyx (a textual include: the order of the includes matters).
 
 cdef class RawRequest:
     """A request the way C++ holds it, read on demand. Nothing is turned into Python objects until it is

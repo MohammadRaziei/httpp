@@ -63,7 +63,7 @@ import traceback
 from . import _background, _forms, _log, _params, _router, _schema
 from . import security as _security
 from . import _validate as V
-from .httpp_cy import Server as _Server, Swagger, mime_type_for, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, _set_lanes, parse_form as _parse_form, _cookie_header, _parse_cookies, _parse_basic
+from .httpp_python import Server as _Server, Swagger, mime_type_for, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, _set_lanes, parse_form as _parse_form, _cookie_header, _parse_cookies, _parse_basic
 from ._websocket import WebSocket, WebSocketDisconnect
 from .models import BaseModel, to_jsonable
 from .responses import HTTPException, Response as _ResponseBase
@@ -493,7 +493,7 @@ _NO_ARGS = ({}, None)
 
 
 class _AfterHeaders(list):
-    """The headers of an answer that also carries a job for C++ to run after sending (read by _fill_response in httpp_cy.pyx)."""
+    """The headers of an answer that also carries a job for C++ to run after sending (read by _fill_response in httpp_python.pyx)."""
 
     __slots__ = ("after_send",)
 
@@ -696,7 +696,7 @@ class _Lane:
 
 class _GatedSelector(selectors.DefaultSelector):
     """The loop's selector. While the loop thread sleeps in it, the lane's gate is open: the I/O thread may then run
-    a handler that cannot suspend right on the spot (httpp_cy `_dispatch_hybrid`), which is exactly like running
+    a handler that cannot suspend right on the spot (httpp_python `_dispatch_hybrid`), which is exactly like running
     it on the loop thread between two iterations: nothing else runs asyncio code at that moment, so the
     "code between two awaits is atomic" rule that asyncio programs rely on still holds."""
 

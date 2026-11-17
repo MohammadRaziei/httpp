@@ -604,6 +604,8 @@ Issues and pull requests are welcome.
 
 ## Logging
 
+Logging, `httpp::sformat` and `httpp::path` live in their own small library, `httpp::utils` (`libhttpp_utils`): link just that if you only want to log, without the HTTP stack (ADR-0086).
+
 The library logs through a private logger of its own (it never touches `std::clog` or your own logging). By default
 warnings and errors go to stderr, e.g. a handler that throws with no exception handler installed.
 

@@ -7,7 +7,7 @@ from urllib.parse import quote, urlencode
 
 import pytest
 
-from httpp import httpp_cy
+from httpp import httpp_python
 
 
 def reference(params):
@@ -32,7 +32,7 @@ def reference(params):
     {"k": ("x", "y z")},
 ])
 def test_encode_query_matches_urllib(params):
-    assert httpp_cy._encode_query(params) == reference(params)
+    assert httpp_python._encode_query(params) == reference(params)
 
 
 def test_encode_query_matches_urllib_on_random_text():
@@ -41,8 +41,8 @@ def test_encode_query_matches_urllib_on_random_text():
     for _ in range(3000):
         params = {"".join(rnd.choice(alphabet) for _ in range(rnd.randint(1, 6))):
                   "".join(rnd.choice(alphabet) for _ in range(rnd.randint(0, 12))) for _ in range(rnd.randint(1, 4))}
-        assert httpp_cy._encode_query(params) == reference(params), params
+        assert httpp_python._encode_query(params) == reference(params), params
 
 
 def test_bytes_values_keep_working():
-    assert httpp_cy._encode_query({"b": b"a b\xff"}) == reference({"b": b"a b\xff"})
+    assert httpp_python._encode_query({"b": b"a b\xff"}) == reference({"b": b"a b\xff"})

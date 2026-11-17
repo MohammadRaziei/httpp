@@ -1,7 +1,7 @@
 [build-system]
 requires = [
     "scikit-build-core[pyproject]>=1.1",  # [[tool.dynamic-metadata]] (see below)
-    "cython>=3.1",  # freethreading_compatible (see httpp_cy.pyx)
+    "cython>=3.1",  # freethreading_compatible (see httpp_python.pyx)
     "cython-cmake",
     "jsonschema",
     "jinja2",
@@ -62,7 +62,7 @@ build-type = "Release"
 # src/bindings/python/CMakeLists.txt, so a single compiled extension
 # (cp39-abi3-<platform>) works unmodified on 3.9 through whatever version
 # is current - one wheel build per platform instead of one per Python
-# minor version. The Cython bindings (httpp_cy.pyx) only wrap plain C++
+# minor version. The Cython bindings (httpp_python.pyx) only wrap plain C++
 # calls with no manual buffer-protocol/PyObject-internals access, so they
 # don't touch anything outside the limited API.
 #
@@ -105,10 +105,10 @@ test-extras = ["test"]
 [tool.cibuildwheel.linux]
 repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
 
-# httpp_core.dll is shipped in httpp/sdk/lib/ and loaded at import time through
+# httpp.dll is shipped in httpp/sdk/lib/ and loaded at import time through
 # os.add_dll_directory (see httpp/__init__.py), so no DLL needs to be bundled.
 # cibuildwheel 3.x did not repair Windows wheels; cibuildwheel 4.x runs delvewheel
-# by default, which cannot find httpp_core.dll next to the extension and fails.
+# by default, which cannot find httpp.dll next to the extension and fails.
 [tool.cibuildwheel.windows]
 repair-wheel-command = ""
 

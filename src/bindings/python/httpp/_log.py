@@ -14,8 +14,8 @@ import atexit
 import logging
 import types
 
-from .httpp_cy import set_log_callback, set_log_level as _set_cpp_level
-from .httpp_cy import _bridge_logger, _set_logger_level, _unbridge_logger
+from .httpp_utils_python import set_log_callback, set_log_level as _set_cpp_level
+from .httpp_utils_python import _bridge_logger, _set_logger_level, _unbridge_logger
 
 LOGGER = logging.getLogger("httpp")
 _hooked = False

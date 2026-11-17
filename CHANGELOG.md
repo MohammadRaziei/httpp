@@ -7,6 +7,10 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Changed
+
+- **`httpp_utils`, a base library below the core (ADR-0086).** Logging (`httpp/logging.hpp`, with `sformat`), `httpp/path.hpp` and `httpp/progress.hpp` now live in `libhttpp_utils` (`httpp::utils`), which needs only the standard library. A program that only logs links it without the HTTP stack, mbedtls or urlparser. `httpp::core` links it PUBLIC, so existing consumers need no change. The core library file is now `libhttpp.so` / `libhttpp.dylib` / `httpp.dll` (was `libhttpp_core`); the CMake targets keep their names. New export macro `HTTPP_UTILS_API`. **Consumers that load the DLL by hand (libspeech's `_httpp_dir.py` on Windows) must find both `httpp.dll` and `httpp_utils.dll`.** Python: the log bridge is the extension `httpp_utils_python`, and `httpp_cy` is renamed `httpp_python`; the public Python API is unchanged.
+
 ### Added
 
 - **OpenAPI security schemes: the Swagger UI "Authorize" button (ADR-0007, Python).** `Server(security_schemes={"basic": httpp.security.basic(), "jwt": httpp.security.bearer("JWT")}, security=["jwt"])` declares them, `security=[...]` on a route (or `APIRouter(security=...)`) says what it needs and `security=[]` marks it public. A name that was not declared raises `ValueError` when the route is registered. It documents only; nothing is checked (use `BasicAuthMiddleware` or your own check). The document is built once, so it costs nothing per request.

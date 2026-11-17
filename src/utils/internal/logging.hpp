@@ -5,11 +5,14 @@
 //
 //   HTTPP_LOG(warning) << "handler threw: " << what;
 //
-// A disabled level costs one atomic load; the message is not even built.
+// A disabled level costs one relaxed atomic load of a variable that is read inline (no call into libhttpp_utils); the message is not
+// even built. The variable lives in libhttpp_utils (one per process) and is constant-initialized, so it is valid before any static
+// initializer runs.
 
 #include "httpp/export.hpp"
 #include "httpp/logging.hpp"
 
+#include <atomic>
 #include <sstream>
 #include <string>
 
@@ -17,8 +20,14 @@ namespace httpp::detail {
 
 // Exported (unlike the rest of src/core/internal) so the engine tests, which compile engine sources
 // straight into the test binary, share the library's log state instead of having a second one.
-HTTPP_API bool log_enabled(logging::level level);
-HTTPP_API void log_write(logging::level level, const char* where, const std::string& message);
+// The threshold of the library's own log (httpp::set_log_level writes it). Defined in logging.cpp, never inline here: a copy per
+// module would be a second state.
+HTTPP_UTILS_API extern std::atomic<int> own_log_level;
+HTTPP_UTILS_API void log_write(logging::level level, const char* where, const std::string& message);
+
+inline bool log_enabled(logging::level level) {
+    return static_cast<int>(level) >= own_log_level.load(std::memory_order_relaxed) && level != logging::level::off;
+}
 
 class log_line {
 public:

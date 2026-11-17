@@ -1,4 +1,4 @@
-# outgoing transfers: Download, SHA-256 helpers, Bar, URL, Request, and the asynchronous request core. Included by httpp_cy.pyx (a textual include: the order of the includes matters).
+# outgoing transfers: Download, SHA-256 helpers, Bar, URL, Request, and the asynchronous request core. Included by httpp_python.pyx (a textual include: the order of the includes matters).
 
 cdef class DownloadResult:
     """Result of Download.run(): ok, status (0 if no response), error (text, empty when ok),

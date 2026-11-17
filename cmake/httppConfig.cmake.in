@@ -5,4 +5,14 @@ find_dependency(Threads)
 
 include("${CMAKE_CURRENT_LIST_DIR}/httppTargets.cmake")
 
+# Short names (ADR-0086): httpp::utils is the base library alone (logging, path, progress); httpp::core is the HTTP stack.
+if(TARGET httpp::httpp_utils AND NOT TARGET httpp::utils)
+    add_library(httpp::utils INTERFACE IMPORTED)
+    target_link_libraries(httpp::utils INTERFACE httpp::httpp_utils)
+endif()
+if(TARGET httpp::httpp_core AND NOT TARGET httpp::core)
+    add_library(httpp::core INTERFACE IMPORTED)
+    target_link_libraries(httpp::core INTERFACE httpp::httpp_core)
+endif()
+
 check_required_components(httpp)
