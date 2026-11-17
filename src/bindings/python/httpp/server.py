@@ -1069,7 +1069,7 @@ class Server(_Server):
         # answer on one thread. With cores to spare the hop to the loop thread is the faster pipeline (measured on 16
         # threads: 126k against 158k req/s), with one or two cores the saved CPU wins (about 30 percent more).
         self._inline_async = (cpus <= 2) if inline_async is None else bool(inline_async)
-        self._routes, self._openapi_doc = [], None
+        self._routes, self._openapi_doc, self._openapi_text = [], None, None
         self._title, self._version, self._description = title, version, description
         # OpenAPI security: documentation for the Swagger "Authorize" button, see httpp/security.py
         self._security_schemes = _security.check_schemes(security_schemes)
@@ -1161,7 +1161,7 @@ class Server(_Server):
             for m in methods:
                 add(m, pattern, adapted)
             self._routes.append(_params.Route(path, tuple(methods), fn, plan, meta))
-            self._openapi_doc = None
+            self._openapi_doc = self._openapi_text = None
             return fn  # unchanged, so it stays directly callable / testable
 
         return register
@@ -1224,18 +1224,24 @@ class Server(_Server):
 
     # --- OpenAPI and the Swagger UI page ---
 
+    def _openapi_json(self):
+        """The OpenAPI 3.1 document for the routes registered so far as JSON text, written once and kept (what /openapi.json serves)."""
+        if self._openapi_text is None:
+            self._openapi_text = _schema.build_openapi_json(self._routes, title=self._title, version=self._version,
+                                                            description=self._description, security_schemes=self._security_schemes,
+                                                            security=self._security)
+        return self._openapi_text
+
     def openapi(self):
-        """The OpenAPI 3.1 document for the routes registered so far (what /openapi.json serves)."""
+        """The OpenAPI 3.1 document for the routes registered so far, as a dict."""
         if self._openapi_doc is None:
-            self._openapi_doc = _schema.build_openapi(self._routes, title=self._title, version=self._version,
-                                                      description=self._description, security_schemes=self._security_schemes,
-                                                      security=self._security)
+            self._openapi_doc = json.loads(self._openapi_json())
         return self._openapi_doc
 
     def _add_docs(self, openapi_url, docs_url):
         @self.get(openapi_url, include_in_schema=False)
         def openapi_json():
-            return self.openapi()
+            return _ResponseBase(self._openapi_json(), media_type="application/json")
 
         if docs_url is not None:  # Swagger UI is served by C++ from files compiled into libhttpp
             Swagger(openapi_url).set_title(self._title).mount(self, docs_url)

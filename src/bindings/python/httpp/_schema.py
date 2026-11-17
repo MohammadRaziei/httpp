@@ -12,6 +12,7 @@ import datetime
 import decimal
 import enum
 import inspect
+import json
 import re
 import types
 import typing
@@ -19,6 +20,7 @@ import uuid
 
 from . import _validate as V
 from ._params import openapi_path
+from .openapi import Document
 from .models import to_jsonable
 
 _NoneType = type(None)
@@ -408,32 +410,47 @@ def _operation(route, method, defs):
     return op, with_422
 
 
-def build_openapi(routes, *, title, version, description=None, security_schemes=None, security=None):
-    """The OpenAPI 3.1 document for `routes` (a list of _params.Route). `security_schemes` {name: scheme} and `security` (the default
-    requirements, a list) come already checked from httpp.security."""
+_OPERATION_KEYS = frozenset(("summary", "operationId", "description", "tags", "deprecated", "security", "parameters", "requestBody", "responses"))
+
+
+def _add_operation(doc, method, path, op):
+    """One operation dict, as `_operation` builds it, into the C++ document. A key the C++ side has no setter for goes in as it is."""
+    doc.add(method, path, summary=op.get("summary"), operation_id=op.get("operationId"), description=op.get("description"),
+            tags=op.get("tags", ()), deprecated=bool(op.get("deprecated")), security=op.get("security"),
+            parameters=op.get("parameters", ()), request_body=op.get("requestBody"), responses=op.get("responses"),
+            extra={k: v for k, v in op.items() if k not in _OPERATION_KEYS} or None)
+
+
+def build_openapi_json(routes, *, title, version, description=None, security_schemes=None, security=None):
+    """The OpenAPI 3.1 document for `routes` (a list of _params.Route) as JSON text. `security_schemes` {name: scheme} and `security`
+    (the default requirements, a list) come already checked from httpp.security. What comes from type hints (parameters, bodies,
+    responses, model schemas) is built here, in Python; the document around it (paths, security, JSON text) is written by C++."""
     defs = Defs("#/components/schemas/{model}")
-    paths, uses_422 = {}, False
+    ops, uses_422 = {}, False
     for route in routes:
         if route.meta.get("include_in_schema") is False:
             continue
         for method in route.methods:
             op, with_422 = _operation(route, method, defs)
             uses_422 = uses_422 or with_422
-            paths.setdefault(openapi_path(route.path), {})[method.lower()] = op
-    info = {"title": title, "version": version}
+            ops[(openapi_path(route.path), method.lower())] = op  # the same method on the same path twice: the later route wins
+    doc = Document(title, version)
     if description:
-        info["description"] = description
-    doc = {"openapi": "3.1.0", "info": info, "paths": paths}
+        doc.description(description)
+    for (path, method), op in ops.items():
+        _add_operation(doc, method, path, op)
     schemas = dict(defs.schemas)
     if uses_422:
         schemas.update(_VALIDATION_SCHEMAS)
-    components = {}
-    if schemas:
-        components["schemas"] = schemas
-    if security_schemes:
-        components["securitySchemes"] = security_schemes
-    if components:
-        doc["components"] = components
+    for name, schema in schemas.items():
+        doc.component_schema(name, schema)
+    for name, scheme in (security_schemes or {}).items():
+        doc.security_scheme(name, scheme)
     if security is not None:
-        doc["security"] = security
-    return doc
+        doc.security(security)
+    return doc.to_json()
+
+
+def build_openapi(routes, **options):
+    """The same document as a dict (see build_openapi_json)."""
+    return json.loads(build_openapi_json(routes, **options))

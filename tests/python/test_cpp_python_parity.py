@@ -66,6 +66,8 @@ TARGETS = {
     ("server.hpp", ""): httpp.utils,  # mime_type_for, the same way
     ("swagger_ui.hpp", ""): httpp,  # find_swagger_ui_asset only (NOT_EXPOSED)
     ("swagger_ui.hpp", "swagger"): httpp.Swagger,
+    ("openapi.hpp", "document"): httpp.openapi.Document,
+    ("openapi.hpp", ""): httpp.security,  # basic, bearer and api_key are httpp.security's factories (they return dicts)
     ("file_browser.hpp", "file_browser"): httpp.FileBrowser,
     ("file_lock.hpp", "file_lock"): httpp.FileLock,
     ("middleware.hpp", "cors"): httpp.middleware.CORSMiddleware,
@@ -142,6 +144,7 @@ NOT_EXPOSED = {
     ("router", "route_ws"): "Python registers WebSocket routes with the APIRouter.websocket decorator (ADR-0048)",
     ("router", "route_io"): "same as server::route_io",
     ("router", "route_shared"): "same as server::route_shared",
+    ("", "raw_scheme"): "not necessary: a Python scheme is already a dict (or JSON text) that Document.security_scheme takes as it is (ADR-0087)",
     ("", "find_swagger_ui_asset"): "internal lookup behind swagger::mount, not meant for users",
     ("", "level_name"): "the logging module imitates Python's own `logging`, which is the Python side (ADR-0057)",
     ("", "level_from_string"): "same: Python's logging.getLevelName",
@@ -193,7 +196,7 @@ def test_not_exposed_names_are_still_unbound():
         api.setdefault(owner, set()).update(names)
     for (owner, name), reason in NOT_EXPOSED.items():
         assert name in api.get(owner, set()), f"{owner}::{name} is no longer in the C++ headers: drop it from NOT_EXPOSED"
-        target = {"server": httpp.Server, "router": httpp.APIRouter, "": httpp}[owner]
+        target = {"server": httpp.Server, "router": httpp.APIRouter, "": httpp, "document": httpp.openapi.Document}[owner]
         assert name not in _py_names(target), f"{owner}::{name} now exists in Python ({reason}): drop it from NOT_EXPOSED"
 
 

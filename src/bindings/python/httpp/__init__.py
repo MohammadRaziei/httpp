@@ -30,7 +30,7 @@ from .httpp_python import Client, Directory, download, Download, DownloadResult,
 from .httpp_utils_python import set_log_file, set_log_system, set_log_callback
 from . import _log
 from ._log import bridge_logger, set_log_level
-from . import progress, utils
+from . import openapi, progress, utils
 from .server import Server, ServerRequest, ResponseHead, file, redirect, set_cookie
 from ._router import APIRouter
 from ._websocket import WebSocket, WebSocketDisconnect
@@ -68,7 +68,7 @@ def get_cmake_dir():
 
 __all__ = [
     "Client", "AsyncClient", "Request", "Response", "request", "get", "head", "options", "post", "put",
-    "patch", "delete", "Server", "FileBrowser", "Directory", "FileLock", "Swagger", "run", "WebSocket", "WebSocketDisconnect", "ServerRequest", "ResponseHead", "file", "redirect", "set_cookie", "download", "Download", "DownloadResult", "URL", "progress", "utils",
+    "patch", "delete", "Server", "FileBrowser", "Directory", "FileLock", "Swagger", "run", "WebSocket", "WebSocketDisconnect", "ServerRequest", "ResponseHead", "file", "redirect", "set_cookie", "download", "Download", "DownloadResult", "URL", "openapi", "progress", "utils",
     "Query", "Path", "Header", "Cookie", "Body", "Depends", "APIRouter", "BackgroundTasks", "Form", "File", "UploadFile", "FormData",
     "HTTPException", "JSONResponse", "PlainTextResponse", "HTMLResponse", "RedirectResponse",
     "StreamingResponse", "FileResponse", "responses", "status", "middleware", "security", "CORSMiddleware", "TrustedHostMiddleware", "GZipMiddleware", "HTTPSRedirectMiddleware", "ProxyHeadersMiddleware", "BasicAuthMiddleware", "RateLimitMiddleware",

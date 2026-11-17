@@ -177,44 +177,48 @@ To move the page, give both addresses: `Server(docs_url="/api/docs", openapi_url
 
 ## In C++
 
-C++ has the page but not the generator. `httpp::swagger` serves the same Swagger UI from files compiled into the library, and you serve the OpenAPI document yourself, written by hand or read from a file. The header is not part of `httpp.h`.
+C++ has the page and a writer for the document, but it does not make the document from your routes. `httpp::swagger` serves the same Swagger UI from files compiled into the library, and `httpp::openapi::document` turns what you describe into correct JSON text: every string escaped, the paths grouped, every security name checked. Nothing in it reads JSON, so there is no parser. The headers are not part of `httpp.h`.
 
 ```cpp
 #include <httpp.h>
+#include <httpp/openapi.hpp>     // not part of httpp.h
 #include <httpp/swagger_ui.hpp>  // not part of httpp.h
 
 int main() {
     httpp::server app;
+    namespace oa = httpp::openapi;
 
     app.get("/hello/{name}", [](const httpp::server_request& req, httpp::response& res) {
         res.json("{\"hello\":\"" + std::string(req.path_param("name")) + "\"}");
     });
+    app.get("/health", [](const httpp::server_request&, httpp::response& res) { res.json("{\"ok\":true}"); });
 
-    app.get("/openapi.json", [](const httpp::server_request&, httpp::response& res) {
-        res.json(R"({
-  "openapi": "3.1.0",
-  "info": {"title": "Hello API", "version": "1.0.0"},
-  "paths": {
-    "/hello/{name}": {
-      "get": {
-        "summary": "Say hello",
-        "parameters": [{"name": "name", "in": "path", "required": true, "schema": {"type": "string"}}],
-        "responses": {"200": {"description": "A greeting"}}
-      }
-    }
-  }
-})");
-    });
+    oa::document doc("Hello API", "1.0.0");
+    doc.security_scheme("jwt", oa::bearer("JWT"));
+    doc.security(oa::any_of({"jwt"}));                       // the default of every operation
 
+    doc.get("/hello/{name}")
+        .summary("Say hello")
+        .parameter("name", "path", true)
+        .response(200, "A greeting");
+    doc.get("/health").no_security().response(200, "OK");   // public although the default asks for a JWT
+
+    app.get("/openapi.json", [&doc](const httpp::server_request&, httpp::response& res) { res.json(doc.to_json()); });
     httpp::swagger("/openapi.json").set_title("Hello API").mount(app, "/docs");
 
     app.listen("127.0.0.1", 8201);
 }
 ```
 
-`httpp::swagger` takes the address of the OpenAPI document in its constructor. It is required, because the library does not make or serve that document: you do, on that address, and any valid OpenAPI JSON will do. The address is used as it is, so when you mount the page under another base, give the whole address. `mount(app, base)` puts the page at `base` and its three files under it; `base` defaults to `"/docs"`, must start with `/` and name more than the root, or `mount` throws `std::invalid_argument`. One `swagger` object can be mounted more than once.
+You describe the API apart from the handlers, so the document can drift from them: add a route and forget the line in `doc`, and the page does not show it. Python builds its document from the routes themselves and cannot drift; C++ has no way to read a handler's arguments, so it does not try. Like in Python, security here is only documentation for the **Authorize** button: nothing is checked because of it.
 
-The Python class `httpp.Swagger` does the same for a document of your own: `httpp.Swagger("/openapi.json", title="Mine").mount(app, "/docs")`.
+`scheme` objects come from `basic()`, `bearer(format)`, `api_key(name, "header" | "query" | "cookie")` and `raw_scheme(json)` (OAuth2 and the rest). A requirement is a list: `any_of({"basic", "jwt"})` means any one of them, and a `requirement` with several names in it means all of them together. A name that was not declared throws `std::invalid_argument` from `to_json()`, and the message names the operation.
+
+Where a schema or a body is more than a few fields, give it as JSON text: `parameter(name, in, required, schema_json)`, `request_body(json)`, `response(status, description, content_json)`, `component_schema(name, json)` and `raw(key, json)` for any other key. The text is put in as it is. It is not parsed, so it being valid JSON is your promise; only text that is blank or not UTF-8 is refused.
+
+`httpp::swagger` takes the address of the OpenAPI document in its constructor. It is required, because the library does not serve that document: you do, on that address. The address is used as it is, so when you mount the page under another base, give the whole address. `mount(app, base)` puts the page at `base` and its three files under it; `base` defaults to `"/docs"`, must start with `/` and name more than the root, or `mount` throws `std::invalid_argument`. One `swagger` object can be mounted more than once.
+
+Python has the same writer: `httpp.openapi.Document("Hello API", "1.0.0")`, with the same calls (`security_scheme`, `security`, `add(method, path, ...)`, `to_json()`). `Server.openapi()` is written through it. The Python class `httpp.Swagger` does the page for a document of your own: `httpp.Swagger("/openapi.json", title="Mine").mount(app, "/docs")`.
 
 ## Before you publish it
 
