@@ -114,3 +114,43 @@ def test_rate_limit_bad_arguments():
                 dict(requests_per_second=float("inf")), dict(burst=0), dict(max_clients=0)):
         with pytest.raises(ValueError):
             RateLimitMiddleware(**bad)
+
+
+def test_basic_auth_verifier_decides_and_works_with_users():
+    import hmac
+
+    calls = []
+
+    def verify(user, password):
+        calls.append(user)
+        return hmac.compare_digest(password, "dbpass") and user in ("dbuser", "علی")
+
+    app = make_app()
+    app.add_middleware(BasicAuthMiddleware, users={"fixed": "one"}, verifier=verify)
+    with running(app) as addr:
+        assert call(addr)[0] == 401
+        assert call(addr, headers=basic("dbuser", "wrong"))[0] == 401
+        assert call(addr, headers=basic("dbuser", "dbpass"))[0] == 200
+        assert call(addr, headers=basic("علی", "dbpass"))[0] == 200
+        assert call(addr, headers=basic("fixed", "one"))[0] == 200
+        assert "fixed" not in calls  # a user the list accepts is not sent to the verifier
+        assert calls.count("dbuser") == 2
+
+
+def test_basic_auth_verifier_that_raises_answers_500_and_never_lets_in(capsys):
+    def verify(user, password):
+        raise RuntimeError("db down")
+
+    app = make_app()
+    app.add_middleware(BasicAuthMiddleware, verifier=verify)
+    with running(app) as addr:
+        assert call(addr, headers=basic("u", "p"))[0] == 500
+        assert call(addr)[0] == 401
+    assert "db down" in capsys.readouterr().err
+
+
+def test_basic_auth_verifier_must_be_callable_and_replaces_users():
+    with pytest.raises(TypeError):
+        BasicAuthMiddleware(verifier="nope")
+    app = make_app()
+    app.add_middleware(BasicAuthMiddleware, verifier=lambda u, p: True)  # no users needed

@@ -44,12 +44,14 @@ cdef class Server:
         r.set_trust_forwarded_proto(trust_forwarded_proto)
         r.install(self._srv[0])
 
-    def _add_basic_auth(self, users, realm, path_prefix):
+    def _add_basic_auth(self, users, realm, path_prefix, verifier=None):
         """Install the C++ Basic authentication middleware; use Server.add_middleware(BasicAuthMiddleware, ...)."""
         cdef cpp_basic_auth* b = new cpp_basic_auth((<str>realm).encode("utf-8"))
         try:
             b.set_users([x.encode("utf-8") for x in users])
             b.set_path_prefix((<str>path_prefix).encode("utf-8"))
+            if verifier is not None:
+                httpp_py_set_verifier(b[0], <void*>verifier, <verify_fn>_verify_trampoline)
             b.install(self._srv[0])
         finally:
             del b

@@ -125,7 +125,7 @@ CTOR_ARGS["cors"] = {
 CTOR_ARGS["trusted_host"] = {"set_allowed_hosts": ("allowed_hosts", ["example.com"]), "set_www_redirect": ("www_redirect", False)}
 CTOR_ARGS["forwarded_headers"] = {"set_trusted_proxies": ("trusted_proxies", ["10.0.0.0/8"]), "set_trust_forwarded_host": ("trust_forwarded_host", True)}
 CTOR_ARGS["https_redirect"] = {"set_trust_forwarded_proto": ("trust_forwarded_proto", True)}
-CTOR_ARGS["basic_auth"] = {"set_realm": ("realm", "Tools"), "set_users": ("users", {"u": "p"}), "set_path_prefix": ("path_prefix", "/admin")}
+CTOR_ARGS["basic_auth"] = {"set_realm": ("realm", "Tools"), "set_users": ("users", {"u": "p"}), "set_path_prefix": ("path_prefix", "/admin"), "set_verifier": ("verifier", lambda user, password: True)}
 CTOR_ARGS["rate_limit"] = {"set_rate": ("requests_per_second", 5.0), "set_burst": ("burst", 3), "set_max_clients": ("max_clients", 10)}
 
 # Public C++ names that Python deliberately does not carry (ADR-0017 rule 3). An entry must still be unbound (a test

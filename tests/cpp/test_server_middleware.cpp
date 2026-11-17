@@ -471,3 +471,33 @@ UTEST(httpp_rate_limit, bad_settings_are_refused) {
     ASSERT_TRUE(rejects([&] { r.set_burst(0); }));
     ASSERT_TRUE(rejects([&] { r.set_max_clients(0); }));
 }
+
+UTEST(httpp_basic_auth, a_verifier_decides_and_can_work_with_or_without_users) {
+    local_server srv([](httpp::server& s) {
+        ok_route(s);
+        httpp::basic_auth().set_verifier([](const std::string& u, const std::string& p) { return u == "dbuser" && p == "dbpass"; }).install(s);
+    });
+    httpp::client c(srv.url());
+    ASSERT_EQ(401, c.get("/x").status);
+    ASSERT_EQ(401, c.get("/x", {{"Authorization", basic("dbuser:wrong")}}).status);
+    ASSERT_EQ(200, c.get("/x", {{"Authorization", basic("dbuser:dbpass")}}).status);
+
+    local_server both([](httpp::server& s) {
+        ok_route(s);
+        httpp::basic_auth().set_users({"fixed:one"}).set_verifier([](const std::string& u, const std::string&) { return u == "other"; }).install(s);
+    });
+    httpp::client c2(both.url());
+    ASSERT_EQ(200, c2.get("/x", {{"Authorization", basic("fixed:one")}}).status);
+    ASSERT_EQ(200, c2.get("/x", {{"Authorization", basic("other:anything")}}).status);
+    ASSERT_EQ(401, c2.get("/x", {{"Authorization", basic("nobody:x")}}).status);
+}
+
+UTEST(httpp_basic_auth, a_throwing_verifier_never_lets_the_request_in) {
+    local_server srv([](httpp::server& s) {
+        ok_route(s);
+        httpp::basic_auth().set_verifier([](const std::string&, const std::string&) -> bool { throw std::runtime_error("db down"); }).install(s);
+    });
+    httpp::client c(srv.url());
+    ASSERT_EQ(500, c.get("/x", {{"Authorization", basic("u:p")}}).status);
+    ASSERT_EQ(401, c.get("/x").status); // no credentials: the verifier is not even asked
+}

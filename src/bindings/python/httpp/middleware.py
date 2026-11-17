@@ -123,11 +123,17 @@ class BasicAuthMiddleware:
     small tool or an internal service, not a user database. Credentials travel in clear text, so use it with TLS. path_prefix limits the check
     to the paths under it ("/admin" covers "/admin" and "/admin/x", not "/administrator"); the default "/" covers everything. Add
     CORSMiddleware first, so a browser's preflight (which carries no credentials) is answered before this one runs.
-    A user name must not be empty or contain ":"; an empty `users`, a realm with a quote, a backslash or a control character, or a prefix
+    verifier(user, password) -> bool takes over the password check (bcrypt/argon2 via your own library, a database, ...): it runs on a server
+    thread for every protected request, takes the GIL, and must compare secrets in constant time itself (hmac.compare_digest, bcrypt.checkpw).
+    With users and a verifier a request passes when either accepts it; an exception in the verifier is printed and answers 500, never lets the
+    request in. A user name must not be empty or contain ":"; an empty `users` without a verifier, a realm with a quote, a backslash or a control character, or a prefix
     that does not start with "/" raises ValueError in add_middleware.
     """
 
-    def __init__(self, users=None, realm: str = "Restricted", path_prefix: str = "/"):
+    def __init__(self, users=None, realm: str = "Restricted", path_prefix: str = "/", verifier=None):
+        if verifier is not None and not callable(verifier):
+            raise TypeError("verifier must be callable")
+        self.verifier = verifier
         items = users.items() if hasattr(users, "items") else (users or ())
         self.users = []
         for name, password in items:
@@ -142,7 +148,7 @@ class BasicAuthMiddleware:
         self.path_prefix = path_prefix
 
     def install(self, app) -> None:
-        app._add_basic_auth(self.users, self.realm, self.path_prefix)
+        app._add_basic_auth(self.users, self.realm, self.path_prefix, self.verifier)
 
 
 class RateLimitMiddleware:

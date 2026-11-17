@@ -4,6 +4,7 @@
 #include "httpp/server.hpp"
 
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -108,8 +109,12 @@ private:
 // A browser's preflight carries no credentials: install cors before this, so the preflight is answered first. `set_path_prefix` limits the check
 // to the paths under a prefix ("/admin" covers "/admin" and "/admin/x", not "/administrator"); the default "/" covers everything.
 // Users are entries "user:password" (the first ':' separates them, so a password may contain ':'; a user may not, and may not be empty); no
-// users at all throws at install(), since every request would be refused. Every setter validates its argument and throws
+// users at all (and no verifier) throws at install(), since every request would be refused. Every setter validates its argument and throws
 // std::invalid_argument, leaving the object unchanged.
+// `set_verifier` takes over the password check: fn(user, password) returns true to let the request in. Use it to check against hashes (bcrypt,
+// argon2: httpp does not hash passwords itself), a database or any other store. With users and a verifier, a request passes when either accepts
+// it. fn runs on a server thread for every protected request, possibly from several threads at once, so it must be thread-safe and quick; it
+// must compare secrets in constant time itself. If it throws, the exception goes to the server's error handling (a 500), the request is not let in.
 class basic_auth {
 public:
     HTTPP_API explicit basic_auth(std::string realm = "Restricted");
@@ -117,12 +122,14 @@ public:
     HTTPP_API basic_auth& set_realm(std::string realm);
     HTTPP_API basic_auth& set_users(std::vector<std::string> credentials);
     HTTPP_API basic_auth& set_path_prefix(std::string prefix);
+    HTTPP_API basic_auth& set_verifier(std::function<bool(const std::string& user, const std::string& password)> fn);
     HTTPP_API void install(server& s) const;
 
 private:
     std::string realm_;
     std::vector<std::string> users_;
     std::string prefix_ = "/";
+    std::function<bool(const std::string&, const std::string&)> verifier_;
 };
 
 // A token bucket for every client address (server_request::client_ip, so put forwarded_headers first behind a proxy, or every request seems to come

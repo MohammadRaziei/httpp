@@ -465,15 +465,22 @@ basic_auth& basic_auth::set_path_prefix(std::string prefix) {
     return *this;
 }
 
+basic_auth& basic_auth::set_verifier(std::function<bool(const std::string&, const std::string&)> fn) {
+    verifier_ = std::move(fn);
+    return *this;
+}
+
 void basic_auth::install(server& s) const {
-    if (users_.empty()) throw std::invalid_argument("basic_auth: no users are configured, every request would be refused");
+    if (users_.empty() && !verifier_) throw std::invalid_argument("basic_auth: no users and no verifier are configured, every request would be refused");
     struct policy {
         std::string challenge, prefix;
         std::vector<std::pair<std::string, std::string>> users;
+        std::function<bool(const std::string&, const std::string&)> verifier;
     };
     auto p = std::make_shared<policy>();
     p->challenge = "Basic realm=\"" + realm_ + "\", charset=\"UTF-8\"";
     p->prefix = prefix_;
+    p->verifier = verifier_;
     for (const auto& c : users_) { const auto colon = c.find(':'); p->users.emplace_back(c.substr(0, colon), c.substr(colon + 1)); }
     s.use([p](const server_request& req, response& res) {
         if (p->prefix != "/") {
@@ -482,11 +489,13 @@ void basic_auth::install(server& s) const {
         }
         bool ok = false;
         std::string user, pass;
-        if (detail::parse_basic_authorization(req.header("Authorization"), user, pass))
+        if (detail::parse_basic_authorization(req.header("Authorization"), user, pass)) {
             for (const auto& [u, pw] : p->users) { // every entry is compared, so the time does not tell which user exists
                 const bool match = same_text(u, user) & same_text(pw, pass);
                 ok = ok || match;
             }
+            if (!ok && p->verifier) ok = p->verifier(user, pass);
+        }
         if (ok) return false;
         res.status = 401;
         res.headers.emplace_back("Content-Type", "text/plain; charset=utf-8");

@@ -137,6 +137,47 @@ cdef extern from "httpp/middleware.hpp" namespace "httpp":
         void install(cpp_server& s) except +
 
 
+# basic_auth's password check can be a Python callable. The middleware runs on a server thread, so the call takes the GIL; the callable is kept
+# alive by the middleware (released with the GIL when the server goes). An exception in it is printed and becomes a 500 (never a pass).
+cdef extern from *:
+    """
+    #include <Python.h>
+    #include <functional>
+    #include <memory>
+    #include <stdexcept>
+    #include <string>
+    #include "httpp/middleware.hpp"
+    typedef int (*httpp_py_verify_fn)(void*, const std::string&, const std::string&);
+    static void httpp_py_set_verifier(httpp::basic_auth& b, void* ctx, httpp_py_verify_fn fn) {
+        Py_INCREF(static_cast<PyObject*>(ctx));
+        std::shared_ptr<void> hold(ctx, [](void* c) {
+            if (!Py_IsInitialized()) return;
+            PyGILState_STATE g = PyGILState_Ensure();
+            Py_DECREF(static_cast<PyObject*>(c));
+            PyGILState_Release(g);
+        });
+        b.set_verifier([hold, ctx, fn](const std::string& user, const std::string& password) {
+            const int r = fn(ctx, user, password);
+            if (r < 0) throw std::runtime_error("basic_auth: the verifier raised an exception");
+            return r > 0;
+        });
+    }
+    """
+    ctypedef int (*verify_fn "httpp_py_verify_fn")(void*, const string&, const string&) noexcept nogil
+    void httpp_py_set_verifier(cpp_basic_auth&, void*, verify_fn) except +
+
+
+cdef int _verify_trampoline(void* ctx, const string& user, const string& password) noexcept nogil:
+    if not Py_IsInitialized():
+        return -1
+    with gil:
+        try:
+            return 1 if (<object>ctx)(user.decode("utf-8", "surrogateescape"), password.decode("utf-8", "surrogateescape")) else 0
+        except BaseException:
+            traceback.print_exc()
+            return -1
+
+
 cdef extern from "httpp/server.hpp" namespace "httpp":
     const char* cpp_mime_type_for "httpp::mime_type_for"(const string& path)
 
