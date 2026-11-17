@@ -30,12 +30,12 @@ def same(text):
     return os.path.normcase(text)
 
 
-def run(exe, *args, env=None, timeout=60, input=None):
+def run(exe, *args, env=None, timeout=60, input=None, cwd=None):
     exe = [exe] if isinstance(exe, str) else list(exe)
     full_env = dict(os.environ)
     full_env.setdefault("HTTPP_PYTHON", sys.executable)  # what the launcher sets for the executable (which sits in site-packages, with no Python next to it)
     full_env.update(env or {})
-    return subprocess.run([*exe, *args], capture_output=True, text=True, timeout=timeout, env=full_env, input=input)
+    return subprocess.run([*exe, *args], capture_output=True, text=True, timeout=timeout, env=full_env, input=input, cwd=cwd)
 
 
 def free_port():
@@ -73,11 +73,28 @@ def echo_app():
 
     @app.route("/echo", ("GET", "POST", "PUT", "DELETE"))
     def echo(request):
-        return json.dumps({"method": request.method, "body": request.body.decode(), "x": request.headers.get("x-test"), "ct": request.headers.get("content-type"), "auth": request.headers.get("authorization"), "ua": request.headers.get("user-agent"), "ref": request.headers.get("referer")})
+        return json.dumps({"method": request.method, "body": request.body.decode(), "x": request.headers.get("x-test"), "ct": request.headers.get("content-type"), "auth": request.headers.get("authorization"), "ua": request.headers.get("user-agent"), "ref": request.headers.get("referer"), "ae": request.headers.get("accept-encoding")})
 
     @app.get("/text")
     def text():
         return "plain body"
+
+    @app.get("/files/report.txt")
+    def report():
+        return "report body"
+
+    @app.put("/up/{name}")
+    def upload(name, request):
+        return f"{name}:{request.body.decode()}"
+
+    calls = {"n": 0}
+
+    @app.get("/flaky")
+    def flaky():
+        calls["n"] += 1  # 503 twice, then fine
+        if calls["n"] <= 2:
+            raise httpp.HTTPException(503)
+        return "ok"
 
     @app.get("/old")
     def old():
@@ -610,6 +627,136 @@ def test_curl_max_redirs_and_connect_timeout_must_be_numbers(httpp_exe):
     assert run(httpp_exe, "curl", "http://127.0.0.1:1/", "--max-redirs", "many").returncode == 2
     assert run(httpp_exe, "curl", "http://127.0.0.1:1/", "--max-redirs", "-1").returncode == 2
     assert run(httpp_exe, "curl", "http://127.0.0.1:1/", "--connect-timeout", "0").returncode == 2
+
+
+def test_curl_s_hides_the_error_line_and_S_brings_it_back(httpp_exe):
+    dead = f"http://127.0.0.1:{free_port()}/"
+    quiet = run(httpp_exe, "curl", dead, "-s")
+    loud = run(httpp_exe, "curl", dead, "-sS")
+    assert quiet.returncode == 7 and quiet.stderr == ""
+    assert loud.returncode == 7 and loud.stderr.startswith("error:")
+
+
+def test_curl_w_prints_the_write_out_after_the_transfer(httpp_exe, echo_app, tmp_path):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/text", "-o", str(tmp_path / "o"), "-w", "%{http_code} %{size_download} 100%%\\n")
+        missing = run(httpp_exe, "curl", f"{url}/nothing-here", "-s", "-o", str(tmp_path / "o2"), "-w", "%{http_code}")
+    assert r.returncode == 0 and r.stdout == "200 10 100%\n"
+    assert missing.stdout == "404"
+    dead = run(httpp_exe, "curl", f"http://127.0.0.1:{free_port()}/", "-s", "-w", "%{http_code} %{exitcode} %{nope}")
+    assert dead.returncode == 7 and dead.stdout == "000 7 %{nope}"  # an unknown variable stays as typed
+
+
+def test_curl_w_reads_its_format_from_a_file(httpp_exe, echo_app, tmp_path):
+    fmt = tmp_path / "fmt.txt"
+    fmt.write_text("code=%{http_code};type=%{content_type}")
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/text", "-o", str(tmp_path / "o"), "-w", f"@{fmt}")
+    assert r.returncode == 0 and r.stdout.startswith("code=200;type=text/plain")
+
+
+def test_curl_capital_o_names_the_file_after_the_url(httpp_exe, echo_app, tmp_path):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/files/report.txt", "-O", cwd=str(tmp_path))
+        bare = run(httpp_exe, "curl", f"{url}/", "--remote-name", cwd=str(tmp_path))
+    assert r.returncode == 0 and r.stdout == ""
+    assert (tmp_path / "report.txt").read_text() == "report body"
+    assert bare.returncode == 23 and "file name" in bare.stderr
+
+
+def test_curl_T_uploads_a_file_with_put(httpp_exe, echo_app, tmp_path):
+    payload = tmp_path / "payload.txt"
+    payload.write_text("file content")
+    with running(echo_app) as url:
+        plain = run(httpp_exe, "curl", f"{url}/echo", "-T", str(payload))
+        named = run(httpp_exe, "curl", f"{url}/up/", "--upload-file", str(payload))  # a trailing slash gets the file name
+        stdin = run(httpp_exe, "curl", f"{url}/echo", "-T", "-", input="from stdin")
+        missing = run(httpp_exe, "curl", f"{url}/echo", "-T", str(tmp_path / "nope"))
+        both = run(httpp_exe, "curl", f"{url}/echo", "-T", str(payload), "-d", "a=1")
+    assert (json.loads(plain.stdout)["method"], json.loads(plain.stdout)["body"]) == ("PUT", "file content")
+    assert named.stdout == "payload.txt:file content"
+    assert (json.loads(stdin.stdout)["method"], json.loads(stdin.stdout)["body"]) == ("PUT", "from stdin")
+    assert missing.returncode == 26 and "cannot read" in missing.stderr
+    assert both.returncode == 1 and "-T" in both.stderr
+
+
+def test_curl_D_dumps_the_head_to_a_file_or_to_stdout(httpp_exe, echo_app, tmp_path):
+    dump = tmp_path / "head.txt"
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/text", "-D", str(dump))
+        to_stdout = run(httpp_exe, "curl", f"{url}/text", "--dump-header", "-")
+    assert r.returncode == 0 and r.stdout == "plain body"
+    head = dump.read_text().replace("\r\n", "\n")
+    assert head.startswith("HTTP/1.1 200\n") and "content-type" in head.lower()
+    assert to_stdout.stdout.replace("\r\n", "\n").startswith("HTTP/1.1 200\n")
+    assert to_stdout.stdout.endswith("plain body")
+
+
+def test_curl_d_reads_a_file_and_drops_its_line_breaks_like_curl(httpp_exe, echo_app, tmp_path):
+    body = tmp_path / "body.txt"
+    body.write_bytes(b"a=1\r\nb=2\n")
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/echo", "-d", f"@{body}")
+        mixed = run(httpp_exe, "curl", f"{url}/echo", "-d", "x=1", "-d", f"@{body}")
+        stdin = run(httpp_exe, "curl", f"{url}/echo", "-d", "@-", input="from=stdin\n")
+        missing = run(httpp_exe, "curl", f"{url}/echo", "-d", f"@{tmp_path / 'nope'}")
+    assert json.loads(r.stdout)["body"] == "a=1b=2" and json.loads(r.stdout)["method"] == "POST"
+    assert json.loads(mixed.stdout)["body"] == "x=1&a=1b=2"
+    assert json.loads(stdin.stdout)["body"] == "from=stdin"
+    assert missing.returncode == 26 and "cannot read" in missing.stderr
+
+
+def test_curl_compressed_is_accepted_because_the_client_always_asks_for_gzip(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        plain = run(httpp_exe, "curl", f"{url}/echo")
+        asked = run(httpp_exe, "curl", f"{url}/echo", "--compressed")
+        own = run(httpp_exe, "curl", f"{url}/echo", "--compressed", "-H", "Accept-Encoding: identity")
+    assert asked.returncode == 0
+    assert json.loads(plain.stdout)["ae"] == json.loads(asked.stdout)["ae"] == "gzip, deflate"
+    assert json.loads(own.stdout)["ae"] == "identity"  # an explicit -H wins
+
+
+def test_curl_retry_tries_again_after_a_transient_status(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        started = time.monotonic()
+        r = run(httpp_exe, "curl", f"{url}/flaky", "--retry", "2", "--retry-delay", "1")
+        elapsed = time.monotonic() - started
+    assert r.returncode == 0 and r.stdout == "ok" and "retry" in r.stderr.lower()
+    assert elapsed >= 2
+
+
+def test_curl_retry_gives_up_after_the_given_number(httpp_exe, echo_app, tmp_path):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/flaky", "--retry", "1", "--retry-delay", "1", "-s", "-o", str(tmp_path / "o"), "-w", "%{http_code}")
+    assert r.stdout == "503" and r.stderr == ""  # -s hides the retry warning too
+
+
+def test_curl_retry_does_not_retry_a_refused_connection_unless_asked(httpp_exe):
+    dead = f"http://127.0.0.1:{free_port()}/"
+    started = time.monotonic()
+    first = run(httpp_exe, "curl", dead, "--retry", "1", "--retry-delay", "1", "-s")
+    fast = time.monotonic() - started
+    started = time.monotonic()
+    second = run(httpp_exe, "curl", dead, "--retry", "1", "--retry-delay", "1", "--retry-connrefused", "-s")
+    slow = time.monotonic() - started
+    assert first.returncode == 7 and fast < 1
+    assert second.returncode == 7 and slow >= 1
+
+
+def test_curl_fetches_several_urls_in_turn(httpp_exe, echo_app, tmp_path):
+    with running(echo_app) as url:
+        both = run(httpp_exe, "curl", "-H", "X-Test: shared", f"{url}/text", f"{url}/echo")
+        files = run(httpp_exe, "curl", f"{url}/text", f"{url}/files/report.txt", "-o", "first.out", "-o", "second.out", cwd=str(tmp_path))
+        named = run(httpp_exe, "curl", f"{url}/files/report.txt", f"{url}/text", "-O", cwd=str(tmp_path))
+        dead = f"http://127.0.0.1:{free_port()}/"
+        failing = run(httpp_exe, "curl", dead, f"{url}/text", "-s")
+        counted = run(httpp_exe, "curl", f"{url}/text", f"{url}/text", "-w", "[%{http_code}]")
+    assert both.stdout.startswith("plain body{") and json.loads(both.stdout[len("plain body"):])["x"] == "shared"
+    assert files.returncode == 0 and files.stdout == ""
+    assert (tmp_path / "first.out").read_text() == "plain body" and (tmp_path / "second.out").read_text() == "report body"
+    assert (tmp_path / "report.txt").read_text() == "report body" and (tmp_path / "text").read_text() == "plain body"
+    assert failing.returncode == 7 and failing.stdout == "plain body"  # the first failure is the exit code, the rest still run
+    assert counted.stdout == "plain body[200]plain body[200]"
 
 
 def test_curl_max_time_must_be_a_number(httpp_exe):

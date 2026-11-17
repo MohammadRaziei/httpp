@@ -87,6 +87,7 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0081](0081-server-is-a-shared-handle.md) | `server` is a copyable handle that shares its state; `mount` takes and returns it by value; `server_stopper` breaks handler cycles | accepted |
 | [0082](0082-swagger-takes-its-openapi-url-and-its-base.md) | `swagger(openapi_url)` replaces `swagger_ui` + `set_docs_path` + `set_openapi_url`; the base is the argument of `mount` | accepted |
 | [0083](0083-curl-exit-codes-and-curl-compat-retired.md) | `httpp curl` follows curl on errors (`-f`, exit codes 3/7/22/28/35/47/63, a 404 is exit 0) and repeated `-d`; `httpp/curl_compat.h` is retired | accepted |
+| [0084](0084-curl-the-rest-of-the-everyday-flags.md) | `httpp curl` gets `-s -S -w -O -T -D -d @file --compressed --retry` and several URLs; the docs get a page for it and use `httpp curl` in their examples | accepted |
 
 ## Not decided yet
 

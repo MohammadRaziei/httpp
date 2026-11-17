@@ -13,8 +13,8 @@ A route can answer with a file from disk. The file is streamed with a known leng
 Put a `report.txt` next to the program, start it, and ask for the route:
 
 ```bash
-curl -i http://127.0.0.1:8000/report
-# HTTP/1.1 200 OK
+httpp curl -i http://127.0.0.1:8000/report
+# HTTP/1.1 200
 # Content-Type: text/plain; charset=utf-8
 # Content-Disposition: attachment; filename="report.txt"
 ```

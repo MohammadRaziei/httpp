@@ -11,10 +11,10 @@ A hook is a function the server calls for every request, before the route and af
 <Lang name="hooks" />
 
 ```bash
-curl -i http://127.0.0.1:8000/
-# HTTP/1.1 403 Forbidden
-curl -i http://127.0.0.1:8000/ -H "X-Key: secret"
-# HTTP/1.1 200 OK
+httpp curl -i http://127.0.0.1:8000/
+# HTTP/1.1 403
+httpp curl -i http://127.0.0.1:8000/ -H "X-Key: secret"
+# HTTP/1.1 200
 # X-Served-By: httpp
 ```
 

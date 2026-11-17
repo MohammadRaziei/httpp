@@ -11,11 +11,11 @@ Set the status, the headers and the body. The example creates an item and answer
 <Lang name="responses" />
 
 ```bash
-curl -i -X POST http://127.0.0.1:8000/items
-# HTTP/1.1 201 Created
+httpp curl -i -X POST http://127.0.0.1:8000/items
+# HTTP/1.1 201
 # Location: /items/1
-curl -i http://127.0.0.1:8000/items/2
-# HTTP/1.1 404 Not Found
+httpp curl -i http://127.0.0.1:8000/items/2
+# HTTP/1.1 404
 ```
 
 ## What the code does

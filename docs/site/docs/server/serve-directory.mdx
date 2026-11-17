@@ -56,9 +56,9 @@ The command is the `Directory` below, mounted at `/` with `set_show_hidden(false
 With a `public` folder that holds `index.html` and `notes.txt`:
 
 ```bash
-curl http://127.0.0.1:8000/static/notes.txt   # the file public/notes.txt
-curl http://127.0.0.1:8000/static/            # public/index.html
-curl -i http://127.0.0.1:8000/static/nope.txt # 404
+httpp curl http://127.0.0.1:8000/static/notes.txt   # the file public/notes.txt
+httpp curl http://127.0.0.1:8000/static/            # public/index.html
+httpp curl -i http://127.0.0.1:8000/static/nope.txt # 404
 ```
 
 ## What the code does

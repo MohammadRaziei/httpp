@@ -24,8 +24,9 @@
 #include "httpp/server.hpp"
 #include "httpp/url.hpp"
 
-#include <chrono>
+#include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -33,7 +34,9 @@
 #include <stdexcept>
 #include <initializer_list>
 #include <iostream>
+#include <iterator>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -228,18 +231,37 @@ bool same_header_name(const std::string& a, const std::string& b) {
 
 // Everything `httpp curl` takes from the command line.
 struct curl_args {
-    std::string url, method, output, user, user_agent, referer;
+    std::vector<std::string> urls;
+    std::vector<std::string> outputs; // every -o; the n-th goes with the n-th URL
+    std::string method, user, user_agent, referer, write_out, upload_file, dump_header;
     std::vector<std::string> headers;
-    std::vector<std::string> data; // every -d; joined with '&' like curl
+    std::vector<std::string> data; // every -d; joined with '&' like curl; "@file" reads a file
     bool has_user = false;
+    bool remote_name = false;     // -O
+    bool silent = false;          // -s
+    bool show_error = false;      // -S
+    bool compressed = false;      // --compressed: accepted, the client always asks for gzip and deflate
     bool fail = false;            // -f
     bool include_headers = false; // -i
     bool head_only = false;       // -I
     bool verbose = false;         // -v
     bool location = false;        // -L
+    bool retry_connrefused = false;
     long max_time = 0;            // -m, in seconds; 0 when not given
     long connect_timeout = 0;     // --connect-timeout, in seconds; 0 when not given
     int max_redirs = -1;          // --max-redirs; -1 when not given
+    int retry = 0;                // --retry
+    long retry_delay = 0;         // --retry-delay, in seconds; 0 = 1, 2, 4, ... up to 10 minutes
+};
+
+// What the command works out once, before the first transfer.
+struct curl_plan {
+    std::vector<std::pair<std::string, std::string>> sent; // headers from -H, -A, -e and --compressed
+    bool has_body = false;
+    std::string body;
+    std::string user_name, user_password;
+    std::ofstream dump_file; // -D FILE
+    bool dump_to_stdout = false;
 };
 
 // What went wrong with a transfer, in a few words, for the "error:" line.
@@ -271,106 +293,315 @@ int curl_exit_code(httpp::error_kind kind) {
 }
 
 constexpr int curl_exit_http_error = 22; // CURLE_HTTP_RETURNED_ERROR, with -f
+constexpr int curl_exit_write_error = 23; // CURLE_WRITE_ERROR: a file could not be written or named
+constexpr int curl_exit_read_error = 26;  // CURLE_READ_ERROR: a file for -d or -T could not be read
 
-int cmd_curl(const curl_args& a) {
-    httpp::request req(a.url);
+// "error: ..." on stderr, unless -s hides it and -S does not bring it back.
+void curl_error(const curl_args& a, const std::string& message) {
+    if (!a.silent || a.show_error) std::cerr << "error: " << message << std::endl;
+}
 
-    // The method that will be sent, as curl picks it: -X wins, then -I, then POST when there is a body.
-    const bool has_data = !a.data.empty();
-    std::string effective = a.method;
-    if (effective.empty()) effective = a.head_only ? "HEAD" : (has_data ? "POST" : "GET");
-    if (!a.method.empty() || a.head_only) req.method(effective);
+void stdin_binary() {
+#ifdef _WIN32
+    _setmode(_fileno(stdin), _O_BINARY);
+#endif
+}
 
-    std::vector<std::pair<std::string, std::string>> sent;
-    for (const std::string& h : a.headers) {
-        std::size_t colon = h.find(':');
-        if (colon == std::string::npos) {
-            std::cerr << "error: malformed header (expected 'Name: value'): '" << h << "'" << std::endl;
-            return 1;
-        }
-        sent.emplace_back(trim_ws(h.substr(0, colon)), trim_ws(h.substr(colon + 1)));
-        req.header(sent.back().first, sent.back().second);
+// A whole file, or standard input for "-". False when it cannot be read.
+bool read_whole(const std::string& path, std::string& out) {
+    if (path == "-") {
+        stdin_binary();
+        out.assign(std::istreambuf_iterator<char>(std::cin), std::istreambuf_iterator<char>());
+        return true;
     }
-    // -A and -e are just headers, unless -H already gave one of the same name.
-    auto add_unless_given = [&](const char* name, const std::string& value) {
-        if (value.empty()) return;
-        for (const auto& h : sent) if (same_header_name(h.first, name)) return;
-        sent.emplace_back(name, value);
-        req.header(name, value);
+    std::ifstream in(httpp::path(path).native(), std::ios::binary);
+    if (!in) return false;
+    out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    return true;
+}
+
+std::string file_base_name(const std::string& path) {
+    std::size_t cut = path.find_last_of("/\\");
+    return cut == std::string::npos ? path : path.substr(cut + 1);
+}
+
+// The file name -O uses: the last piece of the URL path. Empty when there is none to use.
+std::string remote_file_name(const std::string& url) {
+    try {
+        std::string path = httpp::url_path(httpp::parse_url(url));
+        std::size_t slash = path.rfind('/');
+        std::string name = slash == std::string::npos ? path : path.substr(slash + 1);
+        if (name == "." || name == ".." || name.find('\\') != std::string::npos) return std::string();
+        return name;
+    } catch (const std::exception&) {
+        return std::string();
+    }
+}
+
+// -T: a URL whose path ends with a slash gets the file's name added, as curl does.
+std::string with_upload_name(const std::string& url, const std::string& name) {
+    std::size_t cut = url.find_first_of("?#");
+    std::string head = url.substr(0, cut);
+    std::string tail = cut == std::string::npos ? std::string() : url.substr(cut);
+    if (name.empty() || head.empty() || head.back() != '/') return url;
+    return head + name + tail;
+}
+
+std::string response_header(const httpp::response& res, const char* name) {
+    for (const auto& [key, value] : res.headers)
+        if (same_header_name(key, name)) return value;
+    return std::string();
+}
+
+// -w: %{http_code} %{content_type} %{size_download} %{exitcode} %{errormsg} %{url}, and \n \r \t \\ %%.
+// A %{name} that is not one of these stays as typed. size_download is the size of the body after decoding.
+std::string expand_write_out(const std::string& format, const std::string& url, const httpp::response& res, int exit_code,
+                             const std::string& error_text) {
+    std::string out;
+    for (std::size_t i = 0; i < format.size(); ++i) {
+        char c = format[i];
+        if (c == '\\' && i + 1 < format.size()) {
+            char next = format[++i];
+            if (next == 'n') out += '\n';
+            else if (next == 'r') out += '\r';
+            else if (next == 't') out += '\t';
+            else if (next == '\\') out += '\\';
+            else { out += '\\'; out += next; }
+        } else if (c == '%' && i + 1 < format.size() && format[i + 1] == '%') {
+            out += '%';
+            ++i;
+        } else if (c == '%' && i + 1 < format.size() && format[i + 1] == '{') {
+            std::size_t close = format.find('}', i + 2);
+            std::string name = close == std::string::npos ? std::string() : format.substr(i + 2, close - i - 2);
+            std::string value;
+            bool known = true;
+            if (name == "http_code") {
+                value = std::to_string(res.status);
+                while (value.size() < 3) value.insert(value.begin(), '0'); // 000 when there was no answer
+            } else if (name == "content_type") value = response_header(res, "content-type");
+            else if (name == "size_download") value = std::to_string(res.body.size());
+            else if (name == "exitcode") value = std::to_string(exit_code);
+            else if (name == "errormsg") value = error_text;
+            else if (name == "url") value = url;
+            else known = false;
+            if (known) {
+                out += value;
+                i = close;
+            } else {
+                out += c;
+            }
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
+// Only a few statuses and a timeout are worth another try, as in curl; a refused connection only with --retry-connrefused.
+bool is_transient(const curl_args& a, const httpp::response& res) {
+    if (res.failed()) {
+        return res.error == httpp::error_kind::timeout || (a.retry_connrefused && res.error == httpp::error_kind::connection);
+    }
+    return res.status == 408 || res.status == 429 || res.status == 500 || res.status == 502 || res.status == 503 || res.status == 504;
+}
+
+void write_stdout(const std::string& bytes) {
+    stdout_binary();
+    std::fwrite(bytes.data(), 1, bytes.size(), stdout);
+    std::fflush(stdout);
+}
+
+// One transfer. Returns its exit code.
+int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_url, const std::string& output) {
+    std::string url = given_url;
+    if (!a.upload_file.empty() && a.upload_file != "-") url = with_upload_name(url, file_base_name(a.upload_file));
+
+    // The method that will be sent, as curl picks it: -X wins, then -I, then PUT for -T, then POST when there is a body.
+    std::string chosen = a.method;
+    if (chosen.empty() && a.head_only) chosen = "HEAD";
+    if (chosen.empty() && !a.upload_file.empty()) chosen = "PUT";
+    const std::string effective = chosen.empty() ? (plan.has_body ? "POST" : "GET") : chosen;
+
+    auto fill = [&](httpp::request& req) {
+        if (!chosen.empty()) req.method(chosen);
+        for (const auto& [name, value] : plan.sent) req.header(name, value);
+        if (plan.has_body) req.data(plan.body);
+        if (a.location) req.follow_redirects(true);
+        if (a.max_time > 0) req.timeout(a.max_time);
+        if (a.connect_timeout > 0) req.connect_timeout(a.connect_timeout);
+        if (a.max_redirs >= 0) req.max_redirects(a.max_redirs);
+        if (a.has_user) req.basic_auth(plan.user_name, plan.user_password);
     };
-    add_unless_given("User-Agent", a.user_agent);
-    add_unless_given("Referer", a.referer);
-    if (has_data) {
-        std::string body;
-        for (const std::string& piece : a.data) body += (body.empty() ? "" : "&") + piece;
-        req.data(body);
-    }
-    if (a.location) req.follow_redirects(true);
-    if (a.max_time > 0) req.timeout(a.max_time);
-    if (a.connect_timeout > 0) req.connect_timeout(a.connect_timeout);
-    if (a.max_redirs >= 0) req.max_redirects(a.max_redirs);
-    if (a.has_user) {
-        std::size_t colon = a.user.find(':'); // only the first colon splits: a password may contain more
-        if (colon == std::string::npos) {
-            std::cerr << "error: malformed --user (expected 'user:password')" << std::endl;
-            return 1;
-        }
-        req.basic_auth(a.user.substr(0, colon), a.user.substr(colon + 1));
-    }
 
     if (a.verbose) {
-        std::string path = a.url; // shown as typed when it does not parse; the request then fails below
+        std::string path = url; // shown as typed when it does not parse; the request then fails below
         try {
-            httpp::url target = httpp::parse_url(a.url);
+            httpp::url target = httpp::parse_url(url);
             path = httpp::url_path(target);
             std::string query = httpp::url_query(target);
             if (!query.empty()) path += "?" + query;
         } catch (const std::exception&) {
         }
         std::cerr << "> " << effective << " " << path << " HTTP/1.1\n";
-        for (const auto& [name, value] : sent) std::cerr << "> " << name << ": " << value << "\n";
+        for (const auto& [name, value] : plan.sent) std::cerr << "> " << name << ": " << value << "\n";
         std::cerr << ">" << std::endl;
     }
 
-    httpp::response res = req.run();
+    auto attempt = [&]() {
+        httpp::request req(url);
+        fill(req);
+        return req.run();
+    };
+    httpp::response res = attempt();
+    for (int tried = 0; tried < a.retry && is_transient(a, res); ++tried) {
+        long delay = a.retry_delay > 0 ? a.retry_delay : std::min<long>(600, 1L << std::min(tried, 9));
+        if (!a.silent) {
+            std::cerr << "Warning: transient problem, will retry in " << delay << " seconds (" << (tried + 1) << " of " << a.retry << ")" << std::endl;
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(delay));
+        res = attempt();
+    }
 
+    int code = 0;
+    std::string error_text;
     if (res.failed()) { // no HTTP answer to show, and no file to leave behind
-        std::cerr << "error: " << error_label(res.error);
-        if (!res.error_message.empty() && res.error_message != error_label(res.error)) std::cerr << " (" << res.error_message << ")";
-        std::cerr << std::endl;
-        return curl_exit_code(res.error);
+        error_text = error_label(res.error);
+        if (!res.error_message.empty() && res.error_message != error_text) error_text += " (" + res.error_message + ")";
+        curl_error(a, error_text);
+        code = curl_exit_code(res.error);
+    } else {
+        if (a.verbose) {
+            std::cerr << "< HTTP/1.1 " << res.status << "\n";
+            for (const auto& [name, value] : res.headers) std::cerr << "< " << name << ": " << value << "\n";
+            std::cerr << "<" << std::endl;
+        }
+        if (plan.dump_to_stdout) write_stdout(head_text(res));
+        else if (plan.dump_file.is_open()) plan.dump_file << head_text(res) << std::flush;
+
+        if (a.fail && res.status >= 400) { // like curl, an HTTP error status is an answer, not a failure, unless -f asks for one
+            error_text = "the requested URL returned error: " + std::to_string(res.status);
+            curl_error(a, error_text);
+            code = curl_exit_http_error;
+        } else {
+            // -i and -I put the head in front of the body (-I has no body).
+            std::string out;
+            if (a.include_headers || a.head_only) out += head_text(res);
+            if (!a.head_only) out += res.body;
+
+            std::string target = output;
+            if (target.empty() && a.remote_name) {
+                target = remote_file_name(url);
+                if (target.empty()) {
+                    error_text = "no file name to use for -O in '" + url + "'";
+                    curl_error(a, error_text);
+                    code = curl_exit_write_error;
+                }
+            }
+            if (code != 0) {
+                // nothing to write
+            } else if (!target.empty()) {
+                std::ofstream file(httpp::path(target).native(), std::ios::binary);
+                if (!file) {
+                    error_text = "cannot write '" + target + "'";
+                    curl_error(a, error_text);
+                    code = curl_exit_write_error;
+                } else {
+                    file.write(out.data(), static_cast<std::streamsize>(out.size()));
+                }
+            } else {
+                write_stdout(out);
+            }
+        }
     }
 
-    if (a.verbose) {
-        std::cerr << "< HTTP/1.1 " << res.status << "\n";
-        for (const auto& [name, value] : res.headers) std::cerr << "< " << name << ": " << value << "\n";
-        std::cerr << "<" << std::endl;
-    }
+    if (!a.write_out.empty()) write_stdout(expand_write_out(a.write_out, given_url, res, code, error_text));
+    return code;
+}
 
-    // Like curl, an HTTP error status is an answer, not a failure, unless -f asks for one.
-    if (a.fail && res.status >= 400) {
-        std::cerr << "error: the requested URL returned error: " << res.status << std::endl;
-        return curl_exit_http_error;
-    }
+int cmd_curl(const curl_args& a) {
+    curl_plan plan;
 
-    // -i and -I put the head in front of the body (-I has no body).
-    std::string out;
-    if (a.include_headers || a.head_only) out += head_text(res);
-    if (!a.head_only) out += res.body;
-
-    if (!a.output.empty()) {
-        std::ofstream file(httpp::path(a.output).native(), std::ios::binary);
-        if (!file) {
-            std::cerr << "error: cannot write '" << a.output << "'" << std::endl;
+    for (const std::string& h : a.headers) {
+        std::size_t colon = h.find(':');
+        if (colon == std::string::npos) {
+            curl_error(a, "malformed header (expected 'Name: value'): '" + h + "'");
             return 1;
         }
-        file.write(out.data(), static_cast<std::streamsize>(out.size()));
-    } else {
-        stdout_binary();
-        std::fwrite(out.data(), 1, out.size(), stdout);
-        std::fflush(stdout);
+        plan.sent.emplace_back(trim_ws(h.substr(0, colon)), trim_ws(h.substr(colon + 1)));
     }
-    return 0;
+    // -A and -e are just headers, unless -H already gave one of the same name.
+    auto add_unless_given = [&](const char* name, const std::string& value) {
+        if (value.empty()) return;
+        for (const auto& h : plan.sent) if (same_header_name(h.first, name)) return;
+        plan.sent.emplace_back(name, value);
+    };
+    add_unless_given("User-Agent", a.user_agent);
+    add_unless_given("Referer", a.referer);
+
+    if (a.has_user) {
+        std::size_t colon = a.user.find(':'); // only the first colon splits: a password may contain more
+        if (colon == std::string::npos) {
+            curl_error(a, "malformed --user (expected 'user:password')");
+            return 1;
+        }
+        plan.user_name = a.user.substr(0, colon);
+        plan.user_password = a.user.substr(colon + 1);
+    }
+
+    if (!a.upload_file.empty() && !a.data.empty()) {
+        curl_error(a, "-T and -d cannot be used together");
+        return 1;
+    }
+    if (!a.upload_file.empty()) {
+        if (!read_whole(a.upload_file, plan.body)) {
+            curl_error(a, "cannot read '" + a.upload_file + "'");
+            return curl_exit_read_error;
+        }
+        plan.has_body = true;
+    } else if (!a.data.empty()) {
+        for (const std::string& piece : a.data) {
+            std::string value = piece;
+            if (!piece.empty() && piece[0] == '@') { // -d @file: the file, without its line breaks (as curl does for -d)
+                if (!read_whole(piece.substr(1), value)) {
+                    curl_error(a, "cannot read '" + piece.substr(1) + "'");
+                    return curl_exit_read_error;
+                }
+                value.erase(std::remove_if(value.begin(), value.end(), [](char c) { return c == '\r' || c == '\n'; }), value.end());
+            }
+            plan.body += (plan.body.empty() ? "" : "&") + value;
+        }
+        plan.has_body = true;
+    }
+
+    std::string write_out = a.write_out;
+    if (!write_out.empty() && write_out[0] == '@') { // -w @file
+        std::string text;
+        if (!read_whole(write_out.substr(1), text)) {
+            curl_error(a, "cannot read '" + write_out.substr(1) + "'");
+            return curl_exit_read_error;
+        }
+        write_out = text;
+    }
+
+    if (a.dump_header == "-") {
+        plan.dump_to_stdout = true;
+    } else if (!a.dump_header.empty()) {
+        plan.dump_file.open(httpp::path(a.dump_header).native(), std::ios::binary);
+        if (!plan.dump_file) {
+            curl_error(a, "cannot write '" + a.dump_header + "'");
+            return curl_exit_write_error;
+        }
+    }
+
+    // Each URL in turn. A failure does not stop the rest; the first failure is the exit code.
+    curl_args run_args = a;
+    run_args.write_out = write_out;
+    int first_failure = 0;
+    for (std::size_t i = 0; i < a.urls.size(); ++i) {
+        int code = curl_transfer(run_args, plan, a.urls[i], i < a.outputs.size() ? a.outputs[i] : std::string());
+        if (code != 0 && first_failure == 0) first_failure = code;
+    }
+    return first_failure;
 }
 
 // --- `httpp py ...`: hand the rest to the Python half ---
@@ -552,12 +783,22 @@ int main(int argc, char** argv) {
 
     // curl
     curl_args ca;
-    auto* c_curl = app.add_subcommand("curl", "Make a request (a small curl-like subset: -X -H -d -o -f -i -I -v -L -m -u -A -e).");
-    c_curl->add_option("url", ca.url)->required();
-    c_curl->add_option("--request,-X", ca.method, "HTTP method (default: GET, or POST if -d is given, or HEAD with -I)");
-    c_curl->add_option("--header,-H", ca.headers, "Extra header 'Name: value' (repeatable)")->type_name("HEADER");
-    c_curl->add_option("--data,-d", ca.data, "Request body (repeatable: the values are joined with '&')")->allow_extra_args(false);
-    c_curl->add_option("--output,-o", ca.output, "Write the response body to this file instead of stdout");
+    auto* c_curl = app.add_subcommand("curl", "Make requests (a curl-like subset: -X -H -d -o -O -f -s -S -i -I -v -L -m -u -A -e -w -T -D -d @file --compressed --retry; several URLs).");
+    c_curl->add_option("url", ca.urls, "URL (several are fetched in turn; a failure does not stop the rest, the first one sets the exit code)")->required();
+    c_curl->add_option("--request,-X", ca.method, "HTTP method (default: GET, or POST if -d is given, PUT with -T, HEAD with -I)");
+    c_curl->add_option("--header,-H", ca.headers, "Extra header 'Name: value' (repeatable)")->type_name("HEADER")->allow_extra_args(false);
+    c_curl->add_option("--data,-d", ca.data, "Request body (repeatable: joined with '&'; '@file' reads a file without its line breaks, '@-' stdin)")->allow_extra_args(false);
+    c_curl->add_option("--output,-o", ca.outputs, "Write the response body to this file instead of stdout (repeatable: the n-th file goes with the n-th URL)")->allow_extra_args(false);
+    c_curl->add_flag("--remote-name,-O", ca.remote_name, "Write the body to a file named after the end of the URL path (for URLs without -o)");
+    c_curl->add_flag("--silent,-s", ca.silent, "Hide the error line and the retry warnings");
+    c_curl->add_flag("--show-error,-S", ca.show_error, "With -s: show the error line anyway");
+    c_curl->add_option("--write-out,-w", ca.write_out, "After each transfer print FORMAT: %{http_code} %{content_type} %{size_download} %{exitcode} %{errormsg} %{url}, \\n \\t; '@file' reads it from a file")->type_name("FORMAT");
+    c_curl->add_option("--upload-file,-T", ca.upload_file, "Send this file ('-' is stdin) with PUT; a URL ending in '/' gets the file name added")->type_name("FILE");
+    c_curl->add_option("--dump-header,-D", ca.dump_header, "Write the status line and headers of each answer to this file ('-' is stdout)")->type_name("FILE");
+    c_curl->add_flag("--compressed", ca.compressed, "Accepted for curl scripts: the client always sends 'Accept-Encoding: gzip, deflate' and decodes the answer (an explicit -H wins)");
+    c_curl->add_option("--retry", ca.retry, "Try again up to NUM times after a timeout or a 408, 429, 500, 502, 503 or 504")->check(CLI::Range(0, 1000000))->type_name("NUM");
+    c_curl->add_option("--retry-delay", ca.retry_delay, "Seconds between retries (default 1, 2, 4, ... up to 600)")->check(CLI::Range(0L, 86400L))->type_name("SECONDS");
+    c_curl->add_flag("--retry-connrefused", ca.retry_connrefused, "Also retry when the connection fails (a refused connection, a failed lookup)");
     c_curl->add_flag("--fail,-f", ca.fail, "Exit with 22 and print nothing when the status is 400 or more");
     c_curl->add_flag("--include,-i", ca.include_headers, "Print the status line and the response headers before the body");
     c_curl->add_flag("--head,-I", ca.head_only, "Send HEAD and print only the status line and the headers");

@@ -62,7 +62,7 @@ installed system-wide (no `apt`, `brew` or `choco`).
   exceptions, sessions, an `AsyncClient`, timeouts, redirects, TLS verification.
 - **Downloads** that can resume, with a tqdm-style progress bar (drawn on stderr, so piped output
   stays clean). The features above exist in both C++ and Python, with similar APIs.
-- **A modern `curl`**: `httpp curl URL` covers the everyday flags (`-X -H -d -o -f -i -I -v -L -m -u`) and uses curl's exit codes; in C++ the same job is `httpp::request`, in Python `httpp.Request`.
+- **A modern `curl`**: `httpp curl URL...` covers the everyday flags (`-X -H -d -o -O -f -s -S -i -I -v -L -m -u -A -e -w -T -D -d @file --compressed --retry`, several URLs) and uses curl's exit codes ([guide](docs/site/docs/client/curl-command.mdx)); in C++ the same job is `httpp::request`, in Python `httpp.Request`.
 - **No system dependencies.** Nothing to install system-wide; the only build-time download is the
   header-only Asio (about 3 MB, pinned by hash), which can be supplied locally instead.
 
@@ -410,6 +410,7 @@ httpp server ./site --ssl-certfile cert.pem --ssl-keyfile key.pem   # https; bro
 httpp download https://example.com/f.zip -o f.zip
 httpp curl https://example.com/api -X POST -H "X-Key: 1" -d "a=1"
 httpp curl https://example.com -L -i -m 10   # follow redirects, print status and headers, give up after 10 s (also -I, -v, -f, -u user:password)
+httpp curl https://example.com/a.zip -L -O --retry 3   # save as a.zip, try again up to 3 times after a timeout or a 5xx
 ```
 
 Commands that run your Python code go behind `py`; everything after `py` goes to Python as typed (the SDK's own `bin/httpp` starts the Python named by `HTTPP_PYTHON`, or the one on PATH):
@@ -596,7 +597,7 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
   cannot be mounted on it yet.
 - cpp-httplib is no longer used: the server, the client (blocking and async) and downloads all run on our own
   engines (Asio + llhttp + mbedTLS), see ADR-0051 to ADR-0053.
-- `httpp curl` is a subset of curl (no `-s`, `-w`, `-O`, `-T`, `--retry`, `--compressed`, several URLs); there is no libcurl-style C API.
+- `httpp curl` is a subset of curl (no `-F`, `--json`, `-G`, `-b`, `-x`, `-k`, `--cacert`, `--data-binary`, `-C`, `-r`, `--http2`; `httpp::request` has several of these, the command does not expose them yet); there is no libcurl-style C API.
 - `--workers` is Linux only.
 
 Issues and pull requests are welcome.

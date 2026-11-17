@@ -13,9 +13,9 @@ import Only from '@site/src/components/Only';
 With a `shared` folder next to the program, open `http://127.0.0.1:8000/files/` in a browser. The same data is there for programs:
 
 ```bash
-curl "http://127.0.0.1:8000/files/api/list?path=/"
+httpp curl "http://127.0.0.1:8000/files/api/list?path=/"
 # {"path":"/","entries":[{"name":"a.txt","type":"file","size":5,"mtime":...},{"name":"sub","type":"dir",...}],"truncated":false,"limit":5000}
-curl http://127.0.0.1:8000/files/raw/a.txt
+httpp curl http://127.0.0.1:8000/files/raw/a.txt
 # alpha
 ```
 

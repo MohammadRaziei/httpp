@@ -1,0 +1,80 @@
+---
+id: curl-command
+title: The httpp curl command
+---
+
+`httpp curl` makes requests from the command line with the curl flags that get used every day. It runs on the same client as `httpp::request` and `httpp.Request`, so it follows redirects, decodes gzip and deflate, and speaks TLS the same way. The answers of the server pages in this guide can be tried with it.
+
+```bash
+httpp curl http://127.0.0.1:8000/hello/world
+httpp curl http://127.0.0.1:8000/items -X POST -H "Content-Type: application/json" -d '{"name":"pen"}'
+httpp curl https://example.com/archive.zip -L -O
+httpp curl http://127.0.0.1:8000/health -sS -f -m 5 --retry 3
+```
+
+## Send a request
+
+| Flag | What it does |
+| --- | --- |
+| `-X`, `--request METHOD` | The method. Without it: `GET`, or `POST` when there is a body, `PUT` with `-T`, `HEAD` with `-I`. |
+| `-H`, `--header "Name: value"` | An extra header. Repeat it for more. |
+| `-d`, `--data TEXT` | The body. Repeat it and the pieces are joined with `&`. `-d @file` reads a file (`@-` reads standard input) and drops its line breaks, as curl does. |
+| `-T`, `--upload-file FILE` | Send a file with `PUT` (`-` is standard input). A URL that ends with `/` gets the file name added. It cannot be combined with `-d`. |
+| `-u`, `--user user:password` | Basic authentication. Only the first colon splits, so a password may contain colons. |
+| `-A`, `--user-agent NAME` and `-e`, `--referer URL` | Set `User-Agent` and `Referer`. A `-H` with the same name wins. |
+| `--compressed` | Accepted so curl scripts keep working. The client always sends `Accept-Encoding: gzip, deflate` and decodes the answer. |
+| `-L`, `--location` and `--max-redirs N` | Follow redirects, at most N of them (default 20). Past the limit the exit code is 47. |
+| `-m`, `--max-time SECONDS` | Give up when a connect, write or read step takes longer than this. It limits each step, not the whole transfer: a server that keeps sending a byte now and then is never cut off. |
+| `--connect-timeout SECONDS` | Give up when resolving, connecting or the TLS handshake takes longer than this. |
+
+## Choose the output
+
+| Flag | What it does |
+| --- | --- |
+| `-o`, `--output FILE` | Write the body to a file instead of standard output. |
+| `-O`, `--remote-name` | Write the body to a file named after the end of the URL path (`report.txt` for `/files/report.txt`). A URL without a file name is an error (exit code 23). |
+| `-i`, `--include` | Print the status line and the headers before the body. |
+| `-I`, `--head` | Send `HEAD` and print only the status line and the headers. |
+| `-D`, `--dump-header FILE` | Write the status line and the headers to a file (`-` is standard output). |
+| `-v`, `--verbose` | Print the request line and the `-H` headers, then the status and the headers of the answer, on standard error. |
+| `-w`, `--write-out FORMAT` | Print FORMAT after each transfer. Variables: `%{http_code}` (`000` when there was no answer), `%{content_type}`, `%{size_download}`, `%{exitcode}`, `%{errormsg}`, `%{url}`. Also `\n`, `\t` and `%%`. `@file` reads the format from a file. |
+| `-s`, `--silent` and `-S`, `--show-error` | `-s` hides the error line and the retry warnings; `-S` brings the error line back. |
+| `-f`, `--fail` | A status of 400 or more prints nothing and exits with 22. Without it an error status is an answer like any other, and the exit code is 0. |
+
+The status line is `HTTP/1.1 <status>` with no reason phrase, because the answer does not carry one. When redirects are followed, the head is the one of the final answer.
+
+## Several URLs
+
+Give more than one URL and each is fetched in turn. A failure does not stop the others, and the exit code is the one of the first failure. `-o` is matched with the URLs in order, the first file for the first URL, and so on; `-O` names the files of the URLs that have no `-o`.
+
+```bash
+httpp curl http://127.0.0.1:8000/a.txt http://127.0.0.1:8000/b.txt -o a.out -o b.out -w "%{http_code}\n"
+```
+
+## Try again
+
+`--retry NUM` repeats a transfer up to NUM times after a timeout or a status of 408, 429, 500, 502, 503 or 504. The wait is 1, 2, 4, ... seconds up to 10 minutes, or `--retry-delay SECONDS` every time. A refused connection or a failed lookup is retried only with `--retry-connrefused`. `-s` hides the warning that is printed before each new try.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | An answer arrived (and with `-f` its status is below 400). |
+| 3 | The URL is not valid. |
+| 7 | The connection failed. A failed lookup is reported here too. |
+| 22 | `-f` and a status of 400 or more. |
+| 23 | A file could not be written, or `-O` found no file name. |
+| 26 | A file for `-d` or `-T` could not be read. |
+| 28 | Timeout. |
+| 35 | TLS failed. |
+| 47 | Too many redirects. |
+| 63 | The answer is larger than the limit. |
+| 1 | Anything else, such as a malformed `-H`. |
+
+## Where it differs from curl
+
+- It is a subset. Missing: `-F` and `--json`, `-G`, `-b` cookies, `-x` proxies, `-k` and `--cacert`, `--data-binary`, `-C` resume, `-r` ranges, `--http2`, `-4` and `-6`, and curl configuration files. `httpp.Request` and `httpp::request` can do several of these (proxies, cookies, TLS options, JSON and form bodies); the command does not expose them yet.
+- `-v` shows the headers you gave, not the ones the client adds itself, such as `Host`.
+- `%{size_download}` is the size of the body after decoding, not of the bytes on the wire.
+- Exit codes follow curl's numbers for the same kinds of trouble, but the client does not tell a failed lookup from a refused connection: both are 7.
+- `httpp download` is the command for big files: it shows progress, verifies a checksum and can continue an interrupted download.
