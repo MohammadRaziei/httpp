@@ -1,5 +1,6 @@
 #pragma once
 
+#include "httpp/cookie.hpp"
 #include "httpp/export.hpp"
 #include "httpp/path.hpp"
 #include "httpp/url.hpp"
@@ -63,12 +64,12 @@ struct response {
         headers.emplace_back("Location", location);
         return *this;
     }
-    // Adds a Set-Cookie header ("name=value; <attributes>"); call it again for more cookies.
-    response& set_cookie(const std::string& name, const std::string& value,
-                         const std::string& attributes = "Path=/; HttpOnly") {
-        headers.emplace_back("Set-Cookie", name + "=" + value + (attributes.empty() ? "" : "; " + attributes));
+    // Adds a Set-Cookie header; call it again for more cookies. Throws std::invalid_argument for a name or value that cannot be sent (httpp/cookie.hpp).
+    response& set_cookie(const httpp::cookie& c) {
+        headers.emplace_back("Set-Cookie", c.to_set_cookie());
         return *this;
     }
+    response& set_cookie(const std::string& name, const std::string& value) { return set_cookie(httpp::cookie(name, value)); } // Path=/; HttpOnly
     // A JSON document you serialized yourself: sets the body and Content-Type: application/json.
     response& json(std::string document) {
         body = std::move(document);

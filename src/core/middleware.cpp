@@ -1,5 +1,7 @@
 #include "httpp/middleware.hpp"
 
+#include "internal/basic_credentials.hpp"
+
 #include <asio/ip/address.hpp>
 #include <asio/ip/address_v4.hpp>
 #include <asio/ip/address_v6.hpp>
@@ -418,42 +420,6 @@ void https_redirect::install(server& s) const {
 namespace {
 // ---------------------------------------------------------------- Basic authentication
 
-// Strict base64 (RFC 4648, padding required, no whitespace); false for anything else.
-bool base64_decode(const std::string& in, std::string& out) {
-    out.clear();
-    if (in.empty() || in.size() % 4 != 0) return false;
-    auto value = [](char c) -> int {
-        if (c >= 'A' && c <= 'Z') return c - 'A';
-        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-        if (c >= '0' && c <= '9') return c - '0' + 52;
-        if (c == '+') return 62;
-        if (c == '/') return 63;
-        return -1;
-    };
-    for (std::size_t i = 0; i < in.size(); i += 4) {
-        const bool last = i + 4 == in.size();
-        int v[4];
-        int pad = 0;
-        for (int k = 0; k < 4; k++) {
-            const char c = in[i + k];
-            if (c == '=') {
-                if (!last || k < 2) return false;
-                v[k] = 0;
-                pad++;
-            } else {
-                if (pad) return false; // data after padding
-                v[k] = value(c);
-                if (v[k] < 0) return false;
-            }
-        }
-        const unsigned triple = (static_cast<unsigned>(v[0]) << 18) | (static_cast<unsigned>(v[1]) << 12) | (static_cast<unsigned>(v[2]) << 6) | static_cast<unsigned>(v[3]);
-        out += static_cast<char>((triple >> 16) & 0xFF);
-        if (pad < 2) out += static_cast<char>((triple >> 8) & 0xFF);
-        if (pad < 1) out += static_cast<char>(triple & 0xFF);
-    }
-    return true;
-}
-
 // 1 when equal; the time depends on the longer length only, not on where the first difference is.
 bool same_text(const std::string& a, const std::string& b) {
     const std::size_t n = std::max(a.size(), b.size());
@@ -515,20 +481,12 @@ void basic_auth::install(server& s) const {
             if (path.compare(0, p->prefix.size(), p->prefix) != 0 || (path.size() > p->prefix.size() && path[p->prefix.size()] != '/')) return false;
         }
         bool ok = false;
-        const std::string header = trim(req.header("Authorization"));
-        if (header.size() > 6 && lower(header.substr(0, 5)) == "basic" && (header[5] == ' ' || header[5] == '\t')) {
-            std::string decoded;
-            if (base64_decode(trim(header.substr(6)), decoded)) {
-                const auto colon = decoded.find(':');
-                if (colon != std::string::npos) {
-                    const std::string user = decoded.substr(0, colon), pass = decoded.substr(colon + 1);
-                    for (const auto& [u, pw] : p->users) { // every entry is compared, so the time does not tell which user exists
-                        const bool match = same_text(u, user) & same_text(pw, pass);
-                        ok = ok || match;
-                    }
-                }
+        std::string user, pass;
+        if (detail::parse_basic_authorization(req.header("Authorization"), user, pass))
+            for (const auto& [u, pw] : p->users) { // every entry is compared, so the time does not tell which user exists
+                const bool match = same_text(u, user) & same_text(pw, pass);
+                ok = ok || match;
             }
-        }
         if (ok) return false;
         res.status = 401;
         res.headers.emplace_back("Content-Type", "text/plain; charset=utf-8");

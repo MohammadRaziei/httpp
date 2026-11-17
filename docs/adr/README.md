@@ -80,10 +80,13 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0074](0074-callback-handler-can-run-unserialized.md) | `callback_handler(fn, serialized = false)` calls `fn` without the handler's lock, so a callback that waits for the Python GIL cannot deadlock | accepted |
 | [0075](0075-one-logging-header.md) | `httpp/log.hpp` is merged into `httpp/logging.hpp` (one logging header and source) | accepted |
 | [0076](0076-https-for-httpp-server-and-browse.md) | `httpp server` and `httpp browse` serve HTTPS with `--ssl-certfile`, `--ssl-keyfile` and `--ssl-keyfile-password`, the names `httpp run` has | accepted |
+| [0077](0077-curl-flags-and-curl-hpp-retired.md) | `httpp curl` gets `-i -I -v -L -m -u` and prints the body byte for byte; `httpp/curl.hpp` and `httpp::curl::request` are retired in favour of `httpp::request` | accepted |
 | [0078](0078-the-cli-calls-the-library.md) | The `httpp` commands only call the library: `mount` returns the `server&`, and `bind`, `url`, `listen_until_signal`, `set_log_level(name)` and `banner()` are library API | accepted |
+| [0079](0079-request-max-redirects-and-connect-timeout.md) | `httpp::request` gets `max_redirects(n)` and `connect_timeout(seconds)` (C++, Python, `httpp curl`); no `user_agent()`/`referer()`, `header()` covers them | accepted |
 | [0080](0080-bridge-any-cpp-logger-tree-into-python-logging.md) | `httpp.bridge_logger(name)` sends a C++ logger tree (`libspeech`, `libspeech.dsp.stft`, ...) into Python's `logging` under the same names, the Python levels deciding the C++ levels | accepted |
 | [0081](0081-server-is-a-shared-handle.md) | `server` is a copyable handle that shares its state; `mount` takes and returns it by value; `server_stopper` breaks handler cycles | accepted |
 | [0082](0082-swagger-takes-its-openapi-url-and-its-base.md) | `swagger(openapi_url)` replaces `swagger_ui` + `set_docs_path` + `set_openapi_url`; the base is the argument of `mount` | accepted |
+| [0083](0083-curl-exit-codes-and-curl-compat-retired.md) | `httpp curl` follows curl on errors (`-f`, exit codes 3/7/22/28/35/47/63, a 404 is exit 0) and repeated `-d`; `httpp/curl_compat.h` is retired | accepted |
 
 ## Not decided yet
 

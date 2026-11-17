@@ -14,6 +14,7 @@
 #include <functional>
 #include <locale>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -104,22 +105,13 @@ struct server_request {
     // (no boundary, a part that never ends, a part without a name, more than 1024 parts, a part header over 8 KiB)
     // throws std::invalid_argument: answer it with a 400. The whole body is already in memory (see set_max_body).
     HTTPP_API form_data form() const;
-    // From the Cookie header ("a=1; b=2"); "" if absent.
-    std::string cookie(const std::string& name) const {
-        const std::string all = header("Cookie");
-        std::size_t pos = 0;
-        while (pos < all.size()) {
-            std::size_t end = all.find(';', pos);
-            if (end == std::string::npos) end = all.size();
-            std::size_t start = pos;
-            while (start < end && all[start] == ' ') start++;
-            const std::size_t eq = all.find('=', start);
-            if (eq != std::string::npos && eq < end && all.compare(start, eq - start, name) == 0)
-                return all.substr(eq + 1, end - eq - 1);
-            pos = end + 1;
-        }
-        return "";
-    }
+    // From the Cookie header ("a=1; b=2"); "" if absent. The first of a repeated name wins.
+    HTTPP_API std::string cookie(const std::string& name) const;
+    // Every pair of the Cookie header, in order (httpp::cookie::parse_cookie_header).
+    HTTPP_API std::vector<std::pair<std::string, std::string>> cookies() const;
+    // The user and password of an `Authorization: Basic` header (RFC 7617), or nothing when the header is missing, is another scheme or does not
+    // decode. It only reads the header: checking the password is the job of the basic_auth middleware or of your own code.
+    HTTPP_API std::optional<std::pair<std::string, std::string>> basic_auth() const;
 };
 
 using handler = std::function<void(const server_request&, response&)>;

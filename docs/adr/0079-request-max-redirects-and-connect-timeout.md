@@ -3,11 +3,11 @@
 - **Status:** accepted
 - **Decided by:** the project owner ("enrich `httpp::request`, not a second class", then "agreed" to the first candidates)
 - **Source:** `include/httpp/client.hpp`, `src/core/client.cpp`, `src/core/http_exchange.cpp`, `src/core/internal/http_exchange.hpp`, `src/core/internal/async_http.hpp`, `src/core/async_http.cpp`, `src/bindings/python/cy/{declarations,transfer}.pxi`, `src/bindings/python/httpp/_http.py`, `src/cli/httpp_cli.cpp`
-- **Follows:** ADR-0077, ADR-0078
+- **Follows:** ADR-0077, ADR-0083
 
 ## Context
 
-ADR-0077 and ADR-0078 settled that curl-like needs are met by enriching `httpp::request`, not by a second API. Looking at what `httpp curl` still lacked against what the engine could do:
+ADR-0077 and ADR-0083 settled that curl-like needs are met by enriching `httpp::request`, not by a second API. Looking at what `httpp curl` still lacked against what the engine could do:
 
 - The redirect limit was a constant (`request_spec::redirect_limit`, 20); no caller could change it.
 - `timeout` is one number for every step the engine takes (resolve, connect, write, each read). There was no way to say "fail fast when the host is unreachable, but let a slow answer take its time".
@@ -29,4 +29,4 @@ ADR-0077 and ADR-0078 settled that curl-like needs are met by enriching `httpp::
 
 ## Related
 
-ADR-0053, ADR-0077, ADR-0078
+ADR-0053, ADR-0077, ADR-0083

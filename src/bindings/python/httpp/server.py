@@ -62,7 +62,7 @@ import traceback
 
 from . import _background, _forms, _log, _params, _router, _schema
 from . import _validate as V
-from .httpp_cy import Server as _Server, Swagger, mime_type_for, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, _set_lanes, parse_form as _parse_form
+from .httpp_cy import Server as _Server, Swagger, mime_type_for, _attach_inbox, _drain_inbox, _gate_enter, _gate_leave, _set_lanes, parse_form as _parse_form, _cookie_header, _parse_cookies, _parse_basic
 from ._websocket import WebSocket, WebSocketDisconnect
 from .models import BaseModel, to_jsonable
 from .responses import HTTPException, Response as _ResponseBase
@@ -199,13 +199,16 @@ class ServerRequest:
 
     @property
     def cookies(self):
-        """The Cookie header as a dict (first value wins)."""
+        """The Cookie header as a dict (first value wins); parsed by the C++ core (httpp::cookie::parse_cookie_header)."""
         out = {}
-        for part in self.headers.get("cookie", "").split(";"):
-            name, eq, value = part.strip().partition("=")
-            if eq:
-                out.setdefault(name, value)
+        for name, value in _parse_cookies(self.headers.get("cookie", "")):
+            out.setdefault(name, value)
         return out
+
+    def basic_auth(self):
+        """(user, password) of an `Authorization: Basic` header, or None when it is missing, another scheme or malformed. It only reads
+        the header: checking the password is up to you, or to BasicAuthMiddleware."""
+        return _parse_basic(self.headers.get("authorization", ""))
 
 
 _TOKEN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
@@ -289,8 +292,6 @@ def redirect(url, status=302):
     return "", status, [("Location", url)]
 
 
-_COOKIE_VALUE = re.compile(r"[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]*")  # RFC 6265 cookie-octet
-_COOKIE_ATTR = re.compile(r"[^;\x00-\x1f\x7f]*")
 
 
 def set_cookie(name, value, *, path="/", domain=None, max_age=None, secure=False, http_only=True,
@@ -302,28 +303,16 @@ def set_cookie(name, value, *, path="/", domain=None, max_age=None, secure=False
     `value` must be cookie-safe (no space, quote, comma, semicolon or backslash): percent-encode
     anything else yourself. Defaults match the C++ side: Path=/; HttpOnly.
     """
-    if not isinstance(name, str) or not _TOKEN.fullmatch(name):
-        raise ValueError(f"invalid cookie name {name!r}")
-    if not isinstance(value, str) or not _COOKIE_VALUE.fullmatch(value):
-        raise ValueError("invalid cookie value (percent-encode spaces, quotes, commas, semicolons)")
-    parts = [f"{name}={value}"]
-    for label, attr in (("Path", path), ("Domain", domain)):
-        if attr is not None:
-            if not _COOKIE_ATTR.fullmatch(attr):
-                raise ValueError(f"invalid cookie {label.lower()} {attr!r}")
-            parts.append(f"{label}={attr}")
-    if max_age is not None:
-        parts.append(f"Max-Age={int(max_age)}")
-    if secure:
-        parts.append("Secure")
-    if http_only:
-        parts.append("HttpOnly")
+    if not isinstance(name, str) or not isinstance(value, str):
+        raise ValueError("a cookie name and value must be strings")
+    site = -1
     if same_site is not None:
-        site = str(same_site).capitalize()
-        if site not in ("Lax", "Strict", "None"):
+        site = {"lax": 0, "strict": 1, "none": 2}.get(str(same_site).lower(), -1)
+        if site < 0:
             raise ValueError("same_site must be Lax, Strict or None")
-        parts.append(f"SameSite={site}")
-    return "Set-Cookie", "; ".join(parts)
+    # the rules (token names, cookie-octet values, safe attributes) are httpp::cookie's, shared with C++
+    return "Set-Cookie", _cookie_header(name, value, "" if path is None else path, domain or "", None if max_age is None else int(max_age),
+                                        bool(secure), bool(http_only), site)
 
 
 def _first_wins(pairs, key=lambda k: k):

@@ -61,6 +61,7 @@ TARGETS = {
     ("banner.hpp", ""): None,  # the terminal banner of the httpp commands (ADR-0078); a Python program prints its own
     ("logging.hpp", ""): httpp,  # set_log_* live in httpp; the module functions (level_name, get_logger, ...) imitate Python's own `logging` (ADR-0057), see NOT_EXPOSED
     ("path.hpp", "path"): None,  # pathlib.Path is the Python side of httpp::path: every path argument takes one (ADR-0055)
+    ("cookie.hpp", "cookie"): None,  # httpp.set_cookie() builds a Set-Cookie header and request.cookies reads the Cookie header; both call this class, so the rules live once
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("server.hpp", ""): httpp.utils,  # mime_type_for, the same way
     ("swagger_ui.hpp", ""): httpp,  # find_swagger_ui_asset only (NOT_EXPOSED)

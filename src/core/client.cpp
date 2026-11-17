@@ -212,6 +212,7 @@ request& request::basic_auth(const std::string& user, const std::string& passwor
 }
 request& request::bearer(const std::string& token) { impl_->settings.set_bearer(token); return *this; }
 request& request::cookie(std::string name, std::string value) {
+    httpp::cookie check(name, value); // refuses what could not be sent as a Cookie pair
     impl_->cookies.emplace_back(std::move(name), std::move(value));
     return *this;
 }

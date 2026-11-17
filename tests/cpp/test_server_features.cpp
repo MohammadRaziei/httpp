@@ -38,7 +38,7 @@ UTEST(httpp_server_response, redirect_cookie_and_json_helpers) {
     local_server srv([](httpp::server& s) {
         s.get("/go", [](const httpp::server_request&, httpp::response& res) { res.redirect("/there", 301); });
         s.get("/c", [](const httpp::server_request&, httpp::response& res) {
-            res.set_cookie("a", "1").set_cookie("b", "2", "Path=/api");
+            res.set_cookie("a", "1").set_cookie(httpp::cookie("b", "2").set_path("/api"));
             res.body = "ok";
         });
         s.get("/j", [](const httpp::server_request&, httpp::response& res) { res.json("{\"a\":1}"); });

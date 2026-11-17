@@ -1,4 +1,4 @@
-# ADR-0078: `httpp curl` behaves like curl on errors, and `httpp/curl_compat.h` is retired
+# ADR-0083: `httpp curl` behaves like curl on errors, and `httpp/curl_compat.h` is retired
 
 - **Status:** accepted
 - **Decided by:** the project owner ("those gaps must be fixed", "retire `curl_compat` too", "keep presenting httpp as the modern replacement for curl, as for aiohttp, httpx and requests")
