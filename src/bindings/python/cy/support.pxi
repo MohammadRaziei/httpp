@@ -239,6 +239,109 @@ def set_log_callback(callback):
     del previous
 
 
+# ---------------------------------------------------------------------------------------------
+# A bridge for any C++ logger tree (ADR-0080). `httpp.bridge_logger("libspeech")` sends every record of the logger
+# "libspeech" and of the loggers below it ("libspeech.dsp.stft") to one Python function, which hands it to the Python
+# logger of the same name (httpp/_log.py). Unlike set_log_callback it does not touch the "httpp" logger's output and
+# it keeps the logger's name.
+# ---------------------------------------------------------------------------------------------
+
+cdef extern from *:
+    """
+    #include <Python.h>
+    #include <thread>
+    #include <vector>
+    #include "httpp/logging.hpp"
+    typedef void (*httpp_py_bridge_fn)(void*, int, const std::string&, const std::string&, const std::string&);
+    static void httpp_py_bridge_logger(const std::string& name, void* ctx, httpp_py_bridge_fn fn) {
+        auto& lg = httpp::logging::get_logger(name);
+        lg.set_propagate(false);  // Python's logging does the propagating: a line must not also reach C++ parents
+        lg.clear_handlers();
+        // serialized = false (ADR-0074): fn takes the GIL, and a Python thread that holds the GIL while it logs
+        // through this logger would otherwise wait for the handler's lock that a library thread holds while it waits for the GIL.
+        lg.add_handler(httpp::logging::callback_handler([ctx, fn](const httpp::logging::record& r) {
+            fn(ctx, static_cast<int>(r.levelno), std::string(r.name), std::string(r.where), std::string(r.message));
+        }, false));
+    }
+    static void httpp_py_unbridge_logger(const std::string& name) {
+        auto& lg = httpp::logging::get_logger(name);
+        lg.clear_handlers();
+        lg.set_propagate(true);
+    }
+    static void httpp_py_set_logger_level(const std::string& name, int levelno) {
+        httpp::logging::get_logger(name).set_level(static_cast<httpp::logging::level>(levelno));
+    }
+    // For the tests: `threads` library threads and the calling thread each log `count` records. The caller logs
+    // while it HOLDS the GIL (a binding without nogil) and releases it only to wait for the threads.
+    static void httpp_py_log_from_cpp(const std::string& name, int levelno, const std::string& where,
+                                      const std::string& message, int count, int threads) {
+        auto& lg = httpp::logging::get_logger(name);
+        auto lv = static_cast<httpp::logging::level>(levelno);
+        std::vector<std::thread> pool;
+        for (int t = 0; t < threads; ++t)
+            pool.emplace_back([&lg, lv, &where, &message, count] {
+                for (int i = 0; i < count; ++i) lg.log_from(lv, where, message);
+            });
+        for (int i = 0; i < count; ++i) lg.log_from(lv, where, message);
+        PyThreadState* ts = PyEval_SaveThread();
+        for (auto& th : pool) th.join();
+        PyEval_RestoreThread(ts);
+    }
+    """
+    ctypedef void (*bridge_fn "httpp_py_bridge_fn")(void*, int, const string&, const string&, const string&) noexcept nogil
+    void httpp_py_bridge_logger(const string&, void*, bridge_fn) except + nogil
+    void httpp_py_unbridge_logger(const string&) except + nogil
+    void httpp_py_set_logger_level(const string&, int) except + nogil
+    void httpp_py_log_from_cpp(const string&, int, const string&, const string&, int, int) except +  # holds the GIL on purpose
+
+_bridged = {}  # logger name -> the Python callable the core calls (kept alive while it is registered)
+
+
+cdef void _bridge_trampoline(void* ctx, int level, const string& name, const string& where, const string& msg) noexcept nogil:
+    # Same rule as _log_trampoline: a library thread that logs while the interpreter shuts down must not take the GIL.
+    if not Py_IsInitialized():
+        return
+    with gil:
+        try:
+            (<object>ctx)(level, name.decode("utf-8", "replace"), where.decode("utf-8", "replace"), msg.decode("utf-8", "replace"))
+        except BaseException:
+            pass  # a failing log callback must never take a library thread down
+
+
+def _bridge_logger(name, callback):
+    """Send the records of the C++ logger `name` and of every logger below it to `callback(levelno, logger_name, where,
+    message)` (an int and three strings). It is called from library threads, possibly several at once; it must not call
+    into httpp. Applications use httpp.bridge_logger (httpp/_log.py), which hands the records to Python's logging."""
+    if not callable(callback):
+        raise TypeError("callback must be callable")
+    cdef string n = name.encode("utf-8")
+    previous = _bridged.get(name)
+    _bridged[name] = callback  # reference first, so it outlives the registration below
+    with nogil:
+        httpp_py_bridge_logger(n, <void*>callback, <bridge_fn>_bridge_trampoline)
+    del previous
+
+
+def _unbridge_logger(name):
+    """Stop calling the callback of `name`; its records are dropped (the logger keeps no handler)."""
+    cdef string n = name.encode("utf-8")
+    with nogil:
+        httpp_py_unbridge_logger(n)
+    _bridged.pop(name, None)
+
+
+def _set_logger_level(name, int levelno):
+    """Set the level of the C++ logger `name` to a Python level number (0 = inherit from the parent)."""
+    cdef string n = name.encode("utf-8")
+    with nogil:
+        httpp_py_set_logger_level(n, levelno)
+
+
+def _log_from_cpp(name, int levelno, where, message, int count=1, int threads=0):
+    """For the tests: log `count` records on the C++ logger `name` from this thread (GIL held) and from `threads` library threads."""
+    httpp_py_log_from_cpp(name.encode("utf-8"), levelno, where.encode("utf-8"), message.encode("utf-8"), count, threads)
+
+
 def parse_route(str path):
     """The segments of a route path as [(kind, text, type)]: ("lit", "users", "") or ("param", "id", "int").
     type is "str", "int" or "float". Raises ValueError for a malformed path. This is the router's own parser."""

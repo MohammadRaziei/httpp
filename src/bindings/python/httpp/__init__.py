@@ -29,7 +29,7 @@ if _sys.platform == "win32" and hasattr(_os, "add_dll_directory"):
 from .httpp_cy import Client, Directory, download, Download, DownloadResult, FileBrowser, FileLock, Request, Response, SwaggerUI, URL
 from .httpp_cy import set_log_file, set_log_system, set_log_callback
 from . import _log
-from ._log import set_log_level
+from ._log import bridge_logger, set_log_level
 from . import progress, utils
 from .server import Server, ServerRequest, ResponseHead, file, redirect, set_cookie
 from ._router import APIRouter
@@ -74,5 +74,5 @@ __all__ = [
     "StreamingResponse", "FileResponse", "responses", "status", "middleware", "CORSMiddleware", "TrustedHostMiddleware", "GZipMiddleware", "HTTPSRedirectMiddleware", "ProxyHeadersMiddleware", "BasicAuthMiddleware", "RateLimitMiddleware",
     "Error", "HTTPError", "RequestError", "Timeout", "TLSError", "TooManyRedirects", "InvalidURL",
     "get_include_dir", "get_lib_dir", "get_cmake_dir",
-    "set_log_level", "set_log_file", "set_log_system", "set_log_callback",
+    "set_log_level", "set_log_file", "set_log_system", "set_log_callback", "bridge_logger",
 ]

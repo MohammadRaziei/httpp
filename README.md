@@ -618,6 +618,14 @@ httpp.set_log_file("httpp.log")
 httpp.set_log_callback(lambda level, where, message: ...)   # called from library threads
 ```
 
+A program (or another library) that logs through `httpp::logging` with its own loggers (`libspeech`, `libspeech.dsp.stft`, ...) can have
+them go through Python's `logging` under the same names, with the C++ levels following the Python ones:
+
+```python
+httpp.bridge_logger("libspeech")                               # C++ "libspeech.dsp.stft" -> logging.getLogger("libspeech.dsp.stft")
+logging.getLogger("libspeech.dsp").setLevel(logging.DEBUG)     # also from dictConfig and basicConfig
+```
+
 ## License
 
 [MIT](LICENSE.txt)
