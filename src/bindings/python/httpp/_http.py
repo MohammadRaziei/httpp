@@ -10,8 +10,8 @@ from .httpp_cy import Client, Request, _AsyncClientCore
 
 
 def request(method, url, *, params=None, headers=None, data=None, json=None, form=None,
-            content_type=None, timeout=None, follow_redirects=False, auth=None, token=None,
-            cookies=None, verify=True, ca_file=None, proxy=None):
+            content_type=None, timeout=None, follow_redirects=False, max_redirects=None, connect_timeout=None,
+            auth=None, token=None, cookies=None, verify=True, ca_file=None, proxy=None):
     """Make one request and return its Response. See Request for what each option means.
 
         r = httpp.request("POST", "http://localhost:8000/items", json={"name": "apple"}, timeout=10)
@@ -34,6 +34,10 @@ def request(method, url, *, params=None, headers=None, data=None, json=None, for
         req.timeout(timeout)
     if follow_redirects:
         req.follow_redirects()
+    if max_redirects is not None:
+        req.max_redirects(max_redirects)
+    if connect_timeout is not None:
+        req.connect_timeout(connect_timeout)
     if auth is not None:
         req.basic_auth(*auth)
     if token is not None:

@@ -1,0 +1,76 @@
+"""Request.max_redirects and Request.connect_timeout (ADR-0079)."""
+import time
+
+import pytest
+
+import httpp
+from httpp import Request, Server
+
+from test_httpp_routes import running
+
+
+def chain_app():
+    app = Server(openapi_url=None)
+
+    @app.get("/a")
+    def a():
+        return httpp.redirect("/b")
+
+    @app.get("/b")
+    def b():
+        return httpp.redirect("/c")
+
+    @app.get("/c")
+    def c():
+        return "end"
+
+    @app.get("/slow")
+    def slow():
+        time.sleep(1.5)  # the connection is up at once, the answer is late
+        return "late"
+
+    return app
+
+
+def test_max_redirects_bounds_the_hops_that_are_followed():
+    with running(chain_app()) as url:
+        two = Request(url + "/a").follow_redirects().max_redirects(2).run()
+        assert two.ok and two.body == "end"
+        one = Request(url + "/a").follow_redirects().max_redirects(1).run()
+        assert one.failed and one.error == "too_many_redirects" and one.status == 0
+        zero = Request(url + "/a").follow_redirects().max_redirects(0).run()
+        assert zero.error == "too_many_redirects"
+
+
+def test_max_redirects_changes_nothing_when_redirects_are_not_followed():
+    with running(chain_app()) as url:
+        r = Request(url + "/a").max_redirects(0).run()
+        assert 300 <= r.status < 400 and not r.failed  # the redirect itself is the answer
+
+
+def test_a_negative_max_redirects_is_a_value_error():
+    with pytest.raises(ValueError):
+        Request("http://127.0.0.1:1/").max_redirects(-1)
+
+
+def test_connect_timeout_does_not_limit_the_wait_for_the_answer():
+    with running(chain_app()) as url:
+        r = Request(url + "/slow").connect_timeout(1).timeout(5).run()
+        assert r.ok and r.body == "late"
+        r = Request(url + "/slow").connect_timeout(10).timeout(1).run()
+        assert r.failed and r.error == "timeout"
+
+
+def test_connect_timeout_takes_seconds_like_timeout():
+    with running(chain_app()) as url:
+        assert Request(url + "/c").connect_timeout(0.4).run().ok  # rounds up to a whole second, never to zero
+    with pytest.raises(ValueError):
+        Request("http://127.0.0.1:1/").connect_timeout(-1)
+
+
+def test_the_request_helper_takes_both_options():
+    with running(chain_app()) as url:
+        r = httpp.request("GET", url + "/a", follow_redirects=True, max_redirects=1)
+        assert r.error == "too_many_redirects"
+        r = httpp.request("GET", url + "/a", follow_redirects=True, max_redirects=2, connect_timeout=5)
+        assert r.ok and r.body == "end"

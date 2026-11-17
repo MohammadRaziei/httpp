@@ -141,6 +141,8 @@ bool session_settings::make_spec(const endpoint& where, const std::string& metho
     out.body = std::move(body_bytes);
     out.content_type = std::move(ctype);
     out.timeout = timeout;
+    out.connect_timeout = connect_timeout;
+    out.redirects_left = max_redirects;
     out.follow = follow;
     out.verify = verify;
     out.ca_file = ca_file;
@@ -198,6 +200,7 @@ async_job make_job(const request_spec& s) {
             j.headers.emplace_back("Content-Type", s.content_type.empty() ? "application/x-www-form-urlencoded" : s.content_type);
     }
     j.timeout_sec = s.timeout > 0 ? s.timeout : request_spec::default_timeout;
+    j.connect_timeout_sec = s.connect_timeout;
     j.max_response_size = s.max_response_size;
     j.verify = s.verify;
     j.ca_file = s.ca_file;

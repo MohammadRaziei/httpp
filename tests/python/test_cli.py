@@ -73,7 +73,7 @@ def echo_app():
 
     @app.route("/echo", ("GET", "POST", "PUT", "DELETE"))
     def echo(request):
-        return json.dumps({"method": request.method, "body": request.body.decode(), "x": request.headers.get("x-test"), "ct": request.headers.get("content-type"), "auth": request.headers.get("authorization")})
+        return json.dumps({"method": request.method, "body": request.body.decode(), "x": request.headers.get("x-test"), "ct": request.headers.get("content-type"), "auth": request.headers.get("authorization"), "ua": request.headers.get("user-agent"), "ref": request.headers.get("referer")})
 
     @app.get("/text")
     def text():
@@ -576,6 +576,40 @@ def test_curl_repeated_d_joins_the_values_with_an_ampersand(httpp_exe, echo_app)
         one = run(httpp_exe, "curl", f"{url}/echo", "--data", "x=y")
     assert json.loads(r.stdout)["body"] == "a=1&b=2" and json.loads(r.stdout)["method"] == "POST"
     assert json.loads(one.stdout)["body"] == "x=y"
+
+
+def test_curl_A_and_e_set_the_user_agent_and_the_referer(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/echo", "-A", "probe/1", "-e", "http://from.example/")
+        long_form = run(httpp_exe, "curl", f"{url}/echo", "--user-agent", "probe/2", "--referer", "http://x/")
+        own = run(httpp_exe, "curl", f"{url}/echo", "-A", "probe/1", "-H", "User-Agent: mine")
+        default = run(httpp_exe, "curl", f"{url}/echo")
+    assert (json.loads(r.stdout)["ua"], json.loads(r.stdout)["ref"]) == ("probe/1", "http://from.example/")
+    assert (json.loads(long_form.stdout)["ua"], json.loads(long_form.stdout)["ref"]) == ("probe/2", "http://x/")
+    assert json.loads(own.stdout)["ua"] == "mine"  # an explicit -H wins over -A
+    assert json.loads(default.stdout)["ua"] == "httpp"
+
+
+def test_curl_max_redirs_bounds_the_hops_with_47(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        enough = run(httpp_exe, "curl", f"{url}/old", "-L", "--max-redirs", "1")
+        too_few = run(httpp_exe, "curl", f"{url}/old", "-L", "--max-redirs", "0")
+        unused = run(httpp_exe, "curl", f"{url}/old", "--max-redirs", "0", "-i")
+    assert enough.returncode == 0 and enough.stdout == "plain body"
+    assert too_few.returncode == 47 and "too many redirects" in too_few.stderr
+    assert unused.returncode == 0 and unused.stdout.startswith("HTTP/1.1 302")  # without -L it changes nothing
+
+
+def test_curl_connect_timeout_does_not_cut_a_slow_answer(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/slow", "--connect-timeout", "1", "-m", "5")
+    assert r.returncode == 0 and r.stdout == "late"
+
+
+def test_curl_max_redirs_and_connect_timeout_must_be_numbers(httpp_exe):
+    assert run(httpp_exe, "curl", "http://127.0.0.1:1/", "--max-redirs", "many").returncode == 2
+    assert run(httpp_exe, "curl", "http://127.0.0.1:1/", "--max-redirs", "-1").returncode == 2
+    assert run(httpp_exe, "curl", "http://127.0.0.1:1/", "--connect-timeout", "0").returncode == 2
 
 
 def test_curl_max_time_must_be_a_number(httpp_exe):

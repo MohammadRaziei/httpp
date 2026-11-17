@@ -25,6 +25,7 @@
 #include "httpp/url.hpp"
 
 #include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -218,9 +219,16 @@ std::string head_text(const httpp::response& res) {
     return out;
 }
 
+bool same_header_name(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i)
+        if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i]))) return false;
+    return true;
+}
+
 // Everything `httpp curl` takes from the command line.
 struct curl_args {
-    std::string url, method, output, user;
+    std::string url, method, output, user, user_agent, referer;
     std::vector<std::string> headers;
     std::vector<std::string> data; // every -d; joined with '&' like curl
     bool has_user = false;
@@ -230,6 +238,8 @@ struct curl_args {
     bool verbose = false;         // -v
     bool location = false;        // -L
     long max_time = 0;            // -m, in seconds; 0 when not given
+    long connect_timeout = 0;     // --connect-timeout, in seconds; 0 when not given
+    int max_redirs = -1;          // --max-redirs; -1 when not given
 };
 
 // What went wrong with a transfer, in a few words, for the "error:" line.
@@ -281,6 +291,15 @@ int cmd_curl(const curl_args& a) {
         sent.emplace_back(trim_ws(h.substr(0, colon)), trim_ws(h.substr(colon + 1)));
         req.header(sent.back().first, sent.back().second);
     }
+    // -A and -e are just headers, unless -H already gave one of the same name.
+    auto add_unless_given = [&](const char* name, const std::string& value) {
+        if (value.empty()) return;
+        for (const auto& h : sent) if (same_header_name(h.first, name)) return;
+        sent.emplace_back(name, value);
+        req.header(name, value);
+    };
+    add_unless_given("User-Agent", a.user_agent);
+    add_unless_given("Referer", a.referer);
     if (has_data) {
         std::string body;
         for (const std::string& piece : a.data) body += (body.empty() ? "" : "&") + piece;
@@ -288,6 +307,8 @@ int cmd_curl(const curl_args& a) {
     }
     if (a.location) req.follow_redirects(true);
     if (a.max_time > 0) req.timeout(a.max_time);
+    if (a.connect_timeout > 0) req.connect_timeout(a.connect_timeout);
+    if (a.max_redirs >= 0) req.max_redirects(a.max_redirs);
     if (a.has_user) {
         std::size_t colon = a.user.find(':'); // only the first colon splits: a password may contain more
         if (colon == std::string::npos) {
@@ -531,7 +552,7 @@ int main(int argc, char** argv) {
 
     // curl
     curl_args ca;
-    auto* c_curl = app.add_subcommand("curl", "Make a request (a small curl-like subset: -X -H -d -o -f -i -I -v -L -m -u).");
+    auto* c_curl = app.add_subcommand("curl", "Make a request (a small curl-like subset: -X -H -d -o -f -i -I -v -L -m -u -A -e).");
     c_curl->add_option("url", ca.url)->required();
     c_curl->add_option("--request,-X", ca.method, "HTTP method (default: GET, or POST if -d is given, or HEAD with -I)");
     c_curl->add_option("--header,-H", ca.headers, "Extra header 'Name: value' (repeatable)")->type_name("HEADER");
@@ -542,7 +563,13 @@ int main(int argc, char** argv) {
     c_curl->add_flag("--head,-I", ca.head_only, "Send HEAD and print only the status line and the headers");
     c_curl->add_flag("--verbose,-v", ca.verbose, "Print the request line and the -H headers, then the response status and headers, to stderr");
     c_curl->add_flag("--location,-L", ca.location, "Follow redirects");
-    c_curl->add_option("--max-time,-m", ca.max_time, "Give up after this many seconds")->check(CLI::Range(1L, 2147483647L))->type_name("SECONDS");
+    c_curl->add_option("--max-time,-m", ca.max_time, "Give up when a connect, write or read step takes longer than this many seconds")->check(CLI::Range(1L, 2147483647L))->type_name("SECONDS");
+    c_curl->add_option("--connect-timeout", ca.connect_timeout, "Give up when resolving, connecting or the TLS handshake takes longer than this many seconds")
+        ->check(CLI::Range(1L, 2147483647L))->type_name("SECONDS");
+    c_curl->add_option("--max-redirs", ca.max_redirs, "With -L: fail with exit code 47 after this many redirects (default 20)")
+        ->check(CLI::Range(0, 2147483647))->type_name("NUM");
+    c_curl->add_option("--user-agent,-A", ca.user_agent, "Send this User-Agent (an explicit -H wins)")->type_name("NAME");
+    c_curl->add_option("--referer,-e", ca.referer, "Send this Referer (an explicit -H wins)")->type_name("URL");
     auto* curl_user_opt = c_curl->add_option("--user,-u", ca.user, "Basic authentication as 'user:password'")->type_name("USER:PASSWORD");
 
     // `py` exists for --help only: the real work is done before parsing.

@@ -2,8 +2,9 @@
 #include "httpp/client.hpp"
 #include "httpp/server.hpp"
 
-#include <thread>
 #include <chrono>
+#include <stdexcept>
+#include <thread>
 
 namespace {
 struct running_server {
@@ -107,4 +108,88 @@ UTEST(httpp_client_request, timeout_and_follow_redirects_are_chainable_and_dont_
 
     ASSERT_TRUE(res.ok());
     ASSERT_STREQ("fine", res.body.c_str());
+}
+
+namespace {
+// /a -> /b -> /c ("end"): two redirects to follow.
+httpp::server redirect_chain() {
+    httpp::server s;
+    s.get("/a", [](const httpp::server_request&, httpp::response& res) { res.redirect("/b"); });
+    s.get("/b", [](const httpp::server_request&, httpp::response& res) { res.redirect("/c"); });
+    s.get("/c", [](const httpp::server_request&, httpp::response& res) {
+        res.status = 200;
+        res.body = "end";
+    });
+    return s;
+}
+} // namespace
+
+UTEST(httpp_client_request, max_redirects_bounds_the_hops_that_are_followed) {
+    running_server rs(redirect_chain());
+    const std::string a = "http://127.0.0.1:" + std::to_string(rs.port) + "/a";
+
+    httpp::response two = httpp::request(a).follow_redirects().max_redirects(2).run();
+    ASSERT_TRUE(two.ok());
+    ASSERT_STREQ("end", two.body.c_str());
+
+    httpp::response one = httpp::request(a).follow_redirects().max_redirects(1).run();
+    ASSERT_TRUE(one.error == httpp::error_kind::too_many_redirects);
+    ASSERT_EQ(0, one.status);
+
+    httpp::response none = httpp::request(a).follow_redirects().max_redirects(0).run();
+    ASSERT_TRUE(none.error == httpp::error_kind::too_many_redirects);
+}
+
+UTEST(httpp_client_request, max_redirects_changes_nothing_when_redirects_are_not_followed) {
+    running_server rs(redirect_chain());
+    httpp::response res = httpp::request("http://127.0.0.1:" + std::to_string(rs.port) + "/a").max_redirects(0).run();
+    ASSERT_EQ(302, res.status);
+    ASSERT_TRUE(res.error == httpp::error_kind::none);
+}
+
+UTEST(httpp_client_request, a_negative_limit_is_refused) {
+    bool redirects_refused = false, connect_refused = false;
+    try {
+        httpp::request("http://127.0.0.1:1/").max_redirects(-1);
+    } catch (const std::invalid_argument&) {
+        redirects_refused = true;
+    }
+    try {
+        httpp::request("http://127.0.0.1:1/").connect_timeout(-1);
+    } catch (const std::invalid_argument&) {
+        connect_refused = true;
+    }
+    ASSERT_TRUE(redirects_refused);
+    ASSERT_TRUE(connect_refused);
+}
+
+namespace {
+httpp::server slow_server() {
+    httpp::server s;
+    s.get("/slow", [](const httpp::server_request&, httpp::response& res) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500)); // the connection is up at once, the answer is late
+        res.status = 200;
+        res.body = "late";
+    });
+    return s;
+}
+} // namespace
+
+UTEST(httpp_client_request, connect_timeout_does_not_limit_the_wait_for_the_answer) {
+    running_server rs(slow_server());
+    httpp::response res = httpp::request("http://127.0.0.1:" + std::to_string(rs.port) + "/slow")
+                              .connect_timeout(1)
+                              .timeout(5)
+                              .run();
+    ASSERT_TRUE(res.ok());
+    ASSERT_STREQ("late", res.body.c_str());
+}
+
+UTEST(httpp_client_request, timeout_still_limits_the_wait_for_the_answer_whatever_connect_timeout_says) {
+    running_server rs(slow_server());
+    httpp::response res = httpp::request("http://127.0.0.1:" + std::to_string(rs.port) + "/slow")
+                              .connect_timeout(10)
+                              .timeout(1)
+                              .run();
+    ASSERT_TRUE(res.error == httpp::error_kind::timeout);
 }

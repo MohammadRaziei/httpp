@@ -66,6 +66,7 @@ struct request_spec {
     header_list headers;
     std::string body, content_type;
     long timeout = 0;
+    long connect_timeout = 0; // 0 = timeout covers the connect steps too
     bool follow = false;
     bool verify = true;
     std::string ca_file;
@@ -92,6 +93,8 @@ endpoint endpoint_of(const url& u, bool with_base_path);
 struct session_settings {
     header_list headers;
     long timeout = 0; // 0 = default_timeout
+    long connect_timeout = 0; // 0 = timeout covers the connect steps too
+    int max_redirects = request_spec::redirect_limit;
     bool follow = false;
     bool verify = true;
     std::string ca_file;

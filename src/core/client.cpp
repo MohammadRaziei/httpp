@@ -217,6 +217,16 @@ request& request::cookie(std::string name, std::string value) {
 }
 request& request::timeout(long seconds) { impl_->settings.timeout = seconds; return *this; }
 request& request::follow_redirects(bool enable) { impl_->settings.follow = enable; return *this; }
+request& request::max_redirects(int count) {
+    if (count < 0) throw std::invalid_argument("max_redirects must not be negative");
+    impl_->settings.max_redirects = count;
+    return *this;
+}
+request& request::connect_timeout(long seconds) {
+    if (seconds < 0) throw std::invalid_argument("connect_timeout must not be negative");
+    impl_->settings.connect_timeout = seconds;
+    return *this;
+}
 request& request::verify(bool enable) { impl_->settings.verify = enable; return *this; }
 request& request::ca_file(const path& file) { impl_->settings.ca_file = file.str(); return *this; }
 request& request::proxy(const url& proxy_url) {

@@ -57,6 +57,7 @@ struct async_job {
     std::vector<std::pair<std::string, std::string>> headers;
     std::string body;
     long timeout_sec = 0;               // per step (resolve, connect, write, each read); 0 = none
+    long connect_timeout_sec = 0;       // resolve, connect, proxy and TLS handshake instead of timeout_sec; 0 = timeout_sec
     std::size_t max_response_size = 0;  // body bytes; 0 = no limit
     // Keep the connection for the next request to the same place, and reuse an idle one if there is one.
     // A reused connection the server had already closed is retried once on a fresh one, but only for

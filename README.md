@@ -508,8 +508,8 @@ async def main():
 asyncio.run(main())
 ```
 
-Redirects are off by default (`follow_redirects=True` follows up to 20 hops; `Authorization` and `Cookie`
-are not sent to a different origin). A cancelled `await` stops waiting, but the request itself keeps
+Redirects are off by default (`follow_redirects=True` follows up to 20 hops, `Request.max_redirects(n)` changes the limit; `Authorization` and `Cookie`
+are not sent to a different origin). `Request.connect_timeout(seconds)` limits the connect steps (lookup, connect, TLS handshake) separately from `timeout`. A cancelled `await` stops waiting, but the request itself keeps
 running until it finishes. In C++: `request::run_async()` returns a `std::future`, or takes a callback
 that runs on the network thread; `async_client` is the session form.
 

@@ -368,6 +368,20 @@ cdef class Request:
         self._req.follow_redirects(enable)
         return self
 
+    def max_redirects(self, int count):
+        """How many redirects follow_redirects() may follow before the request fails with error
+        "too_many_redirects" (default 20). 0 follows none. ValueError for a negative number."""
+        self._req.max_redirects(count)
+        return self
+
+    def connect_timeout(self, seconds):
+        """Limit, in seconds, for resolving the host, connecting and the TLS handshake. timeout() still
+        limits each write and read; without this one it covers the connect steps too."""
+        if seconds < 0:
+            raise ValueError("connect_timeout must not be negative")
+        self._req.connect_timeout(max(1, int(round(seconds))))
+        return self
+
     def verify(self, cbool enable):
         """https: verify the server certificate (default True)."""
         self._req.verify(enable)

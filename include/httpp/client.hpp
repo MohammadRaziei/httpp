@@ -224,6 +224,15 @@ public:
     HTTPP_API request& timeout(long seconds);
     HTTPP_API request& follow_redirects(bool enable = true);
 
+    // --max-redirs: how many redirects follow_redirects() may follow before the request fails with
+    // error_kind::too_many_redirects (default 20). 0 follows none: the first redirect fails. Without
+    // follow_redirects() it changes nothing. Throws std::invalid_argument for a negative number.
+    HTTPP_API request& max_redirects(int count);
+    // --connect-timeout (seconds): the limit for resolving the host, connecting, the proxy handshake and the
+    // TLS handshake. timeout() still limits each write and read. 0 (the default) means timeout() covers the
+    // connect steps too. Throws std::invalid_argument for a negative number.
+    HTTPP_API request& connect_timeout(long seconds);
+
     // https: verify the server certificate (default true), or trust this CA bundle instead of
     // the system's. And an HTTP proxy.
     HTTPP_API request& verify(bool enable);
