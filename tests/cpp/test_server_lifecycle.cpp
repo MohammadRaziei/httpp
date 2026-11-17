@@ -238,11 +238,11 @@ UTEST(httpp_server_listen_until_signal, stops_on_sigterm_returns_true_and_puts_t
     ASSERT_TRUE(after == before);  // and it is the one that was there before, not ours
 }
 
-UTEST(httpp_log_level_by_name, knows_the_six_names_in_any_case_and_refuses_others) {
-    for (const char* name : {"trace", "debug", "INFO", "Warning", "error", "off"}) ASSERT_TRUE(httpp::set_log_level(name));
+UTEST(httpp_log_level_by_name, knows_the_names_of_the_one_level_type_in_any_case_and_refuses_others) {
+    for (const char* name : {"trace", "debug", "INFO", "Warning", "warn", "error", "off", "25"}) ASSERT_TRUE(httpp::set_log_level(name));
     ASSERT_FALSE(httpp::set_log_level("verbose"));
     ASSERT_FALSE(httpp::set_log_level(""));
-    httpp::set_log_level(httpp::log_level::info);  // the rest of the suite expects the usual level
+    httpp::set_log_level(httpp::logging::level::info);  // the rest of the suite expects the usual level
 }
 
 UTEST(httpp_banner, carries_the_version_and_is_written_only_to_a_terminal) {

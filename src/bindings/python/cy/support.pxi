@@ -7,14 +7,8 @@
 # ---------------------------------------------------------------------------------------------
 
 cdef extern from "httpp/logging.hpp" namespace "httpp":
-    cdef enum class log_level:
-        trace
-        debug
-        info
-        warning
-        error
-        off
-    void cpp_set_log_level "httpp::set_log_level"(log_level) except + nogil
+    # the library's level is httpp::logging::level (ADR-0085); the binding sets it by name, so it needs no copy of the enum
+    cbool cpp_set_log_level "httpp::set_log_level"(const string&) except + nogil
     cbool cpp_set_log_file "httpp::set_log_file"(const string&) except + nogil
     cdef enum class log_system:
         native
@@ -31,7 +25,7 @@ cdef extern from *:
     typedef void (*httpp_py_log_fn)(void*, int, const std::string&, const std::string&);
     static void httpp_py_set_log_callback(void* ctx, httpp_py_log_fn fn) {
         if (!fn) { httpp::set_log_callback({}); return; }
-        httpp::set_log_callback([ctx, fn](httpp::log_level l, const std::string& where, const std::string& msg) {
+        httpp::set_log_callback([ctx, fn](httpp::logging::level l, const std::string& where, const std::string& msg) {
             fn(ctx, static_cast<int>(l), where, msg);
         });
     }
@@ -40,6 +34,7 @@ cdef extern from *:
     void httpp_py_set_log_callback(void*, log_fn) except + nogil
 
 _LOG_LEVELS = ("trace", "debug", "info", "warning", "error", "off")
+_LEVEL_NAMES = {5: "trace", 10: "debug", 20: "info", 30: "warning", 40: "error"}  # the numbers of httpp::logging::level the library logs at
 _log_callback = None  # keeps the Python callable alive while the core may call it
 
 
@@ -205,10 +200,9 @@ def set_log_level(level):
     """Set the library's log level: "trace", "debug", "info", "warning" (the default), "error" or "off"."""
     if level not in _LOG_LEVELS:
         raise ValueError("log level must be one of %s, not %r" % (", ".join(_LOG_LEVELS), level))
-    cdef int idx = _LOG_LEVELS.index(level)
-    cdef log_level lv = <log_level>idx
+    cdef string name = level.encode("ascii")
     with nogil:
-        cpp_set_log_level(lv)
+        cpp_set_log_level(name)
 
 
 def set_log_file(path):
@@ -253,7 +247,7 @@ cdef void _log_trampoline(void* ctx, int level, const string& where, const strin
         return
     with gil:
         try:
-            (<object>ctx)(_LOG_LEVELS[level], where.decode("utf-8", "replace"), msg.decode("utf-8", "replace"))
+            (<object>ctx)(_LEVEL_NAMES.get(level, "error"), where.decode("utf-8", "replace"), msg.decode("utf-8", "replace"))
         except BaseException:
             pass  # a failing log callback must never take a library thread down
 

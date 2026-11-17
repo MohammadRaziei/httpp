@@ -83,6 +83,24 @@ UTEST(httpp_logging_tests, test_level_names_and_numbers_are_pythons) {
     ASSERT_SAME(lg::level_name(lg::level::warning), "WARNING");
     ASSERT_SAME(lg::level_name(lg::level::critical), "CRITICAL");
     ASSERT_SAME(lg::level_name(lg::level(25)), "Level 25");
+    ASSERT_EQ(int(lg::level::off), 60);  // above critical, a threshold only (ADR-0085)
+    ASSERT_SAME(lg::level_name(lg::level::off), "OFF");
+}
+
+// `off` on a logger lets nothing through, not even a critical line (ADR-0085: one level type, in the tree and in set_log_level).
+UTEST(httpp_logging_tests, test_a_logger_at_off_drops_everything) {
+    auto& log = lg::get_logger("off_level_probe");
+    log.set_propagate(false);
+    int seen = 0;
+    log.add_handler(lg::callback_handler([&seen](const lg::record&) { ++seen; }));
+    log.set_level(lg::level::off);
+    log.critical("x");
+    log.error("x");
+    ASSERT_EQ(seen, 0);
+    ASSERT_FALSE(log.is_enabled_for(lg::level::critical));
+    log.set_level(lg::level::critical);
+    log.critical("x");
+    ASSERT_EQ(seen, 1);
 }
 
 UTEST(httpp_logging_tests, test_level_from_string) {
@@ -91,6 +109,7 @@ UTEST(httpp_logging_tests, test_level_from_string) {
     ASSERT_TRUE(lg::level_from_string("WARN") == lg::level::warning);
     ASSERT_TRUE(lg::level_from_string("warning") == lg::level::warning);
     ASSERT_TRUE(lg::level_from_string("fatal") == lg::level::critical);
+    ASSERT_TRUE(lg::level_from_string("OFF") == lg::level::off);
     ASSERT_TRUE(lg::level_from_string("25") == lg::level(25));
     ASSERT_TRUE(!lg::level_from_string("").has_value());
     ASSERT_TRUE(!lg::level_from_string("loud").has_value());
@@ -579,7 +598,7 @@ namespace {
 
 struct captured {
     std::mutex mu;
-    std::vector<std::pair<httpp::log_level, std::string>> lines;
+    std::vector<std::pair<httpp::logging::level, std::string>> lines;
     std::string where;
     bool contains(const std::string& needle) {
         std::lock_guard<std::mutex> lk(mu);
@@ -592,12 +611,12 @@ struct captured {
 struct log_guard {
     ~log_guard() {
         httpp::set_log_callback({});
-        httpp::set_log_level(httpp::log_level::warning);
+        httpp::set_log_level(httpp::logging::level::warning);
     }
 };
 
 void install(captured& c) {
-    httpp::set_log_callback([&c](httpp::log_level l, const std::string& where, const std::string& msg) {
+    httpp::set_log_callback([&c](httpp::logging::level l, const std::string& where, const std::string& msg) {
         std::lock_guard<std::mutex> lk(c.mu);
         c.lines.emplace_back(l, msg);
         c.where = where;
@@ -619,12 +638,12 @@ UTEST(log, a_swallowed_handler_exception_is_logged_as_a_warning) {
     log_guard g;
     captured c;
     install(c);
-    httpp::set_log_level(httpp::log_level::warning);
+    httpp::set_log_level(httpp::logging::level::warning);
     trigger_warning();
     ASSERT_TRUE(c.contains("kaboom"));
     ASSERT_TRUE(c.contains("/boom"));
     std::lock_guard<std::mutex> lk(c.mu);
-    ASSERT_TRUE(c.lines.front().first == httpp::log_level::warning);
+    ASSERT_TRUE(c.lines.front().first == httpp::logging::level::warning);
     ASSERT_FALSE(c.where.empty());
 }
 
@@ -632,13 +651,13 @@ UTEST(log, the_level_filters_messages) {
     log_guard g;
     captured c;
     install(c);
-    httpp::set_log_level(httpp::log_level::error); // a warning is below this
+    httpp::set_log_level(httpp::logging::level::error); // a warning is below this
     trigger_warning();
     ASSERT_FALSE(c.contains("kaboom"));
-    httpp::set_log_level(httpp::log_level::off);
+    httpp::set_log_level(httpp::logging::level::off);
     trigger_warning();
     ASSERT_FALSE(c.contains("kaboom"));
-    httpp::set_log_level(httpp::log_level::warning);
+    httpp::set_log_level(httpp::logging::level::warning);
     trigger_warning();
     ASSERT_TRUE(c.contains("kaboom"));
 }
@@ -647,7 +666,7 @@ UTEST(log, debug_level_shows_connection_level_detail) {
     log_guard g;
     captured c;
     install(c);
-    httpp::set_log_level(httpp::log_level::trace);
+    httpp::set_log_level(httpp::logging::level::trace);
     trigger_warning();
     std::lock_guard<std::mutex> lk(c.mu);
     ASSERT_TRUE(c.lines.size() >= 2); // the warning plus trace/debug lines (connection closed ...)
@@ -658,7 +677,7 @@ UTEST(log, a_file_name_is_utf8_and_a_missing_directory_is_reported) {
     const std::string path = "httpp_test_log_\xD9\x84\xD9\x88\xD8\xAC.txt"; // a Persian word, in UTF-8
     std::remove(path.c_str());
     ASSERT_TRUE(httpp::set_log_file(path));
-    httpp::set_log_level(httpp::log_level::warning);
+    httpp::set_log_level(httpp::logging::level::warning);
     trigger_warning();
     httpp::set_log_file("");
     std::ifstream in(path);
@@ -673,7 +692,7 @@ UTEST(log, can_write_to_a_file_and_back_to_stderr) {
     const std::string path = "httpp_test_log.txt";
     std::remove(path.c_str());
     ASSERT_TRUE(httpp::set_log_file(path));
-    httpp::set_log_level(httpp::log_level::warning);
+    httpp::set_log_level(httpp::logging::level::warning);
     trigger_warning();
     httpp::set_log_file(""); // closes and flushes the file sink
     std::ifstream in(path);
@@ -726,19 +745,19 @@ UTEST(log, info_level_logs_one_access_line_per_request) {
     log_guard g;
     captured c;
     install(c);
-    httpp::set_log_level(httpp::log_level::info);
+    httpp::set_log_level(httpp::logging::level::info);
     fetch_ok_and_missing();
     ASSERT_TRUE(c.contains("GET /ok?x=1 200"));
     ASSERT_TRUE(c.contains("GET /nope 404")); // answers the server makes itself are logged too
     std::lock_guard<std::mutex> lk(c.mu);
-    for (auto& l : c.lines) ASSERT_TRUE(l.first == httpp::log_level::info);
+    for (auto& l : c.lines) ASSERT_TRUE(l.first == httpp::logging::level::info);
 }
 
 UTEST(log, the_default_level_does_not_log_requests) {
     log_guard g;
     captured c;
     install(c);
-    httpp::set_log_level(httpp::log_level::warning);
+    httpp::set_log_level(httpp::logging::level::warning);
     fetch_ok_and_missing();
     ASSERT_FALSE(c.contains("GET /ok"));
 }
@@ -747,11 +766,11 @@ UTEST(log, info_level_says_where_the_server_is_listening) {
     log_guard g;
     captured c;
     install(c);
-    httpp::set_log_level(httpp::log_level::info);
+    httpp::set_log_level(httpp::logging::level::info);
     { testutil::local_server srv([](httpp::server&) {}); }
     ASSERT_TRUE(c.contains("listening on http://127.0.0.1:"));
     c.lines.clear();
-    httpp::set_log_level(httpp::log_level::warning);
+    httpp::set_log_level(httpp::logging::level::warning);
     { testutil::local_server srv([](httpp::server&) {}); }
     ASSERT_FALSE(c.contains("listening on"));
 }

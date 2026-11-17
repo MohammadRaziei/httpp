@@ -14,7 +14,7 @@
 // Threads: every call is thread safe, a handler writes one record at a time, and logging never throws.
 // httpp's own lines go to the logger "httpp", which does not propagate to the root (the application's setup is
 // never touched); httpp::set_log_level / set_log_file / set_log_system / set_log_callback (at the end of this header)
-// drive it. By default warnings and errors go to stderr; quiet it with set_log_level(log_level::off), or send the
+// drive it. By default warnings and errors go to stderr; quiet it with set_log_level(logging::level::off), or send the
 // lines to your own logger with set_log_callback().
 
 #include "httpp/export.hpp"
@@ -99,12 +99,15 @@ namespace httpp::logging {
 
 // ----------------------------------------------------------------------------------------- levels
 
-enum class level : int { notset = 0, trace = 5, debug = 10, info = 20, warning = 30, error = 40, critical = 50 };
+// The one level type of the library (ADR-0085): the level of a record, of a logger, and of the library's own log (set_log_level).
+// The numbers are Python's, plus `trace` below debug and `off` above critical. `off` is a threshold only: set on a logger or on
+// set_log_level it lets nothing through, and no record is ever made at it. `notset` on a logger means "ask the parent".
+enum class level : int { notset = 0, trace = 5, debug = 10, info = 20, warning = 30, error = 40, critical = 50, off = 60 };
 
-// "DEBUG", "INFO", ... ; "Level 15" for a number in between (as Python does).
+// "DEBUG", "INFO", ... "OFF"; "Level 15" for a number in between (as Python does).
 HTTPP_API std::string level_name(level lv);
 
-// "debug", "WARNING", "warn", "fatal" (case does not matter) or a whole number: 25 is a level between
+// "debug", "WARNING", "warn", "fatal", "off" (case does not matter) or a whole number: 25 is a level between
 // info and warning. Anything else gives nullopt.
 HTTPP_API std::optional<level> level_from_string(std::string_view text);
 
@@ -524,11 +527,11 @@ private:
 
 namespace httpp {
 
-enum class log_level { trace, debug, info, warning, error, off };
-
-// Messages below this level are dropped. Thread-safe.
-HTTPP_API void set_log_level(log_level level);
-// By name: "trace", "debug", "info", "warning", "error" or "off" (case does not matter). Another name returns false and changes nothing.
+// Messages below this level are dropped; logging::level::off drops all. Thread-safe. The library logs at trace, debug, info,
+// warning and error.
+HTTPP_API void set_log_level(logging::level level);
+// By name, the names of logging::level_from_string ("trace", "debug", "info", "warning", "error", "off", ... in any case, or a number).
+// Another name returns false and changes nothing.
 HTTPP_API bool set_log_level(std::string_view name);
 
 // Writes the log to this file (truncated) instead of stderr; "" goes back to stderr.
@@ -557,7 +560,7 @@ HTTPP_API bool set_log_system(log_system which = log_system::native, const std::
 // Sends every message that passes the level to `fn(level, where, message)`, replacing stderr/file
 // output. `where` is the function that logged. `fn` may be called from any library thread, one call
 // at a time, and must not log through httpp itself. An empty function restores stderr.
-using log_callback = std::function<void(log_level level, const std::string& where, const std::string& message)>;
+using log_callback = std::function<void(logging::level level, const std::string& where, const std::string& message)>;
 HTTPP_API void set_log_callback(log_callback fn);
 
 } // namespace httpp

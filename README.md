@@ -608,9 +608,9 @@ The library logs through a private logger of its own (it never touches `std::clo
 warnings and errors go to stderr, e.g. a handler that throws with no exception handler installed.
 
 ```cpp
-httpp::set_log_level(httpp::log_level::debug);       // trace, debug, info, warning (default), error, off
+httpp::set_log_level(httpp::logging::level::debug); // trace, debug, info, warning (default), error, off (the one level type)
 httpp::set_log_file("httpp.log");                    // instead of stderr; "" goes back
-httpp::set_log_callback([](httpp::log_level, const std::string& where, const std::string& message) { /* your logger */ });
+httpp::set_log_callback([](httpp::logging::level, const std::string& where, const std::string& message) { /* your logger */ });
 ```
 
 ```python

@@ -157,8 +157,8 @@ UTEST(logging_os, set_log_system_switches_to_the_native_log_and_back) {
 #if HTTPP_LOG_HAS_SYSLOG || HTTPP_LOG_HAS_ANDROID || HTTPP_LOG_HAS_UNIFIED || HTTPP_LOG_HAS_DEBUGSTRING
     ASSERT_TRUE(httpp::set_log_system(httpp::log_system::native, "httpp-test"));
     ASSERT_TRUE(httpp::set_log_system(httpp::log_system::native, "httpp-test-2")); // again: the newest name wins
-    httpp::set_log_level(httpp::log_level::error);
-    httpp::set_log_level(httpp::log_level::warning);
+    httpp::set_log_level(httpp::logging::level::error);
+    httpp::set_log_level(httpp::logging::level::warning);
 #endif
     ASSERT_TRUE(httpp::set_log_file(""));  // back to stderr
 }

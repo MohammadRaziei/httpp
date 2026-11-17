@@ -67,6 +67,7 @@ std::string level_name(level lv) {
         case level::warning: return "WARNING";
         case level::error: return "ERROR";
         case level::critical: return "CRITICAL";
+        case level::off: return "OFF";
     }
     return sformat("Level %d", int(lv));
 }
@@ -85,6 +86,7 @@ std::optional<level> level_from_string(std::string_view text) {
     if (low == "error") return level::error;
     if (low == "trace") return level::trace;
     if (low == "critical" || low == "fatal") return level::critical;
+    if (low == "off") return level::off;
 
     if (low.size() > 4 || !std::all_of(low.begin(), low.end(), [](char c) { return c >= '0' && c <= '9'; }))
         return std::nullopt;
@@ -828,31 +830,11 @@ void event_log_handler::emit(const record& r) {
 namespace httpp {
 namespace {
 
-logging::level to_level(log_level l) {
-    switch (l) {
-        case log_level::trace: return logging::level::trace;
-        case log_level::debug: return logging::level::debug;
-        case log_level::info: return logging::level::info;
-        case log_level::warning: return logging::level::warning;
-        case log_level::error: return logging::level::error;
-        case log_level::off: break;
-    }
-    return logging::level::critical;
-}
-
-log_level from_level(logging::level l) {
-    if (int(l) <= int(logging::level::trace)) return log_level::trace;
-    if (int(l) <= int(logging::level::debug)) return log_level::debug;
-    if (int(l) <= int(logging::level::info)) return log_level::info;
-    if (int(l) <= int(logging::level::warning)) return log_level::warning;
-    return log_level::error;
-}
-
 constexpr const char* k_pattern = "%(asctime)s [%(levelname)s] %(name)s (%(funcName)s): %(message)s";
 
 struct state {
     std::mutex mu;                                 // swapping the output, so a line never meets a half-changed setup
-    std::atomic<int> level{static_cast<int>(log_level::warning)};
+    std::atomic<int> level{static_cast<int>(logging::level::warning)};
     logging::logger* lg;
 
     state() : lg(&logging::get_logger("httpp")) {
@@ -876,19 +858,13 @@ state& st() {
 
 } // namespace
 
-void set_log_level(log_level level) { st().level = static_cast<int>(level); }
+void set_log_level(logging::level level) { st().level = static_cast<int>(level); }
 
 bool set_log_level(std::string_view name) {
-    std::string low(name);
-    for (char& c : low) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    static const std::pair<const char*, log_level> levels[] = {{"trace", log_level::trace}, {"debug", log_level::debug}, {"info", log_level::info},
-                                                               {"warning", log_level::warning}, {"error", log_level::error}, {"off", log_level::off}};
-    for (const auto& l : levels)
-        if (low == l.first) {
-            set_log_level(l.second);
-            return true;
-        }
-    return false;
+    const auto parsed = logging::level_from_string(name);  // the one table of names
+    if (!parsed) return false;
+    set_log_level(*parsed);
+    return true;
 }
 
 bool set_log_file(const path& file) {
@@ -963,19 +939,19 @@ void set_log_callback(log_callback fn) {
         return;
     }
     s.use(logging::callback_handler([fn = std::move(fn)](const logging::record& r) {
-        fn(from_level(r.levelno), std::string(r.where), std::string(r.message));
+        fn(logging::level(r.levelno), std::string(r.where), std::string(r.message));
     }));
 }
 
 namespace detail {
 
-bool log_enabled(log_level level) {
-    return static_cast<int>(level) >= st().level.load(std::memory_order_relaxed) && level != log_level::off;
+bool log_enabled(logging::level level) {
+    return static_cast<int>(level) >= st().level.load(std::memory_order_relaxed) && level != logging::level::off;
 }
 
-void log_write(log_level level, const char* where, const std::string& message) {
+void log_write(logging::level level, const char* where, const std::string& message) {
     if (!log_enabled(level)) return;
-    st().lg->log_from(to_level(level), where, message);
+    st().lg->log_from(level, where, message);
 }
 
 } // namespace detail

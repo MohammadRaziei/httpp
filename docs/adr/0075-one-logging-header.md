@@ -1,6 +1,6 @@
 # ADR-0075: one logging header and one logging source
 
-- **Status:** accepted
+- **Status:** accepted; its `log_level` enum is superseded by ADR-0085 (`httpp::logging::level` is the one level type)
 - **Decided by:** the project owner (several files named log*; "logging.hpp and .cpp at most", logging as the standard name); the choice to keep `set_log_*` is mine
 - **Source:** `include/httpp/logging.hpp`, `src/core/logging.cpp`, `src/core/internal/logging.hpp`, `tests/cpp/test_logging_module.cpp`
 
