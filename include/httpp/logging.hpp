@@ -90,8 +90,9 @@
 // The ABI of libhttpp_utils (ADR-0086). Wheels and programs that share one libhttpp_utils (httpp, libspeech, ...) are built apart, and
 // the library keeps the one logger registry of the process, so a header that does not match the library it meets at run time must
 // be caught at start, not as a crash later. Raise HTTPP_UTILS_ABI_VERSION when a type or function exported by logging.hpp, path.hpp
-// or progress.hpp changes in a way old binaries cannot follow. libhttpp checks it when it is loaded; another consumer can call
-// httpp::utils_abi_compatible() the same way.
+// or progress.hpp changes in a way old binaries cannot follow. A consumer built apart from the library can call
+// httpp::utils_abi_compatible() at start; a missing or renamed symbol is refused by the linker and the loader without it, the
+// number is for what they cannot see (a changed layout).
 #define HTTPP_UTILS_ABI_VERSION 4  // 2: logger::enabled() reads a cache inside the object (ADR-0090); 3, 4: the library log back end is gone (ADR-0091)
 namespace httpp {
 HTTPP_UTILS_API int utils_abi_version() noexcept;  // the value the loaded library was built with

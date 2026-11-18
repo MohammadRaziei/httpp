@@ -650,7 +650,7 @@ example libspeech) depends on `httpp` at run time and does not bundle its own co
 - **Find it at run time:** an RPATH of `$ORIGIN/../httpp/sdk/lib` (`@loader_path/../httpp/sdk/lib` on macOS) on your extension, and `import httpp`
   before you load your extension (Windows has no RPATH: `import httpp` adds `httpp/sdk/bin` to the DLL search path).
 - **Declare the dependency:** `httpp>=X,<Y` in your `pyproject.toml`. `HTTPP_UTILS_ABI_VERSION` / `httpp::utils_abi_compatible()` catch a header that
-  does not match the library at run time (libhttpp checks it when it is loaded).
+  does not match the library at run time (call it once at start; the linker and the loader already refuse a missing symbol, the number is for a changed layout).
 - **Logs reach Python without any binding of yours:** log from C++ with `get_logger("libspeech.dsp")` and call `httpp.bridge_logger("libspeech")`.
 
 ## License
