@@ -9,8 +9,8 @@
 namespace httpp {
 
 // The proxy a program such as curl would use for `target`, read from the environment (ADR-0067). A request does not do this on
-// its own: it goes direct unless you call proxy() / set_proxy(), so a library never sends traffic to a proxy by surprise. Give the
-// result to proxy() / set_proxy() when you want curl's behavior (`httpp curl` does).
+// its own: it goes direct unless you call request::proxy() or client::proxy(), so a library never sends traffic to a proxy by surprise. Give the
+// result to proxy() when you want curl's behavior (`httpp curl` does).
 //
 //   http:// target   http_proxy               (lowercase only, as in curl: HTTP_PROXY is ignored, see "httpoxy")
 //   https:// target  https_proxy, HTTPS_PROXY

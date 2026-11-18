@@ -52,7 +52,7 @@ std::string https(const local_server& s, const std::string& path = "") { return 
 
 httpp::client trusting(const local_server& s) {
     httpp::client c(https(s));
-    c.set_ca_file(files().cert);
+    c.ca_file(files().cert);
     return c;
 }
 
@@ -136,10 +136,10 @@ UTEST(httpp_server_tls, keep_alive_and_a_body_of_many_records_round_trip) {
 UTEST(httpp_server_tls, a_client_that_does_not_verify_is_served_too_and_one_that_does_refuses_an_unknown_ca) {
     local_server srv(tls_site);
     httpp::client open(https(srv));
-    open.set_verify(false);
+    open.verify(false);
     ASSERT_EQ(200, open.get("/who").status);
     httpp::client strict(https(srv));
-    strict.set_ca_file(files().key); // not a CA that signed it (and not a certificate at all)
+    strict.ca_file(files().key); // not a CA that signed it (and not a certificate at all)
     ASSERT_EQ(0, strict.get("/who").status);
 }
 

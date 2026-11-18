@@ -446,7 +446,7 @@ UTEST(async_proxy, keep_alive_works_through_a_tunnel) {
 UTEST(client_proxy_url, the_user_and_password_of_the_proxy_url_become_proxy_authorization) {
     proxy_test_server proxy;
     httpp::client c("http://origin.invalid:8080");
-    c.set_proxy("http://user:pass@127.0.0.1:" + std::to_string(proxy.port()));
+    c.proxy("http://user:pass@127.0.0.1:" + std::to_string(proxy.port()));
     auto r = c.get("/a/b?x=1");
     ASSERT_EQ(200, r.status);
     std::lock_guard<std::mutex> lk(proxy.mu);
@@ -457,14 +457,14 @@ UTEST(client_proxy_url, the_user_and_password_of_the_proxy_url_become_proxy_auth
 UTEST(client_proxy_url, a_bad_proxy_is_refused_and_changes_nothing) {
     proxy_test_server proxy;
     httpp::client c("http://origin.invalid:8080");
-    c.set_proxy("http://127.0.0.1:" + std::to_string(proxy.port()));
+    c.proxy("http://127.0.0.1:" + std::to_string(proxy.port()));
     for (const char* bad : {"127.0.0.1:3128", "https://127.0.0.1:3128", "socks4://127.0.0.1:1080", "http://", "nonsense"}) {
         bool threw = false;
-        try { c.set_proxy(bad); } catch (const std::invalid_argument&) { threw = true; }
+        try { c.proxy(bad); } catch (const std::invalid_argument&) { threw = true; }
         ASSERT_TRUE(threw);
     }
     ASSERT_EQ(200, c.get("/ok").status); // still the earlier proxy
-    c.set_proxy(""); // no proxy: origin.invalid cannot be reached directly
+    c.proxy(""); // no proxy: origin.invalid cannot be reached directly
     ASSERT_TRUE(c.get("/ok").status != 200);
 }
 
@@ -474,7 +474,7 @@ UTEST(client_proxy_url, request_and_async_client_take_the_same_url) {
     auto r = httpp::request("http://origin.invalid:8080/x").proxy(p).run();
     ASSERT_EQ(200, r.status);
     httpp::async_client ac("http://origin.invalid:8080");
-    ac.set_proxy(p);
+    ac.proxy(p);
     ASSERT_EQ(200, ac.get("/x").get().status);
 }
 
@@ -671,15 +671,15 @@ UTEST(client_socks5, set_proxy_takes_a_socks_url_and_refuses_what_it_cannot_spea
     socks_test_server socks;
     socks.want_auth = true; socks.user = "u s"; socks.pass = "p@ss"; // percent-encoded in the URL
     httpp::client c("http://origin.invalid:" + std::to_string(origin.port()));
-    c.set_proxy("socks5h://u%20s:p%40ss@127.0.0.1:" + std::to_string(socks.port()));
+    c.proxy("socks5h://u%20s:p%40ss@127.0.0.1:" + std::to_string(socks.port()));
     ASSERT_EQ(200, c.get("/").status);
     for (const char* bad : {"socks4://127.0.0.1:1080", "https://127.0.0.1:1", "socks5://", "127.0.0.1:1080"}) {
         bool threw = false;
-        try { c.set_proxy(bad); } catch (const std::invalid_argument&) { threw = true; }
+        try { c.proxy(bad); } catch (const std::invalid_argument&) { threw = true; }
         ASSERT_TRUE(threw);
     }
     bool too_long = false;
-    try { c.set_proxy("socks5://" + std::string(256, 'a') + ":x@h:1"); } catch (const std::invalid_argument&) { too_long = true; }
+    try { c.proxy("socks5://" + std::string(256, 'a') + ":x@h:1"); } catch (const std::invalid_argument&) { too_long = true; }
     ASSERT_TRUE(too_long);
     ASSERT_EQ(200, c.get("/").status); // the earlier proxy is still the one in use
     bool target_refused = false; // a socks URL is a proxy address, never a place to fetch from

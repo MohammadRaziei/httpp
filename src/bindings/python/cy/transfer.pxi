@@ -46,7 +46,7 @@ cdef class Download:
         Download(url, path).resume().run()      # wget -c: skip a complete file, continue a .part
         await Download(url, path).run_async()   # doesn't block the event loop
 
-    follow_redirects (on by default; off = a 3xx is the final answer), resume (off by default;
+    max_redirects (20 by default; 0 = a 3xx is the final answer, -1 = no limit), resume (off by default;
     needs a server that answers HEAD and Range, else it quietly degrades to a fresh download),
     force (with resume: ignore existing files and start from byte 0).
     """
@@ -71,8 +71,12 @@ cdef class Download:
         self._dl.disable_progress()
         return self
 
-    def follow_redirects(self, cbool enable=True):
-        self._dl.follow_redirects(enable)
+    def max_redirects(self, count=None):
+        """How many redirects to follow (20 by default; 0 follows none and a 3xx is the final answer, -1 has
+        no limit; ValueError for any other negative number). With no argument it returns the value."""
+        if count is None:
+            return self._dl.max_redirects()
+        self._dl.max_redirects(<int>count)
         return self
 
     def resume(self, cbool enable=True):
@@ -95,17 +99,23 @@ cdef class Download:
         self._dl.sha256_url(checksum_url.encode("utf-8"))
         return self
 
-    def set_timeout(self, long seconds):
-        """Seconds for connecting, reading and writing; 0 or less keeps the defaults."""
-        self._dl.set_timeout(seconds)
+    def timeout(self, seconds=None):
+        """Seconds for connecting, reading and writing; 0 or less keeps the defaults. With no argument it
+        returns the value."""
+        if seconds is None:
+            return self._dl.timeout()
+        self._dl.timeout(<long>seconds)
         return self
 
-    def set_max_wait(self, double seconds):
+    def max_wait(self, seconds=None):
         """Seconds a lock that is not being updated is waited for before it is taken over (default 2);
-        values <= 0 are ignored. (C++ takes milliseconds; Python uses seconds, like set_timeout.)"""
+        values <= 0 are ignored. (C++ takes milliseconds; Python uses seconds, like timeout.) With no
+        argument it returns the value in seconds."""
+        if seconds is None:
+            return self._dl.max_wait().count() / 1000.0
         if not seconds < 1e9:  # also catches nan and inf
             raise ValueError("max_wait is out of range")
-        self._dl.set_max_wait(cpp_milliseconds(<long long>(seconds * 1000.0)))
+        self._dl.max_wait(cpp_milliseconds(<long long>(<double>seconds * 1000.0)))
         return self
 
     def run(self):
@@ -444,14 +454,17 @@ cdef class Request:
 cdef extern from "httpp/client.hpp" namespace "httpp":
     cdef cppclass cpp_async_client "httpp::async_client":
         cpp_async_client(string base_url, size_t max_connections) except +
-        cpp_async_client& set_header(string name, string value) except +
-        cpp_async_client& set_timeout(long seconds) except +
-        cpp_async_client& set_follow_redirects(cbool enable) except +
-        cpp_async_client& set_basic_auth(string user, string password) except +
-        cpp_async_client& set_bearer_token(string token) except +
-        cpp_async_client& set_verify(cbool enable) except +
-        cpp_async_client& set_ca_file(string path) except +
-        cpp_async_client& set_proxy(string proxy_url) except +
+        cpp_async_client& header(string name, string value) except +
+        cpp_async_client& timeout(long seconds) except +
+        cpp_async_client& max_redirects(int count) except +
+        cpp_async_client& connect_timeout(long seconds) except +
+        cpp_async_client& max_time(long seconds) except +
+        cpp_async_client& auto_compression(cbool enable) except +
+        cpp_async_client& basic_auth(string user, string password) except +
+        cpp_async_client& bearer(string token) except +
+        cpp_async_client& verify(cbool enable) except +
+        cpp_async_client& ca_file(string path) except +
+        cpp_async_client& proxy(string proxy_url) except +
 
 cdef extern from *:
     """
@@ -504,10 +517,12 @@ cdef class _AsyncClientCore:
         self._cli = NULL
 
     def __init__(self, str base_url, size_t max_connections=8, *, headers=None, timeout=None,
-                 cbool follow_redirects=False, auth=None, token=None, cbool verify=True, ca_file=None,
+                 follow_redirects=False, max_redirects=None, connect_timeout=None, max_time=None,
+                 cbool auto_compression=True, auth=None, token=None, cbool verify=True, ca_file=None,
                  proxy=None):
         self._cli = new cpp_async_client(base_url.encode("utf-8"), max_connections)
-        _apply_client_options(self._cli, headers, timeout, follow_redirects, auth, token, verify, ca_file, proxy)
+        _apply_client_options(self._cli, headers, timeout, follow_redirects, max_redirects, connect_timeout, max_time,
+                              auto_compression, auth, token, verify, ca_file, proxy)
 
     def __dealloc__(self):
         if self._cli is not NULL:

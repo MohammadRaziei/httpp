@@ -82,6 +82,6 @@ httpp download https://example.com/f.zip -o f.zip
 |---|---|---|
 | Builder | `httpp.Download(url, path)` | `httpp::download(url, path)` |
 | Result | `httpp.DownloadResult` | `httpp::download_result` |
-| How long a stale lock is waited for | `set_max_wait(seconds)` | `set_max_wait(std::chrono::milliseconds)` |
+| How long a stale lock is waited for | `max_wait(seconds)` | `max_wait(std::chrono::milliseconds)` |
 | Without blocking | `await ....run_async()` | `std::future` from `run_async()` |
 | One call | `httpp.download(url, path)` | `httpp::download(url, path).run()` |

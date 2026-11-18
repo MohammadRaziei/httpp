@@ -15,6 +15,8 @@
 #include "httpp/url.hpp"
 #include "async_http.hpp"
 
+#include <limits>
+#include <stdexcept>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -131,6 +133,15 @@ struct session_settings {
 };
 
 bool is_redirect(int status);
+
+// max_redirects(count) of the public API: 0 follows none, -1 has no limit, any other negative number is refused
+// (std::invalid_argument). The engine counts hops down from a limit, so "no limit" is the largest int.
+inline int redirect_hops(int count) {
+    if (count < -1) throw std::invalid_argument("max_redirects must be -1 (no limit) or more");
+    return count < 0 ? std::numeric_limits<int>::max() : count;
+}
+// The public value of an engine limit (what a getter returns).
+inline int redirect_count(int hops) { return hops == std::numeric_limits<int>::max() ? -1 : hops; }
 
 // The engine a spec runs on: the shared one, or the download one when it streams to a sink.
 async_http& engine_for(const request_spec& spec);

@@ -37,6 +37,10 @@ public:
         std::lock_guard<std::mutex> lock(mu_);
         f(settings_);
     }
+    template <class F> auto read(F&& f) const {
+        std::lock_guard<std::mutex> lock(mu_);
+        return f(settings_);
+    }
     bool make_spec(const endpoint& where, const std::string& method, const std::string& path, const header_list& headers,
                    std::string body, std::string content_type, request_spec& out, response& error) const {
         std::lock_guard<std::mutex> lock(mu_);
@@ -97,43 +101,68 @@ response client::del(const std::string& path, const std::string& body, const std
     return send("DELETE", path, h, body, ct);
 }
 
-client& client::set_header(std::string name, std::string value) {
+client& client::header(std::string name, std::string value) {
     impl_->settings.update([&](session_settings& s) { s.set_default_header(std::move(name), std::move(value)); });
     return *this;
 }
-client& client::set_timeout(long seconds) {
-    impl_->settings.update([&](session_settings& s) { s.set_timeout(seconds); });
+client& client::timeout(long seconds) {
+    impl_->settings.update([&](session_settings& s) { s.timeout = seconds > 0 ? seconds : 0; });
     return *this;
 }
-client& client::set_follow_redirects(bool enable) {
-    impl_->settings.update([&](session_settings& s) { s.follow = enable; });
+long client::timeout() const { return impl_->settings.read([](const session_settings& s) { return s.timeout; }); }
+client& client::connect_timeout(long seconds) {
+    if (seconds < 0) throw std::invalid_argument("connect_timeout must not be negative");
+    impl_->settings.update([&](session_settings& s) { s.connect_timeout = seconds; });
     return *this;
 }
-client& client::set_basic_auth(const std::string& user, const std::string& password) {
+long client::connect_timeout() const { return impl_->settings.read([](const session_settings& s) { return s.connect_timeout; }); }
+client& client::max_time(long seconds) {
+    if (seconds < 0) throw std::invalid_argument("max_time must not be negative");
+    impl_->settings.update([&](session_settings& s) { s.max_time = seconds; });
+    return *this;
+}
+long client::max_time() const { return impl_->settings.read([](const session_settings& s) { return s.max_time; }); }
+client& client::max_redirects(int count) {
+    const int hops = detail::redirect_hops(count);
+    impl_->settings.update([&](session_settings& s) { s.follow = count != 0; s.max_redirects = hops; });
+    return *this;
+}
+int client::max_redirects() const {
+    return impl_->settings.read([](const session_settings& s) { return s.follow ? detail::redirect_count(s.max_redirects) : 0; });
+}
+client& client::auto_compression(bool enable) {
+    impl_->settings.update([&](session_settings& s) { s.auto_compression = enable; });
+    return *this;
+}
+bool client::auto_compression() const { return impl_->settings.read([](const session_settings& s) { return s.auto_compression; }); }
+client& client::basic_auth(const std::string& user, const std::string& password) {
     impl_->settings.update([&](session_settings& s) { s.set_basic(user, password); });
     return *this;
 }
-client& client::set_bearer_token(const std::string& token) {
+client& client::bearer(const std::string& token) {
     impl_->settings.update([&](session_settings& s) { s.set_bearer(token); });
     return *this;
 }
-client& client::set_proxy(const url& proxy_url) {
+client& client::proxy(const url& proxy_url) {
     const auto p = detail::parse_proxy_url(proxy_url); // before touching anything: a bad URL changes nothing
     impl_->settings.update([&](session_settings& s) { s.proxy = p; });
     return *this;
 }
-client& client::set_verify(bool enable) {
+client& client::verify(bool enable) {
     impl_->settings.update([&](session_settings& s) { s.verify = enable; });
     return *this;
 }
-client& client::set_ca_file(const path& file) {
+bool client::verify() const { return impl_->settings.read([](const session_settings& s) { return s.verify; }); }
+client& client::ca_file(const path& file) {
     impl_->settings.update([&](session_settings& s) { s.ca_file = file.str(); });
     return *this;
 }
-client& client::set_keep_alive(bool enable) {
+path client::ca_file() const { return path(impl_->settings.read([](const session_settings& s) { return s.ca_file; })); }
+client& client::keep_alive(bool enable) {
     impl_->settings.update([&](session_settings& s) { s.keep_alive = enable; });
     return *this;
 }
+bool client::keep_alive() const { return impl_->settings.read([](const session_settings& s) { return s.keep_alive; }); }
 
 response client::fetch(const url& target) {
     const std::string full_url = target.str();
@@ -239,9 +268,8 @@ request& request::max_time(long seconds) {
     return *this;
 }
 request& request::max_redirects(int count) {
-    if (count < -1) throw std::invalid_argument("max_redirects must be -1 (no limit) or more");
     impl_->settings.follow = count != 0;
-    impl_->settings.max_redirects = count < 0 ? std::numeric_limits<int>::max() : count;
+    impl_->settings.max_redirects = detail::redirect_hops(count);
     return *this;
 }
 request& request::auto_compression(bool enable) { impl_->settings.auto_compression = enable; return *this; }
@@ -382,23 +410,46 @@ std::future<response> async_client::del(const std::string& p, const std::string&
     return send("DELETE", p, h, b, ct);
 }
 
-async_client& async_client::set_header(std::string name, std::string value) {
+async_client& async_client::header(std::string name, std::string value) {
     impl_->settings.set_default_header(std::move(name), std::move(value));
     return *this;
 }
-async_client& async_client::set_timeout(long seconds) { impl_->settings.timeout = seconds; return *this; }
-async_client& async_client::set_follow_redirects(bool enable) { impl_->settings.follow = enable; return *this; }
-async_client& async_client::set_basic_auth(const std::string& u, const std::string& p) {
+async_client& async_client::timeout(long seconds) { impl_->settings.timeout = seconds > 0 ? seconds : 0; return *this; }
+long async_client::timeout() const { return impl_->settings.timeout; }
+async_client& async_client::connect_timeout(long seconds) {
+    if (seconds < 0) throw std::invalid_argument("connect_timeout must not be negative");
+    impl_->settings.connect_timeout = seconds;
+    return *this;
+}
+long async_client::connect_timeout() const { return impl_->settings.connect_timeout; }
+async_client& async_client::max_time(long seconds) {
+    if (seconds < 0) throw std::invalid_argument("max_time must not be negative");
+    impl_->settings.max_time = seconds;
+    return *this;
+}
+long async_client::max_time() const { return impl_->settings.max_time; }
+async_client& async_client::max_redirects(int count) {
+    const int hops = detail::redirect_hops(count);
+    impl_->settings.follow = count != 0;
+    impl_->settings.max_redirects = hops;
+    return *this;
+}
+int async_client::max_redirects() const { return impl_->settings.follow ? detail::redirect_count(impl_->settings.max_redirects) : 0; }
+async_client& async_client::auto_compression(bool enable) { impl_->settings.auto_compression = enable; return *this; }
+bool async_client::auto_compression() const { return impl_->settings.auto_compression; }
+async_client& async_client::basic_auth(const std::string& u, const std::string& p) {
     impl_->settings.set_basic(u, p);
     return *this;
 }
-async_client& async_client::set_bearer_token(const std::string& token) { impl_->settings.set_bearer(token); return *this; }
-async_client& async_client::set_proxy(const url& proxy_url) {
+async_client& async_client::bearer(const std::string& token) { impl_->settings.set_bearer(token); return *this; }
+async_client& async_client::proxy(const url& proxy_url) {
     const auto p = detail::parse_proxy_url(proxy_url);
     impl_->settings.proxy = p;
     return *this;
 }
-async_client& async_client::set_verify(bool enable) { impl_->settings.verify = enable; return *this; }
-async_client& async_client::set_ca_file(const path& file) { impl_->settings.ca_file = file.str(); return *this; }
+async_client& async_client::verify(bool enable) { impl_->settings.verify = enable; return *this; }
+bool async_client::verify() const { return impl_->settings.verify; }
+async_client& async_client::ca_file(const path& file) { impl_->settings.ca_file = file.str(); return *this; }
+path async_client::ca_file() const { return path(impl_->settings.ca_file); }
 
 } // namespace httpp

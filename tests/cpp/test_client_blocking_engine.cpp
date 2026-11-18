@@ -73,14 +73,14 @@ UTEST(client_blocking, one_client_shared_by_many_threads) {
 UTEST(client_blocking, settings_apply_to_the_next_request) {
     testutil::local_server srv(add_routes);
     httpp::client cli(srv.url());
-    cli.set_header("X-Test", "one");
+    cli.header("X-Test", "one");
     ASSERT_TRUE(has(cli.get("/echo"), "x=one"));
-    cli.set_header("x-test", "two"); // same header, other case: replaced, not added
+    cli.header("x-test", "two"); // same header, other case: replaced, not added
     ASSERT_TRUE(has(cli.get("/echo"), "x=two"));
     ASSERT_TRUE(has(cli.get("/echo", {{"X-Test", "call"}}), "x=call")); // per call beats the default
-    cli.set_bearer_token("tok");
+    cli.bearer("tok");
     ASSERT_TRUE(has(cli.get("/echo"), "auth=Bearer tok"));
-    cli.set_basic_auth("user", "pass");
+    cli.basic_auth("user", "pass");
     ASSERT_TRUE(has(cli.get("/echo"), "auth=Basic dXNlcjpwYXNz"));
 }
 
@@ -88,7 +88,7 @@ UTEST(client_blocking, redirects_are_followed_only_when_asked) {
     testutil::local_server srv(add_routes);
     httpp::client cli(srv.url());
     ASSERT_EQ(302, cli.get("/hop").status);
-    cli.set_follow_redirects(true);
+    cli.max_redirects(20);
     auto r = cli.get("/hop");
     ASSERT_EQ(200, r.status);
     ASSERT_TRUE(has(r, "q=hopped"));
@@ -111,7 +111,7 @@ UTEST(client_blocking, unsupported_method_is_reported_before_any_network_use) {
 UTEST(client_blocking, async_client_set_header_replaces_a_same_name_default) {
     testutil::local_server srv(add_routes);
     httpp::async_client cli(srv.url());
-    cli.set_header("X-Test", "one").set_header("x-test", "two");
+    cli.header("X-Test", "one").header("x-test", "two");
     auto f = cli.get("/echo");
     ASSERT_TRUE(f.wait_for(10s) == std::future_status::ready);
     ASSERT_TRUE(has(f.get(), "x=two"));

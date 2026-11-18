@@ -157,19 +157,32 @@ public:
     HTTPP_API response send(const std::string& method, const std::string& path, const headers_t& headers = {},
                             const std::string& body = "", const std::string& content_type = "");
 
-    // Session settings; they apply to the requests made after the call.
-    HTTPP_API client& set_header(std::string name, std::string value); // sent with every request
-    HTTPP_API client& set_timeout(long seconds);                       // connect, read and write
-    HTTPP_API client& set_follow_redirects(bool enable = true);
-    HTTPP_API client& set_basic_auth(const std::string& user, const std::string& password);
-    HTTPP_API client& set_bearer_token(const std::string& token);
+    // Session settings; they apply to the requests made after the call. They are named like request's: a call
+    // with an argument sets and returns *this, the same name with no argument reads the value back
+    // (timeout(30) sets, timeout() returns it).
+    HTTPP_API client& header(std::string name, std::string value); // sent with every request
+    HTTPP_API client& timeout(long seconds);                       // connect, read and write; 0 or less: the default
+    HTTPP_API long timeout() const;
+    HTTPP_API client& connect_timeout(long seconds);               // see request::connect_timeout
+    HTTPP_API long connect_timeout() const;
+    HTTPP_API client& max_time(long seconds);                      // see request::max_time
+    HTTPP_API long max_time() const;
+    HTTPP_API client& max_redirects(int count);                    // see request::max_redirects; 0 (the default) follows none
+    HTTPP_API int max_redirects() const;
+    HTTPP_API client& auto_compression(bool enable);               // see request::auto_compression; default true
+    HTTPP_API bool auto_compression() const;
+    HTTPP_API client& basic_auth(const std::string& user, const std::string& password);
+    HTTPP_API client& bearer(const std::string& token);
     // Send requests through an HTTP proxy: "http://[user[:pass]@]host[:port]" (user and pass percent-decoded, sent as Proxy-Authorization: Basic).
     // http:// targets go to the proxy in absolute form, https:// targets through a CONNECT tunnel. "" = no proxy. Anything that is not
     // an http:// URL with a host ("host:port", "https://...", "socks5://...") throws std::invalid_argument and changes nothing.
-    HTTPP_API client& set_proxy(const url& proxy_url);
-    HTTPP_API client& set_verify(bool enable); // https: verify the server certificate (default true)
-    HTTPP_API client& set_ca_file(const path& file); // https: trust this CA bundle instead of the system's
-    HTTPP_API client& set_keep_alive(bool enable); // default true
+    HTTPP_API client& proxy(const url& proxy_url);
+    HTTPP_API client& verify(bool enable); // https: verify the server certificate (default true)
+    HTTPP_API bool verify() const;
+    HTTPP_API client& ca_file(const path& file); // https: trust this CA bundle instead of the system's
+    HTTPP_API path ca_file() const;               // "" when none is set
+    HTTPP_API client& keep_alive(bool enable); // default true
+    HTTPP_API bool keep_alive() const;
 
     // Parse `full_url` (via httpp::url) and GET it in one call - handles
     // http:// and https:// alike. No manual URL parsing needed by callers
@@ -233,7 +246,7 @@ public:
     // On by default: ask for gzip / deflate (Accept-Encoding, unless header() sets one) and hand back the
     // decoded body. Off: no Accept-Encoding is sent unless header() sets one, and a coded body comes back
     // exactly as the server sent it, like requests with stream=True and raw bytes.
-    HTTPP_API request& auto_compression(bool enable = true);
+    HTTPP_API request& auto_compression(bool enable);
     // --connect-timeout (seconds): the limit for resolving the host, connecting, the proxy handshake and the
     // TLS handshake. timeout() still limits each write and read. 0 (the default) means timeout() covers the
     // connect steps too. Throws std::invalid_argument for a negative number.
@@ -248,7 +261,7 @@ public:
     // the system's. And an HTTP proxy.
     HTTPP_API request& verify(bool enable);
     HTTPP_API request& ca_file(const path& file);
-    HTTPP_API request& proxy(const url& proxy_url); // same URL form and rules as client::set_proxy
+    HTTPP_API request& proxy(const url& proxy_url); // same URL form and rules as client::proxy
 
     // Upper bound, in bytes, on the response body this request will
     // buffer into response::body. 0 (the default) means no limit, which
@@ -322,14 +335,25 @@ public:
                         const std::string& body, const std::string& content_type,
                         std::function<void(response)> done);
 
-    HTTPP_API async_client& set_header(std::string name, std::string value);
-    HTTPP_API async_client& set_timeout(long seconds);
-    HTTPP_API async_client& set_follow_redirects(bool enable = true);
-    HTTPP_API async_client& set_basic_auth(const std::string& user, const std::string& password);
-    HTTPP_API async_client& set_bearer_token(const std::string& token);
-    HTTPP_API async_client& set_verify(bool enable);
-    HTTPP_API async_client& set_ca_file(const path& file);
-    HTTPP_API async_client& set_proxy(const url& proxy_url); // same URL form and rules as client::set_proxy
+    // The same session settings as client, under the same names (configure before the first request).
+    HTTPP_API async_client& header(std::string name, std::string value);
+    HTTPP_API async_client& timeout(long seconds);
+    HTTPP_API long timeout() const;
+    HTTPP_API async_client& connect_timeout(long seconds);
+    HTTPP_API long connect_timeout() const;
+    HTTPP_API async_client& max_time(long seconds);
+    HTTPP_API long max_time() const;
+    HTTPP_API async_client& max_redirects(int count);
+    HTTPP_API int max_redirects() const;
+    HTTPP_API async_client& auto_compression(bool enable);
+    HTTPP_API bool auto_compression() const;
+    HTTPP_API async_client& basic_auth(const std::string& user, const std::string& password);
+    HTTPP_API async_client& bearer(const std::string& token);
+    HTTPP_API async_client& verify(bool enable);
+    HTTPP_API bool verify() const;
+    HTTPP_API async_client& ca_file(const path& file);
+    HTTPP_API path ca_file() const;
+    HTTPP_API async_client& proxy(const url& proxy_url); // same URL form and rules as client::proxy
 
 private:
     struct impl;

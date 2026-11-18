@@ -1,5 +1,5 @@
 """Python bindings for httpp::sha256_hex/sha256_file/parse_sha256_checksum (in `httpp.utils`) and Download.sha256/sha256_url/
-set_timeout/set_max_wait, mirroring tests/cpp/test_download.cpp."""
+timeout/max_wait, mirroring tests/cpp/test_download.cpp."""
 
 import hashlib
 import threading
@@ -134,9 +134,9 @@ def test_set_timeout_and_set_max_wait_are_chainable(tmp_path):
     dest = tmp_path / "f.bin"
     with file_server() as base:
         dl = Download(base + "/f.bin", str(dest)).disable_progress()
-        assert dl.set_timeout(5) is dl
-        assert dl.set_max_wait(0.5) is dl
-        assert dl.set_max_wait(0) is dl  # <= 0 is ignored, like in C++
+        assert dl.timeout(5) is dl
+        assert dl.max_wait(0.5) is dl
+        assert dl.max_wait(0) is dl  # <= 0 is ignored, like in C++
         assert dl.run().ok and dest.read_bytes() == BODY
 
 

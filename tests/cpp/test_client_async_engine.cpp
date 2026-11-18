@@ -236,7 +236,7 @@ UTEST(async_client_engine, applies_base_path_defaults_and_per_call_overrides) {
         });
     });
     httpp::async_client ac(srv.url("/api/v1/"), 2);
-    ac.set_header("X-Test", "default").set_header("X-Other", "o").set_basic_auth("u", "p");
+    ac.header("X-Test", "default").header("X-Other", "o").basic_auth("u", "p");
     auto f1 = ac.get("/echo");
     ASSERT_TRUE(get(f1).body == "x=default;y=o;auth=Basic dTpw");
     auto f2 = ac.get("echo", {{"X-Test", "override"}}); // no leading slash is fine; per-call header replaces the default
@@ -282,7 +282,7 @@ UTEST(async_client_engine, follows_redirects_when_asked) {
     httpp::async_client ac(srv.url(), 2);
     auto first = ac.get("/start");
     ASSERT_EQ(302, get(first).status);
-    ac.set_follow_redirects(true);
+    ac.max_redirects(20);
     auto f = ac.get("/start");
     ASSERT_TRUE(get(f).body == "end:1");
 }
@@ -295,7 +295,7 @@ UTEST(async_client_engine, a_bad_base_url_throws_at_construction) {
 
 UTEST(async_client_engine, an_unreachable_server_is_an_error_response_and_the_slot_is_freed) {
     httpp::async_client ac("http://127.0.0.1:1", 1);
-    ac.set_timeout(2);
+    ac.timeout(2);
     for (int i = 0; i < 3; ++i) { // with a leaked slot the second request would wait forever
         auto f = ac.get("/");
         ASSERT_TRUE(get(f, 15).error == httpp::error_kind::connection);

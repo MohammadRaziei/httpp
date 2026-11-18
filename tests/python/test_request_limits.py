@@ -96,3 +96,35 @@ def test_max_time_zero_is_no_limit_and_negative_is_refused():
         assert r.ok and r.body == "end"
     with pytest.raises(ValueError):
         Request("http://localhost/").max_time(-1)
+
+
+def test_client_takes_max_redirects_like_request():
+    with running(chain_app()) as url:
+        assert 300 <= httpp.Client(url).get("/a").status < 400  # follows none by default
+        assert httpp.Client(url, max_redirects=2).get("/a").text == "end"
+        assert httpp.Client(url, max_redirects=-1).get("/a").text == "end"
+        assert httpp.Client(url, max_redirects=1).get("/a").error == "too_many_redirects"
+        assert httpp.Client(url, follow_redirects=True).get("/a").text == "end"  # the shorthand for 20
+        with pytest.raises(ValueError):
+            httpp.Client(url, max_redirects=-2)
+
+
+def test_client_takes_connect_timeout_max_time_and_auto_compression():
+    with running(chain_app()) as url:
+        assert httpp.Client(url, connect_timeout=5, max_time=10, auto_compression=False).get("/c").text == "end"
+        assert httpp.Client(url, max_time=1).get("/slow").error == "timeout"
+        with pytest.raises(ValueError):
+            httpp.Client(url, connect_timeout=-1)
+        with pytest.raises(ValueError):
+            httpp.Client(url, max_time=-1)
+
+
+def test_download_has_getters_with_the_same_names(tmp_path):
+    d = httpp.Download("http://127.0.0.1:1/x", str(tmp_path / "f"))
+    assert d.max_redirects() == 20 and d.timeout() == 0 and d.max_wait() == 2.0
+    assert d.max_redirects(0) is d and d.max_redirects() == 0
+    assert d.max_redirects(-1).max_redirects() == -1
+    assert d.timeout(7).timeout() == 7
+    assert d.max_wait(0.5).max_wait() == 0.5
+    with pytest.raises(ValueError):
+        d.max_redirects(-2)

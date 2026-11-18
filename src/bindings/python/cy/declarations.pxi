@@ -16,15 +16,18 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         response get(string path) except + nogil
         response send(string method, string path, vector[pair[string, string]] headers,
                       string body, string content_type) except + nogil
-        cpp_client& set_header(string name, string value) except +
-        cpp_client& set_timeout(long seconds) except +
-        cpp_client& set_follow_redirects(cbool enable) except +
-        cpp_client& set_basic_auth(string user, string password) except +
-        cpp_client& set_bearer_token(string token) except +
-        cpp_client& set_proxy(string proxy_url) except +
-        cpp_client& set_verify(cbool enable) except +
-        cpp_client& set_ca_file(string path) except +
-        cpp_client& set_keep_alive(cbool enable) except +
+        cpp_client& header(string name, string value) except +
+        cpp_client& timeout(long seconds) except +
+        cpp_client& max_redirects(int count) except +  # std::invalid_argument -> ValueError
+        cpp_client& connect_timeout(long seconds) except +
+        cpp_client& max_time(long seconds) except +
+        cpp_client& auto_compression(cbool enable) except +
+        cpp_client& basic_auth(string user, string password) except +
+        cpp_client& bearer(string token) except +
+        cpp_client& proxy(string proxy_url) except +
+        cpp_client& verify(cbool enable) except +
+        cpp_client& ca_file(string path) except +
+        cpp_client& keep_alive(cbool enable) except +
 
         @staticmethod
         response fetch(string full_url) except + nogil
@@ -291,19 +294,23 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         microseconds(long long)
     cdef cppclass cpp_milliseconds "std::chrono::milliseconds":
         cpp_milliseconds(long long) noexcept nogil
+        long long count() noexcept nogil
 
     cdef cppclass cpp_download "httpp::download":
         cpp_download(string url, string dest_path) except +
         cpp_download& output(string dest_path) except +
         cpp_download& enable_progress(cbool enable) except +
         cpp_download& disable_progress() except +
-        cpp_download& follow_redirects(cbool enable) except +
+        cpp_download& max_redirects(int count) except +  # std::invalid_argument -> ValueError
+        int max_redirects() except +
         cpp_download& resume(cbool enable) except +
         cpp_download& force(cbool enable) except +
         cpp_download& sha256(string hex) except +
         cpp_download& sha256_url(string checksum_url) except +
-        cpp_download& set_timeout(long seconds) except +
-        cpp_download& set_max_wait(cpp_milliseconds max_wait) except +
+        cpp_download& timeout(long seconds) except +
+        long timeout() except +
+        cpp_download& max_wait(cpp_milliseconds wait) except +
+        cpp_milliseconds max_wait() except +
         download_result run() except + nogil
 
 

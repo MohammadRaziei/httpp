@@ -72,7 +72,7 @@ UTEST(httpp_server_compression, a_client_that_does_not_accept_gzip_gets_the_plai
     local_server srv([](httpp::server& s) { s.set_compression(1024); routes(s); });
     for (const char* accept : {"identity", "gzip;q=0", "deflate", ""}) {
         httpp::client c(srv.url());
-        c.set_header("Accept-Encoding", accept);
+        c.header("Accept-Encoding", accept);
         const auto r = c.get("/text");
         ASSERT_EQ(200, r.status);
         ASSERT_STREQ("", r.header("Content-Encoding").c_str());

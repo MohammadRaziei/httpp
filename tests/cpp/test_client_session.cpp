@@ -9,6 +9,7 @@
 #include <chrono>
 #include <future>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -142,7 +143,7 @@ UTEST(httpp_client_request, redirects_are_followed_only_when_asked_for) {
 UTEST(httpp_client_session, base_url_defaults_methods_and_connection_reuse) {
     local_server srv([](httpp::server& s) { echo_route(s); });
     httpp::client c(srv.url("/api")); // a base path is prepended to every request path
-    c.set_header("X-Default", "yes");
+    c.header("X-Default", "yes");
     auto r = c.get("/echo");
     ASSERT_EQ(200, r.status);
     ASSERT_TRUE(r.body.find("GET /api/echo?|") == 0);
@@ -208,4 +209,78 @@ UTEST(httpp_url, encode_decode_and_build_query) {
     ASSERT_STREQ("a b&c", httpp::decode_component("a%20b%26c").c_str());
     ASSERT_STREQ("%zz", httpp::decode_component("%zz").c_str());
     ASSERT_STREQ("a=1&b=x%20y", httpp::build_query({{"a", "1"}, {"b", "x y"}}).c_str());
+}
+
+UTEST(httpp_client_session, a_session_setting_is_read_back_with_the_same_name_and_no_argument) {
+    httpp::client c(std::string("http://127.0.0.1:1/"));
+    ASSERT_EQ(0, c.timeout());
+    ASSERT_EQ(0, c.connect_timeout());
+    ASSERT_EQ(0, c.max_time());
+    ASSERT_EQ(0, c.max_redirects()); // follows none by default
+    ASSERT_TRUE(c.auto_compression());
+    ASSERT_TRUE(c.verify());
+    ASSERT_TRUE(c.keep_alive());
+    ASSERT_STREQ("", c.ca_file().str().c_str());
+
+    c.timeout(30).connect_timeout(5).max_time(60).max_redirects(7).auto_compression(false).verify(false).keep_alive(false).ca_file("ca.pem");
+    ASSERT_EQ(30, c.timeout());
+    ASSERT_EQ(5, c.connect_timeout());
+    ASSERT_EQ(60, c.max_time());
+    ASSERT_EQ(7, c.max_redirects());
+    ASSERT_FALSE(c.auto_compression());
+    ASSERT_FALSE(c.verify());
+    ASSERT_FALSE(c.keep_alive());
+    ASSERT_STREQ("ca.pem", c.ca_file().str().c_str());
+
+    ASSERT_EQ(-1, c.max_redirects(-1).max_redirects()); // -1: no limit
+    ASSERT_EQ(0, c.max_redirects(0).max_redirects());
+    ASSERT_EQ(0, c.timeout(-5).timeout()); // 0 or less is the default again
+}
+
+UTEST(httpp_client_session, a_negative_setting_is_refused_and_changes_nothing) {
+    httpp::client c(std::string("http://127.0.0.1:1/"));
+    c.max_redirects(3).connect_timeout(2).max_time(4);
+    bool threw = false;
+    try { c.max_redirects(-2); } catch (const std::invalid_argument&) { threw = true; }
+    ASSERT_TRUE(threw);
+    threw = false;
+    try { c.connect_timeout(-1); } catch (const std::invalid_argument&) { threw = true; }
+    ASSERT_TRUE(threw);
+    threw = false;
+    try { c.max_time(-1); } catch (const std::invalid_argument&) { threw = true; }
+    ASSERT_TRUE(threw);
+    ASSERT_EQ(3, c.max_redirects());
+    ASSERT_EQ(2, c.connect_timeout());
+    ASSERT_EQ(4, c.max_time());
+}
+
+UTEST(httpp_client_session, async_client_has_the_same_settings_under_the_same_names) {
+    httpp::async_client a(std::string("http://127.0.0.1:1/"));
+    ASSERT_EQ(0, a.max_redirects());
+    ASSERT_TRUE(a.auto_compression());
+    a.timeout(9).connect_timeout(3).max_time(20).max_redirects(-1).auto_compression(false).verify(false).ca_file("x.pem");
+    ASSERT_EQ(9, a.timeout());
+    ASSERT_EQ(3, a.connect_timeout());
+    ASSERT_EQ(20, a.max_time());
+    ASSERT_EQ(-1, a.max_redirects());
+    ASSERT_FALSE(a.auto_compression());
+    ASSERT_FALSE(a.verify());
+    ASSERT_STREQ("x.pem", a.ca_file().str().c_str());
+    bool threw = false;
+    try { a.max_redirects(-2); } catch (const std::invalid_argument&) { threw = true; }
+    ASSERT_TRUE(threw);
+}
+
+UTEST(httpp_client_session, a_session_follows_redirects_only_when_max_redirects_says_so) {
+    local_server srv([](httpp::server& s) {
+        s.get("/redir", [](const httpp::server_request&, httpp::response& res) {
+            res.status = 302;
+            res.headers.emplace_back("Location", "/target");
+        });
+        s.get("/target", [](const httpp::server_request&, httpp::response& res) { res.body = "arrived"; });
+    });
+    httpp::client c(srv.url("/"));
+    ASSERT_EQ(302, c.get("/redir").status);
+    ASSERT_EQ(200, c.max_redirects(20).get("/redir").status);
+    ASSERT_EQ(302, c.max_redirects(0).get("/redir").status);
 }

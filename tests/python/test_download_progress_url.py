@@ -72,11 +72,11 @@ def test_redirects_are_followed_by_default_and_can_be_turned_off(tmp_path):
         res = dl(f"{url}/redirect", out).run()
         assert (res.ok, res.status) == (True, 200) and out.read_bytes() == CONTENT
         out.unlink()
-        res = dl(f"{url}/redirect", out).follow_redirects(False).run()
+        res = dl(f"{url}/redirect", out).max_redirects(0).run()
         assert (res.ok, res.status) == (False, 302)
         assert not out.exists()  # a failed download leaves nothing behind
         out2 = tmp_path / "r2.bin"
-        assert dl(f"{url}/redirect", out2).follow_redirects(True).run().ok
+        assert dl(f"{url}/redirect", out2).max_redirects(20).run().ok
 
 
 def test_resume_continues_a_part_file_with_a_range_request(tmp_path):

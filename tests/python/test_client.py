@@ -135,7 +135,7 @@ def test_client_session_base_path_default_headers_and_methods():
         for method in ("post", "put", "patch", "delete"):
             assert getattr(d, method)("/echo", data="x").json()["method"] == method.upper()
         assert d.head("/echo").status == 200
-        assert d.set_header("X-Default", "later").get("/echo").json()["headers"]["x-default"] == "later"
+        assert d.header("X-Default", "later").get("/echo").json()["headers"]["x-default"] == "later"
 
 
 def test_client_rejects_a_bad_base_url():

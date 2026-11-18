@@ -98,7 +98,7 @@ UTEST(download_transfer, a_redirect_that_is_not_followed_fails_and_leaves_no_fil
     testutil::local_server srv([&](httpp::server& s) { routes(s, st, true); });
     const auto path = temp_path("noredirect");
     forget(path);
-    auto res = httpp::download(srv.url("/old"), path).disable_progress().follow_redirects(false).run();
+    auto res = httpp::download(srv.url("/old"), path).disable_progress().max_redirects(0).run();
     ASSERT_FALSE(res.ok);
     ASSERT_EQ(302, res.status);
     ASSERT_FALSE(exists(path));

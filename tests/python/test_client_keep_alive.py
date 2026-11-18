@@ -1,4 +1,4 @@
-"""Client(keep_alive=...) mirrors httpp::client::set_keep_alive (C++ default: on)."""
+"""Client(keep_alive=...) mirrors httpp::client::keep_alive (C++ default: on)."""
 
 import threading
 import time

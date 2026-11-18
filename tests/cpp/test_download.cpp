@@ -6,6 +6,7 @@
 
 #include <thread>
 #include <chrono>
+#include <stdexcept>
 #include <fstream>
 #include <sstream>
 #include <cstdio>
@@ -236,9 +237,9 @@ UTEST(httpp_download_sha256, resume_does_not_trust_a_complete_looking_but_corrup
     std::remove(dest.c_str());
 }
 
-// ---- the lock (always on) and set_timeout() --------------------------------------------------------------------
+// ---- the lock (always on) and timeout() --------------------------------------------------------------------
 // The lock is the directory <dest>.lock with a file `alive` in it that the owner rewrites; these tests play both roles.
-// set_timeout(n) is also how long a lock whose `alive` does not change is waited for before it is taken over.
+// timeout(n) is also how long a lock whose `alive` does not change is waited for before it is taken over.
 
 #ifdef _WIN32
 #include <direct.h>
@@ -312,7 +313,7 @@ UTEST(httpp_download_lock, a_live_lock_is_waited_for_even_beyond_the_timeout) {
     fake_owner owner(dest);  // keeps rewriting `alive`
     std::thread releaser([&] { std::this_thread::sleep_for(std::chrono::milliseconds(1500)); owner.release(); });
     const auto t0 = std::chrono::steady_clock::now();
-    auto res = httpp::download(url_of(rs), dest).disable_progress().set_timeout(1).run();  // 1 s timeout, 1.5 s wait
+    auto res = httpp::download(url_of(rs), dest).disable_progress().timeout(1).run();  // 1 s timeout, 1.5 s wait
     releaser.join();
     ASSERT_TRUE(res.ok);
     EXPECT_TRUE(seconds_since(t0) >= 1.4);
@@ -327,7 +328,7 @@ UTEST(httpp_download_lock, a_lock_that_does_not_change_is_waited_for_as_long_as_
     make_lock_dir(dest + ".lock");  // its owner died: nobody rewrites `alive`
     { std::ofstream(dest + ".lock/alive") << "12345 7\n"; }
     const auto t0 = std::chrono::steady_clock::now();
-    auto res = httpp::download(url_of(rs), dest).disable_progress().set_timeout(2).run();
+    auto res = httpp::download(url_of(rs), dest).disable_progress().timeout(2).run();
     const double waited = seconds_since(t0);
     ASSERT_TRUE(res.ok);
     EXPECT_TRUE(waited >= 1.8);   // it did wait the timeout ...
@@ -346,8 +347,8 @@ UTEST(httpp_download_lock, the_wait_for_an_unchanged_lock_is_the_smaller_of_max_
         make_lock_dir(dest + ".lock");  // dead lock: nobody rewrites `alive`
         { std::ofstream(dest + ".lock/alive") << "12345 7\n"; }
         const auto t0 = std::chrono::steady_clock::now();
-        auto res = httpp::download(url_of(rs), dest).disable_progress().set_timeout(30)
-                       .set_max_wait(std::chrono::milliseconds(max_wait_ms)).run();
+        auto res = httpp::download(url_of(rs), dest).disable_progress().timeout(30)
+                       .max_wait(std::chrono::milliseconds(max_wait_ms)).run();
         const double waited = seconds_since(t0);
         ASSERT_TRUE(res.ok);
         EXPECT_TRUE(waited >= max_wait_ms / 1000.0 - 0.05);  // it waited max_wait ...
@@ -365,8 +366,8 @@ UTEST(httpp_download_lock, a_lock_that_keeps_being_updated_is_waited_for_however
     fake_owner owner(dest);  // rewrites `alive` every 20 ms for the whole 1.5 s
     std::thread releaser([&] { std::this_thread::sleep_for(std::chrono::milliseconds(1500)); owner.release(); });
     const auto t0 = std::chrono::steady_clock::now();
-    auto res = httpp::download(url_of(rs), dest).disable_progress().set_timeout(1)
-                   .set_max_wait(std::chrono::milliseconds(400)).run();
+    auto res = httpp::download(url_of(rs), dest).disable_progress().timeout(1)
+                   .max_wait(std::chrono::milliseconds(400)).run();
     releaser.join();
     ASSERT_TRUE(res.ok);
     EXPECT_TRUE(seconds_since(t0) >= 1.4);  // it was not taken over after 400 ms
@@ -428,7 +429,7 @@ UTEST(httpp_download_timeout, set_timeout_also_limits_the_network) {
     const std::string dest = "test_dl_timeout.bin";
     std::remove(dest.c_str());
     const auto t0 = std::chrono::steady_clock::now();
-    auto res = httpp::download(url_of(rs, "/slow"), dest).disable_progress().set_timeout(1).run();
+    auto res = httpp::download(url_of(rs, "/slow"), dest).disable_progress().timeout(1).run();
     EXPECT_FALSE(res.ok);
     EXPECT_TRUE(seconds_since(t0) < 2.8);
     EXPECT_FALSE(exists(dest));
@@ -449,4 +450,22 @@ UTEST(httpp_download, a_gzip_body_is_saved_as_sent_not_decoded_and_not_refused) 
     ASSERT_TRUE(result.ok);
     ASSERT_TRUE(read_file(dest) == packed);
     std::remove(dest.c_str());
+}
+
+UTEST(httpp_download, its_settings_are_read_back_with_the_same_name_and_no_argument) {
+    httpp::download d("http://127.0.0.1:1/f", "unused.bin");
+    ASSERT_EQ(20, d.max_redirects()); // redirects are followed by default here
+    ASSERT_EQ(0, d.timeout());
+    ASSERT_EQ(2000, static_cast<int>(d.max_wait().count()));
+    d.max_redirects(0).timeout(7).max_wait(std::chrono::milliseconds(500));
+    ASSERT_EQ(0, d.max_redirects());
+    ASSERT_EQ(7, d.timeout());
+    ASSERT_EQ(500, static_cast<int>(d.max_wait().count()));
+    ASSERT_EQ(-1, d.max_redirects(-1).max_redirects());
+    d.max_wait(std::chrono::milliseconds(0)); // <= 0 is ignored
+    ASSERT_EQ(500, static_cast<int>(d.max_wait().count()));
+    bool threw = false;
+    try { d.max_redirects(-2); } catch (const std::invalid_argument&) { threw = true; }
+    ASSERT_TRUE(threw);
+    ASSERT_EQ(-1, d.max_redirects());
 }

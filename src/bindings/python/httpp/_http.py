@@ -99,8 +99,8 @@ class AsyncClient:
     request, connections are kept alive and reused, and at most `max_connections` requests are in
     flight (extra ones wait their turn). The C++ counterpart is httpp::async_client.
 
-    `**client_options` are the same as for Client: headers, timeout, follow_redirects, auth, token,
-    verify, ca_file, proxy.
+    `**client_options` are the same as for Client: headers, timeout, follow_redirects, max_redirects,
+    connect_timeout, max_time, auto_compression, auth, token, verify, ca_file, proxy.
     """
 
     def __init__(self, base_url, *, max_connections=8, **client_options):

@@ -174,28 +174,40 @@ cdef bytes _fs(object p):
     return os.fsencode(p)
 
 
-cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, cbool follow_redirects, auth, token,
-                                cbool verify, ca_file, proxy) except *:
+cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, follow_redirects, max_redirects, connect_timeout,
+                                max_time, cbool auto_compression, auth, token, cbool verify, ca_file, proxy) except *:
     """The options httpp.Client and httpp.AsyncClient share (the C++ client and async_client have the same setters)."""
     if headers:
         for name, value in (headers.items() if hasattr(headers, "items") else headers):
-            cli.set_header((<str>name).encode("utf-8"), (<str>value).encode("utf-8"))
+            cli.header((<str>name).encode("utf-8"), (<str>value).encode("utf-8"))
     if timeout is not None:
-        cli.set_timeout(max(1, int(round(timeout))))
-    if follow_redirects:
-        cli.set_follow_redirects(True)
+        cli.timeout(max(1, int(round(timeout))))
+    if connect_timeout is not None:
+        if connect_timeout < 0:
+            raise ValueError("connect_timeout must not be negative")
+        cli.connect_timeout(max(1, int(round(connect_timeout))))
+    if max_time is not None:
+        if max_time < 0:
+            raise ValueError("max_time must not be negative")
+        cli.max_time(0 if max_time == 0 else max(1, int(round(max_time))))
+    if not auto_compression:
+        cli.auto_compression(False)
+    if max_redirects is not None:
+        cli.max_redirects(<int>max_redirects)
+    elif follow_redirects:  # the shorthand: True means up to 20 hops
+        cli.max_redirects(20)
     if auth is not None:
-        cli.set_basic_auth((<str>auth[0]).encode("utf-8"), (<str>auth[1]).encode("utf-8"))
+        cli.basic_auth((<str>auth[0]).encode("utf-8"), (<str>auth[1]).encode("utf-8"))
     if token is not None:
-        cli.set_bearer_token((<str>token).encode("utf-8"))
+        cli.bearer((<str>token).encode("utf-8"))
     if not verify:
-        cli.set_verify(False)
+        cli.verify(False)
     if ca_file is not None:
-        cli.set_ca_file(_fs(ca_file))
+        cli.ca_file(_fs(ca_file))
     if proxy is not None:
         if not isinstance(proxy, str):
             raise TypeError("proxy must be a URL string such as 'http://user:pass@127.0.0.1:3128'")
-        cli.set_proxy(proxy.encode("utf-8"))
+        cli.proxy(proxy.encode("utf-8"))
 
 
 cdef class Client:
@@ -213,15 +225,17 @@ cdef class Client:
     cdef cpp_client* _cli
 
     def __init__(self, str host_or_url, port=None, cbool ssl=False, *, headers=None, timeout=None,
-                 cbool follow_redirects=False, auth=None, token=None, cbool verify=True, ca_file=None,
+                 follow_redirects=False, max_redirects=None, connect_timeout=None, max_time=None,
+                 cbool auto_compression=True, auth=None, token=None, cbool verify=True, ca_file=None,
                  proxy=None, cbool keep_alive=True):
         if port is None:
             self._cli = new cpp_client(host_or_url.encode("utf-8"))
         else:
             self._cli = new cpp_client(host_or_url.encode("utf-8"), <int>port, ssl)
-        _apply_client_options(self._cli, headers, timeout, follow_redirects, auth, token, verify, ca_file, proxy)
+        _apply_client_options(self._cli, headers, timeout, follow_redirects, max_redirects, connect_timeout, max_time,
+                              auto_compression, auth, token, verify, ca_file, proxy)
         if not keep_alive:
-            self._cli.set_keep_alive(False)
+            self._cli.keep_alive(False)
 
     def __dealloc__(self):
         if self._cli is not NULL:
@@ -272,9 +286,9 @@ cdef class Client:
     def delete(self, str path, **kwargs):
         return self.request("DELETE", path, **kwargs)
 
-    def set_header(self, str name, str value):
+    def header(self, str name, str value):
         """Send this header with every request from now on."""
-        self._cli.set_header(name.encode("utf-8"), value.encode("utf-8"))
+        self._cli.header(name.encode("utf-8"), value.encode("utf-8"))
         return self
 
     @staticmethod

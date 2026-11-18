@@ -107,16 +107,18 @@ ALIASES = {
 # C++ setters that are constructor arguments in Python: name -> keyword, with a value that must be accepted.
 CTOR_ARGS = {
     "client": {
-        "set_timeout": ("timeout", 5), "set_follow_redirects": ("follow_redirects", True),
-        "set_basic_auth": ("auth", ("u", "p")), "set_bearer_token": ("token", "t"),
-        "set_verify": ("verify", False), "set_ca_file": ("ca_file", "ca.pem"),
-        "set_proxy": ("proxy", "http://127.0.0.1:3128"), "set_keep_alive": ("keep_alive", False),
+        "timeout": ("timeout", 5), "max_redirects": ("max_redirects", 3), "connect_timeout": ("connect_timeout", 2),
+        "max_time": ("max_time", 9), "auto_compression": ("auto_compression", False),
+        "basic_auth": ("auth", ("u", "p")), "bearer": ("token", "t"),
+        "verify": ("verify", False), "ca_file": ("ca_file", "ca.pem"),
+        "proxy": ("proxy", "http://127.0.0.1:3128"), "keep_alive": ("keep_alive", False),
     },
     "async_client": {
-        "set_timeout": ("timeout", 5), "set_follow_redirects": ("follow_redirects", True),
-        "set_basic_auth": ("auth", ("u", "p")), "set_bearer_token": ("token", "t"),
-        "set_verify": ("verify", False), "set_ca_file": ("ca_file", "ca.pem"),
-        "set_proxy": ("proxy", "http://127.0.0.1:3128"), "set_header": ("headers", {"X": "1"}),
+        "timeout": ("timeout", 5), "max_redirects": ("max_redirects", 3), "connect_timeout": ("connect_timeout", 2),
+        "max_time": ("max_time", 9), "auto_compression": ("auto_compression", False),
+        "basic_auth": ("auth", ("u", "p")), "bearer": ("token", "t"),
+        "verify": ("verify", False), "ca_file": ("ca_file", "ca.pem"),
+        "proxy": ("proxy", "http://127.0.0.1:3128"), "header": ("headers", {"X": "1"}),
     },
 }
 

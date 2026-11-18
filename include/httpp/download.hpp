@@ -46,11 +46,13 @@ public:
     HTTPP_API download& enable_progress(bool enable = true);
     HTTPP_API download& disable_progress();
 
-    // -L/--location. On by default: the common case (GitHub release
-    // assets, CDN links, shortened URLs) answers 302 before serving
-    // anything, and a plain "download this URL" is expected to land the
-    // real file. Pass false to treat a 3xx as the final response instead.
-    HTTPP_API download& follow_redirects(bool enable = true);
+    // -L/--location and --max-redirs in one: how many redirects to follow, 20 by default. Redirects are
+    // followed here unlike in request: the common case (GitHub release assets, CDN links, shortened URLs)
+    // answers 302 before serving anything, and a plain "download this URL" is expected to land the real file.
+    // 0 follows none (a 3xx is the final response), -1 has no limit, any other negative number throws
+    // std::invalid_argument. The same name with no argument returns the value.
+    HTTPP_API download& max_redirects(int count);
+    HTTPP_API int max_redirects() const;
 
     // wget -c-style resume, off by default:
     //   - if dest_path already exists and a HEAD request confirms it's
@@ -87,21 +89,23 @@ public:
     // checksum file (an HTML error page, say) fails the call without downloading anything. Overrides sha256().
     HTTPP_API download& sha256_url(const url& checksum_url = url());
 
-    // Seconds, for connecting, reading and writing (like client::set_timeout); 0 or less keeps the default
+    // Seconds, for connecting, reading and writing (like client::timeout); 0 or less keeps the default
     // (300 s) for those. It is also how long a download waits for another process that holds the same file's
-    // lock (below) while that lock shows no sign of life: see "Locking".
-    HTTPP_API download& set_timeout(long seconds);
+    // lock (below) while that lock shows no sign of life: see "Locking". With no argument it returns the value.
+    HTTPP_API download& timeout(long seconds);
+    HTTPP_API long timeout() const;
 
     // How long a lock that is NOT being updated is waited for before its owner is taken for dead and the lock is
     // taken over; default 2 s, values <= 0 are ignored. The wait is min(max_wait, timeout). It is not a limit on
     // waiting in general: a lock that keeps being updated is waited for as long as it lives.
-    HTTPP_API download& set_max_wait(std::chrono::milliseconds max_wait);
+    HTTPP_API download& max_wait(std::chrono::milliseconds wait);
+    HTTPP_API std::chrono::milliseconds max_wait() const;
 
     // Locking (always on). Only one process (or thread) at a time downloads a given dest_path; the others wait,
     // then carry on, so several workers that want the same file do not fetch it several times.
     //   - the lock is the directory "<dest_path>.lock"; the owner rewrites "<dest_path>.lock/alive" twice per
-    //     wait window (at most every 200 ms). A waiter that sees that file unchanged for min(set_max_wait(),
-    //     set_timeout()) (2 s and 15 s if unset) knows the owner died and takes the lock over. A lock that keeps
+    //     wait window (at most every 200 ms). A waiter that sees that file unchanged for min(max_wait(),
+    //     timeout()) (2 s and 15 s if unset) knows the owner died and takes the lock over. A lock that keeps
     //     being updated is waited for as long as it lives (the owner's own network timeouts bound that).
     //   - a waiter that finds dest_path complete and matching sha256()/sha256_url() uses it without a request
     //     (skipped=true). Without a checksum (or resume(), which skips a complete file) a waiter downloads the file
@@ -118,7 +122,7 @@ private:
     std::string url_;
     std::string dest_path_;
     bool show_progress_ = true;
-    bool follow_redirects_ = true;
+    int max_redirects_ = 20;
     bool resume_ = false;
     bool force_ = false;
     std::string sha256_;
