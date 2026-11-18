@@ -75,6 +75,7 @@ httpp curl http://127.0.0.1:8000/a.txt http://127.0.0.1:8000/b.txt -o a.out -o b
 ## Where it differs from curl
 
 - It is a subset. Missing: `-F` and `--json`, `-G`, `-b` cookies, `-x` proxies, `-k` and `--cacert`, `--data-binary`, `-C` resume, `-r` ranges, `--http2`, `-4` and `-6`, and curl configuration files. `httpp.Request` and `httpp::request` can do several of these (proxies, cookies, TLS options, JSON and form bodies); the command does not expose them yet.
+- `httpp curl` with no URL prints a hint (`try 'httpp curl --help'`, and `no URL specified` when other options were given) and exits with 2, as curl does.
 - A URL without `://` is read as `http://`, as curl does (`httpp curl localhost:8080/x`). A URL with a space or a control character is rejected with exit code 3 and nothing is sent.
 - `-v` shows the headers you gave, not the ones the client adds itself, such as `Host`.
 - `%{size_download}` is the number of body bytes written. The body is written as it arrives, and the client asks for no content coding, so these are the bytes the server sent.

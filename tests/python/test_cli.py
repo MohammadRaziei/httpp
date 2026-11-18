@@ -579,6 +579,16 @@ def test_curl_a_refused_connection_exits_7_and_says_why(httpp_exe, tmp_path):
     assert not out.exists()  # a transfer that never happened leaves no file behind
 
 
+def test_curl_without_a_url_says_what_curl_says_and_exits_2(httpp_exe):
+    hint = "httpp curl: try 'httpp curl --help' for more information\n"
+    bare = run(httpp_exe, "curl")
+    assert (bare.returncode, bare.stdout, bare.stderr) == (2, "", hint)
+    flags_only = run(httpp_exe, "curl", "-i")
+    assert (flags_only.returncode, flags_only.stdout) == (2, "")
+    assert flags_only.stderr == "httpp curl: no URL specified\n" + hint
+    assert run(httpp_exe, "curl", "--help").returncode == 0  # help needs no URL
+
+
 def test_curl_a_bad_url_exits_3(httpp_exe):
     r = run(httpp_exe, "curl", "not a url")
     assert r.returncode == 3 and r.stderr.startswith("error:")

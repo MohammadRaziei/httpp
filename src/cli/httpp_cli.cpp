@@ -851,7 +851,8 @@ int main(int argc, char** argv) {
     // curl
     curl_args ca;
     auto* c_curl = app.add_subcommand("curl", "Make requests (a curl-like subset: -X -H -d -o -O -f -s -S -i -I -v -L -m -u -A -e -w -T -D -d @file --compressed --retry; several URLs).");
-    c_curl->add_option("url", ca.urls, "URL (several are fetched in turn; a failure does not stop the rest, the first one sets the exit code)")->required();
+    // Not ->required(): a missing URL is reported below the way curl does (exit code 2), not as a CLI11 usage error.
+    c_curl->add_option("url", ca.urls, "URL (several are fetched in turn; a failure does not stop the rest, the first one sets the exit code)");
     c_curl->set_version_flag("--version,-V", std::string("httpp curl ") + k_version + " compatible with curl " + k_curl_compat_version);
     c_curl->add_option("--request,-X", ca.method, "HTTP method (default: GET, or POST if -d is given, PUT with -T, HEAD with -I)");
     c_curl->add_option("--header,-H", ca.headers, "Extra header 'Name: value' (repeatable)")->type_name("HEADER")->allow_extra_args(false);
@@ -895,6 +896,11 @@ int main(int argc, char** argv) {
     if (c_browse->parsed()) return cmd_browse(b);
     if (c_download->parsed()) return cmd_download(dl_url, dl_output, dl_quiet);
     if (c_curl->parsed()) {
+        if (ca.urls.empty()) { // curl: bare `curl` only points at --help, with other options it also says what is missing
+            if (argc > 2) std::cerr << "httpp curl: no URL specified\n";
+            std::cerr << "httpp curl: try 'httpp curl --help' for more information" << std::endl;
+            return 2;
+        }
         ca.has_user = curl_user_opt->count() > 0;
         return cmd_curl(ca);
     }
