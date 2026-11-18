@@ -103,3 +103,13 @@ def test_corrupt_data_and_zip_bombs_are_errors():
         r = httpp.Request(url + "/bomb").max_response_size(10000).run()
         assert r.status == 413
         assert len(httpp.Request(url + "/bomb").max_response_size(2 << 20).run().content) == 1 << 20
+
+
+def test_request_auto_compression_off_returns_the_coded_body_and_sends_no_header():
+    app = make_app()
+    with running(app) as url:
+        coded = httpp.Request(url + "/gzip").auto_compression(False).run()
+        assert coded.ok and coded.content[:2] == b"\x1f\x8b" and coded.content != TEXT
+        assert app.seen["accept-encoding"] is None
+        assert httpp.Request(url + "/gzip").auto_compression(False).auto_compression().run().content == TEXT
+        assert httpp.request("GET", url + "/gzip", auto_compression=False).content[:2] == b"\x1f\x8b"

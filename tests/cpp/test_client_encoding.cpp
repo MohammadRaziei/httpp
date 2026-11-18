@@ -158,3 +158,25 @@ UTEST(client_encoding, an_empty_body_with_a_content_encoding_is_not_an_error) {
     ASSERT_EQ(204, r.status);
     ASSERT_TRUE(httpp::request(f.rs.url("/empty")).run_async().get().ok());
 }
+
+UTEST(client_encoding, auto_compression_off_sends_no_accept_encoding_and_returns_the_coded_body) {
+    fixture f;
+    auto blocking = httpp::request(f.rs.url("/gzip")).auto_compression(false).run();
+    ASSERT_TRUE(blocking.ok());
+    ASSERT_TRUE(f.accept_encoding().empty());
+    ASSERT_TRUE(blocking.body == deflate(text.data(), text.size(), inflate_format::gzip, 6));
+    auto async = httpp::request(f.rs.url("/gzip")).auto_compression(false).run_async().get();
+    ASSERT_TRUE(async.body == blocking.body);
+}
+
+UTEST(client_encoding, auto_compression_off_still_sends_an_accept_encoding_the_caller_set) {
+    fixture f;
+    auto r = httpp::request(f.rs.url("/gzip")).auto_compression(false).header("Accept-Encoding", "gzip").run();
+    ASSERT_TRUE(r.ok());
+    ASSERT_TRUE(f.accept_encoding() == "gzip");
+}
+
+UTEST(client_encoding, auto_compression_is_on_by_default_and_can_be_switched_back_on) {
+    fixture f;
+    ASSERT_TRUE(httpp::request(f.rs.url("/gzip")).auto_compression(false).auto_compression().run().body == text);
+}

@@ -253,7 +253,7 @@ struct curl_args {
     bool retry_connrefused = false;
     long max_time = 0;            // -m, in seconds; 0 when not given
     long connect_timeout = 0;     // --connect-timeout, in seconds; 0 when not given
-    int max_redirs = -1;          // --max-redirs; -1 when not given
+    int max_redirs = -2;          // --max-redirs; -2 when not given, -1 = no limit
     int retry = 0;                // --retry
     long retry_delay = 0;         // --retry-delay, in seconds; 0 = 1, 2, 4, ... up to 10 minutes
 };
@@ -444,10 +444,10 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         if (!chosen.empty()) req.method(chosen);
         for (const auto& [name, value] : plan.sent) req.header(name, value);
         if (plan.has_body) req.data(plan.body);
-        if (a.location) req.follow_redirects(true);
+        // -L with --max-redirs 0 follows nothing and fails on the first redirect (exit 47): on_head() checks that.
+        if (a.location && a.max_redirs != 0) req.max_redirects(a.max_redirs == -2 ? 20 : a.max_redirs);
         if (a.max_time > 0) req.timeout(a.max_time);
         if (a.connect_timeout > 0) req.connect_timeout(a.connect_timeout);
-        if (a.max_redirs >= 0) req.max_redirects(a.max_redirs);
         if (a.has_user) req.basic_auth(plan.user_name, plan.user_password);
     };
 
@@ -490,6 +490,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         std::ofstream file;
         bool write_failed = false;
         std::string write_error;
+        bool redirect_refused = false; // -L --max-redirs 0: the first redirect is an error, as in curl
         int tries_done = 0;
 
         auto put = [&](const char* data, std::size_t size) {
@@ -510,6 +511,14 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         };
 
         auto on_head = [&](const httpp::response& head) {
+            if (a.location && a.max_redirs == 0 && head.status >= 301 && head.status <= 308 && head.status != 304 &&
+                head.status != 305 && head.status != 306) {
+                for (const auto& h : head.headers) {
+                    std::string n = h.first;
+                    std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    if (n == "location") { redirect_refused = true; return false; }
+                }
+            }
             if (tries_done < a.retry && is_transient_status(head.status)) return false; // another try follows: none of this answer is shown
             if (a.verbose) {
                 std::cerr << "< HTTP/1.1 " << head.status << "\n";
@@ -547,7 +556,14 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
                 downloaded += piece.size();
                 return put(piece.data(), piece.size());
             });
-            return req.run();
+            redirect_refused = false;
+            httpp::response answer = req.run();
+            if (redirect_refused) {
+                answer = httpp::response{};
+                answer.error = httpp::error_kind::too_many_redirects;
+                answer.error_message = "too many redirects";
+            }
+            return answer;
         };
         res = attempt();
         for (; tries_done < a.retry && is_transient(a, res); ) {
@@ -876,8 +892,8 @@ int main(int argc, char** argv) {
     c_curl->add_option("--max-time,-m", ca.max_time, "Give up when a connect, write or read step takes longer than this many seconds")->check(CLI::Range(1L, 2147483647L))->type_name("SECONDS");
     c_curl->add_option("--connect-timeout", ca.connect_timeout, "Give up when resolving, connecting or the TLS handshake takes longer than this many seconds")
         ->check(CLI::Range(1L, 2147483647L))->type_name("SECONDS");
-    c_curl->add_option("--max-redirs", ca.max_redirs, "With -L: fail with exit code 47 after this many redirects (default 20)")
-        ->check(CLI::Range(0, 2147483647))->type_name("NUM");
+    c_curl->add_option("--max-redirs", ca.max_redirs, "With -L: fail with exit code 47 after this many redirects (default 20, -1 = no limit)")
+        ->check(CLI::Range(-1, 2147483647))->type_name("NUM");
     c_curl->add_option("--user-agent,-A", ca.user_agent, "Send this User-Agent (an explicit -H wins)")->type_name("NAME");
     c_curl->add_option("--referer,-e", ca.referer, "Send this Referer (an explicit -H wins)")->type_name("URL");
     auto* curl_user_opt = c_curl->add_option("--user,-u", ca.user, "Basic authentication as 'user:password'")->type_name("USER:PASSWORD");

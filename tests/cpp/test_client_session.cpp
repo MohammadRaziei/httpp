@@ -134,7 +134,7 @@ UTEST(httpp_client_request, redirects_are_followed_only_when_asked_for) {
     auto raw = httpp::request(srv.url("/redir")).run();
     ASSERT_EQ(302, raw.status);
     ASSERT_STREQ("/target", raw.header("Location").c_str());
-    auto followed = httpp::request(srv.url("/redir")).follow_redirects().run();
+    auto followed = httpp::request(srv.url("/redir")).max_redirects(20).run();
     ASSERT_EQ(200, followed.status);
     ASSERT_STREQ("arrived", followed.body.c_str());
 }

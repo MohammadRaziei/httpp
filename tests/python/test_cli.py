@@ -771,7 +771,7 @@ def test_curl_connect_timeout_does_not_cut_a_slow_answer(httpp_exe, echo_app):
 
 def test_curl_max_redirs_and_connect_timeout_must_be_numbers(httpp_exe):
     assert run(httpp_exe, "curl", "http://127.0.0.1:1/", "--max-redirs", "many").returncode == 2
-    assert run(httpp_exe, "curl", "http://127.0.0.1:1/", "--max-redirs", "-1").returncode == 2
+    assert run(httpp_exe, "curl", "http://127.0.0.1:1/", "--max-redirs", "-2").returncode == 2
     assert run(httpp_exe, "curl", "http://127.0.0.1:1/", "--connect-timeout", "0").returncode == 2
 
 

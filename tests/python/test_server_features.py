@@ -207,7 +207,7 @@ def test_hooks_may_be_async_and_run_in_registration_order():
         res = Request(url + "/r").run()
         assert (res.status, res.header("X-Order")) == (200, "12")
         assert order == ["first", "second"]
-        res = Request(url + "/r?stop=1").follow_redirects(False).run()
+        res = Request(url + "/r?stop=1").max_redirects(0).run()
         assert (res.status, res.header("Location")) == (302, "/elsewhere")
 
 

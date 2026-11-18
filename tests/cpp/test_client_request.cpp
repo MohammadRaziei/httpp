@@ -103,7 +103,7 @@ UTEST(httpp_client_request, timeout_and_follow_redirects_are_chainable_and_dont_
     std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/ok";
     httpp::response res = httpp::request(url)
                                .timeout(5)
-                               .follow_redirects(true)
+                               .max_redirects(20)
                                .run();
 
     ASSERT_TRUE(res.ok());
@@ -124,33 +124,37 @@ httpp::server redirect_chain() {
 }
 } // namespace
 
-UTEST(httpp_client_request, max_redirects_bounds_the_hops_that_are_followed) {
+UTEST(httpp_client_request, max_redirects_takes_the_most_hops_it_may_follow) {
     running_server rs(redirect_chain());
     const std::string a = "http://127.0.0.1:" + std::to_string(rs.port) + "/a";
 
-    httpp::response two = httpp::request(a).follow_redirects().max_redirects(2).run();
+    httpp::response two = httpp::request(a).max_redirects(2).run();
     ASSERT_TRUE(two.ok());
     ASSERT_STREQ("end", two.body.c_str());
 
-    httpp::response one = httpp::request(a).follow_redirects().max_redirects(1).run();
+    httpp::response one = httpp::request(a).max_redirects(1).run();
     ASSERT_TRUE(one.error == httpp::error_kind::too_many_redirects);
     ASSERT_EQ(0, one.status);
-
-    httpp::response none = httpp::request(a).follow_redirects().max_redirects(0).run();
-    ASSERT_TRUE(none.error == httpp::error_kind::too_many_redirects);
 }
 
-UTEST(httpp_client_request, max_redirects_changes_nothing_when_redirects_are_not_followed) {
+UTEST(httpp_client_request, max_redirects_minus_one_has_no_limit) {
+    running_server rs(redirect_chain());
+    httpp::response res = httpp::request("http://127.0.0.1:" + std::to_string(rs.port) + "/a").max_redirects(-1).run();
+    ASSERT_TRUE(res.ok());
+    ASSERT_STREQ("end", res.body.c_str());
+}
+
+UTEST(httpp_client_request, max_redirects_zero_follows_none) {
     running_server rs(redirect_chain());
     httpp::response res = httpp::request("http://127.0.0.1:" + std::to_string(rs.port) + "/a").max_redirects(0).run();
-    ASSERT_EQ(302, res.status);
+    ASSERT_EQ(302, res.status); // the redirect itself is the answer
     ASSERT_TRUE(res.error == httpp::error_kind::none);
 }
 
 UTEST(httpp_client_request, a_negative_limit_is_refused) {
     bool redirects_refused = false, connect_refused = false;
     try {
-        httpp::request("http://127.0.0.1:1/").max_redirects(-1);
+        httpp::request("http://127.0.0.1:1/").max_redirects(-2);
     } catch (const std::invalid_argument&) {
         redirects_refused = true;
     }

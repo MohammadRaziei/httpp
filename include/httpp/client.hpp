@@ -224,12 +224,16 @@ public:
 
     // -m/--max-time (seconds), -L/--location
     HTTPP_API request& timeout(long seconds);
-    HTTPP_API request& follow_redirects(bool enable = true);
-
-    // --max-redirs: how many redirects follow_redirects() may follow before the request fails with
-    // error_kind::too_many_redirects (default 20). 0 follows none: the first redirect fails. Without
-    // follow_redirects() it changes nothing. Throws std::invalid_argument for a negative number.
+    // -L/--location and --max-redirs in one: how many redirects to follow. 0 (the default) follows none: a 3xx
+    // is the answer. n > 0 follows up to n hops; one more fails with error_kind::too_many_redirects.
+    // -1 follows without a limit (a redirect loop then never ends, as timeout() limits each step, not the
+    // whole request). Throws std::invalid_argument for any other negative number.
     HTTPP_API request& max_redirects(int count);
+
+    // On by default: ask for gzip / deflate (Accept-Encoding, unless header() sets one) and hand back the
+    // decoded body. Off: no Accept-Encoding is sent unless header() sets one, and a coded body comes back
+    // exactly as the server sent it, like requests with stream=True and raw bytes.
+    HTTPP_API request& auto_compression(bool enable = true);
     // --connect-timeout (seconds): the limit for resolving the host, connecting, the proxy handshake and the
     // TLS handshake. timeout() still limits each write and read. 0 (the default) means timeout() covers the
     // connect steps too. Throws std::invalid_argument for a negative number.

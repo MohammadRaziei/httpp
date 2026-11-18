@@ -144,6 +144,7 @@ bool session_settings::make_spec(const endpoint& where, const std::string& metho
     out.connect_timeout = connect_timeout;
     out.redirects_left = max_redirects;
     out.follow = follow;
+    out.auto_compression = auto_compression;
     out.verify = verify;
     out.ca_file = ca_file;
     out.proxy = proxy;
@@ -193,7 +194,8 @@ async_job make_job(const request_spec& s) {
     j.headers = s.headers;
     if (!has_header(s.headers, "Accept")) j.headers.emplace_back("Accept", "*/*");
     if (!has_header(s.headers, "User-Agent")) j.headers.emplace_back("User-Agent", "httpp");
-    if (!has_header(s.headers, "Accept-Encoding")) j.headers.emplace_back("Accept-Encoding", default_accept_encoding);
+    if (s.auto_compression && !has_header(s.headers, "Accept-Encoding")) j.headers.emplace_back("Accept-Encoding", default_accept_encoding);
+    j.auto_decode = s.auto_compression;
     if (method_has_body(s.method)) {
         j.body = s.body;
         if (!has_header(s.headers, "Content-Type"))

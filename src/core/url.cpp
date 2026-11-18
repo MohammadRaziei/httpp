@@ -57,7 +57,7 @@ std::string decode_component(const std::string& text) {
 
 void fetch_public_suffix_list(const std::string& source, long timeout_seconds) {
     const std::string from = source.empty() ? std::string(urlparser::psl::instance().source_url()) : source;
-    const response res = request(from).timeout(timeout_seconds).follow_redirects(true).run();
+    const response res = request(from).timeout(timeout_seconds).max_redirects(20).run();
     if (res.failed()) {
         throw std::runtime_error("fetch_public_suffix_list: " + from + ": " + res.error_name() + ": " + res.error_message);
     }

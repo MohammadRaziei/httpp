@@ -158,7 +158,7 @@ UTEST(client_async_redirects, are_not_followed_by_default) {
 
 UTEST(client_async_redirects, relative_locations_are_resolved_hop_by_hop) {
     testutil::local_server srv(add_redirects);
-    auto f = httpp::request(srv.url("/start")).follow_redirects(true).run_async();
+    auto f = httpp::request(srv.url("/start")).max_redirects(20).run_async();
     auto r = get(f);
     ASSERT_EQ(200, r.status);
     ASSERT_TRUE(r.body == "end:1"); // /start -> /dir/mid -> ../end?x=1 = /end?x=1
@@ -166,11 +166,11 @@ UTEST(client_async_redirects, relative_locations_are_resolved_hop_by_hop) {
 
 UTEST(client_async_redirects, a_303_turns_a_post_into_a_get_and_a_307_keeps_it) {
     testutil::local_server srv(add_redirects);
-    auto f1 = httpp::request(srv.url("/post303")).data("payload").follow_redirects(true).run_async();
+    auto f1 = httpp::request(srv.url("/post303")).data("payload").max_redirects(20).run_async();
     auto r1 = get(f1);
     ASSERT_TRUE(has(r1, "method=GET"));
     ASSERT_TRUE(has(r1, "body="));
-    auto f2 = httpp::request(srv.url("/post307")).data("payload").follow_redirects(true).run_async();
+    auto f2 = httpp::request(srv.url("/post307")).data("payload").max_redirects(20).run_async();
     auto r2 = get(f2);
     ASSERT_TRUE(has(r2, "method=POST"));
     ASSERT_TRUE(has(r2, "body=payload"));
@@ -178,7 +178,7 @@ UTEST(client_async_redirects, a_303_turns_a_post_into_a_get_and_a_307_keeps_it) 
 
 UTEST(client_async_redirects, a_loop_ends_in_too_many_redirects) {
     testutil::local_server srv(add_redirects);
-    auto f = httpp::request(srv.url("/loop")).follow_redirects(true).run_async();
+    auto f = httpp::request(srv.url("/loop")).max_redirects(20).run_async();
     auto r = get(f);
     ASSERT_EQ(0, r.status);
     ASSERT_TRUE(r.error == httpp::error_kind::too_many_redirects);
@@ -186,7 +186,7 @@ UTEST(client_async_redirects, a_loop_ends_in_too_many_redirects) {
 
 UTEST(client_async_redirects, a_redirect_without_a_location_is_returned_as_it_is) {
     testutil::local_server srv(add_redirects);
-    auto f = httpp::request(srv.url("/nolocation")).follow_redirects(true).run_async();
+    auto f = httpp::request(srv.url("/nolocation")).max_redirects(20).run_async();
     ASSERT_EQ(302, get(f).status);
 }
 
@@ -198,11 +198,11 @@ UTEST(client_async_redirects, credentials_stay_on_the_same_origin_and_are_droppe
         s.get("/to-same", [](const httpp::server_request&, httpp::response& r) { r.status = 302; r.headers.emplace_back("Location", "/echo"); });
         add_echo(s);
     });
-    auto same = httpp::request(origin.url("/to-same")).basic_auth("u", "p").cookie("c", "1").header("X-Test", "keep").follow_redirects(true).run_async();
+    auto same = httpp::request(origin.url("/to-same")).basic_auth("u", "p").cookie("c", "1").header("X-Test", "keep").max_redirects(20).run_async();
     auto rs = get(same);
     ASSERT_TRUE(has(rs, "auth=Basic dTpw"));
     ASSERT_TRUE(has(rs, "cookie=c=1"));
-    auto cross = httpp::request(origin.url("/to-other")).basic_auth("u", "p").cookie("c", "1").header("X-Test", "keep").follow_redirects(true).run_async();
+    auto cross = httpp::request(origin.url("/to-other")).basic_auth("u", "p").cookie("c", "1").header("X-Test", "keep").max_redirects(20).run_async();
     auto rc = get(cross);
     ASSERT_EQ(200, rc.status);
     ASSERT_TRUE(has(rc, "auth="));   // Authorization was not sent to the other origin

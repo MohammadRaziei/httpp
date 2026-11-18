@@ -1,4 +1,4 @@
-"""Request.max_redirects and Request.connect_timeout (ADR-0079)."""
+"""Request.max_redirects and Request.connect_timeout (ADR-0079, ADR-0089)."""
 import time
 
 import pytest
@@ -34,23 +34,27 @@ def chain_app():
 
 def test_max_redirects_bounds_the_hops_that_are_followed():
     with running(chain_app()) as url:
-        two = Request(url + "/a").follow_redirects().max_redirects(2).run()
+        two = Request(url + "/a").max_redirects(2).run()
         assert two.ok and two.body == "end"
-        one = Request(url + "/a").follow_redirects().max_redirects(1).run()
+        one = Request(url + "/a").max_redirects(1).run()
         assert one.failed and one.error == "too_many_redirects" and one.status == 0
-        zero = Request(url + "/a").follow_redirects().max_redirects(0).run()
-        assert zero.error == "too_many_redirects"
 
 
-def test_max_redirects_changes_nothing_when_redirects_are_not_followed():
+def test_max_redirects_zero_is_the_default_and_follows_none():
     with running(chain_app()) as url:
-        r = Request(url + "/a").max_redirects(0).run()
-        assert 300 <= r.status < 400 and not r.failed  # the redirect itself is the answer
+        for r in (Request(url + "/a").run(), Request(url + "/a").max_redirects(0).run()):
+            assert 300 <= r.status < 400 and not r.failed  # the redirect itself is the answer
 
 
-def test_a_negative_max_redirects_is_a_value_error():
+def test_max_redirects_minus_one_has_no_limit():
+    with running(chain_app()) as url:
+        r = Request(url + "/a").max_redirects(-1).run()
+        assert r.ok and r.body == "end"
+
+
+def test_a_negative_max_redirects_below_minus_one_is_a_value_error():
     with pytest.raises(ValueError):
-        Request("http://127.0.0.1:1/").max_redirects(-1)
+        Request("http://127.0.0.1:1/").max_redirects(-2)
 
 
 def test_connect_timeout_does_not_limit_the_wait_for_the_answer():
@@ -70,7 +74,8 @@ def test_connect_timeout_takes_seconds_like_timeout():
 
 def test_the_request_helper_takes_both_options():
     with running(chain_app()) as url:
-        r = httpp.request("GET", url + "/a", follow_redirects=True, max_redirects=1)
+        r = httpp.request("GET", url + "/a", max_redirects=1)
         assert r.error == "too_many_redirects"
-        r = httpp.request("GET", url + "/a", follow_redirects=True, max_redirects=2, connect_timeout=5)
+        r = httpp.request("GET", url + "/a", max_redirects=2, connect_timeout=5)
         assert r.ok and r.body == "end"
+        assert httpp.request("GET", url + "/a", follow_redirects=True).body == "end"  # the Client spelling: up to 20

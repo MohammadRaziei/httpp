@@ -601,7 +601,7 @@ struct async_http::impl {
                 if (job.keep_alive && resp_keep && leftover.empty() && !conn->closed) owner.put_idle(conn);
                 else conn->close();
             }
-            if (!job.sink) decode_content(res, job.max_response_size); // gzip / deflate bodies, see content_decode.hpp; a sink gets the bytes as sent
+            if (!job.sink && job.auto_decode) decode_content(res, job.max_response_size); // gzip / deflate bodies, see content_decode.hpp; a sink gets the bytes as sent
             complete();
         }
         void complete() {

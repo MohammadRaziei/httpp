@@ -59,6 +59,7 @@ struct async_job {
     long timeout_sec = 0;               // per step (resolve, connect, write, each read); 0 = none
     long connect_timeout_sec = 0;       // resolve, connect, proxy and TLS handshake instead of timeout_sec; 0 = timeout_sec
     std::size_t max_response_size = 0;  // body bytes; 0 = no limit
+    bool auto_decode = true;            // undo gzip / deflate in response::body (a sink always gets the bytes as sent)
     // Keep the connection for the next request to the same place, and reuse an idle one if there is one.
     // A reused connection the server had already closed is retried once on a fresh one, but only for
     // idempotent methods (GET, HEAD, OPTIONS, PUT, DELETE) and only if no response byte arrived.

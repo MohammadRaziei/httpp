@@ -140,9 +140,9 @@ def test_response_classes():
         r = get(url, "/t")
         assert r.body == "hi" and r.header("Content-Type") == "text/plain; charset=utf-8"
         assert get(url, "/h").header("Content-Type") == "text/html; charset=utf-8"
-        r = Request(url + "/r").follow_redirects(False).run()
+        r = Request(url + "/r").max_redirects(0).run()
         assert (r.status, r.header("Location")) == (307, "/j")
-        assert Request(url + "/r2").follow_redirects(False).run().status == 303
+        assert Request(url + "/r2").max_redirects(0).run().status == 303
         r = get(url, "/s")
         assert r.body == "ab" and r.header("Content-Type").startswith("text/csv")
         assert json.loads(get(url, "/m").body) == {"free": "form"}

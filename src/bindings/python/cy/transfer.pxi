@@ -364,14 +364,17 @@ cdef class Request:
         self._req.timeout(max(1, int(round(seconds))))
         return self
 
-    def follow_redirects(self, cbool enable=True):
-        self._req.follow_redirects(enable)
+    def max_redirects(self, int count):
+        """How many redirects to follow: 0 (the default) follows none and a 3xx is the answer, n follows
+        up to n hops (one more fails with error "too_many_redirects"), -1 follows without a limit.
+        ValueError for any other negative number."""
+        self._req.max_redirects(count)
         return self
 
-    def max_redirects(self, int count):
-        """How many redirects follow_redirects() may follow before the request fails with error
-        "too_many_redirects" (default 20). 0 follows none. ValueError for a negative number."""
-        self._req.max_redirects(count)
+    def auto_compression(self, cbool enable=True):
+        """On (default): ask for gzip / deflate and return the decoded body. Off: send no Accept-Encoding
+        (unless header() sets one) and return a coded body exactly as the server sent it."""
+        self._req.auto_compression(enable)
         return self
 
     def connect_timeout(self, seconds):

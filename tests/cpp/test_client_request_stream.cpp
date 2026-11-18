@@ -139,7 +139,7 @@ UTEST(httpp_client_request_stream, a_followed_redirect_is_not_offered_to_the_cal
     int head_calls = 0;
     int head_status = 0;
     httpp::response res = httpp::request(ls.url("/old"))
-                              .follow_redirects(true)
+                              .max_redirects(20)
                               .on_head([&](const httpp::response& head) {
                                   ++head_calls;
                                   head_status = head.status;

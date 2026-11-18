@@ -1,6 +1,6 @@
 # ADR-0079: `httpp::request` gets `max_redirects` and `connect_timeout`
 
-- **Status:** accepted
+- **Status:** accepted; ADR-0089 made `max_redirects` the only redirect setting (0 follows none, `request::follow_redirects` is removed)
 - **Decided by:** the project owner ("enrich `httpp::request`, not a second class", then "agreed" to the first candidates)
 - **Source:** `include/httpp/client.hpp`, `src/core/client.cpp`, `src/core/http_exchange.cpp`, `src/core/internal/http_exchange.hpp`, `src/core/internal/async_http.hpp`, `src/core/async_http.cpp`, `src/bindings/python/cy/{declarations,transfer}.pxi`, `src/bindings/python/httpp/_http.py`, `src/cli/httpp_cli.cpp`
 - **Follows:** ADR-0077, ADR-0083

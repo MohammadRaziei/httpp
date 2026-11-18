@@ -68,6 +68,7 @@ struct request_spec {
     long timeout = 0;
     long connect_timeout = 0; // 0 = timeout covers the connect steps too
     bool follow = false;
+    bool auto_compression = true; // send Accept-Encoding and decode gzip / deflate bodies
     bool verify = true;
     std::string ca_file;
     proxy_setting proxy;
@@ -96,6 +97,7 @@ struct session_settings {
     long connect_timeout = 0; // 0 = timeout covers the connect steps too
     int max_redirects = request_spec::redirect_limit;
     bool follow = false;
+    bool auto_compression = true;
     bool verify = true;
     std::string ca_file;
     proxy_setting proxy;

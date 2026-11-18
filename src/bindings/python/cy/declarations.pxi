@@ -363,8 +363,8 @@ cdef extern from "httpp/client.hpp" namespace "httpp::client":
         cpp_curl_request& bearer(string token) except +
         cpp_curl_request& cookie(string name, string value) except +
         cpp_curl_request& timeout(long seconds) except +
-        cpp_curl_request& follow_redirects(cbool enable) except +
         cpp_curl_request& max_redirects(int count) except +  # std::invalid_argument -> ValueError
+        cpp_curl_request& auto_compression(cbool enable) except +
         cpp_curl_request& connect_timeout(long seconds) except +  # std::invalid_argument -> ValueError
         cpp_curl_request& verify(cbool enable) except +
         cpp_curl_request& ca_file(string path) except +

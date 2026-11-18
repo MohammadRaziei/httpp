@@ -6,6 +6,7 @@
 
 #include "internal/http_exchange.hpp"
 
+#include <limits>
 #include <deque>
 #include <future>
 #include <mutex>
@@ -232,12 +233,13 @@ request& request::cookie(std::string name, std::string value) {
     return *this;
 }
 request& request::timeout(long seconds) { impl_->settings.timeout = seconds; return *this; }
-request& request::follow_redirects(bool enable) { impl_->settings.follow = enable; return *this; }
 request& request::max_redirects(int count) {
-    if (count < 0) throw std::invalid_argument("max_redirects must not be negative");
-    impl_->settings.max_redirects = count;
+    if (count < -1) throw std::invalid_argument("max_redirects must be -1 (no limit) or more");
+    impl_->settings.follow = count != 0;
+    impl_->settings.max_redirects = count < 0 ? std::numeric_limits<int>::max() : count;
     return *this;
 }
+request& request::auto_compression(bool enable) { impl_->settings.auto_compression = enable; return *this; }
 request& request::connect_timeout(long seconds) {
     if (seconds < 0) throw std::invalid_argument("connect_timeout must not be negative");
     impl_->settings.connect_timeout = seconds;
