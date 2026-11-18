@@ -42,10 +42,10 @@ HTTPP_API const swagger_ui_asset* find_swagger_ui_asset(std::string_view name) n
 class HTTPP_API swagger : public mountable {
 public:
     // Throws std::invalid_argument when `openapi_url` is empty.
-    HTTPP_API explicit swagger(std::string openapi_url);
-    HTTPP_API swagger& set_title(std::string title);            // shown in the tab (escaped); default "API"
+    HTTPP_MEMBER explicit swagger(std::string openapi_url);
+    HTTPP_MEMBER swagger& set_title(std::string title);            // shown in the tab (escaped); default "API"
     // `s` is a handle (ADR-0081): the page goes on the server it points to. Returns that handle. May be called more than once.
-    HTTPP_API server mount(server s, const std::string& base = "/docs") const override;
+    HTTPP_MEMBER server mount(server s, const std::string& base = "/docs") const override;
 
 private:
     std::string openapi_url_;

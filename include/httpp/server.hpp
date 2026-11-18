@@ -390,27 +390,27 @@ protected:
 // so it may be created after mounting.
 class HTTPP_API directory : public mountable {
 public:
-    HTTPP_API explicit directory(path root);
+    HTTPP_MEMBER explicit directory(path root);
     // A path that ends in '/' (or the mount itself) is answered with index.html from that folder. Default: true.
-    HTTPP_API directory& set_index(bool on);
+    HTTPP_MEMBER directory& set_index(bool on);
     // false: a path with a segment that starts with '.' is a 404, whatever is on disk. Default: true.
-    HTTPP_API directory& set_show_hidden(bool on);
+    HTTPP_MEMBER directory& set_show_hidden(bool on);
     // false: a file's modified time is not sent: no "Last-Modified" and no "ETag" (the ETag holds the time), so no 304 either, and an
     // "If-Range" cannot be checked, so a range request that carries one gets the whole file. Every answer says "Cache-Control: no-cache".
     // Use it to keep the times of the files private. Default: true.
-    HTTPP_API directory& set_show_dates(bool on);
+    HTTPP_MEMBER directory& set_show_dates(bool on);
     // true: send "X-Content-Type-Options: nosniff", and a file that is not plainly harmless to show (everything but plain text, JSON,
     // common images, PDF, audio and video) or that is asked for with "?download=1" gets "Content-Disposition: attachment" with a
     // filename and filename*=UTF-8''... Default: false.
-    HTTPP_API directory& set_download_active(bool on);
+    HTTPP_MEMBER directory& set_download_active(bool on);
     // true: html and svg files are shown inline instead of downloaded, but only under "Content-Security-Policy: sandbox; default-src 'none'; ...",
     // so no script runs and nothing is fetched from another origin (images, styles, fonts and media of the same server still load). Every other
     // active type (xml, js, unknown) stays a download, and "?download=1" still forces one. Only has an effect together with
     // set_download_active(true). Default: false.
-    HTTPP_API directory& set_inline_active(bool on);
+    HTTPP_MEMBER directory& set_inline_active(bool on);
     // `s` is a handle (ADR-0081): the folder is mounted on the server it points to, so the caller's own `server` sees it. Returns that
     // handle, so the chain goes on: `auto srv = directory(p).mount(server(), "/").set_tls(cert, key);`
-    HTTPP_API server mount(server s, const std::string& base = "/") const override;
+    HTTPP_MEMBER server mount(server s, const std::string& base = "/") const override;
 
 private:
     path root_;

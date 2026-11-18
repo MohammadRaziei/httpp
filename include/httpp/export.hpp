@@ -9,8 +9,10 @@
 // because a derived class in another module needs its vtable and type information, which stay hidden otherwise;
 // that header silences MSVC's C4251 for it.
 // A class with virtual functions is the same case even when nobody derives from it in another module (httpp::mountable and the
-// parts that derive from it): the copy and the destructor a caller compiles inline use the vtable, so the class is marked as a whole
-// (the members keep their HTTPP_API too, which is how tests/python/test_cpp_python_parity.py finds the public names).
+// parts that derive from it): the copy and the destructor a caller compiles inline use the vtable, so the class is marked as a whole.
+// The members of such a class carry HTTPP_MEMBER, not HTTPP_API: MSVC refuses dllexport/dllimport on a member of a class that
+// already has it (C2487). HTTPP_MEMBER expands to nothing; it stays in the header because tests/python/test_cpp_python_parity.py
+// finds the public names by HTTPP_API and by HTTPP_MEMBER.
 //
 // Convention: HTTPP_API goes on individual out-of-line member functions
 // (constructors, destructors, methods implemented in src/core/*.cpp), never
@@ -31,6 +33,9 @@
 #else
 #  define HTTPP_API __attribute__((visibility("default")))
 #endif
+
+// Marks a public member of a class that is exported as a whole (see above). Expands to nothing.
+#define HTTPP_MEMBER
 
 // The second export macro: httpp_utils (libhttpp_utils: logging, path, sformat, progress) is a shared library of its own, below
 // httpp_core. On Windows a symbol must be dllexport in the DLL that defines it and dllimport everywhere else, which one macro for two

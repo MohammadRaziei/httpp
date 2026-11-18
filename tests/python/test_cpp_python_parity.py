@@ -19,11 +19,12 @@ pytestmark = pytest.mark.skipif(not INCLUDE.is_dir(), reason="the C++ headers ar
 
 def _strip_comments(text):
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    return re.sub(r"//[^\n]*", "", text)
+    text = re.sub(r"//[^\n]*", "", text)
+    return re.sub(r"^[ \t]*#[^\n]*", "", text, flags=re.M)  # preprocessor lines (the export macros are defined this way) declare no API
 
 
 def cpp_api():
-    """{(header, owner): {names}} for every HTTPP_API declaration; owner '' = namespace-level function."""
+    """{(header, owner): {names}} for every HTTPP_API or HTTPP_MEMBER declaration; owner '' = namespace-level function."""
     out = {}
     for path in sorted(INCLUDE.glob("*.hpp")):
         text = _strip_comments(path.read_text(encoding="utf-8"))
@@ -34,7 +35,7 @@ def cpp_api():
                 depth += (text[j] == "{") - (text[j] == "}")
                 j += 1
             spans.append((m.start(), j, m.group(1)))
-        for m in re.finditer(r"HTTPP_API\s+([^;{]*?)\b(operator\s*\S+|~?\w+)\s*\(", text):
+        for m in re.finditer(r"(?:HTTPP_API|HTTPP_MEMBER)\s+([^;{]*?)\b(operator\s*\S+|~?\w+)\s*\(", text):
             name = m.group(2)
             owner = ""
             for a, b, n in spans:
