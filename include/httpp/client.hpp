@@ -12,6 +12,7 @@
 #include <future>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -247,6 +248,21 @@ public:
     // to guard against a hostile or runaway server; exceeding it yields
     // response::status == 413 (Payload Too Large) with error too_large.
     HTTPP_API request& max_response_size(std::size_t bytes);
+
+    // Streaming (ADR-0084): with on_body() the body of the final response goes to `piece` as it arrives, in
+    // the order sent, instead of being collected: response::body stays empty and max_response_size does not
+    // apply. Return false to stop the transfer (the response then has error_kind::canceled). The next piece
+    // is read only after the callback returns, so a slow callback slows the download down, not the memory up.
+    // The pieces are the bytes as the server sent them: the request asks for "Accept-Encoding: identity"
+    // (an Accept-Encoding header of your own wins, and then a gzip body arrives still compressed).
+    // The callbacks run on a network thread of their own, separate from the one plain requests use, so
+    // a blocking write is fine but a long wait holds up other streaming requests; they must not call back
+    // into a blocking httpp request. A redirect that is followed is never offered to them.
+    HTTPP_API request& on_body(std::function<bool(std::string_view piece)> piece);
+    // Optional, with on_body(): called once with the status and headers of the final response (body empty)
+    // before the first piece. Return false to skip the body: it is read and thrown away, `piece` is not
+    // called, and run() still returns the response (an error status you do not want written, say).
+    HTTPP_API request& on_head(std::function<bool(const response& head)> head);
 
     HTTPP_API response run() const;
     // Starts the request on the library's non-blocking network thread and returns at once. No

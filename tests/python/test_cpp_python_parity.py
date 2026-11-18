@@ -133,6 +133,8 @@ CTOR_ARGS["rate_limit"] = {"set_rate": ("requests_per_second", 5.0), "set_burst"
 # Public C++ names that Python deliberately does not carry (ADR-0017 rule 3). An entry must still be unbound (a test
 # checks), so adding the binding later forces the entry to go.
 NOT_EXPOSED = {
+    ("request", "on_body"): "temporary (ADR-0084): the Python binding of request streaming is the next step; remove this line and bind it then",
+    ("request", "on_head"): "temporary (ADR-0084): same as on_body",
     ("server", "bind"): "not necessary: Server.run binds and serves in one call; bind_to_any_port covers the ephemeral-port case (ADR-0078)",
     ("server", "url"): "not necessary: Python knows the host and the port it passed to Server.run (ADR-0078)",
     ("server", "listen_until_signal"): "not necessary: Server.run already serves until a signal (ADR-0078)",
@@ -196,7 +198,7 @@ def test_not_exposed_names_are_still_unbound():
         api.setdefault(owner, set()).update(names)
     for (owner, name), reason in NOT_EXPOSED.items():
         assert name in api.get(owner, set()), f"{owner}::{name} is no longer in the C++ headers: drop it from NOT_EXPOSED"
-        target = {"server": httpp.Server, "router": httpp.APIRouter, "": httpp, "document": httpp.openapi.Document}[owner]
+        target = {"server": httpp.Server, "router": httpp.APIRouter, "request": httpp.Request, "": httpp, "document": httpp.openapi.Document}[owner]
         assert name not in _py_names(target), f"{owner}::{name} now exists in Python ({reason}): drop it from NOT_EXPOSED"
 
 

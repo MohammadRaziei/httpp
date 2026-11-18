@@ -10,6 +10,7 @@
 #include <future>
 #include <mutex>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -155,6 +156,8 @@ struct request::impl {
     header_list headers;      // repeatable, in the order given
     header_list params, cookies;
     session_settings settings; // timeout, redirects, auth, proxy, TLS, size limit
+    std::function<bool(std::string_view)> on_piece; // on_body(): streams the final body (ADR-0084)
+    std::function<bool(const response&)> on_head_fn;
 
     explicit impl(std::string u) : url(std::move(u)) {}
 
@@ -169,8 +172,20 @@ struct request::impl {
             }
             call.emplace_back("Cookie", std::move(joined));
         }
-        return settings.make_spec_for_url(url, params.empty() ? std::string() : httpp::build_query(params), method, call, body,
-                                          content_type, out, error);
+        // Streamed bytes are passed on as the server sent them: ask for no coding, as downloads do (ADR-0052).
+        if (on_piece && !detail::has_header(call, "Accept-Encoding")) call.emplace_back("Accept-Encoding", "identity");
+        if (!settings.make_spec_for_url(url, params.empty() ? std::string() : httpp::build_query(params), method, call, body,
+                                        content_type, out, error))
+            return false;
+        if (on_piece) {
+            auto sink = std::make_shared<detail::body_sink>();
+            sink->on_head = [head = on_head_fn](const response& r) {
+                return !head || head(r) ? detail::body_sink::verdict::stream : detail::body_sink::verdict::skip;
+            };
+            sink->on_data = [piece = on_piece](const char* data, std::size_t size) { return piece(std::string_view(data, size)); };
+            out.sink = std::move(sink);
+        }
+        return true;
     }
 };
 
@@ -236,6 +251,14 @@ request& request::proxy(const url& proxy_url) {
     return *this;
 }
 request& request::max_response_size(std::size_t bytes) { impl_->settings.max_response_size = bytes; return *this; }
+request& request::on_body(std::function<bool(std::string_view piece)> piece) {
+    impl_->on_piece = std::move(piece);
+    return *this;
+}
+request& request::on_head(std::function<bool(const response& head)> head) {
+    impl_->on_head_fn = std::move(head);
+    return *this;
+}
 
 response request::run() const {
     request_spec spec;

@@ -23,7 +23,7 @@ httpp curl http://127.0.0.1:8000/health -sS -f -m 5 --retry 3
 | `-u`, `--user user:password` | Basic authentication. Only the first colon splits, so a password may contain colons. |
 | `-A`, `--user-agent NAME` and `-e`, `--referer URL` | Set `User-Agent` and `Referer`. A `-H` with the same name wins. Without `-A`, the `User-Agent` is `curl/8.18.0`, as curl sends it, because some sites answer only to that. |
 | `-V`, `--version` | Prints `httpp curl 0.9.0 compatible with curl 8.18.0`: the httpp version, and the curl release whose behavior the command follows. |
-| `--compressed` | Accepted so curl scripts keep working. The client always sends `Accept-Encoding: gzip, deflate` and decodes the answer. |
+| `--compressed` | Accepted so curl scripts keep working, and it changes nothing: the answer is written as it arrives, so the request asks for `Accept-Encoding: identity` and you get the plain bytes. A `-H "Accept-Encoding: ..."` of your own wins, and then the bytes are written as the server sent them. |
 | `-L`, `--location` and `--max-redirs N` | Follow redirects, at most N of them (default 20). Past the limit the exit code is 47. |
 | `-m`, `--max-time SECONDS` | Give up when a connect, write or read step takes longer than this. It limits each step, not the whole transfer: a server that keeps sending a byte now and then is never cut off. |
 | `--connect-timeout SECONDS` | Give up when resolving, connecting or the TLS handshake takes longer than this. |
@@ -76,8 +76,8 @@ httpp curl http://127.0.0.1:8000/a.txt http://127.0.0.1:8000/b.txt -o a.out -o b
 
 - It is a subset. Missing: `-F` and `--json`, `-G`, `-b` cookies, `-x` proxies, `-k` and `--cacert`, `--data-binary`, `-C` resume, `-r` ranges, `--http2`, `-4` and `-6`, and curl configuration files. `httpp.Request` and `httpp::request` can do several of these (proxies, cookies, TLS options, JSON and form bodies); the command does not expose them yet.
 - A URL without `://` is read as `http://`, as curl does (`httpp curl localhost:8080/x`). A URL with a space or a control character is rejected with exit code 3 and nothing is sent.
-- The whole body is collected before it is written, so an answer that never ends (an endless stream) prints nothing. curl writes each piece as it arrives. Use `httpp download` for big files until this is changed.
 - `-v` shows the headers you gave, not the ones the client adds itself, such as `Host`.
-- `%{size_download}` is the size of the body after decoding, not of the bytes on the wire.
+- `%{size_download}` is the number of body bytes written. The body is written as it arrives, and the client asks for no content coding, so these are the bytes the server sent.
+- A closed pipe (`httpp curl URL | head -1`) ends the transfer with exit code 23, as in curl.
 - Exit codes follow curl's numbers for the same kinds of trouble, but the client does not tell a failed lookup from a refused connection: both are 7.
 - `httpp download` is the command for big files: it shows progress, verifies a checksum and can continue an interrupted download.

@@ -2,6 +2,7 @@
 
 import base64
 import http.client
+import http.server
 import json
 import os
 import re
@@ -451,6 +452,56 @@ def test_download_needs_a_url(httpp_exe):
 
 # --- curl --------------------------------------------------------------------------------------
 
+@contextmanager
+def endless_server():
+    """An answer that never ends, sent in small chunks, and only to a curl User-Agent (what parrot.live does)."""
+    stop = threading.Event()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            if not self.headers.get("User-Agent", "").startswith("curl/"):
+                self.send_response(302)
+                self.send_header("Location", "/elsewhere")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            try:
+                while not stop.is_set():
+                    piece = b"frame\n"
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(piece), piece))
+                    self.wfile.flush()
+                    time.sleep(0.01)
+            except OSError:
+                pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        yield f"127.0.0.1:{server.server_address[1]}"
+    finally:
+        stop.set()
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def start(exe, *args):
+    exe = [exe] if isinstance(exe, str) else list(exe)
+    env = dict(os.environ)
+    env.setdefault("HTTPP_PYTHON", sys.executable)
+    return subprocess.Popen([*exe, *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+
+
 
 def test_curl_get(httpp_exe, echo_app):
     with running(echo_app) as url:
@@ -543,6 +594,53 @@ def test_curl_a_url_without_a_scheme_means_http(httpp_exe, echo_app):
     assert r.stdout == "plain body"
     assert upper.returncode == 0 and upper.stdout == "plain body"  # a scheme that is there is left alone
     assert "> GET /text HTTP/1.1" in verbose.stderr
+
+
+def test_curl_shows_an_endless_answer_as_it_arrives(httpp_exe):
+    with endless_server() as host:
+        proc = start(httpp_exe, "curl", host)  # no scheme, no -A: it must announce itself as curl to be answered at all
+        watchdog = threading.Timer(20, proc.kill)
+        watchdog.start()
+        try:
+            assert proc.stdout.read(12) == b"frame\nframe\n"  # the first pieces, while the answer is still going on
+        finally:
+            proc.terminate()
+            proc.wait(timeout=10)
+            watchdog.cancel()
+            proc.stdout.close()
+            proc.stderr.close()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a closed pipe is a POSIX notion")
+def test_curl_stops_with_23_when_the_reader_of_stdout_goes_away(httpp_exe):
+    with endless_server() as host:
+        proc = start(httpp_exe, "curl", host)
+        watchdog = threading.Timer(20, proc.kill)
+        watchdog.start()
+        try:
+            assert proc.stdout.read(6) == b"frame\n"
+            proc.stdout.close()  # like `httpp curl ... | head -1`
+            assert proc.wait(timeout=15) == 23
+            assert b"standard output" in proc.stderr.read()
+        finally:
+            watchdog.cancel()
+            proc.stderr.close()
+
+
+def test_curl_a_big_answer_is_written_to_the_file_in_full(httpp_exe, tmp_path):
+    body = "0123456789abcdef" * 65536  # 1 MiB
+    app = Server(openapi_url=None)
+
+    @app.get("/big")
+    def big():
+        return body
+
+    out = tmp_path / "big.txt"
+    with running(app) as url:
+        r = run(httpp_exe, "curl", f"{url}/big", "-o", str(out), "-w", "%{size_download}")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == str(len(body))
+    assert out.read_text() == body
 
 
 def test_curl_version_names_httpp_and_the_curl_it_follows(httpp_exe):
@@ -642,7 +740,7 @@ def test_curl_A_and_e_set_the_user_agent_and_the_referer(httpp_exe, echo_app):
     assert (json.loads(r.stdout)["ua"], json.loads(r.stdout)["ref"]) == ("probe/1", "http://from.example/")
     assert (json.loads(long_form.stdout)["ua"], json.loads(long_form.stdout)["ref"]) == ("probe/2", "http://x/")
     assert json.loads(own.stdout)["ua"] == "mine"  # an explicit -H wins over -A
-    assert json.loads(default.stdout)["ua"] == "httpp"
+    assert re.fullmatch(r"curl/\d+\.\d+\.\d+", json.loads(default.stdout)["ua"])  # the command presents itself as curl (ADR-0084)
 
 
 def test_curl_max_redirs_bounds_the_hops_with_47(httpp_exe, echo_app):
@@ -744,14 +842,14 @@ def test_curl_d_reads_a_file_and_drops_its_line_breaks_like_curl(httpp_exe, echo
     assert missing.returncode == 26 and "cannot read" in missing.stderr
 
 
-def test_curl_compressed_is_accepted_because_the_client_always_asks_for_gzip(httpp_exe, echo_app):
+def test_curl_compressed_is_accepted_and_the_streamed_answer_asks_for_identity(httpp_exe, echo_app):
     with running(echo_app) as url:
         plain = run(httpp_exe, "curl", f"{url}/echo")
         asked = run(httpp_exe, "curl", f"{url}/echo", "--compressed")
-        own = run(httpp_exe, "curl", f"{url}/echo", "--compressed", "-H", "Accept-Encoding: identity")
+        own = run(httpp_exe, "curl", f"{url}/echo", "-H", "Accept-Encoding: gzip")
     assert asked.returncode == 0
-    assert json.loads(plain.stdout)["ae"] == json.loads(asked.stdout)["ae"] == "gzip, deflate"
-    assert json.loads(own.stdout)["ae"] == "identity"  # an explicit -H wins
+    assert json.loads(plain.stdout)["ae"] == json.loads(asked.stdout)["ae"] == "identity"  # streamed as sent, so no coding is asked for
+    assert json.loads(own.stdout)["ae"] == "gzip"  # an explicit -H wins
 
 
 def test_curl_retry_tries_again_after_a_transient_status(httpp_exe, echo_app):
