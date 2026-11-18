@@ -101,7 +101,7 @@ A C++ HTTP library (async server on Asio + llhttp, clients, downloads, progress 
 
 ## 3. Architecture today
 ```
-include/httpp/        public API (client, server, websocket, download, url, progress, router, file_browser, swagger_ui ...)
+include/httpp/        public API (client, server, websocket, download, url, progress, router, file_browser, swagger ...)
 src/core/             async_server.cpp (Asio engine + llhttp; tunnel for upgrades), server.cpp (router, hooks, static files, run_ws),
                       websocket.cpp + internal/websocket.hpp, websocket_api.cpp, async_http.cpp (async client), client.cpp / download.cpp /
                       file_browser.cpp, inflate/deflate/content_decode (vendored stb codecs), logging.cpp (the module and the library log), tls_session.cpp

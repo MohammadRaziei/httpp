@@ -2,7 +2,7 @@
 
 - **Status:** accepted; supersedes the Swagger UI part of ADR-0066 (`swagger_ui`, `set_docs_path`, `set_openapi_url`)
 - **Decided by:** the project owner ("only `mount(s, base)`", "the argument is required, so it should be a required argument")
-- **Source:** `include/httpp/swagger_ui.hpp`, `src/core/swagger_ui.cpp`, `src/bindings/python/cy/swagger_ui.pxi`, `tests/cpp/test_swagger_ui_route.cpp`, `tests/python/test_builders.py`
+- **Source:** `include/httpp/swagger.hpp`, `src/core/swagger.cpp`, `src/bindings/python/cy/swagger.pxi`, `tests/cpp/test_swagger_ui_route.cpp`, `tests/python/test_builders.py`
 
 ## Context
 

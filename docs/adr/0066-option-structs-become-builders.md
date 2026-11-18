@@ -2,7 +2,7 @@
 
 - **Status:** accepted; the Swagger UI part (`swagger_ui`, `set_docs_path`, `set_openapi_url`) is superseded by ADR-0082; amends ADR-0037 (middleware), ADR-0032 (directory options) and the Swagger UI decision
 - **Decided by:** the project owner ("I agree with a similar design, go ahead", after ADR-0065); the details are Claude's
-- **Source:** `include/httpp/middleware.hpp`, `include/httpp/server.hpp` (`directory`), `include/httpp/swagger_ui.hpp`, `src/core/middleware.cpp`, `src/core/server.cpp`, `src/core/swagger_ui.cpp`, `src/core/file_browser.cpp`, `src/bindings/python/cy/{directory,swagger_ui,server,support}.pxi`
+- **Source:** `include/httpp/middleware.hpp`, `include/httpp/server.hpp` (`directory`), `include/httpp/swagger.hpp`, `src/core/middleware.cpp`, `src/core/server.cpp`, `src/core/swagger.cpp`, `src/core/file_browser.cpp`, `src/bindings/python/cy/{directory,swagger_ui,server,support}.pxi`
 
 ## Context
 

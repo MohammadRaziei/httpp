@@ -2,7 +2,7 @@
 
 - **Status:** accepted; supersedes the first decision of ADR-0078 ("`mount` returns the server it was given")
 - **Decided by:** the project owner, with two conditions: `server::stopper()` must exist to break reference cycles, and "the last handle closes the server" must be documented
-- **Source:** `include/httpp/server.hpp` (`server`, `server_stopper`, `directory::mount`), `include/httpp/file_browser.hpp`, `include/httpp/swagger_ui.hpp`, `src/core/server.cpp`, `tests/cpp/test_server_lifecycle.cpp`
+- **Source:** `include/httpp/server.hpp` (`server`, `server_stopper`, `directory::mount`), `include/httpp/file_browser.hpp`, `include/httpp/swagger.hpp`, `src/core/server.cpp`, `tests/cpp/test_server_lifecycle.cpp`
 
 ## Context
 

@@ -14,7 +14,7 @@
 // declared ones. Nothing here reads JSON, so there is no parser, and nothing looks at your routes: the document is described
 // apart from the handlers, so it can drift from them (Python builds its document from the routes themselves, ADR-0007).
 //
-//   #include <httpp/openapi.hpp>  // not part of httpp.h, like swagger_ui.hpp
+//   #include <httpp/openapi.hpp>  // not part of httpp.h, like swagger.hpp
 //
 //   httpp::openapi::document doc("My API", "1.0.0");
 //   doc.security_scheme("jwt", httpp::openapi::bearer("JWT"));

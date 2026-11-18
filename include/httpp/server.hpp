@@ -358,11 +358,37 @@ private:
     std::weak_ptr<server::impl> impl_;
 };
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4251) // the std members of the exported classes are private and never touched by a caller
+#endif
+
+// What `directory`, `file_browser` and `swagger` have in common (ADR-0088): a piece of a site that is put on a server under a base path.
+// Each is still a plain value you configure with its own set_*() calls and then mount; this only lets code hold any of them as one
+// thing:
+//
+//   void put_on(const httpp::mountable& part, httpp::server s, const std::string& base) { part.mount(s, base); }
+//
+// `s` is a handle (ADR-0081): the part goes on the server it points to, and mount() returns that handle. `base` has no default here
+// because the defaults differ ("/docs" for swagger, "/" for the others): the classes declare their own. mount() throws
+// std::invalid_argument for a base the part does not accept. Copying a derived value is fine; the base cannot be made or copied on
+// its own, so there is no slicing.
+class HTTPP_API mountable {
+public:
+    virtual ~mountable() = default;
+    virtual server mount(server s, const std::string& base) const = 0;
+
+protected:
+    mountable() = default;
+    mountable(const mountable&) = default;
+    mountable& operator=(const mountable&) = default;
+};
+
 // A folder served as static files (ADR-0066): `directory(dir).set_index(false).mount(server, "/static")` (see server for what mounting a handle means). Honours Range, If-Modified-Since,
 // ETag and HEAD, streams large files, and never leaves `dir` (".." segments and links out of it are refused). A setting is validated when
 // it is set; mount() throws std::invalid_argument when the mount path does not start with '/'. The folder is read when requests arrive,
 // so it may be created after mounting.
-class directory {
+class HTTPP_API directory : public mountable {
 public:
     HTTPP_API explicit directory(path root);
     // A path that ends in '/' (or the mount itself) is answered with index.html from that folder. Default: true.
@@ -384,7 +410,7 @@ public:
     HTTPP_API directory& set_inline_active(bool on);
     // `s` is a handle (ADR-0081): the folder is mounted on the server it points to, so the caller's own `server` sees it. Returns that
     // handle, so the chain goes on: `auto srv = directory(p).mount(server(), "/").set_tls(cert, key);`
-    HTTPP_API server mount(server s, const std::string& base = "/") const;
+    HTTPP_API server mount(server s, const std::string& base = "/") const override;
 
 private:
     path root_;
@@ -394,6 +420,9 @@ private:
     bool inline_active_ = false;
     bool show_dates_ = true;
 };
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 // The Content-Type httpp gives a file by its extension (case-insensitive, the last dot after the last slash). Mounted directories use
 // it, and so does Python's file(), so both agree. "application/octet-stream" when the extension is unknown or missing. See ADR-0047.

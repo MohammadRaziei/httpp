@@ -1,6 +1,6 @@
 #pragma once
 // The original bytes of a Swagger UI file compiled into the library: the stored bytes as they are, or the stored gzip stream inflated.
-#include "httpp/swagger_ui.hpp"
+#include "httpp/swagger.hpp"
 #include "internal/inflate.hpp"
 
 #include <string>

@@ -1,7 +1,7 @@
 # ADR-0008: Swagger UI is compiled into the library (no CDN, no data files)
 
 - **Status:** accepted
-- **Source:** `cmake/EmbedFile.cmake`, `src/core/swagger_ui.cpp`, `src/third_party/swagger-ui/VENDORED.md`
+- **Source:** `cmake/EmbedFile.cmake`, `src/core/swagger.cpp`, `src/third_party/swagger-ui/VENDORED.md`
 
 ## Context
 

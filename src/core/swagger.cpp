@@ -1,4 +1,4 @@
-#include "httpp/swagger_ui.hpp"
+#include "httpp/swagger.hpp"
 
 #include "httpp_swagger_ui_data.hpp" // generated at configure time, see CMakeLists.txt
 #include "internal/inflate.hpp"

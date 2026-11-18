@@ -2,7 +2,7 @@
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/server.hpp"
-#include "httpp/swagger_ui.hpp"
+#include "httpp/swagger.hpp"
 #include "local_server.hpp"
 #include "swagger_original.hpp"
 

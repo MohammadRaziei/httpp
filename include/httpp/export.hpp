@@ -8,6 +8,9 @@
 // A class that callers derive from (httpp::logging::handler) is the exception: it is marked HTTPP_API as a whole,
 // because a derived class in another module needs its vtable and type information, which stay hidden otherwise;
 // that header silences MSVC's C4251 for it.
+// A class with virtual functions is the same case even when nobody derives from it in another module (httpp::mountable and the
+// parts that derive from it): the copy and the destructor a caller compiles inline use the vtable, so the class is marked as a whole
+// (the members keep their HTTPP_API too, which is how tests/python/test_cpp_python_parity.py finds the public names).
 //
 // Convention: HTTPP_API goes on individual out-of-line member functions
 // (constructors, destructors, methods implemented in src/core/*.cpp), never

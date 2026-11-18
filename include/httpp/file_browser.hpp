@@ -9,6 +9,11 @@
 
 namespace httpp {
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4251) // the std members of the exported classes are private and never touched by a caller
+#endif
+
 // A read-only file browser for the folder `root`. Configure it with the chained setters, then mount it on a server:
 //
 //   httpp::file_browser(root)
@@ -29,7 +34,7 @@ namespace httpp {
 // symlinks that lead out of it are refused, and a missing, hidden or outside path gets the same 404. Names that are not valid UTF-8 are left out of
 // the listing. The `before` hook of the server runs first, so it is the place for authentication (this browser has none of its own).
 // The defaults are a sensible, safe setup. A setter throws std::invalid_argument for a value it cannot use and then leaves the browser unchanged.
-class file_browser {
+class HTTPP_API file_browser : public mountable {
 public:
     enum class theme_mode { system, light, dark };  // system follows the viewer's system setting; the viewer can still switch it
     enum class view_mode { list, grid };            // the first view
@@ -66,7 +71,7 @@ public:
     // Adds the routes to `s` under `base` (must start with '/'). Throws std::invalid_argument for a bad `base`, a root that is not a folder, or the root
     // of the file system. The browser can be mounted more than once (on several servers, or under several bases).
     // `s` is a handle (ADR-0081): the routes go on the server it points to, so the caller's own `server` sees them. Returns that handle.
-    HTTPP_API server mount(server s, const std::string& base = "/") const;
+    HTTPP_API server mount(server s, const std::string& base = "/") const override;
 
 private:
     path root_;
@@ -84,5 +89,8 @@ private:
     std::size_t max_zip_entries_ = 50000;
     std::size_t max_entries_ = 5000;
 };
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 } // namespace httpp

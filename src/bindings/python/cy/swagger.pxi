@@ -1,4 +1,4 @@
-# Swagger UI from the files compiled into libhttpp: the Python face of httpp::swagger (include/httpp/swagger_ui.hpp, ADR-0066, ADR-0082).
+# Swagger UI from the files compiled into libhttpp: the Python face of httpp::swagger (include/httpp/swagger.hpp, ADR-0066, ADR-0082).
 
 cdef class Swagger:
     """Swagger UI served entirely in C++ (no GIL) from bytes compiled into the library.

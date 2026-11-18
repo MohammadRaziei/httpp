@@ -28,7 +28,7 @@ def cpp_api():
     for path in sorted(INCLUDE.glob("*.hpp")):
         text = _strip_comments(path.read_text(encoding="utf-8"))
         spans = []
-        for m in re.finditer(r"\b(?:struct|class)\s+(?:HTTPP_API\s+)?(\w+)\s*(?:final\s*)?\{", text):
+        for m in re.finditer(r"\b(?:struct|class)\s+(?:HTTPP_API\s+)?(\w+)\s*(?:final\s*)?(?::[^{;]*)?\{", text):
             depth, j = 1, m.end()
             while depth and j < len(text):
                 depth += (text[j] == "{") - (text[j] == "}")
@@ -64,8 +64,8 @@ TARGETS = {
     ("cookie.hpp", "cookie"): None,  # httpp.set_cookie() builds a Set-Cookie header and request.cookies reads the Cookie header; both call this class, so the rules live once
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("server.hpp", ""): httpp.utils,  # mime_type_for, the same way
-    ("swagger_ui.hpp", ""): httpp,  # find_swagger_ui_asset only (NOT_EXPOSED)
-    ("swagger_ui.hpp", "swagger"): httpp.Swagger,
+    ("swagger.hpp", ""): httpp,  # find_swagger_ui_asset only (NOT_EXPOSED)
+    ("swagger.hpp", "swagger"): httpp.Swagger,
     ("openapi.hpp", "document"): httpp.openapi.Document,
     ("openapi.hpp", ""): httpp.security,  # basic, bearer and api_key are httpp.security's factories (they return dicts)
     ("file_browser.hpp", "file_browser"): httpp.FileBrowser,

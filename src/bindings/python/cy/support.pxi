@@ -3,7 +3,7 @@
 cdef extern from "Python.h":
     int Py_IsInitialized() nogil
 
-cdef extern from "httpp/swagger_ui.hpp" namespace "httpp":
+cdef extern from "httpp/swagger.hpp" namespace "httpp":
     cdef cppclass swagger_ui_asset_t "httpp::swagger_ui_asset":
         string_view content_type
         string_view data
@@ -149,7 +149,7 @@ def mime_type_for(path):
 
 
 def _swagger_ui_asset(str name):
-    """(stored bytes, content type, is_gzip) of one Swagger UI file compiled into libhttpp (see include/httpp/swagger_ui.hpp),
+    """(stored bytes, content type, is_gzip) of one Swagger UI file compiled into libhttpp (see include/httpp/swagger.hpp),
     or None. The stored bytes are a gzip stream when is_gzip is true, not the file. They are copied out of the library's
     read-only data each call: cache the result."""
     cdef bytes key = name.encode("utf-8")

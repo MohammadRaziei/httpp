@@ -1,5 +1,5 @@
 #include "utest/utest.h"
-#include "httpp/swagger_ui.hpp"
+#include "httpp/swagger.hpp"
 #include "swagger_original.hpp"
 
 #include <fstream>

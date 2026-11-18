@@ -5,7 +5,7 @@
 #include "httpp/banner.hpp"
 #include "httpp/file_browser.hpp"
 #include "httpp/server.hpp"
-#include "httpp/swagger_ui.hpp"
+#include "httpp/swagger.hpp"
 
 #include <atomic>
 #include <chrono>
