@@ -11,14 +11,14 @@ The library's own log (`httpp::set_log_level`, `set_log_file`, `set_log_callback
 ## Decision
 
 - **The level of the library's log is the level of the logger `"httpp"`.** `set_log_level(level)` calls `set_level` on it; the default is `warning`. `own_log_level`, `log_write`, `log_enabled` and `log_line` are removed.
-- **One macro system.** The library logs with the public macro on its own logger: `HTTPP_LIB_LOG(level)` (internal header, not installed) is the one-line alias `HTTPP_LOG(lib_log(), level)`. It has the same laziness (`logger::enabled`, two relaxed loads and a compare) and the same stream buffer as the public macro. `lib_log()` is the public `get_logger("httpp")`, looked up once per module (the lookup takes a lock); nothing is exported for it, and the engine tests that compile core sources into the test binary get the same logger from the registry. The registry gives the logger `"httpp"` its defaults when it is created (`warning`, stderr, no propagation to the root), so whoever asks first finds it set up.
+- **One macro system.** The library logs with the public macro on its own logger: `HTTPP_LIB_LOG(level)` (internal header, not installed) is the one-line alias `HTTPP_LOG(lib_logger(), level)`. It has the same laziness (`logger::enabled`, two relaxed loads and a compare) and the same stream buffer as the public macro. `lib_logger()` is the public `get_logger("httpp")`, looked up once per module (the lookup takes a lock); nothing is exported for it, and the engine tests that compile core sources into the test binary get the same logger from the registry. The registry gives the logger `"httpp"` its defaults when it is created (`warning`, stderr, no propagation to the root), so whoever asks first finds it set up.
 - **Consequences for users.** `get_logger("httpp").set_level(...)` and `set_log_level(...)` are now the same thing; a child logger `"httpp.x"` follows the library's level instead of being open at `trace`. The Python side is unchanged: `httpp.set_log_level` and `logging.getLogger("httpp").setLevel` still end in `set_log_level` through `sync()`.
-- **ABI.** `own_log_level`, `log_write` and the short-lived `lib_logger` were exported symbols of `libhttpp_utils`, so `HTTPP_UTILS_ABI_VERSION` is 4.
+- **ABI.** `own_log_level`, `log_write` and a short-lived exported function `lib_logger` were exported symbols of `libhttpp_utils` (the name now belongs to the inline, not exported `detail::lib_logger()`), so `HTTPP_UTILS_ABI_VERSION` is 4.
 
 ## Rejected alternatives
 
 - **Keep the parallel back end** and only rename the macro: two systems for one job, and a level that the logger tree does not see.
-- **Remove `HTTPP_LIB_LOG` and write `HTTPP_LOG(lib_log(), warning)` at the 38 call sites:** the alias is one line and keeps the sites short; it adds no behavior of its own.
+- **Remove `HTTPP_LIB_LOG` and write `HTTPP_LOG(lib_logger(), warning)` at the 38 call sites:** the alias is one line and keeps the sites short; it adds no behavior of its own.
 
 ## Consequences
 
