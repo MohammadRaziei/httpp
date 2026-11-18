@@ -27,3 +27,8 @@ add_executable(utils_one_registry one_registry.cpp)
 target_link_libraries(utils_one_registry PRIVATE httpp::utils utils_registry_probe)
 add_test(NAME utils_one_registry COMMAND utils_one_registry)
 
+
+# 4. The inline fast path and the lazy macros (ADR-0090): HTTPP_LOG_TO, HTTPP_LOGF_TO, logger::enabled().
+add_executable(utils_fast_path fast_path.cpp)
+target_link_libraries(utils_fast_path PRIVATE httpp::utils)
+add_test(NAME utils_fast_path COMMAND utils_fast_path)

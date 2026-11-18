@@ -20,15 +20,20 @@
 #include "httpp/export.hpp"
 #include "httpp/path.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <cstdarg>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <functional>
+#include <ios>
 #include <memory>
 #include <optional>
+#include <ostream>
 #include <string>
+#include <sstream>
 #include <string_view>
 #include <thread>
 #include <type_traits>
@@ -87,7 +92,7 @@
 // be caught at start, not as a crash later. Raise HTTPP_UTILS_ABI_VERSION when a type or function exported by logging.hpp, path.hpp
 // or progress.hpp changes in a way old binaries cannot follow. libhttpp checks it when it is loaded; another consumer can call
 // httpp::utils_abi_compatible() the same way.
-#define HTTPP_UTILS_ABI_VERSION 1
+#define HTTPP_UTILS_ABI_VERSION 2  // 2: logger::enabled() reads a cache inside the object (ADR-0090)
 namespace httpp {
 HTTPP_UTILS_API int utils_abi_version() noexcept;  // the value the loaded library was built with
 inline bool utils_abi_compatible() noexcept { return utils_abi_version() == HTTPP_UTILS_ABI_VERSION; }
@@ -261,7 +266,10 @@ private:
 
 namespace detail {
 struct manager;
-}
+// Counts every set_level() of any logger. A logger's cached effective level is valid while its epoch is this one (ADR-0090). Defined in
+// logging.cpp, never inline: a copy per module would be a second counter. Starts at 1; a fresh cache holds 0, which never matches.
+HTTPP_UTILS_API extern std::atomic<std::uint32_t> level_epoch;
+}  // namespace detail
 
 // Get loggers with get_logger(); they live until the program ends, so a reference stays valid.
 class HTTPP_UTILS_API logger {
@@ -277,6 +285,14 @@ public:
     level get_level() const noexcept;
     level effective_level() const noexcept;  // the first level that is not notset, going up the tree
     bool is_enabled_for(level lv) const noexcept;
+    // The same answer as is_enabled_for, read inline: two relaxed loads and a compare, no call into libhttpp_utils, no walk up the tree.
+    // This is what HTTPP_LOG_TO / HTTPP_LOGF_TO test, so a disabled line costs that and nothing else (ADR-0090).
+    bool enabled(level lv) const noexcept {
+        const std::uint64_t c = cache_.load(std::memory_order_relaxed);
+        if (static_cast<std::uint32_t>(c >> 32) == detail::level_epoch.load(std::memory_order_relaxed))
+            return static_cast<int>(lv) >= static_cast<std::int32_t>(static_cast<std::uint32_t>(c));
+        return enabled_slow(lv);
+    }
 
     void set_propagate(bool on) noexcept;  // default true: also pass records to the parents' handlers
     bool propagate() const noexcept;
@@ -320,14 +336,109 @@ private:
     void remove_owned(const handler* h);
     void dispatch(const record& r);
 
+    bool enabled_slow(level lv) const noexcept;  // recomputes the effective level and stores it with the current epoch
+
     struct state;
     std::unique_ptr<state> st_;
+    mutable std::atomic<std::uint64_t> cache_{0};  // epoch << 32 | effective level; see enabled()
 };
 
 // logging.getLogger(name). The same name gives the same logger. "" (or "root") is the root logger. Dotted
 // names form the tree: "httpp.server" is a child of "httpp", which is a child of the root. The root's level
 // is warning.
 HTTPP_UTILS_API logger& get_logger(std::string_view name = {});
+
+// ------------------------------------------------------------------------------- stream style and lazy macros (ADR-0090)
+//
+//   HTTPP_LOG_TO(log, info) << "x=" << x << " in " << path;     // C++ streams; the whole right side is skipped when disabled
+//   HTTPP_LOGF_TO(log, info, "x=%d in %s", x, name);            // printf style, checked by the compiler, also skipped when disabled
+//   log.info("x=%d", x);                                        // the method form still works; its arguments are always evaluated
+//
+// `log` is a logger (a reference or the result of get_logger()); it is evaluated once. The level is a bare name: trace, debug, info,
+// warning, error or critical. Both macros are one statement and safe in an unbraced if/else. The two styles mix: the right side of
+// HTTPP_LOG_TO may hold sformat(...). The pieces are header-only; only the finished text crosses into libhttpp_utils (log_from).
+
+namespace detail {
+
+// Collects one line. The buffer is reused per thread (no stream construction per line); a line that starts while another one of this
+// thread is being built (an operator<< that logs) gets a stream of its own. Never throws: a failing operator<< loses that line.
+class log_stream {
+public:
+    log_stream(logger& lg, level lv, const char* where) noexcept : lg_(lg), lv_(lv), where_(where) {
+        int& depth = nesting();
+        if (depth == 0) {
+            os_ = &shared();
+            os_->str(std::string());
+            os_->clear();
+            os_->flags(std::ios_base::skipws | std::ios_base::dec);
+            os_->precision(6);
+            os_->width(0);
+            os_->fill(' ');
+        } else {
+            try {
+                own_ = std::make_unique<std::ostringstream>();
+                os_ = own_.get();
+            } catch (...) {
+                os_ = nullptr;
+            }
+        }
+        ++depth;
+    }
+    ~log_stream() {
+        --nesting();
+        if (!os_) return;
+        try {
+            lg_.log_from(lv_, where_, os_->str());
+        } catch (...) {
+        }
+    }
+    log_stream(const log_stream&) = delete;
+    log_stream& operator=(const log_stream&) = delete;
+
+    template <class T>
+    log_stream& operator<<(const T& value) {
+        if (os_) try { *os_ << value; } catch (...) { os_->setstate(std::ios_base::badbit); }
+        return *this;
+    }
+    // std::endl, std::hex, std::setw ... (function templates and overload sets do not deduce as T)
+    log_stream& operator<<(std::ostream& (*manip)(std::ostream&)) {
+        if (os_) manip(*os_);
+        return *this;
+    }
+    log_stream& operator<<(std::ios_base& (*manip)(std::ios_base&)) {
+        if (os_) manip(*os_);
+        return *this;
+    }
+
+private:
+    static std::ostringstream& shared() {
+        thread_local std::ostringstream s;
+        return s;
+    }
+    static int& nesting() noexcept {
+        thread_local int depth = 0;
+        return depth;
+    }
+
+    logger& lg_;
+    level lv_;
+    const char* where_;
+    std::ostringstream* os_ = nullptr;
+    std::unique_ptr<std::ostringstream> own_;
+};
+
+}  // namespace detail
+
+#define HTTPP_LOG_TO(lg, lvl)                                                                              \
+    if (auto& httpp_lg_ = (lg); !httpp_lg_.enabled(::httpp::logging::level::lvl)) {}                      \
+    else ::httpp::logging::detail::log_stream(httpp_lg_, ::httpp::logging::level::lvl, __func__)
+
+#define HTTPP_LOGF_TO(lg, lvl, ...)                                                                        \
+    do {                                                                                                   \
+        auto& httpp_lg_ = (lg);                                                                            \
+        if (httpp_lg_.enabled(::httpp::logging::level::lvl))                                               \
+            httpp_lg_.log(::httpp::logging::level::lvl, __VA_ARGS__);                                      \
+    } while (0)
 
 // logging.basicConfig: when the root logger has no handler, adds a stream_handler on stderr with the default
 // formatter; then sets the root level.

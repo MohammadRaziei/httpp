@@ -630,6 +630,15 @@ logging.getLogger("libspeech.dsp").setLevel(logging.DEBUG)     # also from dictC
 ```
 
 
+### Stream style and lazy lines (ADR-0090)
+
+```cpp
+auto& log = httpp::logging::get_logger("libspeech.dsp");
+HTTPP_LOG_TO(log, debug) << "frame " << n << " in " << path;   // streams; nothing is evaluated when debug is off
+HTTPP_LOGF_TO(log, debug, "frame %d in %s", n, name);          // printf style, same laziness
+log.debug("frame %d", n);                                      // the method form still works (its arguments are always evaluated)
+```
+
 ### Using `httpp_utils` from another wheel (ADR-0086)
 
 A package that wants the logger registry, `httpp::sformat`, `httpp::path` or the progress bar without shipping the HTTP stack (for

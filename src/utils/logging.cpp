@@ -410,7 +410,20 @@ logger::~logger() = default;
 const std::string& logger::name() const noexcept { return st_->name; }
 logger* logger::parent() const noexcept { return st_->parent.load(); }
 
-void logger::set_level(level lv) noexcept { st_->lv.store(int(lv)); }
+void logger::set_level(level lv) noexcept {
+    st_->lv.store(int(lv));
+    detail::level_epoch.fetch_add(1, std::memory_order_release);  // every cached effective level is stale now
+}
+
+bool logger::enabled_slow(level lv) const noexcept {
+    // The epoch is read before the level: a set_level() that lands in between changes the epoch, so the cache stored here is never
+    // taken for the newer state.
+    const std::uint32_t epoch = detail::level_epoch.load(std::memory_order_acquire);
+    const int effective = static_cast<int>(effective_level());
+    cache_.store((static_cast<std::uint64_t>(epoch) << 32) | static_cast<std::uint32_t>(static_cast<std::int32_t>(effective)),
+                 std::memory_order_relaxed);
+    return static_cast<int>(lv) >= effective;
+}
 level logger::get_level() const noexcept { return level(st_->lv.load()); }
 
 level logger::effective_level() const noexcept {
@@ -953,6 +966,10 @@ void log_write(logging::level level, const char* where, const std::string& messa
 
 } // namespace detail
 } // namespace httpp
+
+namespace httpp::logging::detail {
+std::atomic<std::uint32_t> level_epoch{1};
+}  // namespace httpp::logging::detail
 
 namespace httpp {
 int utils_abi_version() noexcept { return HTTPP_UTILS_ABI_VERSION; }
