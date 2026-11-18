@@ -178,5 +178,5 @@ UTEST(client_encoding, auto_compression_off_still_sends_an_accept_encoding_the_c
 
 UTEST(client_encoding, auto_compression_is_on_by_default_and_can_be_switched_back_on) {
     fixture f;
-    ASSERT_TRUE(httpp::request(f.rs.url("/gzip")).auto_compression(false).auto_compression().run().body == text);
+    ASSERT_TRUE(httpp::request(f.rs.url("/gzip")).auto_compression(false).auto_compression(true).run().body == text);
 }
