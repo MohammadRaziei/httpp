@@ -1,4 +1,4 @@
-# ADR-0090: stream-style logging and an inline level check (`HTTPP_LOG_TO`, `HTTPP_LOGF_TO`, `logger::enabled`)
+# ADR-0090: stream-style logging and an inline level check (`HTTPP_LOG`, `HTTPP_LOGF`, `logger::enabled`)
 
 - **Status:** accepted
 - **Decided by:** the project owner (both styles side by side, `sformat` stays, Python unchanged); the macro names, the cache design and the ABI bump are mine
@@ -11,9 +11,9 @@
 ## Decision
 
 - **Two styles, both kept.** The printf-style methods (`debug`, `info`, ..., `log`) and `sformat` are unchanged. Two macros are added; each skips its whole argument list when the level is disabled:
-  - `HTTPP_LOG_TO(log, info) << "x=" << x << path;` (streams)
-  - `HTTPP_LOGF_TO(log, info, "x=%d", x);` (printf style, checked by the compiler)
-  They can be mixed (`HTTPP_LOG_TO(log, info) << sformat("%05.1f", v) << " ms"`). The level is a bare name (`trace` ... `critical`). `log` is evaluated once. Each macro is one statement (no dangling else). The names carry `_TO` because `HTTPP_LOG(level)` is the library's own internal macro.
+  - `HTTPP_LOG(log, info) << "x=" << x << path;` (streams)
+  - `HTTPP_LOGF(log, info, "x=%d", x);` (printf style, checked by the compiler)
+  They can be mixed (`HTTPP_LOG(log, info) << sformat("%05.1f", v) << " ms"`). The level is a bare name (`trace` ... `critical`). `log` is evaluated once. Each macro is one statement (no dangling else). The library's own internal macro, which used the name `HTTPP_LOG(level)`, is renamed `HTTPP_LIB_LOG(level)` (src/utils/internal/logging.hpp, not installed) so the public names are `HTTPP_LOG` and `HTTPP_LOGF`.
 - **`logger::enabled(level)` is inline.** Each logger holds a cached effective level next to a process-wide epoch (`detail::level_epoch`, exported, constant-initialized). `set_level()` on any logger bumps the epoch. `enabled()` reads the cache and the epoch (two relaxed loads, one compare); when the epoch moved it calls `enabled_slow()`, which recomputes the effective level (the walk up the tree) and stores it. The epoch is read before the level, so a concurrent `set_level()` can only make the cache look stale, never fresh. A line may be logged or skipped once more after another thread changed a level, as with the relaxed atomics before.
 - **Stream buffer.** The text goes to a `std::ostringstream` reused per thread (flags, width and fill are reset for every line); a line started while another of the same thread is being built (an `operator<<` that logs) gets its own stream. The proxy never throws; a failing `operator<<` loses that line. Only the finished text crosses into the library (`logger::log_from`).
 - **ABI.** The `logger` object grew by one atomic, so `HTTPP_UTILS_ABI_VERSION` is 2 (ADR-0086's check catches a mismatch at load).

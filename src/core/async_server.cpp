@@ -386,14 +386,14 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         std::string head = "HTTP/1.1 101 Switching Protocols\r\n";
         for (const auto& h : r.headers) {
             if (h.first.find_first_of("\r\n:") != std::string::npos || h.second.find_first_of("\r\n") != std::string::npos) {
-                HTTPP_LOG(warning) << "an upgrade answer with a malformed header: dropping the connection";
+                HTTPP_LIB_LOG(warning) << "an upgrade answer with a malformed header: dropping the connection";
                 return close();
             }
             head += h.first + ": " + h.second + "\r\n";
         }
         head += "\r\n";
         if (!log_what.empty()) {
-            HTTPP_LOG(info) << log_what << " 101";
+            HTTPP_LIB_LOG(info) << log_what << " 101";
             log_what.clear();
         }
         tun = std::move(r.upgrade);
@@ -564,7 +564,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
 
     void close() {
         if (closed.exchange(true)) return;
-        HTTPP_LOG(trace) << "connection closed";
+        HTTPP_LIB_LOG(trace) << "connection closed";
         auto self = shared_from_this();
         ++armed;
         std::error_code ec;
@@ -623,7 +623,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
                 const auto r = tls->handshake();
                 tls_flush();
                 if (r == tls_session::result::failed) {
-                    HTTPP_LOG(debug) << tls->error();
+                    HTTPP_LIB_LOG(debug) << tls->error();
                     return h(asio::error::connection_aborted, 0);
                 }
                 if (r == tls_session::result::ok) { hs_done = true; continue; }
@@ -634,7 +634,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
             if (r == tls_session::result::ok) return tls_deliver(h);
             if (r == tls_session::result::closed) return h(asio::error::eof, 0);
             if (r == tls_session::result::failed) {
-                HTTPP_LOG(debug) << tls->error();
+                HTTPP_LIB_LOG(debug) << tls->error();
                 return h(asio::error::connection_aborted, 0);
             }
             break;
@@ -650,7 +650,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     }
     void tls_write(const std::string& data, std::function<void(std::error_code, std::size_t)> h) {
         if (tls->write(data) == tls_session::result::failed) {
-            HTTPP_LOG(debug) << tls->error();
+            HTTPP_LIB_LOG(debug) << tls->error();
             asio::post(srv.io, [self = shared_from_this(), h = std::move(h)] { if (!self->closed) h(asio::error::connection_aborted, 0); });
             return;
         }
@@ -733,7 +733,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
             const long long left = total * 1000LL - std::chrono::duration_cast<std::chrono::milliseconds>(
                                                         std::chrono::steady_clock::now() - since).count();
             if (left <= 0) {
-                HTTPP_LOG(debug) << "request " << (in_head ? "head" : "body") << " took longer than " << total
+                HTTPP_LIB_LOG(debug) << "request " << (in_head ? "head" : "body") << " took longer than " << total
                                  << " s: closing";
                 return close();
             }
@@ -802,7 +802,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
 
     // The engine's own error answers (400, 413, 414, 431): always close afterwards.
     void refuse(int status) {
-        HTTPP_LOG(debug) << "refusing a request with " << status << " " << reason(status);
+        HTTPP_LIB_LOG(debug) << "refusing a request with " << status << " " << reason(status);
         disarm();
         answering = true;
         if (detail::log_enabled(logging::level::info)) log_what = req.method + ' ' + req.target;
@@ -833,7 +833,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         if (r.status == 101 && r.upgrade) return start_tunnel(std::move(r));
         if (r.after_send) sent_guard = make_sent_guard(std::move(r.after_send));
         if (!log_what.empty()) {  // the access log
-            HTTPP_LOG(info) << log_what << ' ' << r.status;
+            HTTPP_LIB_LOG(info) << log_what << ' ' << r.status;
             log_what.clear();
         }
         const bool bodyless = req_head || r.status < 200 || r.status == 204 || r.status == 304;
@@ -919,12 +919,12 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     void piece_ready(const std::shared_ptr<stream_state>& st, std::string piece, bool more, bool failed) {
         if (closed || stream != st) return;
         if (failed) {
-            HTTPP_LOG(warning) << "a response body generator threw: dropping the connection";
+            HTTPP_LIB_LOG(warning) << "a response body generator threw: dropping the connection";
             return close(); // never end a broken stream cleanly: the client must see it fail
         }
         st->sent += static_cast<long long>(piece.size());
         if (st->length >= 0 && (st->sent > st->length || (!more && st->sent != st->length))) {
-            HTTPP_LOG(warning) << "a response body produced " << st->sent << " bytes but announced " << st->length << ": dropping the connection";
+            HTTPP_LIB_LOG(warning) << "a response body produced " << st->sent << " bytes but announced " << st->length << ": dropping the connection";
             return close();
         }
         std::string out;
@@ -961,7 +961,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
                 try {
                     job();
                 } catch (...) {
-                    HTTPP_LOG(warning) << "an after_send job threw: ignored";
+                    HTTPP_LIB_LOG(warning) << "an after_send job threw: ignored";
                 }
             });
         });
@@ -1068,7 +1068,7 @@ void async_server::impl::adopt(tcp::socket s) {
         if (!closing && !tls_ctx) { // over the limit: a short 503 (not over TLS: it would be noise before a handshake), then hang up
             static const char busy[] = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
             s.send(asio::buffer(busy, sizeof busy - 1), 0, ignore); // best effort into an empty send buffer
-            HTTPP_LOG(debug) << "connection refused: " << cap << " connections already open";
+            HTTPP_LIB_LOG(debug) << "connection refused: " << cap << " connections already open";
         }
         s.close(ignore);
         load.fetch_sub(1, std::memory_order_relaxed);
@@ -1111,7 +1111,7 @@ void async_server::impl::accept_next() {
         }
         if (ec == asio::error::operation_aborted) return;
         if (!acceptor.is_open()) { // the listener is gone: nothing left to accept on
-            HTTPP_LOG(error) << "listener failed: " << ec.message();
+            HTTPP_LIB_LOG(error) << "listener failed: " << ec.message();
             failed = true;
             begin_close();
             return;
@@ -1119,7 +1119,7 @@ void async_server::impl::accept_next() {
         // Transient (aborted handshake) or resource exhaustion (out of fds): pause briefly, keep accepting.
         const bool exhausted = ec == asio::error::no_descriptors || ec == asio::error::no_buffer_space ||
                                ec == asio::error::no_memory;
-        if (exhausted) { HTTPP_LOG(warning) << "accept failed (" << ec.message() << "): out of resources, retrying"; } // braces: the macro ends in an else
+        if (exhausted) { HTTPP_LIB_LOG(warning) << "accept failed (" << ec.message() << "): out of resources, retrying"; } // braces: the macro ends in an else
         backoff.expires_after(std::chrono::milliseconds(exhausted ? 20 : 1));
         backoff.async_wait([this](std::error_code e) {
             if (!e && !closing) accept_next();

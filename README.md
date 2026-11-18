@@ -634,8 +634,8 @@ logging.getLogger("libspeech.dsp").setLevel(logging.DEBUG)     # also from dictC
 
 ```cpp
 auto& log = httpp::logging::get_logger("libspeech.dsp");
-HTTPP_LOG_TO(log, debug) << "frame " << n << " in " << path;   // streams; nothing is evaluated when debug is off
-HTTPP_LOGF_TO(log, debug, "frame %d in %s", n, name);          // printf style, same laziness
+HTTPP_LOG(log, debug) << "frame " << n << " in " << path;   // streams; nothing is evaluated when debug is off
+HTTPP_LOGF(log, debug, "frame %d in %s", n, name);          // printf style, same laziness
 log.debug("frame %d", n);                                      // the method form still works (its arguments are always evaluated)
 ```
 

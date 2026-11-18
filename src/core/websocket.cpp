@@ -190,7 +190,7 @@ void ws_session::on_open(tunnel_io& io, tunnel_post_fn post) {
         try {
             events_.on_open();
         } catch (...) {
-            HTTPP_LOG(warning) << "a websocket on_open handler threw: closing with 1011";
+            HTTPP_LIB_LOG(warning) << "a websocket on_open handler threw: closing with 1011";
             fail(io, 1011);
         }
     }
@@ -238,7 +238,7 @@ void ws_session::on_written(tunnel_io&, std::size_t n) {
             try {
                 events_.on_drain();
             } catch (...) {
-                HTTPP_LOG(warning) << "a websocket on_drain handler threw: ignored";
+                HTTPP_LIB_LOG(warning) << "a websocket on_drain handler threw: ignored";
             }
         }
     }
@@ -247,7 +247,7 @@ void ws_session::on_written(tunnel_io&, std::size_t n) {
 void ws_session::on_idle(tunnel_io& io) {
     if (close_sent_ || dead_) return;
     if (ping_outstanding_) {  // a whole interval and not a byte since our ping
-        HTTPP_LOG(debug) << "websocket peer did not answer a ping: closing";
+        HTTPP_LIB_LOG(debug) << "websocket peer did not answer a ping: closing";
         return start_close(io, 1001, {}, false);
     }
     ping_outstanding_ = true;
@@ -270,7 +270,7 @@ void ws_session::on_close() {
         try {
             events_.on_close(peer_code_, peer_reason_);
         } catch (...) {
-            HTTPP_LOG(warning) << "a websocket on_close handler threw: ignored";
+            HTTPP_LIB_LOG(warning) << "a websocket on_close handler threw: ignored";
         }
     }
 }
@@ -387,7 +387,7 @@ void ws_session::finish_frame(tunnel_io& io) {
         try {
             events_.on_message(msg_, msg_binary_);
         } catch (...) {
-            HTTPP_LOG(warning) << "a websocket on_message handler threw: closing with 1011";
+            HTTPP_LIB_LOG(warning) << "a websocket on_message handler threw: closing with 1011";
             fail(io, 1011);
         }
     }

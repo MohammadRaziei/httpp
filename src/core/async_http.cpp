@@ -585,7 +585,7 @@ struct async_http::impl {
         // Ends the exchange (once) with an error. Never reuses the connection.
         void fail(error_kind k, const std::string& msg) {
             if (finished) return;
-            HTTPP_LOG(debug) << job.method << ' ' << job.host << ':' << job.port << job.target << " failed: " << msg;
+            HTTPP_LIB_LOG(debug) << job.method << ' ' << job.host << ':' << job.port << job.target << " failed: " << msg;
             if (conn) {
                 conn->close();
                 conn->drop_pending();  // a callback still waiting names this exchange: break the cycle (the exchange is held by `live` until complete())

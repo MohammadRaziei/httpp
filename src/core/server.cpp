@@ -526,7 +526,7 @@ struct server::impl {
         if (bound < 0) return bound;
         for (std::size_t i = 1; i < engines.size(); ++i) {
             if (engines[i]->bind(host, bound) < 0) {
-                HTTPP_LOG(warning) << "the port cannot be shared between I/O threads here: using one I/O thread";
+                HTTPP_LIB_LOG(warning) << "the port cannot be shared between I/O threads here: using one I/O thread";
                 engines.resize(1);
                 break;
             }
@@ -649,7 +649,7 @@ struct server::impl {
                     if (res.status <= 0) res.status = 200;
                     w = to_wire(std::move(res), offset, length);
                 } catch (...) {
-                    HTTPP_LOG(warning) << "response building failed (" << describe(std::current_exception()) << ") for " << req->method << ' ' << req->path << ": answering 500";
+                    HTTPP_LIB_LOG(warning) << "response building failed (" << describe(std::current_exception()) << ") for " << req->method << ' ' << req->path << ": answering 500";
                     w = failure(500, "Internal Server Error");
                 }
                 w.keep = std::move(keep);
@@ -694,7 +694,7 @@ struct server::impl {
                     res.file = std::move(dressed.file);
                     res.stream = std::move(dressed.stream);
                 } catch (...) { // a broken error handler keeps the plain error
-                    HTTPP_LOG(warning) << "error handler threw (" << describe(std::current_exception()) << "); keeping the plain " << res.status << " for " << req->method << ' ' << req->path;
+                    HTTPP_LIB_LOG(warning) << "error handler threw (" << describe(std::current_exception()) << "); keeping the plain " << res.status << " for " << req->method << ' ' << req->path;
                 }
             }
             if (c->after) {
@@ -708,7 +708,7 @@ struct server::impl {
             c->compression.apply(*req, res); // after the hooks, so they see the plain headers; a no-op when off
             w = to_wire(std::move(res), offset, length);
         } catch (...) {
-            HTTPP_LOG(warning) << "after hook or response building failed (" << describe(std::current_exception()) << ") for " << req->method << ' ' << req->path << ": answering 500";
+            HTTPP_LIB_LOG(warning) << "after hook or response building failed (" << describe(std::current_exception()) << ") for " << req->method << ' ' << req->path << ": answering 500";
             w = failure(500, "Internal Server Error");
         }
         w.keep = std::move(keep);
@@ -720,17 +720,17 @@ struct server::impl {
         out.status = 500;
         out.body = "Internal Server Error";
         if (cfg->exception) {
-            HTTPP_LOG(debug) << "handler for " << req->method << ' ' << req->path << " threw (" << describe(ep) << "); exception handler runs";
+            HTTPP_LIB_LOG(debug) << "handler for " << req->method << ' ' << req->path << " threw (" << describe(ep) << "); exception handler runs";
             try {
                 cfg->exception(*req, out, ep);
             } catch (...) {
-                HTTPP_LOG(warning) << "exception handler threw (" << describe(std::current_exception()) << "): answering 500";
+                HTTPP_LIB_LOG(warning) << "exception handler threw (" << describe(std::current_exception()) << "): answering 500";
                 out = response{};
                 out.status = 500;
                 out.body = "Internal Server Error";
             }
         } else {
-            HTTPP_LOG(warning) << "handler for " << req->method << ' ' << req->path << " threw: " << describe(ep);
+            HTTPP_LIB_LOG(warning) << "handler for " << req->method << ' ' << req->path << " threw: " << describe(ep);
         }
         send(std::move(out), 0, -1);
     }
@@ -1019,7 +1019,7 @@ struct server::impl {
         if (more) arm_sweep(list, next);
         for (auto& item : late) {
             auto answer_504 = [st = std::move(item.first), req = std::move(item.second.req), timeout = item.second.timeout_s] {
-                if (!st->answered.load()) { HTTPP_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " did not answer within " << timeout << " s: answering 504"; }
+                if (!st->answered.load()) { HTTPP_LIB_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " did not answer within " << timeout << " s: answering 504"; }
                 responder late_responder;
                 late_responder.impl_ = st;
                 response err;
@@ -1048,7 +1048,7 @@ struct server::impl {
         prepared pr;
         pr.req = std::make_shared<server_request>();
         if (!make_request(hr, *pr.req, pr.raw_path)) {
-            HTTPP_LOG(debug) << "bad request target: " << hr.target.substr(0, 100);
+            HTTPP_LIB_LOG(debug) << "bad request target: " << hr.target.substr(0, 100);
             answer(failure(400, "Bad Request"));
             return true;
         }
@@ -1072,7 +1072,7 @@ struct server::impl {
         prepared pr;
         pr.req = std::make_shared<server_request>();
         if (!make_request(hr, *pr.req, pr.raw_path)) {
-            HTTPP_LOG(debug) << "bad request target: " << hr.target.substr(0, 100);
+            HTTPP_LIB_LOG(debug) << "bad request target: " << hr.target.substr(0, 100);
             return answer(failure(400, "Bad Request"));
         }
         if (cfg->rewrite) cfg->rewrite(*pr.req);
@@ -1151,13 +1151,13 @@ struct server::impl {
                 try {
                     cfg->exception(*req, err, ep);
                 } catch (...) {
-                    HTTPP_LOG(warning) << "exception handler threw (" << describe(std::current_exception()) << "): answering 500";
+                    HTTPP_LIB_LOG(warning) << "exception handler threw (" << describe(std::current_exception()) << "): answering 500";
                     err = response{};
                     err.status = 500;
                     err.body = "Internal Server Error";
                 }
             } else {
-                HTTPP_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " threw: " << describe(ep);
+                HTTPP_LIB_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " threw: " << describe(ep);
             }
             rsp.send(std::move(err)); // no-op if the handler had already answered
         }
@@ -1226,7 +1226,7 @@ struct server::impl {
                     err.body = "Internal Server Error";
                 }
             } else {
-                HTTPP_LOG(warning) << "websocket on_handshake for " << req->path << " threw: " << describe(ep);
+                HTTPP_LIB_LOG(warning) << "websocket on_handshake for " << req->path << " threw: " << describe(ep);
             }
             up->reject(std::move(err));  // no-op if it had answered already
         }
@@ -1406,7 +1406,7 @@ int server::bind_to_any_port(const std::string& host) {
     if (port >= 0) {
         impl_->bound_host = host;
         impl_->bound_port = port;
-        HTTPP_LOG(info) << "listening on " << (impl_->tls_on ? "https" : "http") << "://" << host << ':' << port;
+        HTTPP_LIB_LOG(info) << "listening on " << (impl_->tls_on ? "https" : "http") << "://" << host << ':' << port;
     }
     return port;
 }
@@ -1414,12 +1414,12 @@ int server::bind_to_any_port(const std::string& host) {
 bool server::bind(const std::string& host, int port) {
     const int bound = impl_->bind_all(host, port);
     if (bound < 0) {
-        HTTPP_LOG(error) << "cannot listen on " << host << ':' << port;
+        HTTPP_LIB_LOG(error) << "cannot listen on " << host << ':' << port;
         return false;
     }
     impl_->bound_host = host;
     impl_->bound_port = bound;
-    HTTPP_LOG(info) << "listening on " << (impl_->tls_on ? "https" : "http") << "://" << host << ':' << bound;  // after the bind, so a taken port never says it
+    HTTPP_LIB_LOG(info) << "listening on " << (impl_->tls_on ? "https" : "http") << "://" << host << ':' << bound;  // after the bind, so a taken port never says it
     return true;
 }
 

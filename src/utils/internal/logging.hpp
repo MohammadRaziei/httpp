@@ -3,7 +3,7 @@
 // Internal. The macro used inside the library to log; src/core/logging.cpp turns it into a record of the
 // logging module (httpp/logging.hpp, ADR-0050, 0057).
 //
-//   HTTPP_LOG(warning) << "handler threw: " << what;
+//   HTTPP_LIB_LOG(warning) << "handler threw: " << what;
 //
 // A disabled level costs one relaxed atomic load of a variable that is read inline (no call into libhttpp_utils); the message is not
 // even built. The variable lives in libhttpp_utils (one per process) and is constant-initialized, so it is valid before any static
@@ -49,6 +49,6 @@ private:
 
 } // namespace httpp::detail
 
-#define HTTPP_LOG(level_name) \
+#define HTTPP_LIB_LOG(level_name) \
     if (!::httpp::detail::log_enabled(::httpp::logging::level::level_name)) {} \
     else ::httpp::detail::log_line(::httpp::logging::level::level_name, __func__)

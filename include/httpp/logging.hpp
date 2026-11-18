@@ -286,7 +286,7 @@ public:
     level effective_level() const noexcept;  // the first level that is not notset, going up the tree
     bool is_enabled_for(level lv) const noexcept;
     // The same answer as is_enabled_for, read inline: two relaxed loads and a compare, no call into libhttpp_utils, no walk up the tree.
-    // This is what HTTPP_LOG_TO / HTTPP_LOGF_TO test, so a disabled line costs that and nothing else (ADR-0090).
+    // This is what HTTPP_LOG / HTTPP_LOGF test, so a disabled line costs that and nothing else (ADR-0090).
     bool enabled(level lv) const noexcept {
         const std::uint64_t c = cache_.load(std::memory_order_relaxed);
         if (static_cast<std::uint32_t>(c >> 32) == detail::level_epoch.load(std::memory_order_relaxed))
@@ -350,13 +350,13 @@ HTTPP_UTILS_API logger& get_logger(std::string_view name = {});
 
 // ------------------------------------------------------------------------------- stream style and lazy macros (ADR-0090)
 //
-//   HTTPP_LOG_TO(log, info) << "x=" << x << " in " << path;     // C++ streams; the whole right side is skipped when disabled
-//   HTTPP_LOGF_TO(log, info, "x=%d in %s", x, name);            // printf style, checked by the compiler, also skipped when disabled
+//   HTTPP_LOG(log, info) << "x=" << x << " in " << path;     // C++ streams; the whole right side is skipped when disabled
+//   HTTPP_LOGF(log, info, "x=%d in %s", x, name);            // printf style, checked by the compiler, also skipped when disabled
 //   log.info("x=%d", x);                                        // the method form still works; its arguments are always evaluated
 //
 // `log` is a logger (a reference or the result of get_logger()); it is evaluated once. The level is a bare name: trace, debug, info,
 // warning, error or critical. Both macros are one statement and safe in an unbraced if/else. The two styles mix: the right side of
-// HTTPP_LOG_TO may hold sformat(...). The pieces are header-only; only the finished text crosses into libhttpp_utils (log_from).
+// HTTPP_LOG may hold sformat(...). The pieces are header-only; only the finished text crosses into libhttpp_utils (log_from).
 
 namespace detail {
 
@@ -429,11 +429,11 @@ private:
 
 }  // namespace detail
 
-#define HTTPP_LOG_TO(lg, lvl)                                                                              \
+#define HTTPP_LOG(lg, lvl)                                                                              \
     if (auto& httpp_lg_ = (lg); !httpp_lg_.enabled(::httpp::logging::level::lvl)) {}                      \
     else ::httpp::logging::detail::log_stream(httpp_lg_, ::httpp::logging::level::lvl, __func__)
 
-#define HTTPP_LOGF_TO(lg, lvl, ...)                                                                        \
+#define HTTPP_LOGF(lg, lvl, ...)                                                                        \
     do {                                                                                                   \
         auto& httpp_lg_ = (lg);                                                                            \
         if (httpp_lg_.enabled(::httpp::logging::level::lvl))                                               \
