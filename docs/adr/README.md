@@ -105,3 +105,4 @@ File name `NNNN-short-english-title.md`. Sections: status, context, decision, re
 Do not edit an accepted ADR; when a decision changes, write a new ADR and mark the old one "superseded by ADR-NNNN".
 | [0089](0089-follow-redirects-takes-the-limit-and-auto-compression.md) | `request::max_redirects(n)` is the one redirect setting (0 = follow none) and replaces `follow_redirects`; `request::auto_compression(bool)` switches Accept-Encoding and decoding off | accepted |
 | [0090](0090-stream-logging-and-inline-level-check.md) | `HTTPP_LOG` (streams) and `HTTPP_LOGF` (printf) skip their arguments when the level is disabled; `logger::enabled()` is an inline cached check; ABI 2 | accepted |
+| [0091](0091-one-level-for-the-library-log.md) | the library's own log is the logger `"httpp"`: its level is the logger's level, the internal macro is an alias of the public one; ABI 3 | accepted |

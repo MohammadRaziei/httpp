@@ -772,7 +772,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     void request_complete() {
         disarm();
         answering = true;
-        if (detail::log_enabled(logging::level::info)) log_what = req.method + ' ' + req.target;  // req is moved below
+        if (detail::lib_log().enabled(logging::level::info)) log_what = req.method + ' ' + req.target;  // req is moved below
         // ponytail: everything an answer needs lives in ONE shared object, so the answer function holds a single pointer (it fits
         // std::function's own storage: no second allocation) and copying it is one count, not three. Upgrade path: none needed.
         struct answer_state {
@@ -805,7 +805,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         HTTPP_LIB_LOG(debug) << "refusing a request with " << status << " " << reason(status);
         disarm();
         answering = true;
-        if (detail::log_enabled(logging::level::info)) log_what = req.method + ' ' + req.target;
+        if (detail::lib_log().enabled(logging::level::info)) log_what = req.method + ' ' + req.target;
         wire_response r;
         r.status = status;
         r.close = true;

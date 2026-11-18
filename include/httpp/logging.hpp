@@ -92,7 +92,7 @@
 // be caught at start, not as a crash later. Raise HTTPP_UTILS_ABI_VERSION when a type or function exported by logging.hpp, path.hpp
 // or progress.hpp changes in a way old binaries cannot follow. libhttpp checks it when it is loaded; another consumer can call
 // httpp::utils_abi_compatible() the same way.
-#define HTTPP_UTILS_ABI_VERSION 2  // 2: logger::enabled() reads a cache inside the object (ADR-0090)
+#define HTTPP_UTILS_ABI_VERSION 3  // 2: logger::enabled() reads a cache inside the object (ADR-0090); 3: own_log_level / log_write are gone (ADR-0091)
 namespace httpp {
 HTTPP_UTILS_API int utils_abi_version() noexcept;  // the value the loaded library was built with
 inline bool utils_abi_compatible() noexcept { return utils_abi_version() == HTTPP_UTILS_ABI_VERSION; }
@@ -324,7 +324,7 @@ public:
     HTTPP_FORMAT_CHECK(2, 3) void error(HTTPP_FORMAT_STRING const char* fmt, ...);
     HTTPP_FORMAT_CHECK(2, 3) void critical(HTTPP_FORMAT_STRING const char* fmt, ...);
     HTTPP_FORMAT_CHECK(3, 4) void log(level lv, HTTPP_FORMAT_STRING const char* fmt, ...);
-    // A message already built, with the function that logged it (what httpp::detail::log_write uses).
+    // A message already built, with the function that logged it (what the stream macro HTTPP_LOG hands over).
     void log_from(level lv, std::string_view where, std::string_view message);
     HTTPP_FORMAT_CHECK(3, 0) void vlog(level lv, HTTPP_FORMAT_STRING const char* fmt, std::va_list args);
 

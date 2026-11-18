@@ -850,7 +850,7 @@ struct state {
     logging::logger* lg;
 
     state() : lg(&logging::get_logger("httpp")) {
-        lg->set_level(logging::level::trace);      // the filtering is done by detail::own_log_level (one atomic load, no message built)
+        lg->set_level(logging::level::warning);    // the library's default; httpp::set_log_level sets this very level (ADR-0091)
         lg->set_propagate(false);                  // the application's own logging setup is never touched
         use_stderr();
     }
@@ -870,7 +870,7 @@ state& st() {
 
 } // namespace
 
-void set_log_level(logging::level level) { detail::own_log_level.store(static_cast<int>(level)); }
+void set_log_level(logging::level level) { st().lg->set_level(level); }
 
 bool set_log_level(std::string_view name) {
     const auto parsed = logging::level_from_string(name);  // the one table of names
@@ -957,12 +957,7 @@ void set_log_callback(log_callback fn) {
 
 namespace detail {
 
-std::atomic<int> own_log_level{static_cast<int>(logging::level::warning)};
-
-void log_write(logging::level level, const char* where, const std::string& message) {
-    if (!log_enabled(level)) return;
-    st().lg->log_from(level, where, message);
-}
+logging::logger& lib_logger() { return *st().lg; }
 
 } // namespace detail
 } // namespace httpp

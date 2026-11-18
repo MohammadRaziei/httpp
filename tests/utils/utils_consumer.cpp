@@ -28,6 +28,14 @@ int main() {
     const httpp::path p = httpp::path("a") / "b";
     if (p.str().empty()) return 2;
 
-    httpp::set_log_level(lg::level::off);  // the facade of the library's own log
+    // The library's own log is the logger "httpp" (ADR-0091): set_log_level and set_level are the same thing, children follow.
+    auto& lib = lg::get_logger("httpp");
+    auto& lib_child = lg::get_logger("httpp.child");
+    httpp::set_log_level(lg::level::debug);
+    if (!lib.enabled(lg::level::debug) || !lib_child.enabled(lg::level::debug)) return 4;
+    lib.set_level(lg::level::error);
+    if (lib_child.enabled(lg::level::warning) || !lib_child.enabled(lg::level::error)) return 5;
+    httpp::set_log_level(lg::level::off);
+    if (lib.enabled(lg::level::critical)) return 6;
     return 0;
 }
