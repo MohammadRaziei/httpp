@@ -385,6 +385,15 @@ cdef class Request:
         self._req.connect_timeout(max(1, int(round(seconds))))
         return self
 
+    def max_time(self, seconds):
+        """Limit, in seconds, for the whole request: redirects and a streamed body included. When it runs
+        out the request ends with error "timeout", even while the server is still sending. 0 (default) sets
+        no such limit; timeout() is separate and limits each step. ValueError for a negative number."""
+        if seconds < 0:
+            raise ValueError("max_time must not be negative")
+        self._req.max_time(0 if seconds == 0 else max(1, int(round(seconds))))
+        return self
+
     def verify(self, cbool enable):
         """https: verify the server certificate (default True)."""
         self._req.verify(enable)

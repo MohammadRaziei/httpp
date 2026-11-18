@@ -844,6 +844,16 @@ def test_curl_max_time_stops_a_slow_server(httpp_exe, echo_app):
     assert elapsed < 2
 
 
+def test_curl_max_time_ends_an_endless_answer_that_never_stalls(httpp_exe):
+    with endless_server() as host:
+        started = time.monotonic()
+        r = run(httpp_exe, "curl", host, "-m", "2")  # a frame every 10 ms: no single step is slow, only the total is
+        elapsed = time.monotonic() - started
+    assert r.returncode == 28 and "error:" in r.stderr
+    assert r.stdout.startswith("frame\n")  # what arrived before the limit was shown
+    assert 1.5 < elapsed < 6
+
+
 def test_curl_repeated_d_joins_the_values_with_an_ampersand(httpp_exe, echo_app):
     with running(echo_app) as url:
         r = run(httpp_exe, "curl", "-d", "a=1", "-d", "b=2", f"{url}/echo")  # the url may come last

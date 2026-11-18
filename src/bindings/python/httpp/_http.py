@@ -11,6 +11,7 @@ from .httpp_python import Client, Request, _AsyncClientCore
 
 def request(method, url, *, params=None, headers=None, data=None, json=None, form=None,
             content_type=None, timeout=None, follow_redirects=False, max_redirects=None, connect_timeout=None,
+            max_time=None,
             auth=None, token=None, cookies=None, verify=True, ca_file=None, proxy=None,
             auto_compression=True):
     """Make one request and return its Response. See Request for what each option means.
@@ -41,6 +42,8 @@ def request(method, url, *, params=None, headers=None, data=None, json=None, for
         req.auto_compression(False)
     if connect_timeout is not None:
         req.connect_timeout(connect_timeout)
+    if max_time is not None:
+        req.max_time(max_time)
     if auth is not None:
         req.basic_auth(*auth)
     if token is not None:

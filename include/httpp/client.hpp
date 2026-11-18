@@ -226,8 +226,8 @@ public:
     HTTPP_API request& timeout(long seconds);
     // -L/--location and --max-redirs in one: how many redirects to follow. 0 (the default) follows none: a 3xx
     // is the answer. n > 0 follows up to n hops; one more fails with error_kind::too_many_redirects.
-    // -1 follows without a limit (a redirect loop then never ends, as timeout() limits each step, not the
-    // whole request). Throws std::invalid_argument for any other negative number.
+    // -1 follows without a limit (a redirect loop then never ends unless max_time() is set, as timeout() limits each
+    // step, not the whole request). Throws std::invalid_argument for any other negative number.
     HTTPP_API request& max_redirects(int count);
 
     // On by default: ask for gzip / deflate (Accept-Encoding, unless header() sets one) and hand back the
@@ -238,6 +238,11 @@ public:
     // TLS handshake. timeout() still limits each write and read. 0 (the default) means timeout() covers the
     // connect steps too. Throws std::invalid_argument for a negative number.
     HTTPP_API request& connect_timeout(long seconds);
+    // -m/--max-time (seconds): one limit for the whole request, from the start to the last body byte, redirects and a
+    // streamed body included. When it runs out the request ends with error_kind::timeout, even if the server is still
+    // sending. 0 (the default) sets no such limit. timeout() is separate: it limits each step, so a slow trickle never
+    // trips it. Throws std::invalid_argument for a negative number.
+    HTTPP_API request& max_time(long seconds);
 
     // https: verify the server certificate (default true), or trust this CA bundle instead of
     // the system's. And an HTTP proxy.

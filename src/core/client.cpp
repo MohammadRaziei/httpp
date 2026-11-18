@@ -233,6 +233,11 @@ request& request::cookie(std::string name, std::string value) {
     return *this;
 }
 request& request::timeout(long seconds) { impl_->settings.timeout = seconds; return *this; }
+request& request::max_time(long seconds) {
+    if (seconds < 0) throw std::invalid_argument("max_time must not be negative");
+    impl_->settings.max_time = seconds;
+    return *this;
+}
 request& request::max_redirects(int count) {
     if (count < -1) throw std::invalid_argument("max_redirects must be -1 (no limit) or more");
     impl_->settings.follow = count != 0;

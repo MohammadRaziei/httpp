@@ -464,7 +464,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         if (plan.has_body) req.data(plan.body);
         // -L with --max-redirs 0 follows nothing and fails on the first redirect (exit 47): on_head() checks that.
         if (a.location && a.max_redirs != 0) req.max_redirects(a.max_redirs == -2 ? 20 : a.max_redirs);
-        if (a.max_time > 0) req.timeout(a.max_time);
+        if (a.max_time > 0) req.max_time(a.max_time);
         if (a.connect_timeout > 0) req.connect_timeout(a.connect_timeout);
         if (a.has_user) req.basic_auth(plan.user_name, plan.user_password);
     };
@@ -914,7 +914,7 @@ int main(int argc, char** argv) {
     c_curl->add_flag("--head,-I", ca.head_only, "Send HEAD and print only the status line and the headers");
     c_curl->add_flag("--verbose,-v", ca.verbose, "Print the request line and the -H headers, then the response status and headers, to stderr");
     c_curl->add_flag("--location,-L", ca.location, "Follow redirects");
-    c_curl->add_option("--max-time,-m", ca.max_time, "Give up when a connect, write or read step takes longer than this many seconds")->check(CLI::Range(1L, 2147483647L))->type_name("SECONDS");
+    c_curl->add_option("--max-time,-m", ca.max_time, "Give up when the whole transfer takes longer than this many seconds")->check(CLI::Range(1L, 2147483647L))->type_name("SECONDS");
     c_curl->add_option("--connect-timeout", ca.connect_timeout, "Give up when resolving, connecting or the TLS handshake takes longer than this many seconds")
         ->check(CLI::Range(1L, 2147483647L))->type_name("SECONDS");
     c_curl->add_option("--max-redirs", ca.max_redirs, "With -L: fail with exit code 47 after this many redirects (default 20, -1 = no limit)")

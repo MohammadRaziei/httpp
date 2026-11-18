@@ -13,6 +13,7 @@
 
 #include "httpp/client.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -57,6 +58,7 @@ struct async_job {
     std::vector<std::pair<std::string, std::string>> headers;
     std::string body;
     long timeout_sec = 0;               // per step (resolve, connect, write, each read); 0 = none
+    std::chrono::steady_clock::time_point deadline{}; // the whole request must end by then (error_kind::timeout); epoch = no limit
     long connect_timeout_sec = 0;       // resolve, connect, proxy and TLS handshake instead of timeout_sec; 0 = timeout_sec
     std::size_t max_response_size = 0;  // body bytes; 0 = no limit
     bool auto_decode = true;            // undo gzip / deflate in response::body (a sink always gets the bytes as sent)

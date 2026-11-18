@@ -513,8 +513,9 @@ struct async_http::impl {
         bool got_bytes = false;     // any response byte arrived on this attempt
         bool retried = false;
         std::string leftover;       // bytes after the end of the response (then the connection is not reusable)
+        asio::steady_timer total;   // the whole-request deadline (job.deadline), when there is one
 
-        exchange(impl& o, async_job j, done_fn d) : owner(o), job(std::move(j)), done(std::move(d)) {
+        exchange(impl& o, async_job j, done_fn d) : owner(o), job(std::move(j)), done(std::move(d)), total(o.io) {
             llhttp_settings_init(&settings);
             settings.on_header_field = [](llhttp_t* p, const char* at, std::size_t n) -> int {
                 auto* e = static_cast<exchange*>(p->data);
@@ -606,12 +607,21 @@ struct async_http::impl {
         }
         void complete() {
             finished = true;
+            total.cancel(); // releases the handler, which holds this exchange
             auto self = shared_from_this();
             owner.live.erase(self);
             if (done) { auto d = std::move(done); d(std::move(res)); }
         }
 
         void start() {
+            if (job.deadline != std::chrono::steady_clock::time_point{}) {
+                if (std::chrono::steady_clock::now() >= job.deadline) return fail(error_kind::timeout, "total time limit reached");
+                total.expires_at(job.deadline);
+                total.async_wait([self = shared_from_this()](std::error_code ec) {
+                    if (ec || self->finished) return;
+                    self->fail(error_kind::timeout, "total time limit reached");
+                });
+            }
             if (!clean(job.method, false) || !clean(job.target, false) || !clean(job.host, false) ||
                 job.method.empty() || job.target.empty() || !clean(job.proxy_authorization, true)) {
                 return fail(error_kind::other, "invalid request line");

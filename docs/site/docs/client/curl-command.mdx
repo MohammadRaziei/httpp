@@ -27,7 +27,7 @@ httpp curl http://127.0.0.1:8000/health -sS -f -m 5 --retry 3
 | `-V`, `--version` | Prints `httpp curl 0.9.0 compatible with curl 8.18.0`: the httpp version, and the curl release whose behavior the command follows. |
 | `--compressed` | Accepted so curl scripts keep working, and it changes nothing: the answer is written as it arrives, so the request asks for `Accept-Encoding: identity` and you get the plain bytes. A `-H "Accept-Encoding: ..."` of your own wins, and then the bytes are written as the server sent them. |
 | `-L`, `--location` and `--max-redirs N` | Follow redirects, at most N of them (default 20, `-1` means no limit). Past the limit the exit code is 47. |
-| `-m`, `--max-time SECONDS` | Give up when a connect, write or read step takes longer than this. It limits each step, not the whole transfer: a server that keeps sending a byte now and then is never cut off. |
+| `-m`, `--max-time SECONDS` | Give up when the whole transfer, redirects and body included, takes longer than this. A server that keeps sending is cut off too (exit code 28), so `-m 10` is safe on an endless stream. |
 | `--connect-timeout SECONDS` | Give up when resolving, connecting or the TLS handshake takes longer than this. |
 
 ## Choose the output

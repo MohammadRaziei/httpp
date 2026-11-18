@@ -142,6 +142,7 @@ bool session_settings::make_spec(const endpoint& where, const std::string& metho
     out.content_type = std::move(ctype);
     out.timeout = timeout;
     out.connect_timeout = connect_timeout;
+    out.max_time = max_time;
     out.redirects_left = max_redirects;
     out.follow = follow;
     out.auto_compression = auto_compression;
@@ -203,6 +204,7 @@ async_job make_job(const request_spec& s) {
     }
     j.timeout_sec = s.timeout > 0 ? s.timeout : request_spec::default_timeout;
     j.connect_timeout_sec = s.connect_timeout;
+    j.deadline = s.deadline;
     j.max_response_size = s.max_response_size;
     j.verify = s.verify;
     j.ca_file = s.ca_file;
@@ -286,6 +288,8 @@ std::string location_of(const response& r) {
 } // namespace
 
 void run_chain(std::shared_ptr<request_spec> spec, std::function<void(response)> done) {
+    if (spec->max_time > 0 && spec->deadline == std::chrono::steady_clock::time_point{}) // the first hop starts the clock; a redirect inherits it
+        spec->deadline = std::chrono::steady_clock::now() + std::chrono::seconds(spec->max_time);
     engine_for(*spec).submit(make_job(*spec), [spec, done = std::move(done)](response r) mutable {
         if (!spec->follow || !is_redirect(r.status)) return done(std::move(r));
         request_spec next;

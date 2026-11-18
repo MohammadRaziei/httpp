@@ -1,4 +1,4 @@
-"""Request.max_redirects and Request.connect_timeout (ADR-0079, ADR-0089)."""
+"""Request.max_redirects, Request.connect_timeout and Request.max_time (ADR-0079, ADR-0089, ADR-0084)."""
 import time
 
 import pytest
@@ -79,3 +79,20 @@ def test_the_request_helper_takes_both_options():
         r = httpp.request("GET", url + "/a", max_redirects=2, connect_timeout=5)
         assert r.ok and r.body == "end"
         assert httpp.request("GET", url + "/a", follow_redirects=True).body == "end"  # the Client spelling: up to 20
+
+
+def test_max_time_ends_a_slow_request_with_a_timeout():
+    with running(chain_app()) as url:
+        started = time.monotonic()
+        r = Request(url + "/slow").timeout(20).max_time(1).run()
+        elapsed = time.monotonic() - started
+    assert r.failed and r.error == "timeout"
+    assert elapsed < 1.45  # the answer would have come after 1.5 s
+
+
+def test_max_time_zero_is_no_limit_and_negative_is_refused():
+    with running(chain_app()) as url:
+        r = Request(url + "/c").max_time(0).run()
+        assert r.ok and r.body == "end"
+    with pytest.raises(ValueError):
+        Request("http://localhost/").max_time(-1)

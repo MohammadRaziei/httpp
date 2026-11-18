@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <chrono>
 #include <string>
 #include <utility>
 #include <vector>
@@ -67,6 +68,8 @@ struct request_spec {
     std::string body, content_type;
     long timeout = 0;
     long connect_timeout = 0; // 0 = timeout covers the connect steps too
+    long max_time = 0; // seconds for the whole request, redirects included; 0 = no such limit
+    std::chrono::steady_clock::time_point deadline{}; // set from max_time when the request starts; epoch = none
     bool follow = false;
     bool auto_compression = true; // send Accept-Encoding and decode gzip / deflate bodies
     bool verify = true;
@@ -95,6 +98,7 @@ struct session_settings {
     header_list headers;
     long timeout = 0; // 0 = default_timeout
     long connect_timeout = 0; // 0 = timeout covers the connect steps too
+    long max_time = 0; // 0 = no limit on the whole request
     int max_redirects = request_spec::redirect_limit;
     bool follow = false;
     bool auto_compression = true;
