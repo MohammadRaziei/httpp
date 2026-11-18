@@ -9,6 +9,7 @@
 
 int main() {
     namespace lg = httpp::logging;
+    if (!httpp::utils_abi_compatible()) return 3;
     std::vector<std::string> seen;
     auto& log = lg::get_logger("consumer.test");
     log.set_propagate(false);

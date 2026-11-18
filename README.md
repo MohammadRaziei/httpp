@@ -629,6 +629,21 @@ httpp.bridge_logger("libspeech")                               # C++ "libspeech.
 logging.getLogger("libspeech.dsp").setLevel(logging.DEBUG)     # also from dictConfig and basicConfig
 ```
 
+
+### Using `httpp_utils` from another wheel (ADR-0086)
+
+A package that wants the logger registry, `httpp::sformat`, `httpp::path` or the progress bar without shipping the HTTP stack (for
+example libspeech) depends on `httpp` at run time and does not bundle its own copy of `libhttpp_utils`:
+
+- **Build:** `find_package(httpp REQUIRED PATHS "$(python -m httpp py --cmake-dir)")` and link `httpp::utils` only (not `httpp::core`).
+- **Do not repair it into your wheel:** `auditwheel repair --exclude libhttpp_utils.so` (Linux) / `delocate-wheel --exclude libhttpp_utils` (macOS).
+  A second copy would be a second logger registry and records would be lost.
+- **Find it at run time:** an RPATH of `$ORIGIN/../httpp/sdk/lib` (`@loader_path/../httpp/sdk/lib` on macOS) on your extension, and `import httpp`
+  before you load your extension (Windows has no RPATH: `import httpp` adds `httpp/sdk/bin` to the DLL search path).
+- **Declare the dependency:** `httpp>=X,<Y` in your `pyproject.toml`. `HTTPP_UTILS_ABI_VERSION` / `httpp::utils_abi_compatible()` catch a header that
+  does not match the library at run time (libhttpp checks it when it is loaded).
+- **Logs reach Python without any binding of yours:** log from C++ with `get_logger("libspeech.dsp")` and call `httpp.bridge_logger("libspeech")`.
+
 ## License
 
 [MIT](LICENSE.txt)

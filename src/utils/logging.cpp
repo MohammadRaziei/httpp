@@ -953,3 +953,7 @@ void log_write(logging::level level, const char* where, const std::string& messa
 
 } // namespace detail
 } // namespace httpp
+
+namespace httpp {
+int utils_abi_version() noexcept { return HTTPP_UTILS_ABI_VERSION; }
+}  // namespace httpp

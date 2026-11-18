@@ -82,6 +82,17 @@
 #define HTTPP_LOG_HAS_SYSLOG 0
 #endif
 
+// The ABI of libhttpp_utils (ADR-0086). Wheels and programs that share one libhttpp_utils (httpp, libspeech, ...) are built apart, and
+// the library keeps the one logger registry of the process, so a header that does not match the library it meets at run time must
+// be caught at start, not as a crash later. Raise HTTPP_UTILS_ABI_VERSION when a type or function exported by logging.hpp, path.hpp
+// or progress.hpp changes in a way old binaries cannot follow. libhttpp checks it when it is loaded; another consumer can call
+// httpp::utils_abi_compatible() the same way.
+#define HTTPP_UTILS_ABI_VERSION 1
+namespace httpp {
+HTTPP_UTILS_API int utils_abi_version() noexcept;  // the value the loaded library was built with
+inline bool utils_abi_compatible() noexcept { return utils_abi_version() == HTTPP_UTILS_ABI_VERSION; }
+}  // namespace httpp
+
 namespace httpp::logging {
 
 #if defined(__GNUC__) || defined(__clang__)
