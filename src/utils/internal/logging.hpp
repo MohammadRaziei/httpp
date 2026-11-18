@@ -14,13 +14,10 @@
 namespace httpp::detail {
 
 // The library's own logger, "httpp": the one httpp::set_log_level / set_log_file / set_log_callback / set_log_system configure, so its level
-// is the logger's level (ADR-0091). Exported (unlike the rest of src/core/internal) so the engine tests, which compile engine sources
-// straight into the test binary, share the library's logger instead of having a second one.
-HTTPP_UTILS_API logging::logger& lib_logger();
-
-// The reference is looked up once per module; the call that follows is the public, inline logger::enabled().
+// is the logger's level (ADR-0091). The registry sets it up when it is created, so this is the public get_logger() and nothing more; the
+// reference is looked up once per module (the lookup takes a lock), the check that follows is the inline logger::enabled().
 inline logging::logger& lib_log() {
-    static logging::logger& lg = lib_logger();
+    static logging::logger& lg = logging::get_logger("httpp");
     return lg;
 }
 

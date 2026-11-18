@@ -599,11 +599,22 @@ struct manager {
 
 namespace {
 
+// The output format of the library's own log (set_log_file and the others reuse it).
+constexpr const char* k_lib_pattern = "%(asctime)s [%(levelname)s] %(name)s (%(funcName)s): %(message)s";
+
 manager& instance() {
     static manager* m = [] {
         auto* p = new manager;
         try {
-            p->get("httpp");  // the parent of every httpp logger exists from the start
+            // The library's own logger exists from the start, with its defaults (ADR-0091): `warning`, to stderr, never to the application's
+            // root. Whoever asks for get_logger("httpp") first (the core, a program, a test) gets it already set up. Nothing in here may
+            // call get_logger(): this initializer is still running.
+            logger& lib = p->get("httpp");
+            lib.set_level(level::warning);
+            lib.set_propagate(false);
+            stream_handler h(stderr);
+            h.set_formatter(formatter(k_lib_pattern));
+            lib.add_handler(std::move(h));
         } catch (...) {
         }
         return p;
@@ -843,17 +854,13 @@ void event_log_handler::emit(const record& r) {
 namespace httpp {
 namespace {
 
-constexpr const char* k_pattern = "%(asctime)s [%(levelname)s] %(name)s (%(funcName)s): %(message)s";
+constexpr const char* k_pattern = logging::detail::k_lib_pattern;
 
 struct state {
     std::mutex mu;                                 // swapping the output, so a line never meets a half-changed setup
     logging::logger* lg;
 
-    state() : lg(&logging::get_logger("httpp")) {
-        lg->set_level(logging::level::warning);    // the library's default; httpp::set_log_level sets this very level (ADR-0091)
-        lg->set_propagate(false);                  // the application's own logging setup is never touched
-        use_stderr();
-    }
+    state() : lg(&logging::get_logger("httpp")) {}  // already set up by the registry (see instance())
     template <class H>
     void use(H h, const char* pattern = k_pattern) {
         h.set_formatter(logging::formatter(pattern));
@@ -955,11 +962,6 @@ void set_log_callback(log_callback fn) {
     }));
 }
 
-namespace detail {
-
-logging::logger& lib_logger() { return *st().lg; }
-
-} // namespace detail
 } // namespace httpp
 
 namespace httpp::logging::detail {

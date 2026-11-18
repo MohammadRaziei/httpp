@@ -92,7 +92,7 @@
 // be caught at start, not as a crash later. Raise HTTPP_UTILS_ABI_VERSION when a type or function exported by logging.hpp, path.hpp
 // or progress.hpp changes in a way old binaries cannot follow. libhttpp checks it when it is loaded; another consumer can call
 // httpp::utils_abi_compatible() the same way.
-#define HTTPP_UTILS_ABI_VERSION 3  // 2: logger::enabled() reads a cache inside the object (ADR-0090); 3: own_log_level / log_write are gone (ADR-0091)
+#define HTTPP_UTILS_ABI_VERSION 4  // 2: logger::enabled() reads a cache inside the object (ADR-0090); 3, 4: the library log back end is gone (ADR-0091)
 namespace httpp {
 HTTPP_UTILS_API int utils_abi_version() noexcept;  // the value the loaded library was built with
 inline bool utils_abi_compatible() noexcept { return utils_abi_version() == HTTPP_UTILS_ABI_VERSION; }
