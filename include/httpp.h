@@ -51,6 +51,7 @@
 #include "httpp/server.hpp"
 #include "httpp/router.hpp"
 #include "httpp/logging.hpp"
+#include "httpp/proxy.hpp"
 #include "httpp/banner.hpp"
 #include "httpp/progress.hpp"
 #include "httpp/download.hpp"

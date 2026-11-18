@@ -20,6 +20,8 @@ httpp curl http://127.0.0.1:8000/health -sS -f -m 5 --retry 3
 | `-H`, `--header "Name: value"` | An extra header. Repeat it for more. |
 | `-d`, `--data TEXT` | The body. Repeat it and the pieces are joined with `&`. `-d @file` reads a file (`@-` reads standard input) and drops its line breaks, as curl does. |
 | `-T`, `--upload-file FILE` | Send a file with `PUT` (`-` is standard input). A URL that ends with `/` gets the file name added. It cannot be combined with `-d`. |
+| `-x`, `--proxy URL` | Use this proxy: `[http://][user:password@]host[:port]`, `socks5://...` or `socks5h://...`. `-x ""` means no proxy at all. |
+| `--noproxy LIST` | Hosts that go direct, separated by commas: names (and their subdomains), IPv4 addresses, `a.b.c.d/n` ranges, `*` for all. Replaces `no_proxy`, and also applies to `-x`. |
 | `-u`, `--user user:password` | Basic authentication. Only the first colon splits, so a password may contain colons. |
 | `-A`, `--user-agent NAME` and `-e`, `--referer URL` | Set `User-Agent` and `Referer`. A `-H` with the same name wins. Without `-A`, the `User-Agent` is `curl/8.18.0`, as curl sends it, because some sites answer only to that. |
 | `-V`, `--version` | Prints `httpp curl 0.9.0 compatible with curl 8.18.0`: the httpp version, and the curl release whose behavior the command follows. |
@@ -74,8 +76,9 @@ httpp curl http://127.0.0.1:8000/a.txt http://127.0.0.1:8000/b.txt -o a.out -o b
 
 ## Where it differs from curl
 
-- It is a subset. Missing: `-F` and `--json`, `-G`, `-b` cookies, `-x` proxies, `-k` and `--cacert`, `--data-binary`, `-C` resume, `-r` ranges, `--http2`, `-4` and `-6`, and curl configuration files. `httpp.Request` and `httpp::request` can do several of these (proxies, cookies, TLS options, JSON and form bodies); the command does not expose them yet.
+- It is a subset. Missing: `-F` and `--json`, `-G`, `-b` cookies, `-k` and `--cacert`, `--data-binary`, `-C` resume, `-r` ranges, `--http2`, `-4` and `-6`, and curl configuration files. `httpp.Request` and `httpp::request` can do several of these (proxies, cookies, TLS options, JSON and form bodies); the command does not expose them yet.
 - `httpp curl` with no URL prints a hint (`try 'httpp curl --help'`, and `no URL specified` when other options were given) and exits with 2, as curl does.
+- Without `-x`, the proxy comes from the environment as in curl: `http_proxy` for `http://` URLs (lowercase only), `https_proxy` or `HTTPS_PROXY` for `https://`, and `all_proxy` or `ALL_PROXY` for both, minus the hosts in `no_proxy`. `-v` prints `* Uses proxy ...` so you can see it. An unusable proxy exits with 5.
 - A URL without `://` is read as `http://`, as curl does (`httpp curl localhost:8080/x`). A URL with a space or a control character is rejected with exit code 3 and nothing is sent.
 - `-v` shows the headers you gave, not the ones the client adds itself, such as `Host`.
 - `%{size_download}` is the number of body bytes written. The body is written as it arrives, and the client asks for no content coding, so these are the bytes the server sent.

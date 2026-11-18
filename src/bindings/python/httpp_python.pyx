@@ -10,6 +10,7 @@ serving HTTP (Server) - the `httpp` CLI (`httpp server ...`, analogous to
 
 from libcpp.string cimport string
 from libcpp.string_view cimport string_view
+from libcpp.optional cimport optional
 from libcpp cimport bool as cbool
 from libcpp.vector cimport vector
 from libcpp.pair cimport pair

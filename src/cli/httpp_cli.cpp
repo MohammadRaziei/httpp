@@ -21,6 +21,7 @@
 #include "httpp/download.hpp"
 #include "httpp/file_browser.hpp"
 #include "httpp/logging.hpp"
+#include "httpp/proxy.hpp"
 #include "httpp/server.hpp"
 #include "httpp/url.hpp"
 
@@ -36,6 +37,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -240,7 +242,10 @@ struct curl_args {
     std::string method, user, user_agent, referer, write_out, upload_file, dump_header;
     std::vector<std::string> headers;
     std::vector<std::string> data; // every -d; joined with '&' like curl; "@file" reads a file
+    std::string proxy, noproxy;   // -x, --noproxy
     bool has_user = false;
+    bool has_proxy = false;       // -x was given (an empty value means no proxy at all)
+    bool has_noproxy = false;     // --noproxy was given (an empty value excludes nothing)
     bool remote_name = false;     // -O
     bool silent = false;          // -s
     bool show_error = false;      // -S
@@ -296,6 +301,7 @@ int curl_exit_code(httpp::error_kind kind) {
     }
 }
 
+constexpr int curl_exit_proxy = 5;        // CURLE_COULDNT_RESOLVE_PROXY: the proxy from -x or the environment is not usable
 constexpr int curl_exit_http_error = 22; // CURLE_HTTP_RETURNED_ERROR, with -f
 constexpr int curl_exit_write_error = 23; // CURLE_WRITE_ERROR: a file could not be written or named
 constexpr int curl_exit_read_error = 26;  // CURLE_READ_ERROR: a file for -d or -T could not be read
@@ -440,7 +446,19 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
     if (chosen.empty() && !a.upload_file.empty()) chosen = "PUT";
     const std::string effective = chosen.empty() ? (plan.has_body ? "POST" : "GET") : chosen;
 
+    // The proxy for this URL, as curl picks it: -x, else the environment (http_proxy, https_proxy, all_proxy), unless --noproxy or
+    // no_proxy lists the host. ponytail: chosen for the first URL; a redirect to another host keeps it.
+    std::optional<httpp::url> proxy;
+    std::string proxy_error;
+    try {
+        proxy = httpp::resolve_proxy(httpp::parse_url(url), a.has_proxy ? std::optional<std::string>(a.proxy) : std::nullopt,
+                                     a.has_noproxy ? std::optional<std::string>(a.noproxy) : std::nullopt);
+    } catch (const std::exception& e) {
+        proxy_error = e.what();
+    }
+
     auto fill = [&](httpp::request& req) {
+        if (proxy) req.proxy(*proxy);
         if (!chosen.empty()) req.method(chosen);
         for (const auto& [name, value] : plan.sent) req.header(name, value);
         if (plan.has_body) req.data(plan.body);
@@ -469,6 +487,12 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         }
     }
 
+    if (code == 0 && !proxy_error.empty()) {
+        error_text = proxy_error;
+        curl_error(a, error_text);
+        code = curl_exit_proxy;
+    }
+
     if (code == 0) {
         if (a.verbose && !malformed) {
             std::string path = url; // shown as typed when it does not parse; the request then fails below
@@ -479,6 +503,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
                 if (!query.empty()) path += "?" + query;
             } catch (const std::exception&) {
             }
+            if (proxy) std::cerr << "* Uses proxy " << httpp::url_scheme(*proxy) << "://" << httpp::url_host(*proxy) << ":" << httpp::url_port(*proxy) << "\n"; // without the login
             std::cerr << "> " << effective << " " << path << " HTTP/1.1\n";
             for (const auto& [name, value] : plan.sent) std::cerr << "> " << name << ": " << value << "\n";
             std::cerr << ">" << std::endl;
@@ -897,6 +922,8 @@ int main(int argc, char** argv) {
     c_curl->add_option("--user-agent,-A", ca.user_agent, "Send this User-Agent (an explicit -H wins)")->type_name("NAME");
     c_curl->add_option("--referer,-e", ca.referer, "Send this Referer (an explicit -H wins)")->type_name("URL");
     auto* curl_user_opt = c_curl->add_option("--user,-u", ca.user, "Basic authentication as 'user:password'")->type_name("USER:PASSWORD");
+    auto* curl_proxy_opt = c_curl->add_option("--proxy,-x", ca.proxy, "Use this proxy: [http://][user:password@]host[:port], socks5://... or socks5h://... ('' = no proxy). Without it the variables http_proxy, https_proxy and all_proxy are read, as curl does")->type_name("URL");
+    auto* curl_noproxy_opt = c_curl->add_option("--noproxy", ca.noproxy, "Hosts that go direct, comma separated: names (with their subdomains), IPv4 addresses and a.b.c.d/n ranges, '*' for all. Replaces no_proxy")->type_name("LIST");
 
     // `py` exists for --help only: the real work is done before parsing.
     app.add_subcommand("py", "Python commands: run, path (need a Python with httpp installed). Everything after `py` goes to Python.");
@@ -918,6 +945,8 @@ int main(int argc, char** argv) {
             return 2;
         }
         ca.has_user = curl_user_opt->count() > 0;
+        ca.has_proxy = curl_proxy_opt->count() > 0;
+        ca.has_noproxy = curl_noproxy_opt->count() > 0;
         return cmd_curl(ca);
     }
 

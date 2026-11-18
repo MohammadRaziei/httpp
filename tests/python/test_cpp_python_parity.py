@@ -58,6 +58,7 @@ TARGETS = {
     ("router.hpp", "router"): httpp.APIRouter,
     ("server.hpp", "directory"): httpp.Directory,
     ("server.hpp", "server_request"): httpp.ServerRequest,  # httpp::server_request: the handler's request object
+    ("proxy.hpp", ""): httpp,  # proxy_from_environment and resolve_proxy (ADR-0067)
     ("url.hpp", ""): httpp.URL,  # the codec helpers and fetch_public_suffix_list are statics of URL (httpp::url is urlparser::url)
     ("banner.hpp", ""): None,  # the terminal banner of the httpp commands (ADR-0078); a Python program prints its own
     ("logging.hpp", ""): httpp,  # set_log_* live in httpp; the module functions (level_name, get_logger, ...) imitate Python's own `logging` (ADR-0057), see NOT_EXPOSED

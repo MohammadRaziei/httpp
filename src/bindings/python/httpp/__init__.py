@@ -26,7 +26,7 @@ if _sys.platform == "win32" and hasattr(_os, "add_dll_directory"):
     _os.add_dll_directory(_bin_dir)
 
 # Import the compiled Cython module
-from .httpp_python import Client, Directory, download, Download, DownloadResult, FileBrowser, FileLock, Request, Response, Swagger, URL
+from .httpp_python import Client, Directory, download, Download, DownloadResult, FileBrowser, FileLock, Request, Response, Swagger, URL, proxy_from_environment, resolve_proxy
 from .httpp_utils_python import set_log_file, set_log_system, set_log_callback
 from . import _log
 from ._log import bridge_logger, set_log_level
@@ -75,4 +75,5 @@ __all__ = [
     "Error", "HTTPError", "RequestError", "Timeout", "TLSError", "TooManyRedirects", "InvalidURL",
     "get_include_dir", "get_lib_dir", "get_cmake_dir",
     "set_log_level", "set_log_file", "set_log_system", "set_log_callback", "bridge_logger",
+    "proxy_from_environment", "resolve_proxy",
 ]

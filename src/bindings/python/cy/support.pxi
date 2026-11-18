@@ -165,3 +165,60 @@ def parse_route(str path):
     """The segments of a route path as [(kind, text, type)]: ("lit", "users", "") or ("param", "id", "int").
     type is "str", "int" or "float". Raises ValueError for a malformed path. This is the router's own parser."""
     return [(k.decode(), t.decode(), ty.decode()) for k, t, ty in httpp_py_route_segments(path.encode())]
+
+
+cdef extern from "httpp/proxy.hpp" namespace "httpp":
+    optional[cpp_url] cpp_proxy_from_environment "httpp::proxy_from_environment"(const cpp_url& target) except +
+    optional[cpp_url] cpp_resolve_proxy "httpp::resolve_proxy"(const cpp_url& target, const optional[string]& proxy,
+                                                               const optional[string]& no_proxy) except +
+
+
+cdef str _proxy_text(const cpp_url& proxy):
+    # scheme://[login@]host:port, put together from the parts: url.str() normalizes the text (a trailing "/", and a SOCKS5 address
+    # loses its "//"), which the proxy argument of a request could not read back.
+    cdef string user = cpp_url_username(proxy)
+    cdef string password = cpp_url_password(proxy)
+    text = cpp_url_scheme(proxy).decode("ascii") + "://"
+    if user.size() > 0 or password.size() > 0:
+        text += cpp_encode_component(user).decode("ascii")
+        if password.size() > 0:
+            text += ":" + cpp_encode_component(password).decode("ascii")
+        text += "@"
+    return text + cpp_url_host(proxy).decode("utf-8") + ":" + str(cpp_url_port(proxy))
+
+
+def proxy_from_environment(str url):
+    """The proxy a program such as curl would use for `url`, read from the environment, or None for a direct connection.
+
+    http:// URLs read http_proxy (lowercase only, like curl), https:// URLs https_proxy or HTTPS_PROXY, and either falls back to
+    all_proxy or ALL_PROXY; no_proxy / NO_PROXY lists hosts that go direct. A request does not read the environment on its own: give
+    the result to `proxy=` when you want that behavior (ADR-0067). Raises ValueError for a value that is not a usable proxy.
+
+        httpp.get(url, proxy=httpp.proxy_from_environment(url))
+    """
+    cdef cpp_url target = cpp_parse_url(url.encode("utf-8"))
+    cdef optional[cpp_url] found = cpp_proxy_from_environment(target)
+    if not found.has_value():
+        return None
+    return _proxy_text(found.value())
+
+
+def resolve_proxy(str url, proxy=None, no_proxy=None):
+    """proxy_from_environment() with values you give: `proxy` replaces the proxy variables ('' means no proxy at all) and `no_proxy`
+    replaces NO_PROXY ('' excludes nothing); None reads the environment for that part. The no_proxy list applies to a given proxy too."""
+    cdef cpp_url target = cpp_parse_url(url.encode("utf-8"))
+    cdef string proxy_text
+    cdef string no_proxy_text
+    cdef optional[string] given_proxy
+    cdef optional[string] given_no_proxy
+    cdef optional[cpp_url] found
+    if proxy is not None:
+        proxy_text = (<str>proxy).encode("utf-8")
+        given_proxy.emplace(proxy_text)
+    if no_proxy is not None:
+        no_proxy_text = (<str>no_proxy).encode("utf-8")
+        given_no_proxy.emplace(no_proxy_text)
+    found = cpp_resolve_proxy(target, given_proxy, given_no_proxy)
+    if not found.has_value():
+        return None
+    return _proxy_text(found.value())

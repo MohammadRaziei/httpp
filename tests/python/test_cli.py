@@ -579,6 +579,117 @@ def test_curl_a_refused_connection_exits_7_and_says_why(httpp_exe, tmp_path):
     assert not out.exists()  # a transfer that never happened leaves no file behind
 
 
+# --- curl and proxies (ADR-0067, ADR-0084) -----------------------------------------------------------------------
+
+# An empty variable counts as unset, so these shield the tests from the proxy variables of the machine they run on.
+NO_PROXY_VARIABLES = {name: "" for name in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY")}
+
+
+def curl_env(**variables):
+    return {**NO_PROXY_VARIABLES, **variables}
+
+
+@contextmanager
+def recording_proxy():
+    """An HTTP proxy that answers every GET with 'via proxy' and records what it was asked."""
+    seen = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            seen.append({"line": self.requestline, "authorization": self.headers.get("Proxy-Authorization")})
+            body = b"via proxy"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        yield f"127.0.0.1:{server.server_address[1]}", seen
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_curl_uses_http_proxy_from_the_environment(httpp_exe):
+    with recording_proxy() as (proxy, seen):
+        r = run(httpp_exe, "curl", "http://example.invalid/a?b=1", env=curl_env(http_proxy=f"http://{proxy}"))
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == "via proxy"
+    assert seen[0]["line"] == "GET http://example.invalid/a?b=1 HTTP/1.1"  # absolute form: it is a proxy request
+
+
+def test_curl_reads_a_proxy_without_a_scheme_and_all_proxy_like_curl(httpp_exe):
+    with recording_proxy() as (proxy, seen):
+        bare = run(httpp_exe, "curl", "http://example.invalid/", env=curl_env(http_proxy=proxy))
+        fallback = run(httpp_exe, "curl", "http://example.invalid/", env=curl_env(ALL_PROXY=proxy))
+    assert (bare.returncode, bare.stdout) == (0, "via proxy")
+    assert (fallback.returncode, fallback.stdout) == (0, "via proxy")
+    assert len(seen) == 2
+
+
+def test_curl_ignores_uppercase_HTTP_PROXY_like_curl(httpp_exe, echo_app):
+    with recording_proxy() as (proxy, seen), running(echo_app) as url:
+        r = run(httpp_exe, "curl", f"{url}/text", env=curl_env(HTTP_PROXY=f"http://{proxy}"))
+    assert (r.returncode, r.stdout) == (0, "plain body")
+    assert seen == []
+
+
+def test_curl_x_replaces_the_environment_and_empty_x_turns_the_proxy_off(httpp_exe, echo_app):
+    with recording_proxy() as (proxy, seen), running(echo_app) as url:
+        dead = f"http://127.0.0.1:{free_port()}"
+        via_x = run(httpp_exe, "curl", "-x", f"http://{proxy}", "http://example.invalid/", env=curl_env(http_proxy=dead))
+        long_form = run(httpp_exe, "curl", "--proxy", proxy, "http://example.invalid/", env=curl_env(http_proxy=dead))
+        off = run(httpp_exe, "curl", "-x", "", f"{url}/text", env=curl_env(http_proxy=f"http://{proxy}"))
+    assert (via_x.returncode, via_x.stdout) == (0, "via proxy")
+    assert (long_form.returncode, long_form.stdout) == (0, "via proxy")
+    assert (off.returncode, off.stdout) == (0, "plain body")
+    assert len(seen) == 2  # the two -x runs only
+
+
+def test_curl_no_proxy_lists_keep_hosts_direct_and_noproxy_replaces_the_variable(httpp_exe, echo_app):
+    with recording_proxy() as (proxy, seen), running(echo_app) as url:
+        via = curl_env(http_proxy=f"http://{proxy}")
+        excluded = run(httpp_exe, "curl", f"{url}/text", env={**via, "NO_PROXY": "localhost,127.0.0.0/8,::1"})
+        starred = run(httpp_exe, "curl", f"{url}/text", "--noproxy", "*", env=via)
+        replaced = run(httpp_exe, "curl", f"{url}/text", "--noproxy", "other.test", env={**via, "no_proxy": "127.0.0.1"})
+        emptied = run(httpp_exe, "curl", f"{url}/text", "--noproxy", "", env={**via, "no_proxy": "127.0.0.1"})
+        with_x = run(httpp_exe, "curl", "-x", f"http://{proxy}", "--noproxy", "127.0.0.1", f"{url}/text", env=curl_env())
+    assert (excluded.returncode, excluded.stdout) == (0, "plain body")
+    assert (starred.returncode, starred.stdout) == (0, "plain body")
+    assert (replaced.returncode, replaced.stdout) == (0, "via proxy")  # --noproxy replaces no_proxy, so 127.0.0.1 is no longer excluded
+    assert (emptied.returncode, emptied.stdout) == (0, "via proxy")
+    assert (with_x.returncode, with_x.stdout) == (0, "plain body")  # the list applies to -x as well
+    assert len(seen) == 2
+
+
+def test_curl_v_names_the_proxy_without_its_login_and_sends_the_login(httpp_exe):
+    with recording_proxy() as (proxy, seen):
+        r = run(httpp_exe, "curl", "-v", "-x", f"http://user:secret@{proxy}", "http://example.invalid/")
+    assert r.returncode == 0, r.stderr
+    assert f"* Uses proxy http://{proxy}" in r.stderr
+    assert "secret" not in r.stderr
+    assert seen[0]["authorization"] == "Basic " + base64.b64encode(b"user:secret").decode()
+
+
+def test_curl_an_unusable_proxy_exits_5_and_names_it(httpp_exe):
+    for bad in ("ftp://127.0.0.1:21", "https://127.0.0.1:443"):
+        r = run(httpp_exe, "curl", "-x", bad, "http://example.invalid/", env=curl_env())
+        assert r.returncode == 5, (bad, r.stderr)
+        assert r.stderr.startswith("error:") and bad in r.stderr
+    env = run(httpp_exe, "curl", "http://example.invalid/", env=curl_env(http_proxy="ftp://127.0.0.1:21"))
+    assert env.returncode == 5 and "ftp://127.0.0.1:21" in env.stderr
+
+
 def test_curl_without_a_url_says_what_curl_says_and_exits_2(httpp_exe):
     hint = "httpp curl: try 'httpp curl --help' for more information\n"
     bare = run(httpp_exe, "curl")
