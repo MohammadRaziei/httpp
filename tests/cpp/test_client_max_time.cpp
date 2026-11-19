@@ -78,3 +78,61 @@ UTEST(httpp_client_max_time, zero_means_no_limit_and_a_negative_number_throws) {
     }
     ASSERT_TRUE(threw);
 }
+
+// The response says how long the request ran and how many body bytes arrived, so a caller (the curl command, say) can tell a
+// server that never answered from one that was still sending when the time ran out, without timing the call itself.
+
+UTEST(httpp_client_max_time, a_timeout_reports_how_long_it_ran_and_how_much_arrived) {
+    testutil::local_server ls([](httpp::server& s) {
+        s.get("/drip", [](const httpp::server_request&, httpp::response& res) {
+            res.status = 200;
+            res.stream = [](std::size_t, std::string& chunk) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                chunk = "frame\n";
+                return true; // never ends
+            };
+        });
+    });
+    std::size_t seen = 0;
+    httpp::response res = httpp::request(ls.url("/drip"))
+                              .max_time(1)
+                              .on_body([&](std::string_view piece) { seen += piece.size(); return true; })
+                              .run();
+    ASSERT_STREQ("timeout", res.error_name());
+    ASSERT_GT(res.elapsed_ms, 800);
+    ASSERT_LT(res.elapsed_ms, 2500);
+    ASSERT_GT(res.bytes_received, static_cast<std::size_t>(0));
+    ASSERT_EQ(seen, res.bytes_received);
+}
+
+UTEST(httpp_client_max_time, a_timeout_before_any_byte_reports_zero_bytes) {
+    testutil::local_server ls([](httpp::server& s) {
+        s.get("/slow", [](const httpp::server_request&, httpp::response& res) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+            res.status = 200;
+        });
+    });
+    httpp::response res = httpp::request(ls.url("/slow")).max_time(1).run();
+    ASSERT_STREQ("timeout", res.error_name());
+    ASSERT_GT(res.elapsed_ms, 800);
+    ASSERT_EQ(res.bytes_received, static_cast<std::size_t>(0));
+}
+
+UTEST(httpp_client_max_time, a_collected_answer_counts_its_body_bytes_and_the_time_of_the_whole_chain) {
+    testutil::local_server ls([](httpp::server& s) {
+        s.get("/a", [](const httpp::server_request&, httpp::response& res) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            res.status = 302;
+            res.headers.emplace_back("Location", "/b");
+        });
+        s.get("/b", [](const httpp::server_request&, httpp::response& res) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            res.status = 200;
+            res.body = "twelve bytes";
+        });
+    });
+    httpp::response res = httpp::request(ls.url("/a")).max_redirects(3).run();
+    ASSERT_TRUE(res.ok());
+    ASSERT_EQ(res.bytes_received, res.body.size()); // the final answer only, not the redirect before it
+    ASSERT_GT(res.elapsed_ms, 550);                  // both hops, from the first byte sent to the last received
+}

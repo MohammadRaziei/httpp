@@ -43,6 +43,15 @@ struct response {
     error_kind error = error_kind::none;
     std::string error_message;
 
+    // Client side only, filled whether the request worked or failed (ADR-0097).
+    // elapsed_ms: how long the whole request ran, redirects included, until the last byte or the failure. This is the clock
+    // max_time() uses, so a timeout reports about max_time() * 1000.
+    // bytes_received: body bytes of the final response that arrived, before any gzip / deflate decoding: what on_body() was
+    // given, or what was collected into `body`. A request that timed out with 0 here never got an answer; one with more was
+    // cut off while the server was still sending.
+    long long elapsed_ms = 0;
+    std::size_t bytes_received = 0;
+
     // --- Server side only (what a route handler fills in) ---
     // If set, the body is streamed from this file, with a known Content-Length. Set Content-Type
     // yourself if it matters. The path is trusted: never build it from user input.

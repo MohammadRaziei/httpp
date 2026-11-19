@@ -554,6 +554,7 @@ struct async_http::impl {
                 auto* e = static_cast<exchange*>(p->data);
                 if (e->discarding) return 0;
                 if (e->streaming) {
+                    e->res.bytes_received += n; // counted before the sink sees them, so a sink that stops the transfer is included
                     if (e->job.sink->on_data(at, n)) return 0;
                     e->fail(error_kind::canceled, "stopped by the body sink");
                     return HPE_USER;
@@ -564,6 +565,7 @@ struct async_http::impl {
                     return HPE_USER;
                 }
                 e->res.body.append(at, n);
+                e->res.bytes_received += n;
                 return 0;
             };
             settings.on_message_complete = [](llhttp_t* p) -> int {

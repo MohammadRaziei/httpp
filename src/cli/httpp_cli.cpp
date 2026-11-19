@@ -374,9 +374,9 @@ std::string response_header(const httpp::response& res, const char* name) {
 }
 
 // -w: %{http_code} %{content_type} %{size_download} %{exitcode} %{errormsg} %{url}, and \n \r \t \\ %%.
-// A %{name} that is not one of these stays as typed. size_download is the size of the body after decoding.
-std::string expand_write_out(const std::string& format, const std::string& url, const httpp::response& res, std::size_t size_download,
-                             int exit_code, const std::string& error_text) {
+// A %{name} that is not one of these stays as typed. size_download is response::bytes_received.
+std::string expand_write_out(const std::string& format, const std::string& url, const httpp::response& res, int exit_code,
+                             const std::string& error_text) {
     std::string out;
     for (std::size_t i = 0; i < format.size(); ++i) {
         char c = format[i];
@@ -399,7 +399,7 @@ std::string expand_write_out(const std::string& format, const std::string& url, 
                 value = std::to_string(res.status);
                 while (value.size() < 3) value.insert(value.begin(), '0'); // 000 when there was no answer
             } else if (name == "content_type") value = response_header(res, "content-type");
-            else if (name == "size_download") value = std::to_string(size_download);
+            else if (name == "size_download") value = std::to_string(res.bytes_received);
             else if (name == "exitcode") value = std::to_string(exit_code);
             else if (name == "errormsg") value = error_text;
             else if (name == "url") value = url;
@@ -474,8 +474,6 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
     int code = 0;
     std::string error_text;
     httpp::response res;
-    std::size_t downloaded = 0; // body bytes written by the last attempt, for %{size_download}
-    std::chrono::steady_clock::time_point attempt_started; // when the last attempt began, for the timeout message
 
     // Where the body goes: a file (-o, or -O named after the URL), else stdout.
     std::string target = output;
@@ -569,8 +567,6 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         };
 
         auto attempt = [&]() {
-            downloaded = 0;
-            attempt_started = std::chrono::steady_clock::now();
             if (malformed) { // never sent: not transient, so no retry either
                 httpp::response bad;
                 bad.error = httpp::error_kind::invalid_url;
@@ -579,10 +575,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
             }
             httpp::request req(url);
             fill(req);
-            req.on_head(on_head).on_body([&](std::string_view piece) {
-                downloaded += piece.size();
-                return put(piece.data(), piece.size());
-            });
+            req.on_head(on_head).on_body([&](std::string_view piece) { return put(piece.data(), piece.size()); });
             redirect_refused = false;
             httpp::response answer = req.run();
             if (redirect_refused) {
@@ -612,8 +605,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
             error_text = error_label(res.error);
             if (res.error == httpp::error_kind::timeout) {
                 // As curl does: how long it ran and how much arrived, which tells a dead server from a slow endless one.
-                const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - attempt_started).count();
-                error_text += " after " + std::to_string(ms) + " ms with " + std::to_string(downloaded) + " bytes received";
+                error_text += " after " + std::to_string(res.elapsed_ms) + " ms with " + std::to_string(res.bytes_received) + " bytes received";
             } else if (!res.error_message.empty() && res.error_message != error_text) {
                 error_text += " (" + res.error_message + ")";
             }
@@ -626,7 +618,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         }
     }
 
-    if (!a.write_out.empty()) write_stdout(expand_write_out(a.write_out, given_url, res, downloaded, code, error_text));
+    if (!a.write_out.empty()) write_stdout(expand_write_out(a.write_out, given_url, res, code, error_text));
     return code;
 }
 

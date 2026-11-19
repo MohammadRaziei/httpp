@@ -316,9 +316,8 @@ std::string location_of(const response& r) {
     return {};
 }
 
-} // namespace
-
-void run_chain(std::shared_ptr<request_spec> spec, std::function<void(response)> done) {
+// One hop and, through the callback, the hops that follow it. The caller of run_chain() has already started the clock.
+void run_hops(std::shared_ptr<request_spec> spec, std::function<void(response)> done) {
     if (spec->max_time > 0 && spec->deadline == std::chrono::steady_clock::time_point{}) // the first hop starts the clock; a redirect inherits it
         spec->deadline = std::chrono::steady_clock::now() + std::chrono::seconds(spec->max_time);
     engine_for(*spec).submit(make_job(*spec), [spec, done = std::move(done)](response r) mutable {
@@ -339,7 +338,17 @@ void run_chain(std::shared_ptr<request_spec> spec, std::function<void(response)>
             remove_header(next.headers, "Content-Type");
             remove_header(next.headers, "Content-Length");
         }
-        run_chain(std::make_shared<request_spec>(std::move(next)), std::move(done));
+        run_hops(std::make_shared<request_spec>(std::move(next)), std::move(done));
+    });
+}
+
+} // namespace
+
+void run_chain(std::shared_ptr<request_spec> spec, std::function<void(response)> done) {
+    const auto started = std::chrono::steady_clock::now();
+    run_hops(std::move(spec), [started, done = std::move(done)](response r) mutable {
+        r.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+        done(std::move(r));
     });
 }
 
