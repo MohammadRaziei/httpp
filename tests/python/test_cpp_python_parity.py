@@ -52,6 +52,8 @@ TARGETS = {
     ("client.hpp", "client"): httpp.Client,
     ("client.hpp", "async_client"): httpp.AsyncClient,
     ("client.hpp", "request"): httpp.Request,
+    ("client.hpp", "configurable"): None,  # the settings the three classes above share (ADR-0094); _missing() checks each name against all three
+    ("client.hpp", "settings_ref"): None,  # what configurable calls; internal
     ("download.hpp", "download"): httpp.Download,
     ("progress.hpp", "bar"): httpp.progress.bar,
     ("server.hpp", "server"): httpp.Server,
@@ -83,6 +85,9 @@ TARGETS = {
     ("websocket.hpp", "websocket"): None,  # Python's WebSocket is its own awaitable API over a mailbox (ADR-0027), not this handle
     ("websocket.hpp", "ws_acceptor"): None,  # Python's handler accepts through `await websocket.accept()`
 }
+
+# The classes that derive from configurable<Self> (ADR-0094): its names must exist on each of them.
+CONFIGURABLE_USERS = (("client", httpp.Client), ("async_client", httpp.AsyncClient), ("request", httpp.Request))
 
 # C++ name -> Python name, per owner, for names that differ on purpose.
 ALIASES = {
@@ -139,6 +144,11 @@ CTOR_ARGS["rate_limit"] = {"set_rate": ("requests_per_second", 5.0), "set_burst"
 NOT_EXPOSED = {
     ("request", "on_body"): "temporary (ADR-0084): the Python binding of request streaming is the next step; remove this line and bind it then",
     ("request", "on_head"): "temporary (ADR-0084): same as on_body",
+    ("client", "clone"): "temporary (ADR-0093): the Python binding of clone() is the next step; remove this line and bind it then",
+    ("async_client", "clone"): "temporary (ADR-0093): same as client::clone",
+    ("client", "settings_"): "internal hook of configurable (ADR-0094), not meant for users",
+    ("async_client", "settings_"): "same as client::settings_",
+    ("request", "settings_"): "same as client::settings_",
     ("server", "bind"): "not necessary: Server.run binds and serves in one call; bind_to_any_port covers the ephemeral-port case (ADR-0078)",
     ("server", "url"): "not necessary: Python knows the host and the port it passed to Server.run (ADR-0078)",
     ("server", "listen_until_signal"): "not necessary: Server.run already serves until a signal (ADR-0078)",
@@ -170,6 +180,16 @@ def _missing():
             unmapped.append((header, owner))
             continue
         target = TARGETS[(header, owner)]
+        if owner == "configurable":  # one declaration, three classes
+            for user, user_target in CONFIGURABLE_USERS:
+                have = _py_names(user_target)
+                for name in sorted(names):
+                    if (user, name) in NOT_EXPOSED or name in CTOR_ARGS.get(user, {}):
+                        continue
+                    py = ALIASES.get(user, {}).get(name, name)
+                    if py is not None and py not in have:
+                        missing.append(f"{header}: {user}::{name} (from configurable; expected Python name: {py})")
+            continue
         if target is None:
             continue
         have = _py_names(target)
@@ -202,7 +222,8 @@ def test_not_exposed_names_are_still_unbound():
         api.setdefault(owner, set()).update(names)
     for (owner, name), reason in NOT_EXPOSED.items():
         assert name in api.get(owner, set()), f"{owner}::{name} is no longer in the C++ headers: drop it from NOT_EXPOSED"
-        target = {"server": httpp.Server, "router": httpp.APIRouter, "request": httpp.Request, "": httpp, "document": httpp.openapi.Document}[owner]
+        target = {"server": httpp.Server, "router": httpp.APIRouter, "request": httpp.Request, "client": httpp.Client,
+                  "async_client": httpp.AsyncClient, "": httpp, "document": httpp.openapi.Document}[owner]
         assert name not in _py_names(target), f"{owner}::{name} now exists in Python ({reason}): drop it from NOT_EXPOSED"
 
 

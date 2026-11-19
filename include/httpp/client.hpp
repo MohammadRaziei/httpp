@@ -113,6 +113,123 @@ struct response {
     }
 };
 
+class client;
+class async_client;
+class request;
+
+namespace detail {
+class guarded_settings; // src/core/internal/http_exchange.hpp
+struct session_settings;
+
+// What configurable<Self> calls: the one place where each setting and its rule is written (ADR-0094). It is a view of the
+// settings of a client, an async_client or a request, not something to use directly.
+class settings_ref {
+public:
+    explicit settings_ref(guarded_settings& settings) noexcept : g_(&settings) {}
+    HTTPP_API void timeout(long seconds) const;
+    HTTPP_API long timeout() const;
+    HTTPP_API void connect_timeout(long seconds) const;
+    HTTPP_API long connect_timeout() const;
+    HTTPP_API void max_time(long seconds) const;
+    HTTPP_API long max_time() const;
+    HTTPP_API void max_redirects(int count) const;
+    HTTPP_API int max_redirects() const;
+    HTTPP_API void auto_compression(bool enable) const;
+    HTTPP_API bool auto_compression() const;
+    HTTPP_API void basic_auth(const std::string& user, const std::string& password) const;
+    HTTPP_API void bearer(const std::string& token) const;
+    HTTPP_API void proxy(const url& proxy_url) const;
+    HTTPP_API void verify(bool enable) const;
+    HTTPP_API bool verify() const;
+    HTTPP_API void ca_file(const path& file) const;
+    HTTPP_API path ca_file() const;
+
+private:
+    guarded_settings* g_;
+};
+} // namespace detail
+
+// The settings that client, async_client and request share, under the same names, declared once (ADR-0094). Derive as
+// `class client : public configurable<client>`; Self says what a setter returns, so a chain such as
+// request(url).timeout(30).json(body) keeps its type.
+//
+// A call with an argument sets and returns *this (a value when the object is a temporary, so a chain on a temporary is not a
+// dangling reference); the same name with no argument reads the value back (timeout(30) sets, timeout() returns it), ADR-0092.
+// basic_auth, bearer and proxy have no getter: the first two are secrets, and the parsed proxy is not the URL that was given.
+//
+// On a client or async_client a setting applies to the requests made after the call; a request made from it with
+// request(path) starts with a copy of them.
+// (HTTPP_MEMBER expands to nothing; it marks the public names for tests/python/test_cpp_python_parity.py, which counts them for each
+// of the three classes, see export.hpp.)
+template <class Self>
+class configurable {
+public:
+    // connect, read and write, in seconds; 0 or less: the default
+    HTTPP_MEMBER Self& timeout(long seconds) & { ref().timeout(seconds); return self(); }
+    Self timeout(long seconds) && { ref().timeout(seconds); return std::move(self()); }
+    HTTPP_MEMBER long timeout() const { return ref().timeout(); }
+
+    // --connect-timeout (seconds): the limit for resolving the host, connecting, the proxy handshake and the TLS handshake.
+    // timeout() still limits each write and read. 0 (the default) means timeout() covers the connect steps too. Throws
+    // std::invalid_argument for a negative number.
+    HTTPP_MEMBER Self& connect_timeout(long seconds) & { ref().connect_timeout(seconds); return self(); }
+    Self connect_timeout(long seconds) && { ref().connect_timeout(seconds); return std::move(self()); }
+    HTTPP_MEMBER long connect_timeout() const { return ref().connect_timeout(); }
+
+    // -m/--max-time (seconds): one limit for the whole request, from the start to the last body byte, redirects and a
+    // streamed body included. When it runs out the request ends with error_kind::timeout, even if the server is still
+    // sending. 0 (the default) sets no such limit. timeout() is separate: it limits each step, so a slow trickle never
+    // trips it. Throws std::invalid_argument for a negative number.
+    HTTPP_MEMBER Self& max_time(long seconds) & { ref().max_time(seconds); return self(); }
+    Self max_time(long seconds) && { ref().max_time(seconds); return std::move(self()); }
+    HTTPP_MEMBER long max_time() const { return ref().max_time(); }
+
+    // -L/--location and --max-redirs in one: how many redirects to follow. 0 (the default) follows none: a 3xx is the
+    // answer. n > 0 follows up to n hops; one more fails with error_kind::too_many_redirects. -1 follows without a limit
+    // (a redirect loop then never ends unless max_time() is set, as timeout() limits each step, not the whole request).
+    // Throws std::invalid_argument for any other negative number.
+    HTTPP_MEMBER Self& max_redirects(int count) & { ref().max_redirects(count); return self(); }
+    Self max_redirects(int count) && { ref().max_redirects(count); return std::move(self()); }
+    HTTPP_MEMBER int max_redirects() const { return ref().max_redirects(); }
+
+    // On by default: ask for gzip / deflate (Accept-Encoding, unless a header sets one) and hand back the decoded body.
+    // Off: no Accept-Encoding is sent unless a header sets one, and a coded body comes back exactly as the server sent
+    // it, like requests with stream=True and raw bytes.
+    HTTPP_MEMBER Self& auto_compression(bool enable) & { ref().auto_compression(enable); return self(); }
+    Self auto_compression(bool enable) && { ref().auto_compression(enable); return std::move(self()); }
+    HTTPP_MEMBER bool auto_compression() const { return ref().auto_compression(); }
+
+    HTTPP_MEMBER Self& basic_auth(const std::string& user, const std::string& password) & { ref().basic_auth(user, password); return self(); }
+    Self basic_auth(const std::string& user, const std::string& password) && { ref().basic_auth(user, password); return std::move(self()); }
+    HTTPP_MEMBER Self& bearer(const std::string& token) & { ref().bearer(token); return self(); }
+    Self bearer(const std::string& token) && { ref().bearer(token); return std::move(self()); }
+
+    // Send requests through an HTTP proxy: "http://[user[:pass]@]host[:port]" (user and pass percent-decoded, sent as
+    // Proxy-Authorization: Basic). http:// targets go to the proxy in absolute form, https:// targets through a CONNECT
+    // tunnel. "" = no proxy. Anything that is not an http:// URL with a host ("host:port", "https://...", "socks5://...")
+    // throws std::invalid_argument and changes nothing.
+    HTTPP_MEMBER Self& proxy(const url& proxy_url) & { ref().proxy(proxy_url); return self(); }
+    Self proxy(const url& proxy_url) && { ref().proxy(proxy_url); return std::move(self()); }
+
+    // https: verify the server certificate (default true), or trust this CA bundle instead of the system's ("" when none is set).
+    HTTPP_MEMBER Self& verify(bool enable) & { ref().verify(enable); return self(); }
+    Self verify(bool enable) && { ref().verify(enable); return std::move(self()); }
+    HTTPP_MEMBER bool verify() const { return ref().verify(); }
+    HTTPP_MEMBER Self& ca_file(const path& file) & { ref().ca_file(file); return self(); }
+    Self ca_file(const path& file) && { ref().ca_file(file); return std::move(self()); }
+    HTTPP_MEMBER path ca_file() const { return ref().ca_file(); }
+
+protected:
+    configurable() = default;
+    configurable(const configurable&) = default;
+    configurable& operator=(const configurable&) = default;
+    ~configurable() = default;
+
+private:
+    Self& self() { return static_cast<Self&>(*this); }
+    detail::settings_ref ref() const { return static_cast<const Self&>(*this).settings_(); }
+};
+
 // Public API exposes no third-party types. The implementation (src/core/client.cpp) is hidden
 // behind a pointer and runs every call on the library's non-blocking network engine.
 //
@@ -123,7 +240,10 @@ struct response {
 // returns error_kind::other at once instead of hanging.
 // Network failures never throw: they come back as a response with status 0 and error set. (A malformed
 // base URL passed to a constructor is a programming error and throws std::invalid_argument.)
-class client {
+//
+// A `client` is a handle (ADR-0093), like `server` and `async_client`: a copy is the same session, with the same settings,
+// so `auto admin = base; admin.bearer(token);` changes `base` too. clone() is the independent copy.
+class client : public configurable<client> {
 public:
     using headers_t = std::vector<std::pair<std::string, std::string>>;
 
@@ -135,10 +255,14 @@ public:
     explicit HTTPP_API client(const url& base_url);
     HTTPP_API ~client();
 
+    HTTPP_API client(const client&) noexcept;
+    HTTPP_API client& operator=(const client&) noexcept;
     HTTPP_API client(client&&) noexcept;
     HTTPP_API client& operator=(client&&) noexcept;
-    client(const client&) = delete;
-    client& operator=(const client&) = delete;
+
+    // A new session to the same base URL with a copy of the current settings, independent of this one: later changes to either
+    // do not reach the other. (A copy made with `=` or the copy constructor is the same session.)
+    HTTPP_API client clone() const;
 
     HTTPP_API response get(const std::string& path);
     HTTPP_API response get(const std::string& path, const headers_t& headers);
@@ -157,30 +281,15 @@ public:
     HTTPP_API response send(const std::string& method, const std::string& path, const headers_t& headers = {},
                             const std::string& body = "", const std::string& content_type = "");
 
-    // Session settings; they apply to the requests made after the call. They are named like request's: a call
-    // with an argument sets and returns *this, the same name with no argument reads the value back
-    // (timeout(30) sets, timeout() returns it).
+    // A request to `path` (joined to the base URL as get() does) that starts with the headers and the settings of this session
+    // as they are now: a copy, so later changes to the session do not reach it, and it may outlive the session. Everything of
+    // httpp::request is then available (method, json, params, cookies, streaming, ...): c.request("/users").method("POST").json(body).run().
+    // httpp::request(url) is the same builder without a session.
+    HTTPP_API httpp::request request(const std::string& path) const;
+
+    // Session settings: those of configurable (timeout, connect_timeout, max_time, max_redirects, auto_compression, basic_auth,
+    // bearer, proxy, verify, ca_file), and these two. They apply to the requests made after the call.
     HTTPP_API client& header(std::string name, std::string value); // sent with every request
-    HTTPP_API client& timeout(long seconds);                       // connect, read and write; 0 or less: the default
-    HTTPP_API long timeout() const;
-    HTTPP_API client& connect_timeout(long seconds);               // see request::connect_timeout
-    HTTPP_API long connect_timeout() const;
-    HTTPP_API client& max_time(long seconds);                      // see request::max_time
-    HTTPP_API long max_time() const;
-    HTTPP_API client& max_redirects(int count);                    // see request::max_redirects; 0 (the default) follows none
-    HTTPP_API int max_redirects() const;
-    HTTPP_API client& auto_compression(bool enable);               // see request::auto_compression; default true
-    HTTPP_API bool auto_compression() const;
-    HTTPP_API client& basic_auth(const std::string& user, const std::string& password);
-    HTTPP_API client& bearer(const std::string& token);
-    // Send requests through an HTTP proxy: "http://[user[:pass]@]host[:port]" (user and pass percent-decoded, sent as Proxy-Authorization: Basic).
-    // http:// targets go to the proxy in absolute form, https:// targets through a CONNECT tunnel. "" = no proxy. Anything that is not
-    // an http:// URL with a host ("host:port", "https://...", "socks5://...") throws std::invalid_argument and changes nothing.
-    HTTPP_API client& proxy(const url& proxy_url);
-    HTTPP_API client& verify(bool enable); // https: verify the server certificate (default true)
-    HTTPP_API bool verify() const;
-    HTTPP_API client& ca_file(const path& file); // https: trust this CA bundle instead of the system's
-    HTTPP_API path ca_file() const;               // "" when none is set
     HTTPP_API client& keep_alive(bool enable); // default true
     HTTPP_API bool keep_alive() const;
 
@@ -190,8 +299,10 @@ public:
     static HTTPP_API response fetch(const url& full_url);
 
 private:
+    friend class configurable<client>;
+    HTTPP_API detail::settings_ref settings_() const; // what configurable<client> calls; exported because that code is inline
     struct impl;
-    std::unique_ptr<impl> impl_;
+    std::shared_ptr<impl> impl_;
 };
 
 // A fluent request builder for the less common cases (custom method,
@@ -200,7 +311,11 @@ private:
 //
 // Named like Python's httpp.Request. The request a server handler receives is httpp::server_request (Python:
 // httpp.ServerRequest), so the two names say which side they belong to: httpp::server_request(url)....run()
-class request {
+//
+// The shared settings (timeout, max_redirects, auth, proxy, TLS, ...) are those of configurable, see above.
+// Every setter has two forms: on a named request it returns `request&`, on a temporary it returns the request by value, so
+// `auto r = httpp::request(url).json(body).timeout(5);` works and `r` is a request (it is move-only).
+class request : public configurable<request> {
 public:
     explicit HTTPP_API request(const url& target);
     HTTPP_API ~request();
@@ -213,55 +328,33 @@ public:
     // -X METHOD (GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS). If never
     // called, defaults to GET, unless a body was set, in which case
     // it defaults to POST - matching curl's own behavior.
-    HTTPP_API request& method(std::string m);
+    HTTPP_API request& method(std::string m) &;
+    request method(std::string m) && { method(std::move(m)); return std::move(*this); }
 
-    // -H "Name: value"
-    HTTPP_API request& header(std::string name, std::string value);
+    // -H "Name: value" (repeatable; on a session, header() replaces a default of the same name instead)
+    HTTPP_API request& header(std::string name, std::string value) &;
+    request header(std::string name, std::string value) && { header(std::move(name), std::move(value)); return std::move(*this); }
 
     // Query parameter, percent-encoded and appended to the URL's own query (repeatable).
-    HTTPP_API request& param(std::string name, std::string value);
+    HTTPP_API request& param(std::string name, std::string value) &;
+    request param(std::string name, std::string value) && { param(std::move(name), std::move(value)); return std::move(*this); }
 
     // -d "body" (sets Content-Type to
     // application/x-www-form-urlencoded unless content_type() overrides it)
-    HTTPP_API request& data(std::string body);
+    HTTPP_API request& data(std::string body) &;
+    request data(std::string body) && { data(std::move(body)); return std::move(*this); }
     // A JSON document you serialized yourself: sets the body and Content-Type: application/json.
-    HTTPP_API request& json(std::string document);
+    HTTPP_API request& json(std::string document) &;
+    request json(std::string document) && { json(std::move(document)); return std::move(*this); }
     // An urlencoded form body from these fields.
-    HTTPP_API request& form(const std::vector<std::pair<std::string, std::string>>& fields);
+    HTTPP_API request& form(const std::vector<std::pair<std::string, std::string>>& fields) &;
+    request form(const std::vector<std::pair<std::string, std::string>>& fields) && { form(fields); return std::move(*this); }
 
-    HTTPP_API request& content_type(std::string type);
+    HTTPP_API request& content_type(std::string type) &;
+    request content_type(std::string type) && { content_type(std::move(type)); return std::move(*this); }
 
-    HTTPP_API request& basic_auth(const std::string& user, const std::string& password);
-    HTTPP_API request& bearer(const std::string& token);
-    HTTPP_API request& cookie(std::string name, std::string value); // repeatable
-
-    // -m/--max-time (seconds), -L/--location
-    HTTPP_API request& timeout(long seconds);
-    // -L/--location and --max-redirs in one: how many redirects to follow. 0 (the default) follows none: a 3xx
-    // is the answer. n > 0 follows up to n hops; one more fails with error_kind::too_many_redirects.
-    // -1 follows without a limit (a redirect loop then never ends unless max_time() is set, as timeout() limits each
-    // step, not the whole request). Throws std::invalid_argument for any other negative number.
-    HTTPP_API request& max_redirects(int count);
-
-    // On by default: ask for gzip / deflate (Accept-Encoding, unless header() sets one) and hand back the
-    // decoded body. Off: no Accept-Encoding is sent unless header() sets one, and a coded body comes back
-    // exactly as the server sent it, like requests with stream=True and raw bytes.
-    HTTPP_API request& auto_compression(bool enable);
-    // --connect-timeout (seconds): the limit for resolving the host, connecting, the proxy handshake and the
-    // TLS handshake. timeout() still limits each write and read. 0 (the default) means timeout() covers the
-    // connect steps too. Throws std::invalid_argument for a negative number.
-    HTTPP_API request& connect_timeout(long seconds);
-    // -m/--max-time (seconds): one limit for the whole request, from the start to the last body byte, redirects and a
-    // streamed body included. When it runs out the request ends with error_kind::timeout, even if the server is still
-    // sending. 0 (the default) sets no such limit. timeout() is separate: it limits each step, so a slow trickle never
-    // trips it. Throws std::invalid_argument for a negative number.
-    HTTPP_API request& max_time(long seconds);
-
-    // https: verify the server certificate (default true), or trust this CA bundle instead of
-    // the system's. And an HTTP proxy.
-    HTTPP_API request& verify(bool enable);
-    HTTPP_API request& ca_file(const path& file);
-    HTTPP_API request& proxy(const url& proxy_url); // same URL form and rules as client::proxy
+    HTTPP_API request& cookie(std::string name, std::string value) &; // repeatable
+    request cookie(std::string name, std::string value) && { cookie(std::move(name), std::move(value)); return std::move(*this); }
 
     // Upper bound, in bytes, on the response body this request will
     // buffer into response::body. 0 (the default) means no limit, which
@@ -269,7 +362,8 @@ public:
     // httpp does not second-guess how big that is. Set a non-zero value
     // to guard against a hostile or runaway server; exceeding it yields
     // response::status == 413 (Payload Too Large) with error too_large.
-    HTTPP_API request& max_response_size(std::size_t bytes);
+    HTTPP_API request& max_response_size(std::size_t bytes) &;
+    request max_response_size(std::size_t bytes) && { max_response_size(bytes); return std::move(*this); }
 
     // Streaming (ADR-0084): with on_body() the body of the final response goes to `piece` as it arrives, in
     // the order sent, instead of being collected: response::body stays empty and max_response_size does not
@@ -280,11 +374,13 @@ public:
     // The callbacks run on a network thread of their own, separate from the one plain requests use, so
     // a blocking write is fine but a long wait holds up other streaming requests; they must not call back
     // into a blocking httpp request. A redirect that is followed is never offered to them.
-    HTTPP_API request& on_body(std::function<bool(std::string_view piece)> piece);
+    HTTPP_API request& on_body(std::function<bool(std::string_view piece)> piece) &;
+    request on_body(std::function<bool(std::string_view piece)> piece) && { on_body(std::move(piece)); return std::move(*this); }
     // Optional, with on_body(): called once with the status and headers of the final response (body empty)
     // before the first piece. Return false to skip the body: it is read and thrown away, `piece` is not
     // called, and run() still returns the response (an error status you do not want written, say).
-    HTTPP_API request& on_head(std::function<bool(const response& head)> head);
+    HTTPP_API request& on_head(std::function<bool(const response& head)> head) &;
+    request on_head(std::function<bool(const response& head)> head) && { on_head(std::move(head)); return std::move(*this); }
 
     HTTPP_API response run() const;
     // Starts the request on the library's non-blocking network thread and returns at once. No
@@ -298,6 +394,12 @@ public:
     HTTPP_API void run_async(std::function<void(response)> done) const;
 
 private:
+    friend class configurable<request>;
+    friend class client;
+    friend class async_client;
+    HTTPP_API detail::settings_ref settings_() const; // what configurable<request> calls; exported because that code is inline
+    // A request that starts with a copy of a session's settings (client::request, async_client::request).
+    request(const url& target, const detail::session_settings& from);
     struct impl;
     std::unique_ptr<impl> impl_;
 };
@@ -306,16 +408,21 @@ private:
 // the library's non-blocking network thread over pooled keep-alive connections, at most
 // `max_connections` in flight at a time (the rest wait their turn). Configure it before
 // the first request.
-class async_client {
+//
+// Like `client`, an async_client is a handle (ADR-0093): a copy is the same session, clone() the independent one (the clone
+// has the same base URL, settings and max_connections, and its own empty queue).
+class async_client : public configurable<async_client> {
 public:
     using headers_t = client::headers_t;
 
     explicit HTTPP_API async_client(const url& base_url, std::size_t max_connections = 8);
     HTTPP_API ~async_client();
+    HTTPP_API async_client(const async_client&) noexcept;
+    HTTPP_API async_client& operator=(const async_client&) noexcept;
     HTTPP_API async_client(async_client&&) noexcept;
     HTTPP_API async_client& operator=(async_client&&) noexcept;
-    async_client(const async_client&) = delete;
-    async_client& operator=(const async_client&) = delete;
+
+    HTTPP_API async_client clone() const;
 
     HTTPP_API std::future<response> get(const std::string& path, const headers_t& headers = {});
     HTTPP_API std::future<response> head(const std::string& path, const headers_t& headers = {});
@@ -335,27 +442,16 @@ public:
                         const std::string& body, const std::string& content_type,
                         std::function<void(response)> done);
 
-    // The same session settings as client, under the same names (configure before the first request).
+    // As client::request: a request to `path` with a copy of the settings. It runs on its own (run, run_async), not through
+    // this session's max_connections.
+    HTTPP_API httpp::request request(const std::string& path) const;
+
+    // The same session settings as client, under the same names (those of configurable, and header).
     HTTPP_API async_client& header(std::string name, std::string value);
-    HTTPP_API async_client& timeout(long seconds);
-    HTTPP_API long timeout() const;
-    HTTPP_API async_client& connect_timeout(long seconds);
-    HTTPP_API long connect_timeout() const;
-    HTTPP_API async_client& max_time(long seconds);
-    HTTPP_API long max_time() const;
-    HTTPP_API async_client& max_redirects(int count);
-    HTTPP_API int max_redirects() const;
-    HTTPP_API async_client& auto_compression(bool enable);
-    HTTPP_API bool auto_compression() const;
-    HTTPP_API async_client& basic_auth(const std::string& user, const std::string& password);
-    HTTPP_API async_client& bearer(const std::string& token);
-    HTTPP_API async_client& verify(bool enable);
-    HTTPP_API bool verify() const;
-    HTTPP_API async_client& ca_file(const path& file);
-    HTTPP_API path ca_file() const;
-    HTTPP_API async_client& proxy(const url& proxy_url); // same URL form and rules as client::proxy
 
 private:
+    friend class configurable<async_client>;
+    HTTPP_API detail::settings_ref settings_() const; // what configurable<async_client> calls; exported because that code is inline
     struct impl;
     std::shared_ptr<impl> impl_;
 };

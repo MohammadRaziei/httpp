@@ -16,6 +16,7 @@
 #include "async_http.hpp"
 
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <cstddef>
 #include <functional>
@@ -112,11 +113,18 @@ struct session_settings {
     bool has_basic = false;
     std::string user, password, bearer;
 
+    // The rules of the settings, once (ADR-0094): what a setter does beyond storing the value. They are not accessors
+    // (the fields carry the names), so they keep the `set_` prefix.
     // The session default, replacing a same-name one (the session setter).
     void set_default_header(std::string name, std::string value);
     void set_basic(std::string user_name, std::string pass);
     void set_bearer(std::string token);
-    void set_timeout(long seconds) { if (seconds > 0) timeout = seconds; }
+    void set_timeout(long seconds) { timeout = seconds > 0 ? seconds : 0; } // 0 or less: the default again
+    void set_connect_timeout(long seconds);  // throws std::invalid_argument for a negative number
+    void set_max_time(long seconds);         // same
+    void set_max_redirects(int count);       // 0 follows none, -1 no limit, any other negative number throws (redirect_hops)
+    int redirects() const;                   // what set_max_redirects was given: 0, n or -1
+    void set_proxy(const url& proxy_url);    // "" = no proxy; throws std::invalid_argument for a URL that is no proxy
 
     // Builder: the spec for one request. `call_headers` replace same-name session headers. Credentials
     // from the settings are added unless a call header already carries Authorization. Returns false
@@ -142,6 +150,49 @@ inline int redirect_hops(int count) {
 }
 // The public value of an engine limit (what a getter returns).
 inline int redirect_count(int hops) { return hops == std::numeric_limits<int>::max() ? -1 : hops; }
+
+// A session's or a request's settings under a mutex (ADR-0094): a session can be shared between threads, and a request made from it
+// uses the settings it started with (the spec is a copy). Every class of the client family holds one of these, so a setter
+// and a getter are the same code for all of them.
+class guarded_settings {
+public:
+    guarded_settings() = default;
+    explicit guarded_settings(session_settings s) : s_(std::move(s)) {}
+    guarded_settings(const guarded_settings&) = delete;
+    guarded_settings& operator=(const guarded_settings&) = delete;
+
+    session_settings snapshot() const {
+        std::lock_guard<std::mutex> lock(mu_);
+        return s_;
+    }
+    template <class F> void update(F&& f) {
+        std::lock_guard<std::mutex> lock(mu_);
+        f(s_);
+    }
+    template <class F> auto read(F&& f) const {
+        std::lock_guard<std::mutex> lock(mu_);
+        return f(s_);
+    }
+    bool make_spec(const endpoint& where, const std::string& method, const std::string& path, const header_list& headers,
+                   std::string body, std::string content_type, request_spec& out, response& error) const {
+        std::lock_guard<std::mutex> lock(mu_);
+        return s_.make_spec(where, method, path, headers, std::move(body), std::move(content_type), out, error);
+    }
+    bool make_spec_for_url(const std::string& full_url, const std::string& extra_query, const std::string& method,
+                           const header_list& headers, std::string body, std::string content_type, request_spec& out,
+                           response& error) const {
+        std::lock_guard<std::mutex> lock(mu_);
+        return s_.make_spec_for_url(full_url, extra_query, method, headers, std::move(body), std::move(content_type), out, error);
+    }
+
+private:
+    mutable std::mutex mu_;
+    session_settings s_;
+};
+
+// "scheme://host[:port]" + the base path joined to `path`: the URL a request made from a session starts with. An IPv6 host is
+// put in brackets.
+std::string endpoint_url(const endpoint& where, const std::string& path);
 
 // The engine a spec runs on: the shared one, or the download one when it streams to a sink.
 async_http& engine_for(const request_spec& spec);

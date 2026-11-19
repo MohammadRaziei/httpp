@@ -116,6 +116,37 @@ void session_settings::set_bearer(std::string token) {
     bearer = std::move(token); // basic wins if both are set
 }
 
+void session_settings::set_connect_timeout(long seconds) {
+    if (seconds < 0) throw std::invalid_argument("connect_timeout must not be negative");
+    connect_timeout = seconds;
+}
+
+void session_settings::set_max_time(long seconds) {
+    if (seconds < 0) throw std::invalid_argument("max_time must not be negative");
+    max_time = seconds;
+}
+
+void session_settings::set_max_redirects(int count) {
+    const int hops = redirect_hops(count); // throws before anything changes
+    follow = count != 0;
+    max_redirects = hops;
+}
+
+int session_settings::redirects() const { return follow ? redirect_count(max_redirects) : 0; }
+
+void session_settings::set_proxy(const url& proxy_url) {
+    proxy = parse_proxy_url(proxy_url); // throws before anything changes
+}
+
+std::string endpoint_url(const endpoint& where, const std::string& path) {
+    std::string out = where.scheme + "://";
+    if (where.host.find(':') != std::string::npos && where.host.front() != '[') out += "[" + where.host + "]";
+    else out += where.host;
+    out += ":" + std::to_string(where.port);
+    out += join_path(where.base_path, path);
+    return out;
+}
+
 bool session_settings::make_spec(const endpoint& where, const std::string& method, const std::string& path,
                                  const header_list& call_headers, std::string body_bytes, std::string ctype,
                                  request_spec& out, response& error) const {
