@@ -25,18 +25,18 @@ class cors {
 public:
     HTTPP_API cors();
     // Exact origins, or "*" for any.
-    HTTPP_API cors& set_allow_origins(std::vector<std::string> origins);
+    HTTPP_API cors& allow_origins(std::vector<std::string> origins);
     // An ECMAScript regular expression the whole origin must match; "" = none. A bad expression throws.
-    HTTPP_API cors& set_allow_origin_regex(std::string pattern);
+    HTTPP_API cors& allow_origin_regex(std::string pattern);
     // "*" = all. Default: GET.
-    HTTPP_API cors& set_allow_methods(std::vector<std::string> methods);
+    HTTPP_API cors& allow_methods(std::vector<std::string> methods);
     // "*" = whatever the preflight asks for. Accept, Accept-Language, Content-Language and Content-Type are always allowed.
-    HTTPP_API cors& set_allow_headers(std::vector<std::string> headers);
+    HTTPP_API cors& allow_headers(std::vector<std::string> headers);
     // With "*" origins the request's own origin is echoed instead of "*". Default: false.
-    HTTPP_API cors& set_allow_credentials(bool allow);
-    HTTPP_API cors& set_expose_headers(std::vector<std::string> headers);
+    HTTPP_API cors& allow_credentials(bool allow);
+    HTTPP_API cors& expose_headers(std::vector<std::string> headers);
     // Seconds a browser may cache a preflight; negative throws. Default: 600.
-    HTTPP_API cors& set_max_age(int seconds);
+    HTTPP_API cors& max_age(int seconds);
     HTTPP_API void install(server& s) const;
 
 private:
@@ -57,8 +57,8 @@ private:
 class trusted_host {
 public:
     HTTPP_API explicit trusted_host(std::vector<std::string> allowed_hosts);
-    HTTPP_API trusted_host& set_allowed_hosts(std::vector<std::string> hosts);
-    HTTPP_API trusted_host& set_www_redirect(bool redirect);
+    HTTPP_API trusted_host& allowed_hosts(std::vector<std::string> hosts);
+    HTTPP_API trusted_host& www_redirect(bool redirect);
     HTTPP_API void install(server& s) const;
 
 private:
@@ -68,12 +68,12 @@ private:
 
 // Send requests that did not arrive over TLS to the https:// address of the same URL (307, keeping the Host header's port unless it is 80).
 // The server itself serves TLS or plain HTTP on a port, never both, so this is for a plain-HTTP server behind a proxy that terminates TLS
-// and says so with "X-Forwarded-Proto: https" (set_trust_forwarded_proto(true); leave it off when clients can reach this port directly, because
+// and says so with "X-Forwarded-Proto: https" (trust_forwarded_proto(true); leave it off when clients can reach this port directly, because
 // they could then claim any scheme), or just to point people at the secure address. Requests on a TLS server are never redirected.
 class https_redirect {
 public:
     HTTPP_API https_redirect();
-    HTTPP_API https_redirect& set_trust_forwarded_proto(bool trust);
+    HTTPP_API https_redirect& trust_forwarded_proto(bool trust);
     HTTPP_API void install(server& s) const;
 
 private:
@@ -85,7 +85,7 @@ private:
 //  - X-Forwarded-For: server_request::client_ip becomes the first address from the right that is not itself a trusted proxy (the
 //    leftmost one when all are), so a client cannot name itself by sending the header; a value that is not an address is ignored.
 //  - X-Forwarded-Proto: "https" / "http" sets server_request::secure (and so scheme()), the last value in a list.
-//  - X-Forwarded-Host: replaces the Host header, only with set_trust_forwarded_host(true), the last value in a list.
+//  - X-Forwarded-Host: replaces the Host header, only with trust_forwarded_host(true), the last value in a list.
 // A connection from anywhere else is left alone, whatever headers it sends. Forwarded (RFC 7239) is not read.
 // A proxy entry is an IPv4 or IPv6 address, a CIDR range ("10.0.0.0/8", "fd00::/8"), or "*" (every connection: only when the port can
 // be reached through the proxy alone). Default: 127.0.0.1 and ::1. An entry that is none of these throws std::invalid_argument and leaves
@@ -93,8 +93,8 @@ private:
 class forwarded_headers {
 public:
     HTTPP_API forwarded_headers();
-    HTTPP_API forwarded_headers& set_trusted_proxies(std::vector<std::string> proxies);
-    HTTPP_API forwarded_headers& set_trust_forwarded_host(bool trust); // default false
+    HTTPP_API forwarded_headers& trusted_proxies(std::vector<std::string> proxies);
+    HTTPP_API forwarded_headers& trust_forwarded_host(bool trust); // default false
     HTTPP_API void install(server& s) const;
 
 private:
@@ -106,12 +106,12 @@ private:
 // user or a wrong password is answered 401 with `WWW-Authenticate: Basic realm="...", charset="UTF-8"`; the rest goes on. Passwords are compared
 // in constant time against the configured list, which is kept in memory in clear text: this is a gate for a small tool or an internal service,
 // not a user database. Credentials travel in clear text too, so use it on a TLS server (or behind a proxy that terminates TLS).
-// A browser's preflight carries no credentials: install cors before this, so the preflight is answered first. `set_path_prefix` limits the check
+// A browser's preflight carries no credentials: install cors before this, so the preflight is answered first. `path_prefix` limits the check
 // to the paths under a prefix ("/admin" covers "/admin" and "/admin/x", not "/administrator"); the default "/" covers everything.
 // Users are entries "user:password" (the first ':' separates them, so a password may contain ':'; a user may not, and may not be empty); no
 // users at all (and no verifier) throws at install(), since every request would be refused. Every setter validates its argument and throws
 // std::invalid_argument, leaving the object unchanged.
-// `set_verifier` takes over the password check: fn(user, password) returns true to let the request in. Use it to check against hashes (bcrypt,
+// `verifier` takes over the password check: fn(user, password) returns true to let the request in. Use it to check against hashes (bcrypt,
 // argon2: httpp does not hash passwords itself), a database or any other store. With users and a verifier, a request passes when either accepts
 // it. fn runs on a server thread for every protected request, possibly from several threads at once, so it must be thread-safe and quick; it
 // must compare secrets in constant time itself. If it throws, the exception goes to the server's error handling (a 500), the request is not let in.
@@ -119,10 +119,10 @@ class basic_auth {
 public:
     HTTPP_API explicit basic_auth(std::string realm = "Restricted");
     // No '"', '\\' or control characters (the realm goes into a quoted header value).
-    HTTPP_API basic_auth& set_realm(std::string realm);
-    HTTPP_API basic_auth& set_users(std::vector<std::string> credentials);
-    HTTPP_API basic_auth& set_path_prefix(std::string prefix);
-    HTTPP_API basic_auth& set_verifier(std::function<bool(const std::string& user, const std::string& password)> fn);
+    HTTPP_API basic_auth& realm(std::string realm);
+    HTTPP_API basic_auth& users(std::vector<std::string> credentials);
+    HTTPP_API basic_auth& path_prefix(std::string prefix);
+    HTTPP_API basic_auth& verifier(std::function<bool(const std::string& user, const std::string& password)> fn);
     HTTPP_API void install(server& s) const;
 
 private:
@@ -142,9 +142,9 @@ private:
 class rate_limit {
 public:
     HTTPP_API rate_limit();
-    HTTPP_API rate_limit& set_rate(double requests_per_second);
-    HTTPP_API rate_limit& set_burst(std::size_t burst);
-    HTTPP_API rate_limit& set_max_clients(std::size_t max_clients);
+    HTTPP_API rate_limit& rate(double requests_per_second);
+    HTTPP_API rate_limit& burst(std::size_t burst);
+    HTTPP_API rate_limit& max_clients(std::size_t max_clients);
     HTTPP_API void install(server& s) const;
 
 private:

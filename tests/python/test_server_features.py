@@ -630,7 +630,7 @@ def test_handler_timeout_none_lets_an_async_handler_take_as_long_as_it_likes():
 
 def test_the_cpp_timer_is_the_backstop_for_a_dispatcher_that_never_answers():
     app = RawServer()
-    app.set_async_timeout(1)
+    app.async_timeout(1)
     stash = []  # keep `done` alive: dropping it unanswered would just close the connection
     app.add_async_route("GET", "/never", lambda *args: stash.append(args[-1]))
     with running(app) as url:
@@ -993,7 +993,7 @@ def test_to_response_common_types_give_the_same_answer_on_the_fast_path():
 def test_body_timeout_is_a_constructor_setting_and_a_setter():
     from httpp import Server
     app = Server(openapi_url=None, body_timeout=7)
-    assert app.set_body_timeout(0) is app  # chainable, like the other settings
+    assert app.body_timeout(0) is app  # chainable, like the other settings
 
 
 def test_a_body_dripped_slowly_is_closed_at_the_body_timeout():
@@ -1086,5 +1086,5 @@ def test_compression_level_is_checked():
     from httpp import Server
     app = Server(openapi_url=None)
     with pytest.raises(ValueError):
-        app.set_compression(1024, 10)
-    assert app.set_compression(0) is app
+        app.compression(1024, 10)
+    assert app.compression(0) is app

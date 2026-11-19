@@ -62,7 +62,7 @@ private:
 
 // The answer to a WebSocket upgrade request that was accepted by the protocol rules (see ws_handler::on_handshake). Copyable and thread-safe;
 // the first accept() or reject() wins and later calls do nothing. Dropping every copy without answering closes the connection without
-// a response; one that is not answered within set_async_timeout() seconds gets a 504, like a route_async request.
+// a response; one that is not answered within async_timeout() seconds gets a 504, like a route_async request.
 class ws_acceptor {
 public:
     ws_acceptor() = default;

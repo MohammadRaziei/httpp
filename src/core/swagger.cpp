@@ -100,7 +100,7 @@ swagger::swagger(std::string openapi_url) : openapi_url_(std::move(openapi_url))
     if (openapi_url_.empty()) throw std::invalid_argument("swagger: openapi_url must not be empty");
 }
 
-swagger& swagger::set_title(std::string title) { title_ = std::move(title); return *this; }
+swagger& swagger::title(std::string title) { title_ = std::move(title); return *this; }
 
 server swagger::mount(server s, const std::string& docs_base) const {
     const std::string& openapi_url = openapi_url_;
@@ -142,7 +142,7 @@ server swagger::mount(server s, const std::string& docs_base) const {
             }
             res.headers.emplace_back("Vary", "Accept-Encoding"); // two versions of one URL
             if (accepts_gzip(req.header("Accept-Encoding"))) {
-                res.headers.emplace_back("Content-Encoding", "gzip"); // set_compression() leaves a body with this header alone
+                res.headers.emplace_back("Content-Encoding", "gzip"); // compression() leaves a body with this header alone
                 res.body.assign(a.data.data(), a.data.size());
             } else {
                 res.body = detail::inflate(a.data.data(), a.data.size(), detail::inflate_format::gzip, a.raw_size + 1);

@@ -12,11 +12,11 @@ cdef extern from *:
     static std::string httpp_py_set_cookie(const std::string& name, const std::string& value, const std::string& path, const std::string& domain,
                                             bool has_max_age, long long max_age, bool secure, bool http_only, int site) {
         httpp::cookie c(name, value);
-        c.set_path(path).set_domain(domain).set_secure(secure).set_http_only(http_only);
-        if (has_max_age) c.set_max_age(max_age);
-        if (site == 0) c.set_same_site(httpp::same_site::lax);
-        else if (site == 1) c.set_same_site(httpp::same_site::strict);
-        else if (site == 2) c.set_same_site(httpp::same_site::none);
+        c.path(path).domain(domain).secure(secure).http_only(http_only);
+        if (has_max_age) c.max_age(max_age);
+        if (site == 0) c.same_site_policy(httpp::same_site::lax);
+        else if (site == 1) c.same_site_policy(httpp::same_site::strict);
+        else if (site == 2) c.same_site_policy(httpp::same_site::none);
         return c.to_set_cookie();
     }
     static std::vector<std::pair<std::string, std::string>> httpp_py_cookies(const std::string& header) {

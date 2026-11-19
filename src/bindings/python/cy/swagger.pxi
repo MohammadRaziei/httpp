@@ -3,7 +3,7 @@
 cdef class Swagger:
     """Swagger UI served entirely in C++ (no GIL) from bytes compiled into the library.
 
-        Swagger("/openapi.json").set_title("My API").mount(app, "/docs")
+        Swagger("/openapi.json").title("My API").mount(app, "/docs")
         Swagger("/openapi.json", title="My API").mount(app)   # the same, with a keyword; base defaults to "/docs"
 
     `openapi_url` is where the page loads the OpenAPI document from. It is required: you serve that document yourself (a Server with
@@ -14,15 +14,15 @@ cdef class Swagger:
 
     def __cinit__(self, str openapi_url, *, title=None):
         self._u = new cpp_swagger(openapi_url.encode("utf-8"))
-        if title is not None: self.set_title(title)
+        if title is not None: self.title(title)
 
     def __dealloc__(self):
         if self._u != NULL:
             del self._u
 
-    def set_title(self, str title):
+    def title(self, str title):
         """Shown in the tab (escaped). Default "API"."""
-        self._u.set_title(title.encode("utf-8"))
+        self._u.title(title.encode("utf-8"))
         return self
 
     def mount(self, Server server, str base="/docs"):

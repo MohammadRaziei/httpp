@@ -38,7 +38,7 @@ UTEST(httpp_server_response, redirect_cookie_and_json_helpers) {
     local_server srv([](httpp::server& s) {
         s.get("/go", [](const httpp::server_request&, httpp::response& res) { res.redirect("/there", 301); });
         s.get("/c", [](const httpp::server_request&, httpp::response& res) {
-            res.set_cookie("a", "1").set_cookie(httpp::cookie("b", "2").set_path("/api"));
+            res.set_cookie("a", "1").set_cookie(httpp::cookie("b", "2").path("/api"));
             res.body = "ok";
         });
         s.get("/j", [](const httpp::server_request&, httpp::response& res) { res.json("{\"a\":1}"); });
@@ -57,7 +57,7 @@ UTEST(httpp_server_async, an_unanswered_route_gets_a_504_and_a_late_send_is_igno
     auto stash = std::make_shared<httpp::responder>();
     std::atomic<bool> stored{false};
     local_server srv([&](httpp::server& s) {
-        s.set_async_timeout(1);
+        s.async_timeout(1);
         s.get_async("/never", [&](const httpp::server_request&, httpp::responder r) {
             *stash = r;
             stored = true;
@@ -77,7 +77,7 @@ UTEST(httpp_server_async, an_unanswered_route_gets_a_504_and_a_late_send_is_igno
 
 UTEST(httpp_server_async, an_answer_in_time_cancels_nothing_and_shorthands_register_the_right_method) {
     local_server srv([](httpp::server& s) {
-        s.set_async_timeout(30);
+        s.async_timeout(30);
         auto echo = [](const httpp::server_request& req, httpp::responder r) {
             httpp::response res;
             res.status = 200;
@@ -132,10 +132,10 @@ UTEST(httpp_server_hooks, before_can_reject_and_after_adds_headers_to_sync_and_a
 
 UTEST(httpp_server_hooks, error_and_exception_handlers_shape_the_response) {
     local_server srv([](httpp::server& s) {
-        s.set_error_handler([](const httpp::server_request& req, httpp::response& res) {
+        s.error_handler([](const httpp::server_request& req, httpp::response& res) {
             res.body = "custom " + std::to_string(res.status) + " for " + req.path;
         });
-        s.set_exception_handler([](const httpp::server_request&, httpp::response& res, std::exception_ptr ep) {
+        s.exception_handler([](const httpp::server_request&, httpp::response& res, std::exception_ptr ep) {
             try { std::rethrow_exception(ep); }
             catch (const std::runtime_error& e) { res.status = 418; res.body = std::string("teapot: ") + e.what(); }
             catch (...) {}
@@ -208,7 +208,7 @@ UTEST(httpp_server_response, a_body_can_be_streamed_in_pieces_in_sync_and_async_
 UTEST(httpp_server_settings, thread_pool_size_caps_how_many_sync_handlers_run_at_once) {
     std::atomic<int> now{0}, peak{0};
     local_server srv([&](httpp::server& s) {
-        s.set_thread_pool(2, 2);
+        s.thread_pool(2, 2);
         s.get("/w", [&](const httpp::server_request&, httpp::response& res) {
             int n = ++now;
             int p = peak.load();
@@ -226,7 +226,7 @@ UTEST(httpp_server_settings, thread_pool_size_caps_how_many_sync_handlers_run_at
 
 UTEST(httpp_server_settings, max_body_rejects_larger_requests) {
     local_server srv([](httpp::server& s) {
-        s.set_max_body(1000);
+        s.max_body(1000);
         s.post("/up", [](const httpp::server_request& req, httpp::response& res) { res.body = std::to_string(req.body.size()); });
     });
     auto small = httpp::request(srv.url("/up")).data(std::string(500, 'a')).run();
@@ -312,7 +312,7 @@ std::string drain(asio::ip::tcp::socket& sock, int ms, bool& closed) {
 // Slowloris: one byte now and then keeps every single read alive, so the whole head needs a deadline.
 UTEST(httpp_server_limits, a_request_head_dripped_slowly_is_closed_at_the_header_timeout) {
     local_server srv([](httpp::server& s) {
-        s.set_read_timeout(5).set_header_timeout(1);
+        s.read_timeout(5).header_timeout(1);
         s.get("/", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
     });
     asio::io_context io;
@@ -337,7 +337,7 @@ UTEST(httpp_server_limits, a_request_head_dripped_slowly_is_closed_at_the_header
 // Same attack on the body: a byte now and then keeps every single read alive, so the whole body needs a deadline.
 UTEST(httpp_server_limits, a_request_body_dripped_slowly_is_closed_at_the_body_timeout) {
     local_server srv([](httpp::server& s) {
-        s.set_read_timeout(5).set_body_timeout(1);
+        s.read_timeout(5).body_timeout(1);
         s.post("/", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
         s.get("/", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
     });
@@ -362,7 +362,7 @@ UTEST(httpp_server_limits, a_request_body_dripped_slowly_is_closed_at_the_body_t
 
 UTEST(httpp_server_limits, a_body_that_arrives_in_time_is_not_cut_by_the_body_timeout) {
     local_server srv([](httpp::server& s) {
-        s.set_body_timeout(3);
+        s.body_timeout(3);
         s.post("/", [](const httpp::server_request& req, httpp::response& res) { res.body = std::to_string(req.body.size()); });
     });
     asio::io_context io;
@@ -384,7 +384,7 @@ UTEST(httpp_server_limits, a_body_that_arrives_in_time_is_not_cut_by_the_body_ti
 
 UTEST(httpp_server_limits, connections_over_the_limit_get_503_and_a_freed_slot_is_reused) {
     local_server srv([](httpp::server& s) {
-        s.set_max_connections(2);
+        s.max_connections(2);
         s.get("/", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
     });
     asio::io_context io;

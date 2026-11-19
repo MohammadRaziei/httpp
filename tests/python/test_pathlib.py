@@ -81,4 +81,4 @@ def test_client_ca_file_takes_a_path(tmp_path):
     httpp.Client("http://127.0.0.1:1", ca_file=ca)
     httpp.AsyncClient("http://127.0.0.1:1", ca_file=ca)
     with pytest.raises(ValueError, match="no_such_cert"):
-        Server(openapi_url=None).set_tls(tmp_path / "no_such_cert.pem", tmp_path / "no_such_key.pem")
+        Server(openapi_url=None).tls(tmp_path / "no_such_cert.pem", tmp_path / "no_such_key.pem")

@@ -21,7 +21,7 @@
 
 ## Not part of this ADR
 
-The server side (`server`, `directory`, `file_browser`, `swagger`, `cors` and the other middleware, `cookie`) keeps `set_...` for its settings. They are configured once at start-up, not chained like a request, and some of the bare names would collide inside their classes with types (`path`, `view`, `sort`). Whether they should follow is a separate decision, and a rename that wide needs a build to catch name clashes.
+The server side (`server`, `directory`, `file_browser`, `swagger`, `cors` and the other middleware, `cookie`) keeps `set_...` for its settings. They are configured once at start-up, not chained like a request, and some of the bare names would collide inside their classes with types (`path`, `view`, `sort`). Whether they should follow is a separate decision, and a rename that wide needs a build to catch name clashes. (Done in ADR-0096.)
 
 ## Consequences
 

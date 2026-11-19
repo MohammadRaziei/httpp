@@ -34,7 +34,7 @@ HTTPP_API const swagger_ui_asset* find_swagger_ui_asset(std::string_view name) n
 #endif
 
 // Swagger UI served from the bytes compiled into the library (nothing is read from disk, ADR-0066):
-// `swagger("/openapi.json").set_title("My API").mount(server, "/docs")` (ADR-0082).
+// `swagger("/openapi.json").title("My API").mount(server, "/docs")` (ADR-0082).
 // `openapi_url` is where the page loads the OpenAPI document from. It is required, because this class does not make or serve that
 // document: you do, on that URL (any valid OpenAPI JSON). It is used as it is, so when the server is not mounted at the root, give the
 // whole URL. mount() puts the page at `base` (with or without a trailing '/') and the three files under <base>/<name>; base defaults
@@ -43,7 +43,7 @@ class HTTPP_API swagger : public mountable {
 public:
     // Throws std::invalid_argument when `openapi_url` is empty.
     HTTPP_MEMBER explicit swagger(std::string openapi_url);
-    HTTPP_MEMBER swagger& set_title(std::string title);            // shown in the tab (escaped); default "API"
+    HTTPP_MEMBER swagger& title(std::string title);            // shown in the tab (escaped); default "API"
     // `s` is a handle (ADR-0081): the page goes on the server it points to. Returns that handle. May be called more than once.
     HTTPP_MEMBER server mount(server s, const std::string& base = "/docs") const override;
 

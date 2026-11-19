@@ -96,7 +96,6 @@ ALIASES = {
     "bar": {"is_finished": "finished"},  # a property in Python, like total and current
     "server": {
         "del": "delete", "before": "before_request", "after": "after_request",
-        "set_error_handler": "error_handler", "set_exception_handler": "exception_handler",
         "use": "add_middleware",  # the C++ use() takes raw hooks; Python installs the ready-made classes of httpp.middleware
         # an `async def` handler goes through the ordinary decorator in Python
         "route_async": "route", "get_async": "get", "post_async": "post", "put_async": "put",
@@ -128,16 +127,16 @@ CTOR_ARGS = {
 }
 
 CTOR_ARGS["cors"] = {
-    "set_allow_origins": ("allow_origins", ["https://a.example"]), "set_allow_origin_regex": ("allow_origin_regex", "https://.*"),
-    "set_allow_methods": ("allow_methods", ["GET"]), "set_allow_headers": ("allow_headers", ["X-A"]),
-    "set_allow_credentials": ("allow_credentials", True), "set_expose_headers": ("expose_headers", ["X-B"]),
-    "set_max_age": ("max_age", 5),
+    "allow_origins": ("allow_origins", ["https://a.example"]), "allow_origin_regex": ("allow_origin_regex", "https://.*"),
+    "allow_methods": ("allow_methods", ["GET"]), "allow_headers": ("allow_headers", ["X-A"]),
+    "allow_credentials": ("allow_credentials", True), "expose_headers": ("expose_headers", ["X-B"]),
+    "max_age": ("max_age", 5),
 }
-CTOR_ARGS["trusted_host"] = {"set_allowed_hosts": ("allowed_hosts", ["example.com"]), "set_www_redirect": ("www_redirect", False)}
-CTOR_ARGS["forwarded_headers"] = {"set_trusted_proxies": ("trusted_proxies", ["10.0.0.0/8"]), "set_trust_forwarded_host": ("trust_forwarded_host", True)}
-CTOR_ARGS["https_redirect"] = {"set_trust_forwarded_proto": ("trust_forwarded_proto", True)}
-CTOR_ARGS["basic_auth"] = {"set_realm": ("realm", "Tools"), "set_users": ("users", {"u": "p"}), "set_path_prefix": ("path_prefix", "/admin"), "set_verifier": ("verifier", lambda user, password: True)}
-CTOR_ARGS["rate_limit"] = {"set_rate": ("requests_per_second", 5.0), "set_burst": ("burst", 3), "set_max_clients": ("max_clients", 10)}
+CTOR_ARGS["trusted_host"] = {"allowed_hosts": ("allowed_hosts", ["example.com"]), "www_redirect": ("www_redirect", False)}
+CTOR_ARGS["forwarded_headers"] = {"trusted_proxies": ("trusted_proxies", ["10.0.0.0/8"]), "trust_forwarded_host": ("trust_forwarded_host", True)}
+CTOR_ARGS["https_redirect"] = {"trust_forwarded_proto": ("trust_forwarded_proto", True)}
+CTOR_ARGS["basic_auth"] = {"realm": ("realm", "Tools"), "users": ("users", {"u": "p"}), "path_prefix": ("path_prefix", "/admin"), "verifier": ("verifier", lambda user, password: True)}
+CTOR_ARGS["rate_limit"] = {"rate": ("requests_per_second", 5.0), "burst": ("burst", 3), "max_clients": ("max_clients", 10)}
 
 # Public C++ names that Python deliberately does not carry (ADR-0017 rule 3). An entry must still be unbound (a test
 # checks), so adding the binding later forces the entry to go.

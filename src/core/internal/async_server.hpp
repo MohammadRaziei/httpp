@@ -108,7 +108,7 @@ public:
 
     // Serve TLS on every connection this engine accepts (a context from make_tls_server_context); null = plain. Set it before
     // run(); it is read on the loop thread without a lock.
-    void set_tls(std::shared_ptr<const tls_context> ctx);
+    void tls(std::shared_ptr<const tls_context> ctx);
 
     // Opens, binds, listens. `port` 0 picks a free one. Returns the bound port or -1.
     int bind(const std::string& host, int port);
@@ -127,21 +127,21 @@ public:
     void after(std::chrono::milliseconds delay, std::function<void()> fn);
 
     // Settings: call before run().
-    void set_read_timeout(int seconds);
-    void set_write_timeout(int seconds);
-    void set_keep_alive_timeout(int seconds);
-    void set_keep_alive_max(std::size_t requests);
-    void set_max_body(std::size_t bytes);
+    void read_timeout(int seconds);
+    void write_timeout(int seconds);
+    void keep_alive_timeout(int seconds);
+    void keep_alive_max(std::size_t requests);
+    void max_body(std::size_t bytes);
     // Seconds a whole request head (request line + headers) may take from its first byte; 0 = no limit (default 10).
-    void set_header_timeout(int seconds);
-    void set_body_timeout(int seconds);
+    void header_timeout(int seconds);
+    void body_timeout(int seconds);
     // Most connections open at once; one over it gets a 503 and is closed. 0 = no limit (default).
-    void set_max_connections(std::size_t n);
+    void max_connections(std::size_t n);
     // Several processes may listen on the same port and the kernel spreads connections between
     // them (Linux SO_REUSEPORT). bind() fails where that is not available.
-    void set_reuse_port(bool on);
+    void reuse_port(bool on);
 
-    // Engines that share one port (set_reuse_port) hand each accepted connection to the engine with the fewest connections, so every
+    // Engines that share one port (reuse_port) hand each accepted connection to the engine with the fewest connections, so every
     // I/O thread gets the same share (the kernel spreads connections by a hash, which is uneven for a few dozen connections). Call
     // before run() with every engine, this one included, after all of them are bound; the engines must outlive the loops. An empty
     // list (the default) keeps each connection on the engine that accepted it.

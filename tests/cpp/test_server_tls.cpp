@@ -1,4 +1,4 @@
-// The server over TLS: server::set_tls, https and wss, shutdown, redirects (ADR-0040).
+// The server over TLS: server::tls, https and wss, shutdown, redirects (ADR-0040).
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/middleware.hpp"
@@ -43,7 +43,7 @@ struct cert_files {
 const cert_files& files() { static cert_files f; return f; }
 
 void tls_site(httpp::server& s) {
-    s.set_tls(files().cert, files().key);
+    s.tls(files().cert, files().key);
     s.get("/who", [](const httpp::server_request& r, httpp::response& res) { res.body = r.secure ? "secure " + r.scheme() : "plain " + r.scheme(); });
     s.post("/echo", [](const httpp::server_request& r, httpp::response& res) { res.body = r.body; });
 }
@@ -165,7 +165,7 @@ UTEST(httpp_server_tls, plain_http_and_garbage_on_a_tls_port_are_dropped_and_the
 }
 
 UTEST(httpp_server_tls, several_connections_on_several_io_threads_at_once) {
-    local_server srv([](httpp::server& s) { s.set_io_threads(2); tls_site(s); });
+    local_server srv([](httpp::server& s) { s.io_threads(2); tls_site(s); });
     std::vector<std::future<int>> all;
     for (int i = 0; i < 12; ++i)
         all.push_back(std::async(std::launch::async, [&srv] { return trusting(srv).get("/who").status; }));
@@ -174,7 +174,7 @@ UTEST(httpp_server_tls, several_connections_on_several_io_threads_at_once) {
 
 UTEST(httpp_server_tls, a_websocket_works_over_tls) {
     local_server srv([](httpp::server& s) {
-        s.set_tls(files().cert, files().key);
+        s.tls(files().cert, files().key);
         httpp::ws_handler h;
         h.on_message = [](const httpp::websocket& ws, std::string_view m, bool) { ws.send_text(m); };
         s.route_ws("/ws", h);
@@ -195,7 +195,7 @@ UTEST(httpp_server_tls, a_websocket_works_over_tls) {
 UTEST(httpp_server_tls, shutdown_lets_an_in_flight_tls_request_finish) {
     std::atomic<bool> started{false};
     local_server srv([&](httpp::server& s) {
-        s.set_tls(files().cert, files().key);
+        s.tls(files().cert, files().key);
         s.get("/slow", [&](const httpp::server_request&, httpp::response& res) {
             started = true;
             std::this_thread::sleep_for(milliseconds(300));
@@ -218,13 +218,13 @@ UTEST(httpp_server_tls, set_tls_reports_a_missing_file_a_garbage_file_and_a_key_
         return std::string();
     };
     httpp::server s;
-    const std::string missing = message([&] { s.set_tls("/no/such/cert.pem", files().key); });
+    const std::string missing = message([&] { s.tls("/no/such/cert.pem", files().key); });
     ASSERT_TRUE(contains(missing, "/no/such/cert.pem"));
-    const std::string garbage = message([&] { s.set_tls(files().key, files().key); }); // a key where the certificate belongs
+    const std::string garbage = message([&] { s.tls(files().key, files().key); }); // a key where the certificate belongs
     ASSERT_FALSE(garbage.empty());
-    const std::string mismatch = message([&] { s.set_tls(files().cert, files().other_key); });
+    const std::string mismatch = message([&] { s.tls(files().cert, files().other_key); });
     ASSERT_TRUE(contains(mismatch, "match"));
-    s.set_tls(files().cert, files().key); // and a good pair still works after the failures
+    s.tls(files().cert, files().key); // and a good pair still works after the failures
 }
 
 UTEST(httpp_server_tls, the_https_redirect_sends_plain_requests_to_https_and_lets_secure_ones_through) {
@@ -238,7 +238,7 @@ UTEST(httpp_server_tls, the_https_redirect_sends_plain_requests_to_https_and_let
 
     local_server proxied([](httpp::server& s) {
         s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "x"; });
-        httpp::https_redirect().set_trust_forwarded_proto(true).install(s); // behind a proxy that terminates TLS and says so
+        httpp::https_redirect().trust_forwarded_proto(true).install(s); // behind a proxy that terminates TLS and says so
     });
     httpp::client c("http://127.0.0.1:" + std::to_string(proxied.port));
     ASSERT_EQ(200, c.get("/x", {{"X-Forwarded-Proto", "https"}}).status);

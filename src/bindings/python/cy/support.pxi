@@ -11,23 +11,23 @@ cdef extern from "httpp/swagger.hpp" namespace "httpp":
     const swagger_ui_asset_t* find_swagger_ui_asset(string_view name) noexcept
     cdef cppclass cpp_swagger "httpp::swagger":
         cpp_swagger(string openapi_url) except +
-        cpp_swagger& set_title(string title)
+        cpp_swagger& title(string title)
         void mount(cpp_server s, const string& base) except +
 
 
 cdef extern from "httpp/file_browser.hpp" namespace "httpp":
     cdef cppclass cpp_file_browser "httpp::file_browser":
         cpp_file_browser(const string& root) except +
-        cpp_file_browser& set_title(string title)
-        cpp_file_browser& set_accent(string colour) except +
-        cpp_file_browser& set_search(bint on)
-        cpp_file_browser& set_show_hidden(bint on)
-        cpp_file_browser& set_show_dates(bint on)
-        cpp_file_browser& set_max_entries(size_t count) except +
-        cpp_file_browser& set_safe_mode(bint on)
-        cpp_file_browser& set_zip(bint on)
-        cpp_file_browser& set_powered_by(bint on)
-        cpp_file_browser& set_max_zip_entries(size_t count) except +
+        cpp_file_browser& title(string title)
+        cpp_file_browser& accent(string colour) except +
+        cpp_file_browser& search(bint on)
+        cpp_file_browser& show_hidden(bint on)
+        cpp_file_browser& show_dates(bint on)
+        cpp_file_browser& max_entries(size_t count) except +
+        cpp_file_browser& safe_mode(bint on)
+        cpp_file_browser& zip(bint on)
+        cpp_file_browser& powered_by(bint on)
+        cpp_file_browser& max_zip_entries(size_t count) except +
         void mount(cpp_server s, const string& base) except +
 
 # The three enum setters take the enum's number: the numbers are checked against the C++ enums right here, so a reordering there fails the build.
@@ -39,9 +39,9 @@ cdef extern from *:
                   "update the View enum in cy/file_browser.pxi");
     static_assert(static_cast<int>(httpp::file_browser::sort_key::name) == 0 && static_cast<int>(httpp::file_browser::sort_key::size) == 1 &&
                   static_cast<int>(httpp::file_browser::sort_key::date) == 2, "update the Sort enum in cy/file_browser.pxi");
-    inline void httpp_python_fb_theme(httpp::file_browser& b, int v) { b.set_theme(static_cast<httpp::file_browser::theme_mode>(v)); }
-    inline void httpp_python_fb_view(httpp::file_browser& b, int v) { b.set_view(static_cast<httpp::file_browser::view_mode>(v)); }
-    inline void httpp_python_fb_sort(httpp::file_browser& b, int v) { b.set_sort(static_cast<httpp::file_browser::sort_key>(v)); }
+    inline void httpp_python_fb_theme(httpp::file_browser& b, int v) { b.theme(static_cast<httpp::file_browser::theme_mode>(v)); }
+    inline void httpp_python_fb_view(httpp::file_browser& b, int v) { b.layout(static_cast<httpp::file_browser::view_mode>(v)); }
+    inline void httpp_python_fb_sort(httpp::file_browser& b, int v) { b.sort_by(static_cast<httpp::file_browser::sort_key>(v)); }
     """
     void fb_set_theme "httpp_python_fb_theme"(cpp_file_browser& b, int v)
     void fb_set_view "httpp_python_fb_view"(cpp_file_browser& b, int v)
@@ -52,48 +52,48 @@ cdef extern from *:
 cdef extern from "httpp/server.hpp" namespace "httpp":
     cdef cppclass cpp_directory "httpp::directory":
         cpp_directory(const string& root) except +
-        cpp_directory& set_index(bint on)
-        cpp_directory& set_show_hidden(bint on)
-        cpp_directory& set_show_dates(bint on)
-        cpp_directory& set_download_active(bint on)
-        cpp_directory& set_inline_active(bint on)
+        cpp_directory& index(bint on)
+        cpp_directory& show_hidden(bint on)
+        cpp_directory& show_dates(bint on)
+        cpp_directory& download_active(bint on)
+        cpp_directory& inline_active(bint on)
         void mount(cpp_server s, const string& base) except +
 
 cdef extern from "httpp/middleware.hpp" namespace "httpp":
     cdef cppclass cpp_cors "httpp::cors":
         cpp_cors() except +
-        cpp_cors& set_allow_origins(vector[string] v) except +
-        cpp_cors& set_allow_origin_regex(string v) except +
-        cpp_cors& set_allow_methods(vector[string] v) except +
-        cpp_cors& set_allow_headers(vector[string] v) except +
-        cpp_cors& set_allow_credentials(cbool v) except +
-        cpp_cors& set_expose_headers(vector[string] v) except +
-        cpp_cors& set_max_age(int v) except +
+        cpp_cors& allow_origins(vector[string] v) except +
+        cpp_cors& allow_origin_regex(string v) except +
+        cpp_cors& allow_methods(vector[string] v) except +
+        cpp_cors& allow_headers(vector[string] v) except +
+        cpp_cors& allow_credentials(cbool v) except +
+        cpp_cors& expose_headers(vector[string] v) except +
+        cpp_cors& max_age(int v) except +
         void install(cpp_server& s) except +
     cdef cppclass cpp_trusted_host "httpp::trusted_host":
         cpp_trusted_host(vector[string] hosts) except +
-        cpp_trusted_host& set_www_redirect(cbool v) except +
+        cpp_trusted_host& www_redirect(cbool v) except +
         void install(cpp_server& s) except +
     cdef cppclass cpp_forwarded_headers "httpp::forwarded_headers":
         cpp_forwarded_headers() except +
-        cpp_forwarded_headers& set_trusted_proxies(vector[string] v) except +
-        cpp_forwarded_headers& set_trust_forwarded_host(cbool v) except +
+        cpp_forwarded_headers& trusted_proxies(vector[string] v) except +
+        cpp_forwarded_headers& trust_forwarded_host(cbool v) except +
         void install(cpp_server& s) except +
     cdef cppclass cpp_https_redirect "httpp::https_redirect":
         cpp_https_redirect() except +
-        cpp_https_redirect& set_trust_forwarded_proto(cbool v) except +
+        cpp_https_redirect& trust_forwarded_proto(cbool v) except +
         void install(cpp_server& s) except +
     cdef cppclass cpp_basic_auth "httpp::basic_auth":
         cpp_basic_auth(string realm) except +
-        cpp_basic_auth& set_realm(string v) except +
-        cpp_basic_auth& set_users(vector[string] v) except +
-        cpp_basic_auth& set_path_prefix(string v) except +
+        cpp_basic_auth& realm(string v) except +
+        cpp_basic_auth& users(vector[string] v) except +
+        cpp_basic_auth& path_prefix(string v) except +
         void install(cpp_server& s) except +
     cdef cppclass cpp_rate_limit "httpp::rate_limit":
         cpp_rate_limit() except +
-        cpp_rate_limit& set_rate(double v) except +
-        cpp_rate_limit& set_burst(size_t v) except +
-        cpp_rate_limit& set_max_clients(size_t v) except +
+        cpp_rate_limit& rate(double v) except +
+        cpp_rate_limit& burst(size_t v) except +
+        cpp_rate_limit& max_clients(size_t v) except +
         void install(cpp_server& s) except +
 
 
@@ -116,7 +116,7 @@ cdef extern from *:
             Py_DECREF(static_cast<PyObject*>(c));
             PyGILState_Release(g);
         });
-        b.set_verifier([hold, ctx, fn](const std::string& user, const std::string& password) {
+        b.verifier([hold, ctx, fn](const std::string& user, const std::string& password) {
             const int r = fn(ctx, user, password);
             if (r < 0) throw std::runtime_error("basic_auth: the verifier raised an exception");
             return r > 0;

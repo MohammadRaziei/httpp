@@ -1,4 +1,4 @@
-// server::set_compression: gzip for text answers when the client accepts it. The client decodes by itself and
+// server::compression: gzip for text answers when the client accepts it. The client decodes by itself and
 // leaves Content-Encoding and Content-Length as received, which is what these tests read.
 #include "utest/utest.h"
 #include "httpp/client.hpp"
@@ -40,7 +40,7 @@ long long length_of(const httpp::response& r) { return std::stoll(r.header("Cont
 } // namespace
 
 UTEST(httpp_server_compression, a_big_text_answer_is_gzipped_when_the_client_accepts_it) {
-    local_server srv([](httpp::server& s) { s.set_compression(1024); routes(s); });
+    local_server srv([](httpp::server& s) { s.compression(1024); routes(s); });
     for (const char* path : {"/text", "/json", "/async"}) {
         const auto r = httpp::client::fetch(srv.url(path));
         ASSERT_EQ(200, r.status);
@@ -59,7 +59,7 @@ UTEST(httpp_server_compression, it_is_off_until_it_is_asked_for) {
 }
 
 UTEST(httpp_server_compression, small_bodies_and_other_content_types_are_left_alone) {
-    local_server srv([](httpp::server& s) { s.set_compression(1024); routes(s); });
+    local_server srv([](httpp::server& s) { s.compression(1024); routes(s); });
     for (const char* path : {"/small", "/png", "/already"}) {
         const auto r = httpp::client::fetch(srv.url(path));
         ASSERT_EQ(200, r.status);
@@ -69,7 +69,7 @@ UTEST(httpp_server_compression, small_bodies_and_other_content_types_are_left_al
 }
 
 UTEST(httpp_server_compression, a_client_that_does_not_accept_gzip_gets_the_plain_body_and_a_vary_header) {
-    local_server srv([](httpp::server& s) { s.set_compression(1024); routes(s); });
+    local_server srv([](httpp::server& s) { s.compression(1024); routes(s); });
     for (const char* accept : {"identity", "gzip;q=0", "deflate", ""}) {
         httpp::client c(srv.url());
         c.header("Accept-Encoding", accept);
@@ -84,10 +84,10 @@ UTEST(httpp_server_compression, a_client_that_does_not_accept_gzip_gets_the_plai
 UTEST(httpp_server_compression, the_level_is_checked) {
     httpp::server s;
     bool threw = false;
-    try { s.set_compression(1024, 10); } catch (const std::invalid_argument&) { threw = true; }
+    try { s.compression(1024, 10); } catch (const std::invalid_argument&) { threw = true; }
     ASSERT_TRUE(threw);
     threw = false;
-    try { s.set_compression(1024, 0); } catch (const std::invalid_argument&) { threw = true; }
+    try { s.compression(1024, 0); } catch (const std::invalid_argument&) { threw = true; }
     ASSERT_TRUE(threw);
-    s.set_compression(0); // 0 turns it off
+    s.compression(0); // 0 turns it off
 }

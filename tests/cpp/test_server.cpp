@@ -99,13 +99,13 @@ UTEST(httpp_server, listens_on_a_fixed_requested_port) {
 #ifdef __linux__
 UTEST(httpp_server, reuse_port_lets_servers_share_a_port_only_when_both_ask) {
     httpp::server a, b, plain;
-    a.set_reuse_port(true);
+    a.reuse_port(true);
     const int port = a.bind_to_any_port("127.0.0.1");
     ASSERT_TRUE(port > 0);
 
     ASSERT_FALSE(plain.listen("127.0.0.1", port)); // did not ask: refused, and it returns at once
 
-    b.set_reuse_port(true);
+    b.reuse_port(true);
     std::atomic<int> state{0}; // 0 = still serving, 1 = listen failed, 2 = listen ended after stop()
     std::thread th([&] { state = b.listen("127.0.0.1", port) ? 2 : 1; });
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
@@ -413,7 +413,7 @@ UTEST(httpp_server, connection_close_request_header_is_honoured) {
 
 UTEST(httpp_server, idle_connection_is_closed_after_the_keep_alive_timeout) {
     httpp::server s;
-    s.set_keep_alive_timeout(1);
+    s.keep_alive_timeout(1);
     s.get("/k", [](const httpp::server_request&, httpp::response& res) { res.body = "ok"; });
     running_server rs(std::move(s));
     int fd = connect_raw(rs.port);

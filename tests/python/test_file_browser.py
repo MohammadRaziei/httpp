@@ -40,7 +40,7 @@ def tree(tmp_path):
 
 def test_lists_and_serves_files(tree):
     app = Server()
-    FileBrowser(tree).set_title("My <files>").mount(app, "/files")
+    FileBrowser(tree).title("My <files>").mount(app, "/files")
     with running(app) as url:
         page = httpp.get(f"{url}/files")
         assert page.status == 200 and "My &lt;files&gt;" in page.text
@@ -65,7 +65,7 @@ def test_options_are_applied(tree):
 def test_the_enums_and_the_keywords_reach_the_page(tree):
     app = Server()
     (FileBrowser(tree, accent="#12ab34", search=False)
-        .set_theme(FileBrowser.Theme.DARK).set_view(FileBrowser.View.GRID).set_sort(FileBrowser.Sort.DATE).mount(app, "/files"))
+        .theme(FileBrowser.Theme.DARK).layout(FileBrowser.View.GRID).sort_by(FileBrowser.Sort.DATE).mount(app, "/files"))
     with running(app) as url:
         page = httpp.get(f"{url}/files").text
         for fragment in ('"theme":"dark"', '"view":"grid"', '"sort":"date"', '"accent":"#12ab34"', '"search":false'):
@@ -88,10 +88,10 @@ def test_html_and_svg_are_shown_behind_a_sandbox_by_default_and_safe_mode_makes_
     default, loose, safe, keyword = Server(), Server(), Server(), Server()
     FileBrowser(tree).mount(default, "/files")
     fb = FileBrowser(tree)
-    assert fb.set_safe_mode(False) is fb
+    assert fb.safe_mode(False) is fb
     fb.mount(loose, "/files")
     fb = FileBrowser(tree)
-    assert fb.set_safe_mode(True) is fb
+    assert fb.safe_mode(True) is fb
     fb.mount(safe, "/files")
     FileBrowser(tree, safe_mode=True).mount(keyword, "/files")
     for server in (default, loose):
@@ -124,7 +124,7 @@ def _zip_dates(url, query):
 def test_show_dates_false_shows_and_sends_no_file_time(tree):
     app, dated = Server(), Server()
     fb = FileBrowser(tree, zip=True)
-    assert fb.set_show_dates(False) is fb
+    assert fb.show_dates(False) is fb
     fb.mount(app, "/files")
     FileBrowser(tree, zip=True).mount(dated, "/files")
     with running(dated) as url:
@@ -150,7 +150,7 @@ def test_the_show_dates_keyword_is_the_same_as_the_setter(tree):
 
 def test_the_setters_chain_and_one_browser_mounts_twice(tree):
     fb = FileBrowser(tree)
-    assert fb.set_title("x") is fb and fb.set_theme(FileBrowser.Theme.LIGHT) is fb and fb.set_max_entries(3) is fb
+    assert fb.title("x") is fb and fb.theme(FileBrowser.Theme.LIGHT) is fb and fb.max_entries(3) is fb
     first, second = Server(), Server()
     fb.mount(first, "/a")
     fb.mount(second, "/b")
@@ -161,10 +161,10 @@ def test_the_setters_chain_and_one_browser_mounts_twice(tree):
 
 
 @pytest.mark.parametrize("call", [
-    lambda fb: fb.set_accent("red"),
-    lambda fb: fb.set_accent("#12345"),
-    lambda fb: fb.set_max_entries(0),
-    lambda fb: fb.set_max_entries(-1),
+    lambda fb: fb.accent("red"),
+    lambda fb: fb.accent("#12345"),
+    lambda fb: fb.max_entries(0),
+    lambda fb: fb.max_entries(-1),
 ])
 def test_a_bad_value_raises_value_error_at_the_setter_and_changes_nothing(tree, call):
     fb = FileBrowser(tree)
@@ -177,8 +177,8 @@ def test_a_bad_value_raises_value_error_at_the_setter_and_changes_nothing(tree, 
         assert '"accent":""' in page and '"limit":5000' in page
 
 
-@pytest.mark.parametrize("name,value", [("set_theme", "dark"), ("set_view", "grid"), ("set_sort", "date"),
-                                        ("set_theme", FileBrowser.View.GRID), ("set_view", FileBrowser.Sort.NAME), ("set_sort", 1)])
+@pytest.mark.parametrize("name,value", [("theme", "dark"), ("layout", "grid"), ("sort_by", "date"),
+                                        ("theme", FileBrowser.View.GRID), ("layout", FileBrowser.Sort.NAME), ("sort_by", 1)])
 def test_an_enum_setter_takes_only_its_own_enum(tree, name, value):
     with pytest.raises(TypeError):
         getattr(FileBrowser(tree), name)(value)
@@ -304,7 +304,7 @@ def test_zip_is_off_by_default_and_set_zip_turns_it_on(tree):
 def test_zip_of_a_folder_and_of_chosen_names_reads_back_with_zipfile(tree):
     _zip_tree(tree)
     app = Server()
-    FileBrowser(tree).set_zip(True).set_title("Music").mount(app, "/files")
+    FileBrowser(tree).zip(True).title("Music").mount(app, "/files")
     with running(app) as url:
         whole = httpp.get(f"{url}/files/api/zip?path=/")
         assert whole.status == 200 and whole.header("Content-Type") == "application/zip"
@@ -328,7 +328,7 @@ def test_zip_of_a_folder_and_of_chosen_names_reads_back_with_zipfile(tree):
 
 def test_zip_refusals_and_the_entry_limit(tree):
     app = Server()
-    FileBrowser(tree).set_zip(True).set_max_zip_entries(2).mount(app, "/files")
+    FileBrowser(tree).zip(True).max_zip_entries(2).mount(app, "/files")
     with running(app) as url:
         assert httpp.get(f"{url}/files/api/zip?path=/../x").status == 400
         assert httpp.get(f"{url}/files/api/zip?path=/&name=..").status == 400
@@ -351,9 +351,9 @@ def test_the_credit_line_is_on_by_default_and_powered_by_false_turns_it_off(tree
 
 def test_the_zip_setters_chain_and_refuse_a_bad_value(tree):
     fb = FileBrowser(tree)
-    assert fb.set_powered_by(False) is fb and fb.set_zip(True) is fb and fb.set_max_zip_entries(10) is fb
+    assert fb.powered_by(False) is fb and fb.zip(True) is fb and fb.max_zip_entries(10) is fb
     with pytest.raises(ValueError):
-        fb.set_max_zip_entries(0)
+        fb.max_zip_entries(0)
     with pytest.raises(ValueError):
         FileBrowser(tree, max_zip_entries=0)
 

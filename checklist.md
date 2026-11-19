@@ -54,7 +54,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 - [ ] Dependencies with `yield` (cleanup after the response) and `response_model` filtering: check what the FastAPI layer lacks against FastAPI's docs
 - [x] ETag, `Last-Modified`, 304, 412 and `If-Range` for mounted files and the file browser raw route (ADR-0045)
 - [ ] Static files mounted from Python (`mount_static`-style) beyond `serve_directory`
-- [x] A total deadline for a dripped request body (`set_body_timeout`, already in place; this line was stale)
+- [x] A total deadline for a dripped request body (`body_timeout`, already in place; this line was stale)
 - [ ] Swagger UI body is copied per request (changes a public type; ask the owner first)
 - [ ] The 504 deadline of an unanswered async request starts when the handler returns (document or change)
 
@@ -94,7 +94,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 - [x] The 18 KB exit leak of `async_http` exchanges (a reference cycle, fixed, ADR-0047); still open: the `worker_pool*` read in ADR-0035
 - [ ] Python 3.15t locally (CI only so far)
 - [ ] README gaps: when to use `def` against `async def`, `HTTPException`, response classes, `httpp.status`, 405; the GZip section
-- [x] An ADR and a benchmark for server gzip (`set_compression`): [ADR-0061](docs/adr/0061-server-gzip-defaults.md), `benchmarks/gzip_bench.py`
+- [x] An ADR and a benchmark for server gzip (`compression`): [ADR-0061](docs/adr/0061-server-gzip-defaults.md), `benchmarks/gzip_bench.py`
 - [x] 0.8.1 committed, tagged and released by the owner (2026-11-11)
 - [ ] 0.9.0 committed, tagged and released by the owner
 

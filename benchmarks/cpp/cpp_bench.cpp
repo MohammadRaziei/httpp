@@ -27,8 +27,8 @@ int main(int argc, char** argv) {
     const int port = std::atoi(argv[1]);
     const std::size_t io_threads = argc > 2 ? static_cast<std::size_t>(std::atoi(argv[2])) : 1;
     httpp::server srv;
-    srv.set_io_threads(io_threads);
-    if (argc > 3) srv.set_keep_alive_max(static_cast<std::size_t>(std::atoll(argv[3])));  // for A/B runs of the default
+    srv.io_threads(io_threads);
+    if (argc > 3) srv.keep_alive_max(static_cast<std::size_t>(std::atoll(argv[3])));  // for A/B runs of the default
     srv.route("GET", "/sync", [](const httpp::server_request&, httpp::response& r) { hello(r); });
     srv.route("GET", "/cpu", [](const httpp::server_request&, httpp::response& r) {
         volatile long long s = work();

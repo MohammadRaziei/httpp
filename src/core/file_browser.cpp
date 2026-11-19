@@ -280,31 +280,31 @@ static const char* sort_name(file_browser::sort_key k) {
 
 file_browser::file_browser(path root) : root_(std::move(root)) {}
 
-file_browser& file_browser::set_title(std::string title) { title_ = std::move(title); return *this; }
-file_browser& file_browser::set_theme(theme_mode theme) { theme_ = theme; return *this; }
-file_browser& file_browser::set_accent(std::string colour) {
+file_browser& file_browser::title(std::string title) { title_ = std::move(title); return *this; }
+file_browser& file_browser::theme(theme_mode theme) { theme_ = theme; return *this; }
+file_browser& file_browser::accent(std::string colour) {
     if (!colour.empty() && !is_hex_colour(colour)) throw std::invalid_argument("file_browser: accent must be #rrggbb");
     accent_ = std::move(colour);
     return *this;
 }
-file_browser& file_browser::set_search(bool on) { search_ = on; return *this; }
-file_browser& file_browser::set_show_hidden(bool on) { show_hidden_ = on; return *this; }
-file_browser& file_browser::set_show_dates(bool on) { show_dates_ = on; return *this; }
-file_browser& file_browser::set_safe_mode(bool on) { safe_mode_ = on; return *this; }
-file_browser& file_browser::set_zip(bool on) { zip_ = on; return *this; }
-file_browser& file_browser::set_powered_by(bool on) { powered_by_ = on; return *this; }
-file_browser& file_browser::set_max_zip_entries(std::size_t count) {
+file_browser& file_browser::search(bool on) { search_ = on; return *this; }
+file_browser& file_browser::show_hidden(bool on) { show_hidden_ = on; return *this; }
+file_browser& file_browser::show_dates(bool on) { show_dates_ = on; return *this; }
+file_browser& file_browser::safe_mode(bool on) { safe_mode_ = on; return *this; }
+file_browser& file_browser::zip(bool on) { zip_ = on; return *this; }
+file_browser& file_browser::powered_by(bool on) { powered_by_ = on; return *this; }
+file_browser& file_browser::max_zip_entries(std::size_t count) {
     if (count == 0) throw std::invalid_argument("file_browser: max_zip_entries must be above 0");
     max_zip_entries_ = count;
     return *this;
 }
-file_browser& file_browser::set_max_entries(std::size_t count) {
+file_browser& file_browser::max_entries(std::size_t count) {
     if (count == 0) throw std::invalid_argument("file_browser: max_entries must be above 0");
     max_entries_ = count;
     return *this;
 }
-file_browser& file_browser::set_view(view_mode view) { view_ = view; return *this; }
-file_browser& file_browser::set_sort(sort_key sort) { sort_ = sort; return *this; }
+file_browser& file_browser::layout(view_mode view) { view_ = view; return *this; }
+file_browser& file_browser::sort_by(sort_key sort) { sort_ = sort; return *this; }
 
 server file_browser::mount(server s, const std::string& base) const {
     const std::string& root = root_.str();
@@ -441,7 +441,7 @@ server file_browser::mount(server s, const std::string& base) const {
         s.post(prefix + "/api/zip", zip_route);
     }
 
-    directory(path(real_root)).set_index(false).set_show_hidden(show_hidden_).set_show_dates(show_dates_).set_download_active(true).set_inline_active(!safe_mode_).mount(s, prefix + "/raw");
+    directory(path(real_root)).index(false).show_hidden(show_hidden_).show_dates(show_dates_).download_active(true).inline_active(!safe_mode_).mount(s, prefix + "/raw");
     return s;
 }
 

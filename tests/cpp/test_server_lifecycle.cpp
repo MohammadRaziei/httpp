@@ -28,9 +28,9 @@ int port_of(const std::string& url) {  // "http://127.0.0.1:8000/" -> 8000
 }  // namespace
 
 // The dangling form cannot compile: a chain on a temporary hands back a server (a handle), never a reference into the temporary.
-static_assert(std::is_same<decltype(std::declval<httpp::server&>().set_max_body(1)), httpp::server&>::value, "on a named server the chain returns a reference");
-static_assert(std::is_same<decltype(std::declval<httpp::server&&>().set_max_body(1)), httpp::server>::value, "on a temporary the chain returns a handle");
-static_assert(std::is_same<decltype(std::declval<httpp::server&&>().set_tls("a", "b")), httpp::server>::value, "set_tls on a temporary returns a handle");
+static_assert(std::is_same<decltype(std::declval<httpp::server&>().max_body(1)), httpp::server&>::value, "on a named server the chain returns a reference");
+static_assert(std::is_same<decltype(std::declval<httpp::server&&>().max_body(1)), httpp::server>::value, "on a temporary the chain returns a handle");
+static_assert(std::is_same<decltype(std::declval<httpp::server&&>().tls("a", "b")), httpp::server>::value, "tls on a temporary returns a handle");
 static_assert(std::is_same<decltype(httpp::directory(".").mount(httpp::server(), "/")), httpp::server>::value, "mount returns a handle");
 
 UTEST(httpp_mount, mount_returns_a_handle_to_the_server_it_was_given) {
@@ -46,7 +46,7 @@ UTEST(httpp_mount, mount_returns_a_handle_to_the_server_it_was_given) {
 }
 
 UTEST(httpp_mount, the_owners_chain_works_with_a_temporary_server) {
-    auto srv = httpp::directory(".").set_show_hidden(false).mount(httpp::server(), "/");
+    auto srv = httpp::directory(".").show_hidden(false).mount(httpp::server(), "/");
     ASSERT_TRUE(srv.bind("127.0.0.1", 0));
     ASSERT_TRUE(srv.url().rfind("http://127.0.0.1:", 0) == 0);
 }
@@ -54,7 +54,7 @@ UTEST(httpp_mount, the_owners_chain_works_with_a_temporary_server) {
 UTEST(httpp_mount, the_chain_goes_on_into_set_tls_which_names_the_file_it_cannot_read) {
     std::string message;
     try {
-        auto srv = httpp::directory(".").mount(httpp::server(), "/").set_tls("no_such_cert.pem", "no_such_key.pem");
+        auto srv = httpp::directory(".").mount(httpp::server(), "/").tls("no_such_cert.pem", "no_such_key.pem");
     } catch (const std::runtime_error& e) {
         message = e.what();
     }
@@ -63,7 +63,7 @@ UTEST(httpp_mount, the_chain_goes_on_into_set_tls_which_names_the_file_it_cannot
     httpp::server named;
     message.clear();
     try {
-        httpp::directory(".").mount(named, "/").set_tls("no_such_cert.pem", "no_such_key.pem");
+        httpp::directory(".").mount(named, "/").tls("no_such_cert.pem", "no_such_key.pem");
     } catch (const std::runtime_error& e) {
         message = e.what();
     }

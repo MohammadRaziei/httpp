@@ -43,8 +43,8 @@ UTEST(httpp_server_io_threads, unanswered_io_requests_get_a_504_on_every_io_thre
     std::mutex mu;
     std::vector<httpp::responder> kept;
     local_server srv([&](httpp::server& s) {
-        s.set_io_threads(3);
-        s.set_async_timeout(1);
+        s.io_threads(3);
+        s.async_timeout(1);
         s.route_io("GET", "/hold", [&](std::shared_ptr<const httpp::server_request>, httpp::responder r) {
             std::lock_guard<std::mutex> lock(mu);
             kept.push_back(r);
@@ -64,7 +64,7 @@ UTEST(httpp_server_io_threads, unanswered_io_requests_get_a_504_on_every_io_thre
 
 UTEST(httpp_server_io_threads, connections_spread_over_the_io_threads_and_each_stays_on_its_thread) {
     local_server srv([](httpp::server& s) {
-        s.set_io_threads(4);
+        s.io_threads(4);
         s.route_io("GET", "/who", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, thread_text()); });
     });
     std::mutex mu;
@@ -111,7 +111,7 @@ UTEST(httpp_server_io_threads, connections_spread_over_the_io_threads_and_each_s
 
 UTEST(httpp_server_io_threads, an_io_route_runs_on_an_io_thread_not_on_a_worker_and_the_pool_still_works) {
     local_server srv([](httpp::server& s) {
-        s.set_io_threads(3);
+        s.io_threads(3);
         s.route_io("GET", "/io", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "io"); });
         s.get("/pool", [](const httpp::server_request&, httpp::response& res) { res.body = "pool"; });
     });
@@ -124,8 +124,8 @@ UTEST(httpp_server_io_threads, an_io_route_runs_on_an_io_thread_not_on_a_worker_
 UTEST(httpp_server_io_threads, the_after_hook_and_an_unanswered_route_work_with_several_io_threads) {
     std::atomic<int> after_calls{0};
     local_server srv([&](httpp::server& s) {
-        s.set_io_threads(3);
-        s.set_async_timeout(1);
+        s.io_threads(3);
+        s.async_timeout(1);
         s.after([&](const httpp::server_request&, httpp::response&) { ++after_calls; });
         s.route_io("GET", "/ok", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "ok"); });
         s.route_io("GET", "/never", [](std::shared_ptr<const httpp::server_request>, httpp::responder) { /* kept by nobody */ });
@@ -137,8 +137,8 @@ UTEST(httpp_server_io_threads, the_after_hook_and_an_unanswered_route_work_with_
 
 UTEST(httpp_server_io_threads, a_setting_reaches_every_io_thread) {
     local_server srv([](httpp::server& s) {
-        s.set_io_threads(4);
-        s.set_max_body(8);
+        s.io_threads(4);
+        s.max_body(8);
         s.route_io("POST", "/in", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "in"); });
     });
     int too_big = 0;
@@ -151,7 +151,7 @@ UTEST(httpp_server_io_threads, a_setting_reaches_every_io_thread) {
 
 UTEST(httpp_server_io_threads, the_server_stops_and_listens_again_with_several_io_threads) {
     httpp::server s;
-    s.set_io_threads(3);
+    s.io_threads(3);
     s.route_io("GET", "/x", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "x"); });
     for (int round = 0; round < 2; ++round) {
         const int port = s.bind_to_any_port("127.0.0.1");
@@ -169,7 +169,7 @@ UTEST(httpp_server_io_threads, the_date_header_is_well_formed_when_every_io_thre
     // together (a data race that ThreadSanitizer reports, and that can corrupt the string on the very first answers).
     for (int round = 0; round < 20; ++round) {
         local_server srv([](httpp::server& s) {
-            s.set_io_threads(4);
+            s.io_threads(4);
             s.route_io("GET", "/d", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "x"); });
         });
         std::atomic<int> bad{0};

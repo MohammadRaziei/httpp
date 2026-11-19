@@ -2,7 +2,7 @@
 // `Set-Cookie` headers built from cookie objects; a client sends `Cookie` pairs. The rules (what a name and a value may contain, how an attribute
 // is written) live here once, so C++ and Python (httpp.set_cookie, request.cookies) cannot drift apart.
 //
-//     res.set_cookie(httpp::cookie("sid", token).set_max_age(3600).set_secure(true).set_same_site(httpp::same_site::lax));
+//     res.set_cookie(httpp::cookie("sid", token).max_age(3600).secure(true).same_site_policy(httpp::same_site::lax));
 //     for (const auto& [name, value] : httpp::cookie::parse_cookie_header(req.header("Cookie"))) ...
 //
 // A name is an RFC 6265 token; a value is made of cookie-octets (no space, quote, comma, semicolon, backslash or control character: percent-encode
@@ -24,12 +24,12 @@ enum class same_site { lax, strict, none };
 class cookie {
 public:
     HTTPP_API cookie(std::string name, std::string value);
-    HTTPP_API cookie& set_path(std::string path);     // "" leaves the attribute out
-    HTTPP_API cookie& set_domain(std::string domain); // "" (the default) leaves the attribute out
-    HTTPP_API cookie& set_max_age(long long seconds); // 0 or less asks the client to delete the cookie
-    HTTPP_API cookie& set_secure(bool on);
-    HTTPP_API cookie& set_http_only(bool on);
-    HTTPP_API cookie& set_same_site(httpp::same_site site);
+    HTTPP_API cookie& path(std::string path);     // "" leaves the attribute out
+    HTTPP_API cookie& domain(std::string domain); // "" (the default) leaves the attribute out
+    HTTPP_API cookie& max_age(long long seconds); // 0 or less asks the client to delete the cookie
+    HTTPP_API cookie& secure(bool on);
+    HTTPP_API cookie& http_only(bool on);
+    HTTPP_API cookie& same_site_policy(httpp::same_site site);
 
     const std::string& name() const noexcept { return name_; }
     const std::string& value() const noexcept { return value_; }

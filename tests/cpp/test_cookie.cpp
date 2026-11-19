@@ -22,18 +22,18 @@ UTEST(httpp_cookie, the_defaults_are_path_slash_and_http_only) {
 }
 
 UTEST(httpp_cookie, every_attribute_is_written_in_a_fixed_order) {
-    auto c = httpp::cookie("sid", "abc").set_path("/app").set_domain("example.com").set_max_age(3600).set_secure(true).set_http_only(false).set_same_site(httpp::same_site::strict);
+    auto c = httpp::cookie("sid", "abc").path("/app").domain("example.com").max_age(3600).secure(true).http_only(false).same_site_policy(httpp::same_site::strict);
     ASSERT_STREQ("sid=abc; Path=/app; Domain=example.com; Max-Age=3600; Secure; SameSite=Strict", c.to_set_cookie().c_str());
-    ASSERT_STREQ("a=1; Max-Age=0; HttpOnly; SameSite=None", httpp::cookie("a", "1").set_path("").set_max_age(0).set_same_site(httpp::same_site::none).to_set_cookie().c_str());
-    ASSERT_STREQ("a=; Path=/; HttpOnly; SameSite=Lax", httpp::cookie("a", "").set_same_site(httpp::same_site::lax).to_set_cookie().c_str());
+    ASSERT_STREQ("a=1; Max-Age=0; HttpOnly; SameSite=None", httpp::cookie("a", "1").path("").max_age(0).same_site_policy(httpp::same_site::none).to_set_cookie().c_str());
+    ASSERT_STREQ("a=; Path=/; HttpOnly; SameSite=Lax", httpp::cookie("a", "").same_site_policy(httpp::same_site::lax).to_set_cookie().c_str());
 }
 
 UTEST(httpp_cookie, what_cannot_be_sent_is_refused) {
     for (const char* bad : {"", "a b", "a;b", "a=b", "a\r\nX: 1", "caf\xc3\xa9", "a,b", "a\"b"}) ASSERT_TRUE(throws_invalid([&] { httpp::cookie c(bad, "v"); }));
     for (const char* bad : {"a b", "a;b", "a,b", "a\"b", "a\\b", "a\r\nX: 1", "caf\xc3\xa9"}) ASSERT_TRUE(throws_invalid([&] { httpp::cookie c("n", bad); }));
     httpp::cookie c("n", "v");
-    ASSERT_TRUE(throws_invalid([&] { c.set_path("/a;b"); }));
-    ASSERT_TRUE(throws_invalid([&] { c.set_domain("a\r\nb"); }));
+    ASSERT_TRUE(throws_invalid([&] { c.path("/a;b"); }));
+    ASSERT_TRUE(throws_invalid([&] { c.domain("a\r\nb"); }));
     ASSERT_STREQ("n=v; Path=/; HttpOnly", c.to_set_cookie().c_str()); // nothing changed
 }
 
@@ -61,7 +61,7 @@ UTEST(httpp_cookie, a_request_reads_its_cookies_and_basic_credentials) {
         });
         s.get("/set", [](const httpp::server_request&, httpp::response& res) {
             res.set_cookie("a", "1");
-            res.set_cookie(httpp::cookie("b", "2").set_max_age(60).set_same_site(httpp::same_site::lax));
+            res.set_cookie(httpp::cookie("b", "2").max_age(60).same_site_policy(httpp::same_site::lax));
             try { res.set_cookie("bad name", "1"); } catch (const std::invalid_argument&) { res.body = "refused"; }
         });
     });

@@ -404,7 +404,7 @@ UTEST(httpp_server_ws, a_close_sent_from_on_open_reaches_the_peer_and_the_server
 
 UTEST(httpp_server_ws, several_io_threads_each_serve_their_connections) {
     local_server srv([](httpp::server& s) {
-        s.set_io_threads(3);
+        s.io_threads(3);
         s.route_ws("/ws", echo());
     });
     std::vector<std::unique_ptr<ws_client>> clients;
@@ -466,7 +466,7 @@ UTEST(httpp_server_ws, a_slow_reader_makes_send_report_full_and_on_drain_says_wh
 UTEST(httpp_server_ws, a_peer_that_never_reads_is_dropped_by_the_write_timeout) {
     auto st = std::make_shared<log_state>();
     local_server srv([&](httpp::server& s) {
-        s.set_write_timeout(1);
+        s.write_timeout(1);
         httpp::ws_handler h;
         h.max_buffered = 64u << 20;
         watch(h, st);
@@ -550,7 +550,7 @@ UTEST(httpp_server_ws, pausing_reading_stops_messages_until_resumed) {
 
 UTEST(httpp_server_ws, the_connection_limit_counts_websocket_connections) {
     local_server srv([](httpp::server& s) {
-        s.set_max_connections(1);
+        s.max_connections(1);
         s.route_ws("/ws", echo());
     });
     ws_client first(srv.port);
@@ -636,7 +636,7 @@ UTEST(httpp_server_ws, an_acceptor_that_is_never_answered_gets_the_async_timeout
     httpp::ws_acceptor keep;
     std::mutex mu;
     local_server srv([&](httpp::server& s) {
-        s.set_async_timeout(1);
+        s.async_timeout(1);
         auto h = echo();
         h.on_handshake = [&](std::shared_ptr<const httpp::server_request>, httpp::ws_acceptor a) { std::lock_guard<std::mutex> lk(mu); keep = a; };
         s.route_ws("/ws", h);

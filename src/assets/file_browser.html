@@ -206,7 +206,7 @@ function crumbs() {
   });
 }
 
-// ---- selection and ZIP (only when the server was set up with set_zip) ----
+// ---- selection and ZIP (only when the server was set up with zip(true)) ----
 var sel = Object.create(null), lastSel = -1, rowEls = [], allBox = null, zipBusy = false;  // sel: names in the open folder
 function selected() { return Object.keys(sel); }
 function checkbox(label) { var c = el("input", "cb"); c.type = "checkbox"; c.setAttribute("aria-label", label); return c; }

@@ -203,7 +203,7 @@ std::vector<std::string> split_list(const std::string& v) {
 
 forwarded_headers::forwarded_headers() : proxies_{"127.0.0.1", "::1"} {}
 
-forwarded_headers& forwarded_headers::set_trusted_proxies(std::vector<std::string> proxies) {
+forwarded_headers& forwarded_headers::trusted_proxies(std::vector<std::string> proxies) {
     for (const auto& p : proxies) {
         network n;
         if (!parse_network(p, n))
@@ -213,13 +213,13 @@ forwarded_headers& forwarded_headers::set_trusted_proxies(std::vector<std::strin
     return *this;
 }
 
-forwarded_headers& forwarded_headers::set_trust_forwarded_host(bool trust) { host_ = trust; return *this; }
+forwarded_headers& forwarded_headers::trust_forwarded_host(bool trust) { host_ = trust; return *this; }
 
 void forwarded_headers::install(server& s) const {
     auto p = std::make_shared<forwarded_policy>();
     p->trust_host = host_;
     for (const auto& raw : proxies_) { network n; parse_network(raw, n); p->proxies.push_back(n); }
-    s.set_request_rewrite([p](server_request& req) {
+    s.request_rewrite([p](server_request& req) {
         if (!p->trusted(req.client_ip)) return;
         const std::string xff = req.header("X-Forwarded-For");
         if (!xff.empty()) {
@@ -253,9 +253,9 @@ void forwarded_headers::install(server& s) const {
 
 cors::cors() : methods_{"GET"} {}
 
-cors& cors::set_allow_origins(std::vector<std::string> origins) { origins_ = std::move(origins); return *this; }
+cors& cors::allow_origins(std::vector<std::string> origins) { origins_ = std::move(origins); return *this; }
 
-cors& cors::set_allow_origin_regex(std::string pattern) {
+cors& cors::allow_origin_regex(std::string pattern) {
     if (!pattern.empty()) {
         try {
             std::regex check(pattern, std::regex::ECMAScript);
@@ -267,12 +267,12 @@ cors& cors::set_allow_origin_regex(std::string pattern) {
     return *this;
 }
 
-cors& cors::set_allow_methods(std::vector<std::string> methods) { methods_ = std::move(methods); return *this; }
-cors& cors::set_allow_headers(std::vector<std::string> headers) { headers_ = std::move(headers); return *this; }
-cors& cors::set_allow_credentials(bool allow) { credentials_ = allow; return *this; }
-cors& cors::set_expose_headers(std::vector<std::string> headers) { expose_ = std::move(headers); return *this; }
+cors& cors::allow_methods(std::vector<std::string> methods) { methods_ = std::move(methods); return *this; }
+cors& cors::allow_headers(std::vector<std::string> headers) { headers_ = std::move(headers); return *this; }
+cors& cors::allow_credentials(bool allow) { credentials_ = allow; return *this; }
+cors& cors::expose_headers(std::vector<std::string> headers) { expose_ = std::move(headers); return *this; }
 
-cors& cors::set_max_age(int seconds) {
+cors& cors::max_age(int seconds) {
     if (seconds < 0) throw std::invalid_argument("cors: max_age must not be negative");
     max_age_ = seconds;
     return *this;
@@ -348,9 +348,9 @@ void cors::install(server& s) const {
     s.use(std::move(before), std::move(after));
 }
 
-trusted_host::trusted_host(std::vector<std::string> allowed_hosts) { set_allowed_hosts(std::move(allowed_hosts)); }
+trusted_host::trusted_host(std::vector<std::string> allowed_hosts) { this->allowed_hosts(std::move(allowed_hosts)); }
 
-trusted_host& trusted_host::set_allowed_hosts(std::vector<std::string> hosts) {
+trusted_host& trusted_host::allowed_hosts(std::vector<std::string> hosts) {
     if (hosts.empty()) throw std::invalid_argument("trusted_host: allowed_hosts must not be empty");
     for (const auto& raw : hosts) {
         const std::string h = lower(raw);
@@ -362,7 +362,7 @@ trusted_host& trusted_host::set_allowed_hosts(std::vector<std::string> hosts) {
     return *this;
 }
 
-trusted_host& trusted_host::set_www_redirect(bool redirect) { www_redirect_ = redirect; return *this; }
+trusted_host& trusted_host::www_redirect(bool redirect) { www_redirect_ = redirect; return *this; }
 
 void trusted_host::install(server& s) const {
     auto p = std::make_shared<host_policy>();
@@ -397,7 +397,7 @@ void trusted_host::install(server& s) const {
 
 https_redirect::https_redirect() = default;
 
-https_redirect& https_redirect::set_trust_forwarded_proto(bool trust) { trust_ = trust; return *this; }
+https_redirect& https_redirect::trust_forwarded_proto(bool trust) { trust_ = trust; return *this; }
 
 void https_redirect::install(server& s) const {
     const bool trust = trust_;
@@ -439,16 +439,16 @@ bool bad_header_char(const std::string& s) {
 
 } // namespace
 
-basic_auth::basic_auth(std::string realm) { set_realm(std::move(realm)); }
+basic_auth::basic_auth(std::string realm) { this->realm(std::move(realm)); }
 
-basic_auth& basic_auth::set_realm(std::string realm) {
+basic_auth& basic_auth::realm(std::string realm) {
     if (bad_header_char(realm) || realm.find('"') != std::string::npos || realm.find('\\') != std::string::npos)
         throw std::invalid_argument("basic_auth: the realm must not contain '\"', '\\' or control characters");
     realm_ = std::move(realm);
     return *this;
 }
 
-basic_auth& basic_auth::set_users(std::vector<std::string> credentials) {
+basic_auth& basic_auth::users(std::vector<std::string> credentials) {
     for (const auto& c : credentials) {
         const auto colon = c.find(':');
         if (colon == std::string::npos || colon == 0)
@@ -458,14 +458,14 @@ basic_auth& basic_auth::set_users(std::vector<std::string> credentials) {
     return *this;
 }
 
-basic_auth& basic_auth::set_path_prefix(std::string prefix) {
+basic_auth& basic_auth::path_prefix(std::string prefix) {
     while (prefix.size() > 1 && prefix.back() == '/') prefix.pop_back();
     if (prefix.empty() || prefix[0] != '/') throw std::invalid_argument("basic_auth: the path prefix must start with '/'");
     prefix_ = std::move(prefix);
     return *this;
 }
 
-basic_auth& basic_auth::set_verifier(std::function<bool(const std::string&, const std::string&)> fn) {
+basic_auth& basic_auth::verifier(std::function<bool(const std::string&, const std::string&)> fn) {
     verifier_ = std::move(fn);
     return *this;
 }
@@ -509,19 +509,19 @@ void basic_auth::install(server& s) const {
 
 rate_limit::rate_limit() = default;
 
-rate_limit& rate_limit::set_rate(double requests_per_second) {
+rate_limit& rate_limit::rate(double requests_per_second) {
     if (!std::isfinite(requests_per_second) || requests_per_second <= 0) throw std::invalid_argument("rate_limit: the rate must be above 0");
     rate_ = requests_per_second;
     return *this;
 }
 
-rate_limit& rate_limit::set_burst(std::size_t burst) {
+rate_limit& rate_limit::burst(std::size_t burst) {
     if (burst == 0) throw std::invalid_argument("rate_limit: the burst must be at least 1");
     burst_ = burst;
     return *this;
 }
 
-rate_limit& rate_limit::set_max_clients(std::size_t max_clients) {
+rate_limit& rate_limit::max_clients(std::size_t max_clients) {
     if (max_clients == 0) throw std::invalid_argument("rate_limit: max_clients must be at least 1");
     max_clients_ = max_clients;
     return *this;

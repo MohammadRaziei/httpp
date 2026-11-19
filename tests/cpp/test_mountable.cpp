@@ -130,9 +130,9 @@ UTEST(httpp_mountable, mount_returns_the_handle_so_a_chain_goes_on) {
 UTEST(httpp_mountable, a_part_is_still_a_copyable_value) {
     local_server srv([](httpp::server& s) {
         httpp::swagger a("/openapi.json");
-        a.set_title("first-title");
+        a.title("first-title");
         httpp::swagger b = a;
-        b.set_title("second-title");  // the copy is independent of the original
+        b.title("second-title");  // the copy is independent of the original
         a.mount(s, "/a");
         b.mount(s, "/b");
     });

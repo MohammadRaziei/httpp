@@ -46,12 +46,12 @@ cookie::cookie(std::string name, std::string value) {
     value_ = std::move(value);
 }
 
-cookie& cookie::set_path(std::string path) { check_attribute("path", path); path_ = std::move(path); return *this; }
-cookie& cookie::set_domain(std::string domain) { check_attribute("domain", domain); domain_ = std::move(domain); return *this; }
-cookie& cookie::set_max_age(long long seconds) { max_age_ = seconds; has_max_age_ = true; return *this; }
-cookie& cookie::set_secure(bool on) { secure_ = on; return *this; }
-cookie& cookie::set_http_only(bool on) { http_only_ = on; return *this; }
-cookie& cookie::set_same_site(httpp::same_site site) { same_site_ = site; has_same_site_ = true; return *this; }
+cookie& cookie::path(std::string path) { check_attribute("path", path); path_ = std::move(path); return *this; }
+cookie& cookie::domain(std::string domain) { check_attribute("domain", domain); domain_ = std::move(domain); return *this; }
+cookie& cookie::max_age(long long seconds) { max_age_ = seconds; has_max_age_ = true; return *this; }
+cookie& cookie::secure(bool on) { secure_ = on; return *this; }
+cookie& cookie::http_only(bool on) { http_only_ = on; return *this; }
+cookie& cookie::same_site_policy(httpp::same_site site) { same_site_ = site; has_same_site_ = true; return *this; }
 
 std::string cookie::to_set_cookie() const {
     std::string out = name_ + "=" + value_;

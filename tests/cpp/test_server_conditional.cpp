@@ -176,8 +176,8 @@ UTEST(httpp_server_conditional, the_etag_of_a_download_active_mount_depends_on_h
     // cached Content-Disposition), so the validator changes with the mode.
     site s;
     local_server srv([&](httpp::server& sv) {
-        httpp::directory(s.dir.string()).set_download_active(true).mount(sv, "/dl");
-        httpp::directory(s.dir.string()).set_download_active(true).set_inline_active(true).mount(sv, "/inline");
+        httpp::directory(s.dir.string()).download_active(true).mount(sv, "/dl");
+        httpp::directory(s.dir.string()).download_active(true).inline_active(true).mount(sv, "/inline");
         httpp::directory(s.dir.string()).mount(sv, "/plain");
     });
     auto download = get(srv, "/dl/index.html");
@@ -203,9 +203,9 @@ UTEST(httpp_server_conditional, the_etag_follows_how_a_download_active_file_is_s
     site s;
     s.write("page.html", "<h1>x</h1>");
     local_server srv([&](httpp::server& sv) {
-        httpp::directory(s.dir.string()).set_download_active(true).mount(sv, "/safe");
-        httpp::directory(s.dir.string()).set_download_active(true).set_inline_active(true).mount(sv, "/loose");
-        httpp::directory(s.dir.string()).set_download_active(true).set_inline_active(true).mount(sv, "/loose2");
+        httpp::directory(s.dir.string()).download_active(true).mount(sv, "/safe");
+        httpp::directory(s.dir.string()).download_active(true).inline_active(true).mount(sv, "/loose");
+        httpp::directory(s.dir.string()).download_active(true).inline_active(true).mount(sv, "/loose2");
         sv.serve_directory("/f2", s.dir.string());
     });
     const std::string safe_tag = get(srv, "/safe/page.html").header("ETag");

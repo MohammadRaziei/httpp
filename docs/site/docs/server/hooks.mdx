@@ -42,5 +42,5 @@ The first hook runs before the route. It can answer the request itself, and then
 |---|---|---|
 | Before the route | `@app.before_request`, return a response to answer | `app.before(fn)`, return `true` to answer |
 | After the route | `@app.after_request` | `app.after(fn)` |
-| Shape the server's own errors (404, 405) | `@app.error_handler(404)` | `app.set_error_handler(fn)` |
-| A route threw | `@app.exception_handler(ValueError)` | `app.set_exception_handler(fn)` |
+| Shape the server's own errors (404, 405) | `@app.error_handler(404)` | `app.error_handler(fn)` |
+| A route threw | `@app.exception_handler(ValueError)` | `app.exception_handler(fn)` |

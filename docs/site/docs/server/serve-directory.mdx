@@ -45,9 +45,9 @@ To let people see what is in a folder instead of asking for a file by name, run 
 httpp server ./site --ssl-certfile cert.pem --ssl-keyfile key.pem
 ```
 
-The printed address starts with `https://`, and one port serves TLS or plain HTTP, never both. For an encrypted key add `--ssl-keyfile-password`, or set `HTTPP_SSL_KEYFILE_PASSWORD` to keep the password out of the process list. [`httpp browse`](browse-command.mdx#https) takes the same options, which are also the ones `httpp run` has. In C++ the same thing is `set_tls(cert, key)` on the server.
+The printed address starts with `https://`, and one port serves TLS or plain HTTP, never both. For an encrypted key add `--ssl-keyfile-password`, or set `HTTPP_SSL_KEYFILE_PASSWORD` to keep the password out of the process list. [`httpp browse`](browse-command.mdx#https) takes the same options, which are also the ones `httpp run` has. In C++ the same thing is `tls(cert, key)` on the server.
 
-The command is the `Directory` below, mounted at `/` with `set_show_hidden(false)` (unless `--hidden`) and `set_show_dates(false)` (with `--no-dates`), so everything on this page about names, `index.html` and file types applies to it. The one difference from `serve_directory`: that call serves names that start with a dot, as the next sections say.
+The command is the `Directory` below, mounted at `/` with `show_hidden(false)` (unless `--hidden`) and `show_dates(false)` (with `--no-dates`), so everything on this page about names, `index.html` and file types applies to it. The one difference from `serve_directory`: that call serves names that start with a dot, as the next sections say.
 
 ## In your own server
 
@@ -65,7 +65,7 @@ httpp curl -i http://127.0.0.1:8000/static/nope.txt # 404
 
 The first argument is the path in the URL and the second is the folder on disk. Everything under the folder is reachable below the mount path. A path that ends in `/`, and the mount path itself, answer with that folder's `index.html`. The type of each file comes from its extension.
 
-By default **files whose names start with a dot are served too**: `public/.env` would answer at `/static/.env`. Keep such files out of the folder, or switch that off with `set_show_hidden(false)`, as shown below.
+By default **files whose names start with a dot are served too**: `public/.env` would answer at `/static/.env`. Keep such files out of the folder, or switch that off with `show_hidden(false)`, as shown below.
 
 The [hooks](hooks.mdx) of the server run for these requests as well, so a `before` hook can ask for a key before any file is handed out.
 
@@ -77,9 +77,9 @@ The [hooks](hooks.mdx) of the server run for these requests as well, so a `befor
 
 ```cpp
 httpp::directory("public")
-    .set_show_hidden(false)        // a path with a dot-name in it answers 404, whatever is on disk
-    .set_show_dates(false)         // no Last-Modified and no ETag: the times of the files stay private
-    .set_download_active(true)     // html, svg and other types that can run code in the page are downloaded, not shown
+    .show_hidden(false)        // a path with a dot-name in it answers 404, whatever is on disk
+    .show_dates(false)         // no Last-Modified and no ETag: the times of the files stay private
+    .download_active(true)     // html, svg and other types that can run code in the page are downloaded, not shown
     .mount(app, "/static");
 ```
 
@@ -88,13 +88,13 @@ httpp::directory("public")
 <Only lang="python">
 
 ```python
-httpp.Directory("public").set_show_hidden(False).set_show_dates(False).set_download_active(True).mount(app, "/static")
+httpp.Directory("public").show_hidden(False).show_dates(False).download_active(True).mount(app, "/static")
 # or, with keywords: httpp.Directory("public", show_hidden=False, show_dates=False, download_active=True).mount(app, "/static")
 ```
 
 </Only>
 
-`set_show_dates(bool)` (default `true`) is the switch for the times of the files. With `false` there is no `Last-Modified` and no `ETag` (it holds the time too), so no request can get a 304 and a browser asks again each time (`Cache-Control: no-cache`); a range request still gets its part, but one that carries `If-Range` cannot be checked and gets the whole file. `set_index(bool)` (default `true`) is the switch for the `index.html` answer. `set_download_active(true)` also adds `X-Content-Type-Options: nosniff`, and `?download=1` on any file asks for a download. `mount` raises `ValueError` (Python) or `std::invalid_argument` (C++) when the mount path does not start with `/`. To list a folder for people to browse, see the [file browser](file-browser.mdx).
+`show_dates(bool)` (default `true`) is the switch for the times of the files. With `false` there is no `Last-Modified` and no `ETag` (it holds the time too), so no request can get a 304 and a browser asks again each time (`Cache-Control: no-cache`); a range request still gets its part, but one that carries `If-Range` cannot be checked and gets the whole file. `index(bool)` (default `true`) is the switch for the `index.html` answer. `download_active(true)` also adds `X-Content-Type-Options: nosniff`, and `?download=1` on any file asks for a download. `mount` raises `ValueError` (Python) or `std::invalid_argument` (C++) when the mount path does not start with `/`. To list a folder for people to browse, see the [file browser](file-browser.mdx).
 
 ## Where the two differ
 

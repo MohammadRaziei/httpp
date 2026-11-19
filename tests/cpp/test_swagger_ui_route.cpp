@@ -45,7 +45,7 @@ UTEST(httpp_swagger_ui_route, serves_the_page_and_the_two_files_byte_for_byte) {
 
 UTEST(httpp_swagger_ui_route, custom_base_title_and_openapi_url_are_escaped) {
     local_server srv([](httpp::server& s) {
-        httpp::swagger("/v1/o\"</script>.json").set_title("<b>My & API</b>").mount(s, "/api/docs/");
+        httpp::swagger("/v1/o\"</script>.json").title("<b>My & API</b>").mount(s, "/api/docs/");
     });
     auto page = httpp::client::fetch(srv.url("/api/docs/"));
     ASSERT_EQ(200, page.status);
@@ -135,7 +135,7 @@ UTEST(httpp_swagger_ui_route, the_small_svg_and_css_follow_the_same_rule) {
 
 UTEST(httpp_swagger_ui_route, set_compression_does_not_compress_the_stored_bytes_again) {
     local_server srv([](httpp::server& s) {
-        s.set_compression(1024);
+        s.compression(1024);
         httpp::swagger("/openapi.json").mount(s);
     });
     const httpp::swagger_ui_asset* a = httpp::find_swagger_ui_asset("swagger-ui-bundle.js");

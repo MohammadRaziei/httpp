@@ -6,9 +6,9 @@ title: The server handle (C++)
 In C++, `httpp::server` is a **handle**. Copying it does not make a second server: you get another handle to the same one, with the same routes, settings and sockets. Python's `Server` is an ordinary object and works as it always did.
 
 ```cpp
-auto srv = httpp::directory("public").set_show_hidden(false)
+auto srv = httpp::directory("public").show_hidden(false)
                .mount(httpp::server(), "/")
-               .set_tls("cert.pem", "key.pem");
+               .tls("cert.pem", "key.pem");
 srv.listen("0.0.0.0", 8443);
 ```
 
@@ -45,7 +45,7 @@ A `server_stopper` is a copyable weak handle with `stop()`, `shutdown(grace)` an
 A chain on a temporary returns a handle, not a reference into the temporary, so this is safe:
 
 ```cpp
-auto srv = httpp::directory(".").mount(httpp::server(), "/").set_tls("cert.pem", "key.pem");
+auto srv = httpp::directory(".").mount(httpp::server(), "/").tls("cert.pem", "key.pem");
 ```
 
-and a reference to the temporary does not compile: `auto& r = httpp::server().set_tls(...)` is an error, where it would have dangled at the end of the statement.
+and a reference to the temporary does not compile: `auto& r = httpp::server().tls(...)` is an error, where it would have dangled at the end of the statement.

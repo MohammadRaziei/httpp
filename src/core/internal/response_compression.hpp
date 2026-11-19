@@ -1,6 +1,6 @@
 #pragma once
 
-// Internal. Gzip for server answers (server::set_compression). One small class, so the rules live in one place:
+// Internal. Gzip for server answers (server::compression). One small class, so the rules live in one place:
 // a body is compressed only when the setting is on, the client accepts gzip, the type is text-like, the body is
 // big enough, nothing else already encoded it, and the result is really smaller. Everything else is untouched.
 

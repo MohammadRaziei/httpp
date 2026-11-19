@@ -3,7 +3,7 @@
 cdef class Directory:
     """A folder served as static files, with every setting a method that returns the object (ADR-0066).
 
-        Directory("./public").set_index(False).mount(app, "/static")
+        Directory("./public").index(False).mount(app, "/static")
         Directory("./public", show_hidden=False, download_active=True).mount(app, "/static")   # the same, with keywords
         Directory("./public", show_dates=False).mount(app, "/static")   # no Last-Modified and no ETag
 
@@ -15,41 +15,41 @@ cdef class Directory:
 
     def __cinit__(self, root, *, index=None, show_hidden=None, show_dates=None, download_active=None, inline_active=None):
         self._d = new cpp_directory(_fs(root))
-        if index is not None: self.set_index(index)
-        if show_hidden is not None: self.set_show_hidden(show_hidden)
-        if show_dates is not None: self.set_show_dates(show_dates)
-        if download_active is not None: self.set_download_active(download_active)
-        if inline_active is not None: self.set_inline_active(inline_active)
+        if index is not None: self.index(index)
+        if show_hidden is not None: self.show_hidden(show_hidden)
+        if show_dates is not None: self.show_dates(show_dates)
+        if download_active is not None: self.download_active(download_active)
+        if inline_active is not None: self.inline_active(inline_active)
 
     def __dealloc__(self):
         if self._d != NULL:
             del self._d
 
-    def set_index(self, bint on):
+    def index(self, bint on):
         """A path that ends in "/" (or the mount itself) answers with index.html from that folder. Default True."""
-        self._d.set_index(on)
+        self._d.index(on)
         return self
 
-    def set_show_hidden(self, bint on):
+    def show_hidden(self, bint on):
         """False: a path with a segment that starts with "." is a 404, whatever is on disk. Default True."""
-        self._d.set_show_hidden(on)
+        self._d.show_hidden(on)
         return self
 
-    def set_show_dates(self, bint on):
+    def show_dates(self, bint on):
         """False: no "Last-Modified" and no "ETag" (it holds the time), so no 304; an If-Range cannot be checked, so a range request that carries
         one gets the whole file; every answer says "Cache-Control: no-cache". Keeps the times of the files private. Default True."""
-        self._d.set_show_dates(on)
+        self._d.show_dates(on)
         return self
 
-    def set_download_active(self, bint on):
+    def download_active(self, bint on):
         """True: send nosniff, and make a file that is not plainly harmless to show (or asked for with ?download=1) a download. Default False."""
-        self._d.set_download_active(on)
+        self._d.download_active(on)
         return self
 
-    def set_inline_active(self, bint on):
+    def inline_active(self, bint on):
         """True: html and svg are shown instead of downloaded, but only under a Content-Security-Policy sandbox (no script, no outside request).
-        xml, js and unknown types stay downloads. Only has an effect with set_download_active(True). Default False."""
-        self._d.set_inline_active(on)
+        xml, js and unknown types stay downloads. Only has an effect with download_active(True). Default False."""
+        self._d.inline_active(on)
         return self
 
     def mount(self, Server server, str base="/"):

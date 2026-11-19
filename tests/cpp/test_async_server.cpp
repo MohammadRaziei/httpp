@@ -546,7 +546,7 @@ struct engine_group {
                     return pool.enqueue([r = std::move(r), answer = std::move(answer)] { answer(text(200, r.target)); });
                 },
                 [this](std::function<void()> job) { return pool.enqueue(std::move(job)); }));
-            engines.back()->set_reuse_port(true);
+            engines.back()->reuse_port(true);
         }
         port = engines[0]->bind("127.0.0.1", 0);
         for (std::size_t i = 1; i < n; ++i) engines[i]->bind("127.0.0.1", port);

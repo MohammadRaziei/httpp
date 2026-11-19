@@ -1,4 +1,4 @@
-"""The server over TLS from Python (ADR-0040): set_tls, request.secure, httpp run --ssl-*, the HTTPS redirect."""
+"""The server over TLS from Python (ADR-0040): tls, request.secure, httpp run --ssl-*, the HTTPS redirect."""
 
 import http.client
 import os
@@ -79,7 +79,7 @@ def https_get(port, cert, path="/who", headers=None):
 def test_https_with_set_tls_and_a_secure_request(certs):
     cert, key, _ = certs
     app = make_app()
-    assert app.set_tls(cert, key) is app
+    assert app.tls(cert, key) is app
     with running(app) as port:
         status, body, _ = https_get(port, cert)
         assert (status, body) == (200, "https True")
@@ -97,12 +97,12 @@ def test_set_tls_errors_name_the_file(certs):
     cert, key, other = certs
     app = Server(openapi_url=None)
     with pytest.raises(ValueError, match="no_such_cert"):
-        app.set_tls("/no_such_cert.pem", key)
+        app.tls("/no_such_cert.pem", key)
     with pytest.raises(ValueError, match="match"):
-        app.set_tls(cert, other)
+        app.tls(cert, other)
     with pytest.raises(ValueError):
-        app.set_tls(key, key)
-    app.set_tls(cert, key)
+        app.tls(key, key)
+    app.tls(cert, key)
 
 
 def test_run_checks_ssl_arguments():

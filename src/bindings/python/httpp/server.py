@@ -108,7 +108,7 @@ class ServerRequest:
 
     @property
     def secure(self):
-        """True when the connection is TLS (the server was given set_tls())."""
+        """True when the connection is TLS (the server was given tls())."""
         if self._secure is None:
             self._secure = self._raw.secure
         return self._secure
@@ -1064,7 +1064,7 @@ class Server(_Server):
             raise ValueError("io_threads must be at least 1")
         self._io_threads = 1
         if io_threads > 1:
-            self.set_io_threads(io_threads)
+            self.io_threads(io_threads)
         # Running a handler that cannot suspend on the I/O thread saves CPU but puts parsing, the handler and the
         # answer on one thread. With cores to spare the hop to the loop thread is the faster pipeline (measured on 16
         # threads: 126k against 158k req/s), with one or two cores the saved CPU wins (about 30 percent more).
@@ -1086,29 +1086,29 @@ class Server(_Server):
                 # req/s and p99 8 ms, sixteen 10.6k and 35 ms (ADR-0025). So the pool starts with one thread and grows
                 # only when a job has waited 10 ms for a free one (a blocked handler makes that certain, CPU-bound
                 # work at saturation rarely waits that long), up to what the C++ default would have been.
-                self.set_thread_pool(1, max(8, cpus) * 4, grow_after_ms=10)
+                self.thread_pool(1, max(8, cpus) * 4, grow_after_ms=10)
             else:
                 # Without a GIL workers do run in parallel, but a pool that grows to many threads quickly costs: on a
                 # CPU-bound handler 16 threads from the start (the C++ default) gave 57.4k req/s at one I/O thread,
                 # a pool of 2 that grows after a 2 ms wait 68.8k with half the p99 (3.14t, 16 threads, ADR-0059).
                 # Growing after 0.5 ms or 10 ms was no better (56.0k) or far worse (26.4k). The ceiling is the C++
                 # default's, so a burst of blocked handlers still gets its threads (4 per step of the 2 ms wait).
-                self.set_thread_pool(2, max(8, cpus) * 4, grow_after_ms=2)
+                self.thread_pool(2, max(8, cpus) * 4, grow_after_ms=2)
         else:
-            self.set_thread_pool(threads, max_threads or 0)
-        for value, setter in ((read_timeout, self.set_read_timeout),
-                              (write_timeout, self.set_write_timeout),
-                              (keep_alive_timeout, self.set_keep_alive_timeout),
-                              (keep_alive_max, self.set_keep_alive_max),
-                              (max_body, self.set_max_body),
-                              (header_timeout, self.set_header_timeout),
-                              (body_timeout, self.set_body_timeout),
-                              (max_connections, self.set_max_connections)):
+            self.thread_pool(threads, max_threads or 0)
+        for value, setter in ((read_timeout, self.read_timeout),
+                              (write_timeout, self.write_timeout),
+                              (keep_alive_timeout, self.keep_alive_timeout),
+                              (keep_alive_max, self.keep_alive_max),
+                              (max_body, self.max_body),
+                              (header_timeout, self.header_timeout),
+                              (body_timeout, self.body_timeout),
+                              (max_connections, self.max_connections)):
             if value is not None:
                 setter(value)
 
         if compression is not None:
-            self.set_compression(compression, compression_level)
+            self.compression(compression, compression_level)
 
         if handler_timeout is not None and handler_timeout < 0:
             raise ValueError("handler_timeout can't be negative")
@@ -1116,7 +1116,7 @@ class Server(_Server):
         self._has_async = False  # set by the first `async def` route
         # The C++ timer is only the backstop for the Python one (it can't cancel the coroutine).
         # ponytail: fixed 5 s grace.
-        self.set_async_timeout(int(handler_timeout) + 5 if handler_timeout else 0)
+        self.async_timeout(int(handler_timeout) + 5 if handler_timeout else 0)
         if openapi_url is not None:
             self._add_docs(openapi_url, docs_url)
 
@@ -1244,7 +1244,7 @@ class Server(_Server):
             return _ResponseBase(self._openapi_json(), media_type="application/json")
 
         if docs_url is not None:  # Swagger UI is served by C++ from files compiled into libhttpp
-            Swagger(openapi_url).set_title(self._title).mount(self, docs_url)
+            Swagger(openapi_url).title(self._title).mount(self, docs_url)
 
     # --- hooks (the C++ core keeps one hook of each kind; these chain any number of them) ---
 
@@ -1313,7 +1313,7 @@ class Server(_Server):
         return fn
 
     # ponytail: Python exceptions never reach the C++ exception hook (the adapters catch them), so
-    # exception_handler is handled in Python rather than through set_exception_handler.
+    # exception_handler is handled in Python rather than through exception_handler.
     def _unhandled(self, exc):
         """A handler raised `exc` and no exception handler answers for it (the core answers 500). httpp.testclient re-raises it in the test."""
         sink = self._exception_sink
@@ -1429,12 +1429,12 @@ class Server(_Server):
         if failure:
             raise failure[0]
 
-    def set_io_threads(self, n):
+    def io_threads(self, n):
         """Same as the constructor's io_threads. Before listening."""
         n = int(n)
         if n < 1:
             raise ValueError("io_threads must be at least 1")
-        _Server.set_io_threads(self, n)
+        _Server.io_threads(self, n)
         self._io_threads = n
         return self
 

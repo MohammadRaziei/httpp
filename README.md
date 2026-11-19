@@ -299,16 +299,16 @@ def login():
 from httpp import FileBrowser
 
 FileBrowser("/srv/shared", title="Shared", theme=FileBrowser.Theme.DARK, accent="#2a7de1").mount(app, "/files")
-# or chained: FileBrowser("/srv/shared").set_title("Shared").set_show_hidden(False).mount(app, "/files")
+# or chained: FileBrowser("/srv/shared").title("Shared").show_hidden(False).mount(app, "/files")
 ```
 
 The same in C++ (a builder with enums; a bad accent or `max_entries` throws at the setter):
 
 ```cpp
 httpp::file_browser("/srv/shared")
-    .set_title("Shared")
-    .set_theme(httpp::file_browser::theme_mode::dark)
-    .set_accent("#2a7de1")
+    .title("Shared")
+    .theme(httpp::file_browser::theme_mode::dark)
+    .accent("#2a7de1")
     .mount(server, "/files");
 ```
 
@@ -342,7 +342,7 @@ app = Server(threads=8, read_timeout=10, max_body=5_000_000, handler_timeout=30)
 
 `handler_timeout` only covers `async def` handlers: a plain `def` handler cannot be cancelled. The time
 spent streaming the body afterwards is not counted. The same settings exist as methods
-(`app.set_read_timeout(10)`, ...), each returning `app`, mirroring the C++ `httpp::server`.
+(`app.read_timeout(10)`, ...), each returning `app`, mirroring the C++ `httpp::server`.
 
 ### Hooks and error handling
 
@@ -539,7 +539,7 @@ httpp py run main:app --port 8443 --ssl-certfile cert.pem --ssl-keyfile key.pem 
 ```
 
 ```python
-app.set_tls("cert.pem", "key.pem")        # C++: server.set_tls(cert, key)
+app.tls("cert.pem", "key.pem")        # C++: server.tls(cert, key)
 ```
 
 PEM files (certificate chain, leaf first; private key), TLS 1.2 and 1.3, no client certificates, no session resumption. The files are checked when you call it and are
@@ -559,7 +559,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 ```
 
 The options are Starlette's. The work runs in C++ without the GIL: a CORS preflight is answered on the I/O thread and never reaches Python.
-`before_request` hooks run after the middleware, `after_request` hooks before it. In C++: `httpp::cors().set_allow_origins({...}).install(server&)`,
+`before_request` hooks run after the middleware, `after_request` hooks before it. In C++: `httpp::cors().allow_origins({...}).install(server&)`,
 `httpp::trusted_host({...}).install(server&)` (`httpp/middleware.hpp`), or your own pair of hooks with `server::use(before, after)`.
 Not supported: ASGI middleware. `HTTPSRedirectMiddleware` sends plain requests to the https address (see TLS below).
 

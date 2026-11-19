@@ -104,8 +104,8 @@ def test_a_connection_stays_on_one_loop():
 def test_set_io_threads_validates_and_chains():
     app = Server(openapi_url=None)
     with pytest.raises(ValueError):
-        app.set_io_threads(0)
-    assert app.set_io_threads(2) is app
+        app.io_threads(0)
+    assert app.io_threads(2) is app
 
 
 @no_reuseport
@@ -149,8 +149,8 @@ def test_defaults_follow_the_machine(monkeypatch):
 def test_the_default_pool_starts_small_and_may_still_grow_large(monkeypatch):
     """ADR-0059: one thread under a GIL, two without one; the ceiling stays what the C++ default would have been."""
     calls = []
-    real = Server.set_thread_pool
-    monkeypatch.setattr(Server, "set_thread_pool", lambda self, *a, **k: (calls.append((a, k)), real(self, *a, **k))[1])
+    real = Server.thread_pool
+    monkeypatch.setattr(Server, "thread_pool", lambda self, *a, **k: (calls.append((a, k)), real(self, *a, **k))[1])
     monkeypatch.setattr("os.sched_getaffinity", lambda _pid: set(range(16)), raising=False)
     Server(openapi_url=None)
     (args, kwargs), = calls

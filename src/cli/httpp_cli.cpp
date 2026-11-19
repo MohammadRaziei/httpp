@@ -134,8 +134,8 @@ int cmd_server(const server_args& a) {
     try {
         // The same as serve_directory("/", dir), with the two privacy settings: names that start with a dot answer 404 unless --hidden, and
         // --no-dates sends no file times.
-        httpp::directory(httpp::path(a.directory)).set_show_hidden(a.hidden).set_show_dates(!a.no_dates).mount(srv, "/");
-        if (a.tls.on()) srv.set_tls(httpp::path(a.tls.certfile), httpp::path(a.tls.keyfile), a.tls.keyfile_password);
+        httpp::directory(httpp::path(a.directory)).show_hidden(a.hidden).show_dates(!a.no_dates).mount(srv, "/");
+        if (a.tls.on()) srv.tls(httpp::path(a.tls.certfile), httpp::path(a.tls.keyfile), a.tls.keyfile_password);
     } catch (const std::exception& e) {
         return fail(e.what());
     }
@@ -174,9 +174,9 @@ int cmd_browse(const browse_args& a) {
         const fb::theme_mode theme = a.theme == "light" ? fb::theme_mode::light : a.theme == "dark" ? fb::theme_mode::dark : fb::theme_mode::system;
         const fb::view_mode view = a.view == "grid" ? fb::view_mode::grid : fb::view_mode::list;
         const fb::sort_key sort = a.sort == "size" ? fb::sort_key::size : a.sort == "date" ? fb::sort_key::date : fb::sort_key::name;
-        fb(root).set_title(a.title).set_theme(theme).set_accent(a.accent).set_search(!a.no_search).set_show_hidden(a.hidden).set_show_dates(!a.no_dates)
-            .set_max_entries(a.max_entries).set_view(view).set_sort(sort).set_safe_mode(a.safe).set_zip(!a.no_zip).set_powered_by(!a.no_powered_by).mount(srv, "/");
-        if (a.tls.on()) srv.set_tls(httpp::path(a.tls.certfile), httpp::path(a.tls.keyfile), a.tls.keyfile_password);
+        fb(root).title(a.title).theme(theme).accent(a.accent).search(!a.no_search).show_hidden(a.hidden).show_dates(!a.no_dates)
+            .max_entries(a.max_entries).layout(view).sort_by(sort).safe_mode(a.safe).zip(!a.no_zip).powered_by(!a.no_powered_by).mount(srv, "/");
+        if (a.tls.on()) srv.tls(httpp::path(a.tls.certfile), httpp::path(a.tls.keyfile), a.tls.keyfile_password);
     } catch (const std::exception& e) {
         return fail(e.what());
     }

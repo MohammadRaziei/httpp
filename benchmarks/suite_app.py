@@ -11,7 +11,7 @@ app = httpp.Server(openapi_url=None, inline_async=os.environ.get("BENCH_INLINE")
                    max_threads=_threads * 4 if _threads else None)
 # BENCH_MAX=m and BENCH_GROW_MS=ms (with BENCH_THREADS) set the ceiling and the growth wait of the pool too (ADR-0059).
 if os.environ.get("BENCH_GROW_MS"):
-    app.set_thread_pool(_threads, int(os.environ["BENCH_MAX"]), grow_after_ms=float(os.environ["BENCH_GROW_MS"]))
+    app.thread_pool(_threads, int(os.environ["BENCH_MAX"]), grow_after_ms=float(os.environ["BENCH_GROW_MS"]))
 
 
 @app.get("/sync")

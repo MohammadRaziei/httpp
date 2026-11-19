@@ -399,7 +399,7 @@ Windows (`CreateFileMapping`) and Linux (`memfd_create`/`shm_open`) differ. This
 
 **Problem:** there is no cap on the number of connections (only a backoff when fds run out) and no limit on slow requests (slowloris).
 This is the most important security item, and the slowloris test in `agent.md` **must fail** until it is done.
-**Suggestion:** `set_max_connections`, a header timeout and a per-route timeout, before WebSocket.
+**Suggestion:** `max_connections`, a header timeout and a per-route timeout, before WebSocket.
 
 ### Risk 8: free-threaded Python (new)
 

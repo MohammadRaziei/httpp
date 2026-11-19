@@ -134,7 +134,7 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
         raise TypeError("ssl_keyfile_password must be a string")
     if ssl_certfile is not None:
         ssl_certfile, ssl_keyfile = os.fspath(ssl_certfile), os.fspath(ssl_keyfile)
-        Server().set_tls(ssl_certfile, ssl_keyfile, ssl_keyfile_password)  # check the files now: a bad one fails before anything starts
+        Server().tls(ssl_certfile, ssl_keyfile, ssl_keyfile_password)  # check the files now: a bad one fails before anything starts
     auto = workers == "auto"
     workers = _resolve_workers(workers)
     if auto and workers > 1 and not isinstance(app, str):
@@ -168,11 +168,11 @@ def run(app, host="127.0.0.1", port=8000, *, workers=1, reuse_port=False, log_le
     if not isinstance(app, Server):
         raise TypeError(f"expected an httpp.Server, got {type(app).__name__} (ASGI/WSGI apps are not supported yet)")
     if ssl_certfile is not None:
-        app.set_tls(ssl_certfile, ssl_keyfile, ssl_keyfile_password)
+        app.tls(ssl_certfile, ssl_keyfile, ssl_keyfile_password)
     if reuse_port:
-        app.set_reuse_port(True)
+        app.reuse_port(True)
     if io_threads is not None:
-        app.set_io_threads(io_threads)
+        app.io_threads(io_threads)
     if shutdown_timeout is not None:
         app.shutdown_timeout = shutdown_timeout
     if threading.current_thread() is threading.main_thread():

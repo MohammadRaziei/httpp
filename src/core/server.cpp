@@ -237,7 +237,7 @@ struct config { // read-only once listening; shared with answers that may outliv
     std::vector<server::after_hook> mw_after;
     server::error_hook error;
     server::exception_hook exception;
-    detail::response_compression compression; // off unless set_compression() was called
+    detail::response_compression compression; // off unless compression() was called
     std::atomic<detail::worker_pool*> pool{nullptr}; // the running pool, or null when not listening
 };
 
@@ -454,7 +454,7 @@ struct server::impl {
     std::size_t pool_base = std::max<std::size_t>(8, std::thread::hardware_concurrency());
     std::size_t pool_max = 0; // 0 = 4 x base
     std::chrono::microseconds pool_grow_after{500};
-    bool tls_on = false; // set_tls() was called: the log says https
+    bool tls_on = false; // tls() was called: the log says https
     std::string bound_host; // what bind()/listen()/bind_to_any_port() last bound: url() says it
     int bound_port = -1;
     std::atomic<bool> draining{false}; // shutdown() was called: an engine that finishes early must not stop the others (ADR-0038)
@@ -484,7 +484,7 @@ struct server::impl {
     std::vector<std::shared_ptr<waiting>> waits;                            // one per engine, made when the server starts to listen
 
     // One engine per I/O thread. engines[0] is the one that runs on the thread that calls listen, owns the timers
-    // (`engine`), and is the only one before set_io_threads() is called. Every setting that reaches an engine is
+    // (`engine`), and is the only one before io_threads() is called. Every setting that reaches an engine is
     // remembered in `applied` and replayed on engines made later.
     std::vector<std::unique_ptr<detail::async_server>> engines;
     detail::async_server* engine = nullptr; // engines[0]
@@ -515,12 +515,12 @@ struct server::impl {
     void share_max_connections() {
         const std::size_t n = engines.size();
         const std::size_t each = max_conn_total == 0 ? 0 : (max_conn_total + n - 1) / n;
-        for (auto& e : engines) e->set_max_connections(each);
+        for (auto& e : engines) e->max_connections(each);
     }
     // Binds every engine to the same port. Falls back to one engine when the others cannot share it.
     int bind_all(const std::string& host, int port) {
         if (engines.size() > 1) {
-            for (auto& e : engines) e->set_reuse_port(true);
+            for (auto& e : engines) e->reuse_port(true);
         }
         const int bound = engines[0]->bind(host, port);
         if (bound < 0) return bound;
@@ -1332,11 +1332,11 @@ server& server::use(before_hook before, after_hook after) & {
     rebuild_hooks(c);
     return *this;
 }
-void server::set_request_rewrite(std::function<void(server_request&)> rewrite) { impl_->cfg->rewrite = std::move(rewrite); }
-server& server::set_error_handler(error_hook hook) & { impl_->cfg->error = std::move(hook); return *this; }
-server& server::set_exception_handler(exception_hook hook) & { impl_->cfg->exception = std::move(hook); return *this; }
+void server::request_rewrite(std::function<void(server_request&)> rewrite) { impl_->cfg->rewrite = std::move(rewrite); }
+server& server::error_handler(error_hook hook) & { impl_->cfg->error = std::move(hook); return *this; }
+server& server::exception_handler(exception_hook hook) & { impl_->cfg->exception = std::move(hook); return *this; }
 
-server& server::set_thread_pool(std::size_t base, std::size_t max, std::chrono::microseconds grow_after) & {
+server& server::thread_pool(std::size_t base, std::size_t max, std::chrono::microseconds grow_after) & {
     if (base == 0) base = 1;
     if (max < base) max = base * 4;
     impl_->pool_base = base;
@@ -1344,24 +1344,24 @@ server& server::set_thread_pool(std::size_t base, std::size_t max, std::chrono::
     impl_->pool_grow_after = grow_after.count() > 0 ? grow_after : std::chrono::microseconds(1);
     return *this;
 }
-server& server::set_read_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.set_read_timeout(seconds); }); return *this; }
-server& server::set_write_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.set_write_timeout(seconds); }); return *this; }
-server& server::set_keep_alive_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.set_keep_alive_timeout(seconds); }); return *this; }
-server& server::set_keep_alive_max(std::size_t requests) & { impl_->configure([requests](detail::async_server& e) { e.set_keep_alive_max(requests); }); return *this; }
-server& server::set_max_body(std::size_t bytes) & { impl_->configure([bytes](detail::async_server& e) { e.set_max_body(bytes); }); return *this; }
-server& server::set_tls(const path& cert_file, const path& key_file, const std::string& key_password) & {
+server& server::read_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.read_timeout(seconds); }); return *this; }
+server& server::write_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.write_timeout(seconds); }); return *this; }
+server& server::keep_alive_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.keep_alive_timeout(seconds); }); return *this; }
+server& server::keep_alive_max(std::size_t requests) & { impl_->configure([requests](detail::async_server& e) { e.keep_alive_max(requests); }); return *this; }
+server& server::max_body(std::size_t bytes) & { impl_->configure([bytes](detail::async_server& e) { e.max_body(bytes); }); return *this; }
+server& server::tls(const path& cert_file, const path& key_file, const std::string& key_password) & {
     std::string error;
     auto ctx = detail::make_tls_server_context(cert_file.str(), key_file.str(), key_password, error);
-    if (!ctx) throw std::runtime_error("set_tls: " + error);
-    impl_->configure([ctx](detail::async_server& e) { e.set_tls(ctx); });
+    if (!ctx) throw std::runtime_error("tls: " + error);
+    impl_->configure([ctx](detail::async_server& e) { e.tls(ctx); });
     impl_->tls_on = true;
     return *this;
 }
-server& server::set_header_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.set_header_timeout(seconds); }); return *this; }
-server& server::set_body_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.set_body_timeout(seconds); }); return *this; }
-server& server::set_max_connections(std::size_t n) & { impl_->max_conn_total = n; impl_->share_max_connections(); return *this; }
-server& server::set_reuse_port(bool on) & { impl_->configure([on](detail::async_server& e) { e.set_reuse_port(on); }); return *this; }
-server& server::set_io_threads(std::size_t n) & {
+server& server::header_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.header_timeout(seconds); }); return *this; }
+server& server::body_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.body_timeout(seconds); }); return *this; }
+server& server::max_connections(std::size_t n) & { impl_->max_conn_total = n; impl_->share_max_connections(); return *this; }
+server& server::reuse_port(bool on) & { impl_->configure([on](detail::async_server& e) { e.reuse_port(on); }); return *this; }
+server& server::io_threads(std::size_t n) & {
 #ifdef _WIN32
     n = 1; // no SO_REUSEPORT to share the port with
 #endif
@@ -1373,11 +1373,11 @@ server& server::set_io_threads(std::size_t n) & {
     impl_->share_max_connections();
     return *this;
 }
-server& server::set_compression(std::size_t min_size, int level) & {
+server& server::compression(std::size_t min_size, int level) & {
     impl_->cfg->compression.configure(min_size, level);
     return *this;
 }
-server& server::set_async_timeout(int seconds) & {
+server& server::async_timeout(int seconds) & {
     impl_->async_timeout = seconds < 0 ? 0 : seconds;
     return *this;
 }
@@ -1387,11 +1387,11 @@ void server::serve_directory(const std::string& mount_path, const std::string& l
 }
 
 directory::directory(path root) : root_(std::move(root)) {}
-directory& directory::set_index(bool on) { index_ = on; return *this; }
-directory& directory::set_show_hidden(bool on) { show_hidden_ = on; return *this; }
-directory& directory::set_download_active(bool on) { download_active_ = on; return *this; }
-directory& directory::set_inline_active(bool on) { inline_active_ = on; return *this; }
-directory& directory::set_show_dates(bool on) { show_dates_ = on; return *this; }
+directory& directory::index(bool on) { index_ = on; return *this; }
+directory& directory::show_hidden(bool on) { show_hidden_ = on; return *this; }
+directory& directory::download_active(bool on) { download_active_ = on; return *this; }
+directory& directory::inline_active(bool on) { inline_active_ = on; return *this; }
+directory& directory::show_dates(bool on) { show_dates_ = on; return *this; }
 
 server directory::mount(server s, const std::string& base) const {
     if (base.empty() || base[0] != '/') throw std::invalid_argument("directory: base must start with '/'");

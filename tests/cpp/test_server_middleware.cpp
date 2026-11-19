@@ -100,7 +100,7 @@ UTEST(httpp_middleware_use, a_server_without_hooks_is_unchanged) {
 namespace {
 void cors_site(httpp::server& s) {
     ok_route(s);
-    httpp::cors().set_allow_origins({"https://a.example", "https://b.example"}).set_allow_methods({"GET", "POST"}).set_allow_headers({"X-Token"}).set_expose_headers({"X-Total"}).install(s);
+    httpp::cors().allow_origins({"https://a.example", "https://b.example"}).allow_methods({"GET", "POST"}).allow_headers({"X-Token"}).expose_headers({"X-Total"}).install(s);
 }
 } // namespace
 
@@ -135,7 +135,7 @@ UTEST(httpp_cors, a_preflight_with_a_bad_origin_method_or_header_is_a_400_with_t
 UTEST(httpp_cors, an_options_request_that_is_not_a_preflight_goes_to_the_router) {
     local_server srv([](httpp::server& s) {
         s.route("OPTIONS", "/x", [](const httpp::server_request&, httpp::response& res) { res.status = 204; res.headers.emplace_back("Allow", "GET"); });
-        httpp::cors().set_allow_origins({"https://a.example"}).install(s);
+        httpp::cors().allow_origins({"https://a.example"}).install(s);
     });
     httpp::client c(srv.url());
     auto r = c.options("/x", {{"Origin", "https://a.example"}}); // no Access-Control-Request-Method
@@ -171,7 +171,7 @@ UTEST(httpp_cors, the_headers_are_also_on_error_answers) {
 UTEST(httpp_cors, a_wildcard_sends_a_star_and_with_credentials_echoes_the_origin) {
     local_server star([](httpp::server& s) {
         ok_route(s);
-        httpp::cors().set_allow_origins({"*"}).install(s);
+        httpp::cors().allow_origins({"*"}).install(s);
     });
     auto a = httpp::client(star.url()).get("/x", {{"Origin", "https://any.example"}});
     ASSERT_STREQ("*", a.header("Access-Control-Allow-Origin").c_str());
@@ -179,7 +179,7 @@ UTEST(httpp_cors, a_wildcard_sends_a_star_and_with_credentials_echoes_the_origin
 
     local_server creds([](httpp::server& s) {
         ok_route(s);
-        httpp::cors().set_allow_origins({"*"}).set_allow_credentials(true).install(s);
+        httpp::cors().allow_origins({"*"}).allow_credentials(true).install(s);
     });
     auto b = httpp::client(creds.url()).get("/x", {{"Origin", "https://any.example"}});
     ASSERT_STREQ("https://any.example", b.header("Access-Control-Allow-Origin").c_str());
@@ -190,7 +190,7 @@ UTEST(httpp_cors, a_wildcard_sends_a_star_and_with_credentials_echoes_the_origin
 UTEST(httpp_cors, a_wildcard_header_list_echoes_what_the_preflight_asks_for_and_methods_star_allows_any) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        httpp::cors().set_allow_origins({"https://a.example"}).set_allow_methods({"*"}).set_allow_headers({"*"}).install(s);
+        httpp::cors().allow_origins({"https://a.example"}).allow_methods({"*"}).allow_headers({"*"}).install(s);
     });
     auto r = httpp::client(srv.url()).options("/x", {{"Origin", "https://a.example"}, {"Access-Control-Request-Method", "PATCH"},
                                                      {"Access-Control-Request-Headers", "x-anything"}});
@@ -201,7 +201,7 @@ UTEST(httpp_cors, a_wildcard_header_list_echoes_what_the_preflight_asks_for_and_
 UTEST(httpp_cors, an_origin_regex_must_match_the_whole_origin) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        httpp::cors().set_allow_origin_regex(R"(https://.*\.example\.com)").install(s);
+        httpp::cors().allow_origin_regex(R"(https://.*\.example\.com)").install(s);
     });
     httpp::client c(srv.url());
     ASSERT_STREQ("https://app.example.com", c.get("/x", {{"Origin", "https://app.example.com"}}).header("Access-Control-Allow-Origin").c_str());
@@ -210,12 +210,12 @@ UTEST(httpp_cors, an_origin_regex_must_match_the_whole_origin) {
 
 UTEST(httpp_cors, bad_settings_throw_and_change_nothing) {
     httpp::cors c;
-    c.set_allow_origin_regex("https://ok");
-    ASSERT_TRUE(rejects([&] { c.set_allow_origin_regex("("); }));
-    ASSERT_TRUE(rejects([&] { c.set_max_age(-1); }));
+    c.allow_origin_regex("https://ok");
+    ASSERT_TRUE(rejects([&] { c.allow_origin_regex("("); }));
+    ASSERT_TRUE(rejects([&] { c.max_age(-1); }));
     // a refused value leaves the earlier one in place, and the chain still works
     httpp::server s;
-    c.set_max_age(5).set_allow_credentials(true).install(s);
+    c.max_age(5).allow_credentials(true).install(s);
 }
 
 // ---------------------------------------------------------------- trusted host
@@ -236,7 +236,7 @@ UTEST(httpp_trusted_host, a_listed_host_passes_with_or_without_a_port_and_any_ot
 UTEST(httpp_trusted_host, a_subdomain_wildcard_matches_subdomains_only_and_star_matches_everything) {
     local_server sub([](httpp::server& s) {
         ok_route(s);
-        httpp::trusted_host({"*.example.com"}).set_www_redirect(false).install(s);
+        httpp::trusted_host({"*.example.com"}).www_redirect(false).install(s);
     });
     ASSERT_TRUE(contains(raw_get(sub.port, "api.example.com"), "200 OK"));
     ASSERT_TRUE(contains(raw_get(sub.port, "a.b.example.com"), "200 OK"));
@@ -245,7 +245,7 @@ UTEST(httpp_trusted_host, a_subdomain_wildcard_matches_subdomains_only_and_star_
 
     local_server any([](httpp::server& s) {
         ok_route(s);
-        httpp::trusted_host({"*"}).set_www_redirect(false).install(s);
+        httpp::trusted_host({"*"}).www_redirect(false).install(s);
     });
     ASSERT_TRUE(contains(raw_get(any.port, "whatever.test"), "200 OK"));
 }
@@ -307,7 +307,7 @@ UTEST(httpp_forwarded_headers, a_trusted_connection_gives_the_client_the_scheme_
     local_server srv([](httpp::server& s) { who_route(s); httpp::forwarded_headers().install(s); }); // loopback is trusted by default
     ASSERT_STREQ("203.0.113.9|https|internal:8000",
                  who(srv.port, "X-Forwarded-For: 203.0.113.9\r\nX-Forwarded-Proto: https\r\nX-Forwarded-Host: shop.example\r\n").c_str());
-    local_server with_host([](httpp::server& s) { who_route(s); httpp::forwarded_headers().set_trust_forwarded_host(true).install(s); });
+    local_server with_host([](httpp::server& s) { who_route(s); httpp::forwarded_headers().trust_forwarded_host(true).install(s); });
     ASSERT_STREQ("203.0.113.9|http|shop.example",
                  who(with_host.port, "X-Forwarded-For: 203.0.113.9\r\nX-Forwarded-Host: a.example, shop.example\r\n").c_str());
 }
@@ -315,7 +315,7 @@ UTEST(httpp_forwarded_headers, a_trusted_connection_gives_the_client_the_scheme_
 UTEST(httpp_forwarded_headers, the_client_is_the_first_address_from_the_right_that_is_not_a_trusted_proxy) {
     local_server srv([](httpp::server& s) {
         who_route(s);
-        httpp::forwarded_headers().set_trusted_proxies({"127.0.0.1", "10.0.0.0/8", "fd00::/8"}).install(s);
+        httpp::forwarded_headers().trusted_proxies({"127.0.0.1", "10.0.0.0/8", "fd00::/8"}).install(s);
     });
     // a forged leftmost value does not win: 203.0.113.9 is what the proxy next to us saw
     ASSERT_STREQ("203.0.113.9|http|internal:8000", who(srv.port, "X-Forwarded-For: 1.1.1.1, 203.0.113.9, 10.1.2.3, fd00::5\r\n").c_str());
@@ -324,19 +324,19 @@ UTEST(httpp_forwarded_headers, the_client_is_the_first_address_from_the_right_th
 }
 
 UTEST(httpp_forwarded_headers, a_connection_that_is_not_trusted_is_left_alone) {
-    local_server srv([](httpp::server& s) { who_route(s); httpp::forwarded_headers().set_trusted_proxies({"10.0.0.0/8"}).install(s); });
+    local_server srv([](httpp::server& s) { who_route(s); httpp::forwarded_headers().trusted_proxies({"10.0.0.0/8"}).install(s); });
     ASSERT_STREQ("127.0.0.1|http|internal:8000", who(srv.port, "X-Forwarded-For: 203.0.113.9\r\nX-Forwarded-Proto: https\r\n").c_str());
-    local_server none([](httpp::server& s) { who_route(s); httpp::forwarded_headers().set_trusted_proxies({}).install(s); });
+    local_server none([](httpp::server& s) { who_route(s); httpp::forwarded_headers().trusted_proxies({}).install(s); });
     ASSERT_STREQ("127.0.0.1|http|internal:8000", who(none.port, "X-Forwarded-For: 203.0.113.9\r\n").c_str());
-    local_server any([](httpp::server& s) { who_route(s); httpp::forwarded_headers().set_trusted_proxies({"*"}).install(s); });
+    local_server any([](httpp::server& s) { who_route(s); httpp::forwarded_headers().trusted_proxies({"*"}).install(s); });
     ASSERT_STREQ("203.0.113.9|http|internal:8000", who(any.port, "X-Forwarded-For: 203.0.113.9\r\n").c_str());
 }
 
 UTEST(httpp_forwarded_headers, bad_entries_are_refused_and_change_nothing) {
     httpp::forwarded_headers f;
     for (const char* bad : {"localhost", "10.0.0.0/33", "10.0.0.0/", "::1/129", "10.0.0.0/x", "", "1.2.3"})
-        ASSERT_TRUE(rejects([&] { f.set_trusted_proxies({bad}); }));
-    f.set_trusted_proxies({"192.168.0.0/16", "2001:db8::/32", "::1", "127.0.0.1/32"}).set_trust_forwarded_host(true);
+        ASSERT_TRUE(rejects([&] { f.trusted_proxies({bad}); }));
+    f.trusted_proxies({"192.168.0.0/16", "2001:db8::/32", "::1", "127.0.0.1/32"}).trust_forwarded_host(true);
     httpp::server s;
     f.install(s);
     f.install(s); // a second install replaces the first
@@ -349,7 +349,7 @@ void auth_site(httpp::server& s) {
     ok_route(s);
     s.get("/admin/panel", [](const httpp::server_request&, httpp::response& res) { res.body = "panel"; });
     s.get("/administrator", [](const httpp::server_request&, httpp::response& res) { res.body = "open"; });
-    httpp::basic_auth("Tools").set_users({"alice:s3cret", "bob:pa:ss", u8"علی:رمز"}).set_path_prefix("/admin/").install(s);
+    httpp::basic_auth("Tools").users({"alice:s3cret", "bob:pa:ss", u8"علی:رمز"}).path_prefix("/admin/").install(s);
 }
 std::string base64_text(const std::string& in) {
     static const char tab[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -395,7 +395,7 @@ UTEST(httpp_basic_auth, only_paths_under_the_prefix_are_checked) {
 }
 
 UTEST(httpp_basic_auth, the_whole_site_is_checked_by_default) {
-    local_server srv([](httpp::server& s) { ok_route(s); httpp::basic_auth().set_users({"u:p"}).install(s); });
+    local_server srv([](httpp::server& s) { ok_route(s); httpp::basic_auth().users({"u:p"}).install(s); });
     httpp::client c(srv.url());
     auto r = c.get("/x");
     ASSERT_EQ(401, r.status);
@@ -405,13 +405,13 @@ UTEST(httpp_basic_auth, the_whole_site_is_checked_by_default) {
 
 UTEST(httpp_basic_auth, bad_settings_are_refused_and_change_nothing) {
     httpp::basic_auth a;
-    ASSERT_TRUE(rejects([&] { a.set_realm("a\"b"); }));
-    ASSERT_TRUE(rejects([&] { a.set_realm("a\\b"); }));
-    ASSERT_TRUE(rejects([&] { a.set_realm("a\nb"); }));
-    ASSERT_TRUE(rejects([&] { a.set_users({"nocolon"}); }));
-    ASSERT_TRUE(rejects([&] { a.set_users({":nouser"}); }));
-    ASSERT_TRUE(rejects([&] { a.set_path_prefix("admin"); }));
-    ASSERT_TRUE(rejects([&] { a.set_path_prefix(""); }));
+    ASSERT_TRUE(rejects([&] { a.realm("a\"b"); }));
+    ASSERT_TRUE(rejects([&] { a.realm("a\\b"); }));
+    ASSERT_TRUE(rejects([&] { a.realm("a\nb"); }));
+    ASSERT_TRUE(rejects([&] { a.users({"nocolon"}); }));
+    ASSERT_TRUE(rejects([&] { a.users({":nouser"}); }));
+    ASSERT_TRUE(rejects([&] { a.path_prefix("admin"); }));
+    ASSERT_TRUE(rejects([&] { a.path_prefix(""); }));
     httpp::server s;
     ASSERT_TRUE(rejects([&] { a.install(s); })); // no users
 }
@@ -419,7 +419,7 @@ UTEST(httpp_basic_auth, bad_settings_are_refused_and_change_nothing) {
 // ---------------------------------------------------------------- rate_limit
 
 UTEST(httpp_rate_limit, a_burst_passes_then_429_with_retry_after_and_the_bucket_refills) {
-    local_server srv([](httpp::server& s) { ok_route(s); httpp::rate_limit().set_rate(10).set_burst(2).install(s); });
+    local_server srv([](httpp::server& s) { ok_route(s); httpp::rate_limit().rate(10).burst(2).install(s); });
     httpp::client c(srv.url());
     ASSERT_EQ(200, c.get("/x").status);
     ASSERT_EQ(200, c.get("/x").status);
@@ -432,7 +432,7 @@ UTEST(httpp_rate_limit, a_burst_passes_then_429_with_retry_after_and_the_bucket_
 }
 
 UTEST(httpp_rate_limit, a_slow_rate_asks_for_a_longer_wait) {
-    local_server srv([](httpp::server& s) { ok_route(s); httpp::rate_limit().set_rate(0.1).set_burst(1).install(s); });
+    local_server srv([](httpp::server& s) { ok_route(s); httpp::rate_limit().rate(0.1).burst(1).install(s); });
     httpp::client c(srv.url());
     ASSERT_EQ(200, c.get("/x").status);
     auto limited = c.get("/x");
@@ -444,8 +444,8 @@ UTEST(httpp_rate_limit, a_slow_rate_asks_for_a_longer_wait) {
 UTEST(httpp_rate_limit, clients_are_told_apart_by_the_forwarded_address) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        httpp::forwarded_headers().set_trusted_proxies({"*"}).install(s);
-        httpp::rate_limit().set_rate(0.01).set_burst(1).install(s);
+        httpp::forwarded_headers().trusted_proxies({"*"}).install(s);
+        httpp::rate_limit().rate(0.01).burst(1).install(s);
     });
     httpp::client c(srv.url());
     ASSERT_EQ(200, c.get("/x", {{"X-Forwarded-For", "203.0.113.1"}}).status);
@@ -456,8 +456,8 @@ UTEST(httpp_rate_limit, clients_are_told_apart_by_the_forwarded_address) {
 UTEST(httpp_rate_limit, a_small_table_stays_small_and_keeps_serving) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        httpp::forwarded_headers().set_trusted_proxies({"*"}).install(s);
-        httpp::rate_limit().set_rate(0.01).set_burst(1).set_max_clients(3).install(s);
+        httpp::forwarded_headers().trusted_proxies({"*"}).install(s);
+        httpp::rate_limit().rate(0.01).burst(1).max_clients(3).install(s);
     });
     httpp::client c(srv.url());
     for (int i = 1; i <= 20; i++) ASSERT_EQ(200, c.get("/x", {{"X-Forwarded-For", "198.51.100." + std::to_string(i)}}).status);
@@ -465,17 +465,17 @@ UTEST(httpp_rate_limit, a_small_table_stays_small_and_keeps_serving) {
 
 UTEST(httpp_rate_limit, bad_settings_are_refused) {
     httpp::rate_limit r;
-    ASSERT_TRUE(rejects([&] { r.set_rate(0); }));
-    ASSERT_TRUE(rejects([&] { r.set_rate(-1); }));
-    ASSERT_TRUE(rejects([&] { r.set_rate(std::nan("")); }));
-    ASSERT_TRUE(rejects([&] { r.set_burst(0); }));
-    ASSERT_TRUE(rejects([&] { r.set_max_clients(0); }));
+    ASSERT_TRUE(rejects([&] { r.rate(0); }));
+    ASSERT_TRUE(rejects([&] { r.rate(-1); }));
+    ASSERT_TRUE(rejects([&] { r.rate(std::nan("")); }));
+    ASSERT_TRUE(rejects([&] { r.burst(0); }));
+    ASSERT_TRUE(rejects([&] { r.max_clients(0); }));
 }
 
 UTEST(httpp_basic_auth, a_verifier_decides_and_can_work_with_or_without_users) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        httpp::basic_auth().set_verifier([](const std::string& u, const std::string& p) { return u == "dbuser" && p == "dbpass"; }).install(s);
+        httpp::basic_auth().verifier([](const std::string& u, const std::string& p) { return u == "dbuser" && p == "dbpass"; }).install(s);
     });
     httpp::client c(srv.url());
     ASSERT_EQ(401, c.get("/x").status);
@@ -484,7 +484,7 @@ UTEST(httpp_basic_auth, a_verifier_decides_and_can_work_with_or_without_users) {
 
     local_server both([](httpp::server& s) {
         ok_route(s);
-        httpp::basic_auth().set_users({"fixed:one"}).set_verifier([](const std::string& u, const std::string&) { return u == "other"; }).install(s);
+        httpp::basic_auth().users({"fixed:one"}).verifier([](const std::string& u, const std::string&) { return u == "other"; }).install(s);
     });
     httpp::client c2(both.url());
     ASSERT_EQ(200, c2.get("/x", {{"Authorization", basic("fixed:one")}}).status);
@@ -495,7 +495,7 @@ UTEST(httpp_basic_auth, a_verifier_decides_and_can_work_with_or_without_users) {
 UTEST(httpp_basic_auth, a_throwing_verifier_never_lets_the_request_in) {
     local_server srv([](httpp::server& s) {
         ok_route(s);
-        httpp::basic_auth().set_verifier([](const std::string&, const std::string&) -> bool { throw std::runtime_error("db down"); }).install(s);
+        httpp::basic_auth().verifier([](const std::string&, const std::string&) -> bool { throw std::runtime_error("db down"); }).install(s);
     });
     httpp::client c(srv.url());
     ASSERT_EQ(500, c.get("/x", {{"Authorization", basic("u:p")}}).status);

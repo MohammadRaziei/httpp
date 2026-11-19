@@ -63,7 +63,7 @@ UTEST(httpp_show_dates, directory_sends_validators_and_answers_304_by_default) {
 
 UTEST(httpp_show_dates, directory_without_dates_sends_no_validator_and_never_answers_304) {
     tree t;
-    local_server srv([&](httpp::server& s) { httpp::directory(t.root.string()).set_show_dates(false).mount(s, "/f"); });
+    local_server srv([&](httpp::server& s) { httpp::directory(t.root.string()).show_dates(false).mount(s, "/f"); });
     auto r = get(srv, "/f/a.txt");
     ASSERT_EQ(200, r.status);
     EXPECT_STR_EQ("hello world", r.body);
@@ -76,7 +76,7 @@ UTEST(httpp_show_dates, directory_without_dates_sends_no_validator_and_never_ans
 
 UTEST(httpp_show_dates, directory_without_dates_still_serves_ranges_but_cannot_check_an_if_range) {
     tree t;
-    local_server srv([&](httpp::server& s) { httpp::directory(t.root.string()).set_show_dates(false).mount(s, "/f"); });
+    local_server srv([&](httpp::server& s) { httpp::directory(t.root.string()).show_dates(false).mount(s, "/f"); });
     httpp::request plain(srv.url("/f/a.txt"));
     auto part = plain.header("Range", "bytes=0-4").run();
     EXPECT_EQ(206, part.status);
@@ -90,14 +90,14 @@ UTEST(httpp_show_dates, directory_without_dates_still_serves_ranges_but_cannot_c
 UTEST(httpp_show_dates, the_setters_chain) {
     tree t;
     httpp::directory d(t.root.string());
-    EXPECT_TRUE(&d.set_show_dates(false) == &d);
+    EXPECT_TRUE(&d.show_dates(false) == &d);
     httpp::file_browser fb(t.root.string());
-    EXPECT_TRUE(&fb.set_show_dates(false) == &fb);
+    EXPECT_TRUE(&fb.show_dates(false) == &fb);
 }
 
 UTEST(httpp_show_dates, file_browser_lists_times_and_says_so_by_default) {
     tree t;
-    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_zip(true).mount(s, "/files"); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).zip(true).mount(s, "/files"); });
     EXPECT_TRUE(contains(get(srv, "/files/api/list").body, "\"mtime\":"));
     EXPECT_TRUE(contains(get(srv, "/files/").body, "\"dates\":true"));
     EXPECT_FALSE(get(srv, "/files/raw/a.txt").header("Last-Modified").empty());
@@ -110,7 +110,7 @@ UTEST(httpp_show_dates, file_browser_lists_times_and_says_so_by_default) {
 
 UTEST(httpp_show_dates, file_browser_without_dates_shows_and_sends_no_time) {
     tree t;
-    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).set_zip(true).set_show_dates(false).mount(s, "/files"); });
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).zip(true).show_dates(false).mount(s, "/files"); });
     auto list = get(srv, "/files/api/list");
     ASSERT_EQ(200, list.status);
     EXPECT_TRUE(contains(list.body, "\"name\":\"a.txt\""));

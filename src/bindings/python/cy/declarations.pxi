@@ -85,26 +85,26 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         # after_hook / error_hook are the same std::function type as handler, so cpp_handler stands for them.
         cpp_server& before(cpp_before_hook h) except +
         cpp_server& after(cpp_handler h) except +
-        cpp_server& set_error_handler(cpp_handler h) except +
-        cpp_server& set_thread_pool(size_t base, size_t max, microseconds grow_after) except +
-        cpp_server& set_read_timeout(int seconds) except +
-        cpp_server& set_write_timeout(int seconds) except +
-        cpp_server& set_keep_alive_timeout(int seconds) except +
-        cpp_server& set_keep_alive_max(size_t requests) except +
-        cpp_server& set_max_body(size_t nbytes) except +
-        cpp_server& set_header_timeout(int seconds) except +
-        cpp_server& set_body_timeout(int seconds) except +
-        cpp_server& set_compression(size_t min_size, int level) except +
-        cpp_server& set_max_connections(size_t n) except +
-        cpp_server& set_async_timeout(int seconds) except +
-        cpp_server& set_reuse_port(cbool on) except +
-        cpp_server& set_io_threads(size_t n) except +
+        cpp_server& error_handler(cpp_handler h) except +
+        cpp_server& thread_pool(size_t base, size_t max, microseconds grow_after) except +
+        cpp_server& read_timeout(int seconds) except +
+        cpp_server& write_timeout(int seconds) except +
+        cpp_server& keep_alive_timeout(int seconds) except +
+        cpp_server& keep_alive_max(size_t requests) except +
+        cpp_server& max_body(size_t nbytes) except +
+        cpp_server& header_timeout(int seconds) except +
+        cpp_server& body_timeout(int seconds) except +
+        cpp_server& compression(size_t min_size, int level) except +
+        cpp_server& max_connections(size_t n) except +
+        cpp_server& async_timeout(int seconds) except +
+        cpp_server& reuse_port(cbool on) except +
+        cpp_server& io_threads(size_t n) except +
         int bind_to_any_port(string host) except +
         cbool listen_after_bind() except + nogil
         cbool listen(string host, int port) except + nogil
         void stop() except +
         void shutdown(cpp_milliseconds grace) except +
-        cpp_server& set_tls(const string& cert_file, const string& key_file, const string& key_password) except +
+        cpp_server& tls(const string& cert_file, const string& key_file, const string& key_password) except +
 
 
 # The route-path grammar lives in C++ (include/httpp/route_pattern.hpp); Python asks the same parser instead of keeping its own.

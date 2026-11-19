@@ -25,7 +25,7 @@ struct run_server {
     std::atomic<bool> returned{false};
 
     explicit run_server(std::function<void(httpp::server&)> setup, std::size_t io_threads = 1) {
-        if (io_threads > 1) srv.set_io_threads(io_threads);
+        if (io_threads > 1) srv.io_threads(io_threads);
         setup(srv);
         port = srv.bind_to_any_port("127.0.0.1");
         th = std::thread([this] { srv.listen_after_bind(); returned = true; });
@@ -105,7 +105,7 @@ UTEST(httpp_shutdown, an_in_flight_request_finishes_and_is_told_to_close) {
 
 UTEST(httpp_shutdown, an_idle_keep_alive_connection_is_closed_at_once_and_new_ones_are_refused) {
     run_server srv([](httpp::server& s) {
-        s.set_keep_alive_timeout(30);
+        s.keep_alive_timeout(30);
         s.get("/x", [](const httpp::server_request&, httpp::response& res) { res.body = "x"; });
     });
     raw_conn c(srv.port);
@@ -123,7 +123,7 @@ UTEST(httpp_shutdown, after_the_grace_period_an_unanswered_request_is_cut) {
     auto stash = std::make_shared<httpp::responder>();
     std::atomic<bool> got{false};
     run_server srv([&](httpp::server& s) {
-        s.set_async_timeout(0); // never answer on its own
+        s.async_timeout(0); // never answer on its own
         s.get_async("/hang", [&](const httpp::server_request&, httpp::responder r) { *stash = r; got = true; });
     });
     std::promise<int> status;

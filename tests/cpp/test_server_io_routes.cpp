@@ -137,7 +137,7 @@ UTEST(httpp_server_io, the_after_and_error_hooks_see_io_routes_and_the_404_of_an
             after_calls++;
             res.headers.emplace_back("X-After", "1");
         });
-        s.set_error_handler([](const httpp::server_request&, httpp::response& res) { res.body = "custom " + std::to_string(res.status); });
+        s.error_handler([](const httpp::server_request&, httpp::response& res) { res.body = "custom " + std::to_string(res.status); });
     });
     auto ok = httpp::client::fetch(srv.url("/io"));
     ASSERT_STREQ("1", ok.header("X-After").c_str());
@@ -209,7 +209,7 @@ UTEST(httpp_server_io, a_throwing_io_handler_becomes_500_or_goes_to_the_exceptio
     }
     local_server srv([](httpp::server& s) {
         s.route_io("GET", "/boom", [](std::shared_ptr<const httpp::server_request>, httpp::responder) { throw std::runtime_error("secret"); });
-        s.set_exception_handler([](const httpp::server_request&, httpp::response& res, std::exception_ptr) {
+        s.exception_handler([](const httpp::server_request&, httpp::response& res, std::exception_ptr) {
             res.status = 418;
             res.body = "handled";
         });
@@ -222,7 +222,7 @@ UTEST(httpp_server_io, a_throwing_io_handler_becomes_500_or_goes_to_the_exceptio
 UTEST(httpp_server_io, an_unanswered_io_route_gets_a_504) {
     auto stash = std::make_shared<httpp::responder>();
     local_server srv([&](httpp::server& s) {
-        s.set_async_timeout(1);
+        s.async_timeout(1);
         s.route_io("GET", "/never", [stash](std::shared_ptr<const httpp::server_request>, httpp::responder r) { *stash = r; });
     });
     auto res = httpp::request(srv.url("/never")).timeout(10).run();
@@ -283,7 +283,7 @@ UTEST(httpp_server_io, requests_that_wait_for_an_answer_are_each_timed_out_on_th
     std::mutex mu;
     std::vector<httpp::responder> kept;
     local_server srv([&](httpp::server& s) {
-        s.set_async_timeout(1);
+        s.async_timeout(1);
         s.route_io("GET", "/hold", [&](std::shared_ptr<const httpp::server_request>, httpp::responder r) {
             std::lock_guard<std::mutex> lock(mu);
             kept.push_back(r);
@@ -316,7 +316,7 @@ UTEST(httpp_server_io, requests_that_wait_for_an_answer_are_each_timed_out_on_th
 UTEST(httpp_server_io, a_late_send_after_the_504_is_ignored_and_a_dropped_responder_closes_the_connection) {
     auto stash = std::make_shared<httpp::responder>();
     local_server srv([&](httpp::server& s) {
-        s.set_async_timeout(1);
+        s.async_timeout(1);
         s.route_io("GET", "/late", [stash](std::shared_ptr<const httpp::server_request>, httpp::responder r) { *stash = r; });
         s.route_io("GET", "/drop", [](std::shared_ptr<const httpp::server_request>, httpp::responder) { /* every copy dropped */ });
     });
@@ -334,7 +334,7 @@ UTEST(httpp_server_io, a_late_send_after_the_504_is_ignored_and_a_dropped_respon
 
 UTEST(httpp_server_io, a_server_can_listen_again_and_the_timeout_still_works) {
     httpp::server s;
-    s.set_async_timeout(1);
+    s.async_timeout(1);
     auto stash = std::make_shared<httpp::responder>(); // keeps the request open (dropping it would close the connection)
     s.route_io("GET", "/never", [stash](std::shared_ptr<const httpp::server_request>, httpp::responder r) { *stash = r; });
     int statuses[2] = {0, 0};

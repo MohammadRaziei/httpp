@@ -36,7 +36,7 @@ def test_directory_settings_chain_and_change_the_answer(tmp_path):
     (tmp_path / ".secret").write_text("x")
     app = Server()
     d = Directory(tmp_path)
-    assert d.set_index(False).set_show_hidden(False) is d
+    assert d.index(False).show_hidden(False) is d
     d.mount(app, "/site")
     with running(app) as url:
         assert status(url + "/site/") == 404
@@ -58,7 +58,7 @@ def test_directory_show_dates_false_sends_no_validator_and_never_answers_304(tmp
     (tmp_path / "a.txt").write_text("hello world")
     app = Server()
     d = Directory(tmp_path)
-    assert d.set_show_dates(False) is d
+    assert d.show_dates(False) is d
     d.mount(app, "/off")
     Directory(tmp_path).mount(app, "/on")
     Directory(tmp_path, show_dates=False).mount(app, "/kw")
@@ -92,7 +92,7 @@ def test_directory_inline_active_chains_and_shows_html_and_svg_only_behind_a_san
     (tmp_path / "x.xml").write_text("<a/>")
     app = Server()
     d = Directory(tmp_path, download_active=True)
-    assert d.set_inline_active(True) is d
+    assert d.inline_active(True) is d
     d.mount(app, "/on")
     Directory(tmp_path, download_active=True).mount(app, "/off")
     Directory(tmp_path, download_active=True, inline_active=True).mount(app, "/kw")
@@ -118,7 +118,7 @@ def test_swagger_builder_serves_the_page_and_refuses_a_bad_base():
     for bad in ("docs", "/", ""):
         with pytest.raises(ValueError):
             s.mount(app, bad)
-    assert s.set_title("T") is s
+    assert s.title("T") is s
     s.mount(app, "/api/docs")  # the refused bases mounted nothing
     with running(app) as url:
         body = urllib.request.urlopen(url + "/api/docs").read().decode()

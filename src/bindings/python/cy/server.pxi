@@ -22,34 +22,34 @@ cdef class Server:
     def _add_cors(self, origins, str origin_regex, methods, headers, bint credentials, expose, int max_age):
         """Install the C++ CORS middleware (include/httpp/middleware.hpp); use Server.add_middleware(CORSMiddleware, ...)."""
         cdef cpp_cors c
-        c.set_allow_origins([x.encode("utf-8") for x in origins])
-        c.set_allow_origin_regex(origin_regex.encode("utf-8"))
-        c.set_allow_methods([x.encode("utf-8") for x in methods])
-        c.set_allow_headers([x.encode("utf-8") for x in headers])
-        c.set_allow_credentials(credentials)
-        c.set_expose_headers([x.encode("utf-8") for x in expose])
-        c.set_max_age(max_age)
+        c.allow_origins([x.encode("utf-8") for x in origins])
+        c.allow_origin_regex(origin_regex.encode("utf-8"))
+        c.allow_methods([x.encode("utf-8") for x in methods])
+        c.allow_headers([x.encode("utf-8") for x in headers])
+        c.allow_credentials(credentials)
+        c.expose_headers([x.encode("utf-8") for x in expose])
+        c.max_age(max_age)
         c.install(self._srv[0])
 
     def _add_forwarded_headers(self, trusted_proxies, bint trust_forwarded_host):
         """Install the C++ forwarded-headers rewrite; use Server.add_middleware(ProxyHeadersMiddleware, ...)."""
         cdef cpp_forwarded_headers f
-        f.set_trusted_proxies([x.encode("utf-8") for x in trusted_proxies])
-        f.set_trust_forwarded_host(trust_forwarded_host)
+        f.trusted_proxies([x.encode("utf-8") for x in trusted_proxies])
+        f.trust_forwarded_host(trust_forwarded_host)
         f.install(self._srv[0])
 
     def _add_https_redirect(self, bint trust_forwarded_proto):
         """Install the C++ HTTPS redirect middleware; use Server.add_middleware(HTTPSRedirectMiddleware, ...)."""
         cdef cpp_https_redirect r
-        r.set_trust_forwarded_proto(trust_forwarded_proto)
+        r.trust_forwarded_proto(trust_forwarded_proto)
         r.install(self._srv[0])
 
     def _add_basic_auth(self, users, realm, path_prefix, verifier=None):
         """Install the C++ Basic authentication middleware; use Server.add_middleware(BasicAuthMiddleware, ...)."""
         cdef cpp_basic_auth* b = new cpp_basic_auth((<str>realm).encode("utf-8"))
         try:
-            b.set_users([x.encode("utf-8") for x in users])
-            b.set_path_prefix((<str>path_prefix).encode("utf-8"))
+            b.users([x.encode("utf-8") for x in users])
+            b.path_prefix((<str>path_prefix).encode("utf-8"))
             if verifier is not None:
                 httpp_py_set_verifier(b[0], <void*>verifier, <verify_fn>_verify_trampoline)
             b.install(self._srv[0])
@@ -59,18 +59,18 @@ cdef class Server:
     def _add_rate_limit(self, double requests_per_second, size_t burst, size_t max_clients):
         """Install the C++ rate-limit middleware; use Server.add_middleware(RateLimitMiddleware, ...)."""
         cdef cpp_rate_limit r
-        r.set_rate(requests_per_second)
-        r.set_burst(burst)
-        r.set_max_clients(max_clients)
+        r.rate(requests_per_second)
+        r.burst(burst)
+        r.max_clients(max_clients)
         r.install(self._srv[0])
 
-    def set_tls(self, cert_file, key_file, password=None):
+    def tls(self, cert_file, key_file, password=None):
         """Serve https and wss: a certificate chain (PEM, leaf first) and its private key (PEM; `password` when encrypted).
         The files are read now; ValueError names the file for a missing or unreadable file, bad PEM, a wrong password or a
         key that does not belong to the certificate. Before listening. One port serves TLS or plain HTTP, not both."""
         cdef string pw = b"" if password is None else (<str>password).encode("utf-8")
         try:
-            self._srv.set_tls(_fs(cert_file), _fs(key_file), pw)
+            self._srv.tls(_fs(cert_file), _fs(key_file), pw)
         except RuntimeError as e:
             raise ValueError(str(e)) from None
         return self
@@ -79,7 +79,7 @@ cdef class Server:
         """Install the C++ trusted-host middleware; use Server.add_middleware(TrustedHostMiddleware, ...)."""
         cdef cpp_trusted_host* t = new cpp_trusted_host([x.encode("utf-8") for x in hosts])
         try:
-            t.set_www_redirect(www_redirect)
+            t.www_redirect(www_redirect)
             t.install(self._srv[0])
         finally:
             del t
@@ -180,81 +180,81 @@ cdef class Server:
         if not callable(hook):
             raise TypeError("hook must be callable")
         self._handlers.append(hook)
-        self._srv.set_error_handler(make_handler(_dispatch_error, <void*>hook))
+        self._srv.error_handler(make_handler(_dispatch_error, <void*>hook))
         return self
 
     # --- Settings; call them before listening. Each returns self. ---
-    def set_thread_pool(self, size_t base, size_t max_threads=0, grow_after_ms=0.5):
+    def thread_pool(self, size_t base, size_t max_threads=0, grow_after_ms=0.5):
         """Worker threads for sync handlers: `base` are kept, up to `max_threads` used under load
         (0 = 4 x base). A job that waited `grow_after_ms` for a free thread adds one more thread to the pool."""
         if base == 0:
             raise ValueError("the thread pool needs at least 1 thread")
         if 0 < max_threads < base:
             raise ValueError("max_threads can't be smaller than threads")
-        self._srv.set_thread_pool(base, max_threads, microseconds(<long long>(grow_after_ms * 1000)))
+        self._srv.thread_pool(base, max_threads, microseconds(<long long>(grow_after_ms * 1000)))
         return self
 
-    def set_read_timeout(self, int seconds):
+    def read_timeout(self, int seconds):
         _check_seconds(seconds)
-        self._srv.set_read_timeout(seconds)
+        self._srv.read_timeout(seconds)
         return self
 
-    def set_write_timeout(self, int seconds):
+    def write_timeout(self, int seconds):
         _check_seconds(seconds)
-        self._srv.set_write_timeout(seconds)
+        self._srv.write_timeout(seconds)
         return self
 
-    def set_keep_alive_timeout(self, int seconds):
+    def keep_alive_timeout(self, int seconds):
         _check_seconds(seconds)
-        self._srv.set_keep_alive_timeout(seconds)
+        self._srv.keep_alive_timeout(seconds)
         return self
 
-    def set_keep_alive_max(self, size_t requests):
-        self._srv.set_keep_alive_max(requests)
+    def keep_alive_max(self, size_t requests):
+        self._srv.keep_alive_max(requests)
         return self
 
-    def set_max_body(self, size_t nbytes):
+    def max_body(self, size_t nbytes):
         """Largest request body accepted (413 above it); 0 = no limit."""
-        self._srv.set_max_body(nbytes)
+        self._srv.max_body(nbytes)
         return self
 
-    def set_header_timeout(self, int seconds):
+    def header_timeout(self, int seconds):
         """Seconds the whole request head may take to arrive (slowloris guard); 0 = no limit."""
-        self._srv.set_header_timeout(seconds)
+        self._srv.header_timeout(seconds)
         return self
 
-    def set_body_timeout(self, int seconds):
+    def body_timeout(self, int seconds):
         """Seconds the whole request body may take to arrive after its head (slow-drip guard); 0 = no limit."""
-        self._srv.set_body_timeout(seconds)
+        self._srv.body_timeout(seconds)
         return self
 
-    def set_compression(self, size_t min_size, int level=1):
+    def compression(self, size_t min_size, int level=1):
         """Gzip text answers of at least min_size bytes for clients that accept it (level 1 fastest .. 9 smallest);
         min_size 0 turns it off. Files, streams and already encoded bodies are never touched."""
-        self._srv.set_compression(min_size, level)
+        self._srv.compression(min_size, level)
         return self
 
-    def set_max_connections(self, size_t n):
+    def max_connections(self, size_t n):
         """Open connections allowed at once (one more gets a 503 and is closed); 0 = no limit."""
-        self._srv.set_max_connections(n)
+        self._srv.max_connections(n)
         return self
 
-    def set_async_timeout(self, int seconds):
+    def async_timeout(self, int seconds):
         """add_async_route: answer 504 if `done` isn't called within this; 0 = never."""
         _check_seconds(seconds)
-        self._srv.set_async_timeout(seconds)
+        self._srv.async_timeout(seconds)
         return self
 
-    def set_reuse_port(self, cbool on):
+    def reuse_port(self, cbool on):
         """Several processes may listen on one port, the kernel balancing between them (Linux only;
         listen() then fails elsewhere). Used by `run(workers=N)`."""
-        self._srv.set_reuse_port(on)
+        self._srv.reuse_port(on)
         return self
 
-    def set_io_threads(self, size_t n):
+    def io_threads(self, size_t n):
         """How many I/O threads read, parse and answer (default 1); each has its own acceptor on the same port
         (needs SO_REUSEPORT; without it the server keeps one). Before listening."""
-        self._srv.set_io_threads(n)
+        self._srv.io_threads(n)
         return self
 
     def bind_to_any_port(self, str host):

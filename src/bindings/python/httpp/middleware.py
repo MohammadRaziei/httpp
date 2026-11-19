@@ -65,7 +65,7 @@ class TrustedHostMiddleware:
 
 
 class GZipMiddleware:
-    """Gzip text answers of at least minimum_size bytes for clients that accept gzip (Server.set_compression).
+    """Gzip text answers of at least minimum_size bytes for clients that accept gzip (Server.compression).
 
     compresslevel is zlib's 1 (fastest, default; Starlette's default is 9) to 9 (smallest).
     """
@@ -79,7 +79,7 @@ class GZipMiddleware:
         self.compresslevel = compresslevel
 
     def install(self, app) -> None:
-        app.set_compression(self.minimum_size, self.compresslevel)
+        app.compression(self.minimum_size, self.compresslevel)
 
 
 class HTTPSRedirectMiddleware:

@@ -126,7 +126,7 @@ bool engine_owned(const std::string& name) {
 }
 
 // "Sat, 10 Oct 2026 12:00:00 GMT"; locale independent; cached per second. The cache is per thread: with several I/O
-// threads (set_io_threads) a shared one is a data race, and two first answers at once could corrupt the string.
+// threads (io_threads) a shared one is a data race, and two first answers at once could corrupt the string.
 const std::string& http_date() {
     static const char* days[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
     static const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
@@ -1132,16 +1132,16 @@ async_server::async_server(options opt, request_fn on_request, blocking_fn run_b
 
 async_server::~async_server() = default;
 
-void async_server::set_tls(std::shared_ptr<const tls_context> ctx) { impl_->tls_ctx = std::move(ctx); }
-void async_server::set_read_timeout(int seconds) { impl_->read_to = seconds; }
-void async_server::set_write_timeout(int seconds) { impl_->write_to = seconds; }
-void async_server::set_keep_alive_timeout(int seconds) { impl_->ka_to = seconds; }
-void async_server::set_keep_alive_max(std::size_t requests) { impl_->ka_max = requests == 0 ? no_limit : requests; }
-void async_server::set_max_body(std::size_t bytes) { impl_->max_body = bytes; }
-void async_server::set_header_timeout(int seconds) { impl_->head_to = seconds; }
-void async_server::set_body_timeout(int seconds) { impl_->body_to = seconds; }
-void async_server::set_max_connections(std::size_t n) { impl_->max_conn = n; }
-void async_server::set_reuse_port(bool on) { impl_->reuse_port = on; }
+void async_server::tls(std::shared_ptr<const tls_context> ctx) { impl_->tls_ctx = std::move(ctx); }
+void async_server::read_timeout(int seconds) { impl_->read_to = seconds; }
+void async_server::write_timeout(int seconds) { impl_->write_to = seconds; }
+void async_server::keep_alive_timeout(int seconds) { impl_->ka_to = seconds; }
+void async_server::keep_alive_max(std::size_t requests) { impl_->ka_max = requests == 0 ? no_limit : requests; }
+void async_server::max_body(std::size_t bytes) { impl_->max_body = bytes; }
+void async_server::header_timeout(int seconds) { impl_->head_to = seconds; }
+void async_server::body_timeout(int seconds) { impl_->body_to = seconds; }
+void async_server::max_connections(std::size_t n) { impl_->max_conn = n; }
+void async_server::reuse_port(bool on) { impl_->reuse_port = on; }
 void async_server::balance_with(const std::vector<async_server*>& engines) {
     impl_->peers.clear();
     if (engines.size() < 2) return;
