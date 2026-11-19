@@ -475,6 +475,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
     std::string error_text;
     httpp::response res;
     std::size_t downloaded = 0; // body bytes written by the last attempt, for %{size_download}
+    std::chrono::steady_clock::time_point attempt_started; // when the last attempt began, for the timeout message
 
     // Where the body goes: a file (-o, or -O named after the URL), else stdout.
     std::string target = output;
@@ -569,6 +570,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
 
         auto attempt = [&]() {
             downloaded = 0;
+            attempt_started = std::chrono::steady_clock::now();
             if (malformed) { // never sent: not transient, so no retry either
                 httpp::response bad;
                 bad.error = httpp::error_kind::invalid_url;
@@ -608,7 +610,13 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
             code = curl_exit_write_error;
         } else if (res.failed()) { // no HTTP answer to show
             error_text = error_label(res.error);
-            if (!res.error_message.empty() && res.error_message != error_text) error_text += " (" + res.error_message + ")";
+            if (res.error == httpp::error_kind::timeout) {
+                // As curl does: how long it ran and how much arrived, which tells a dead server from a slow endless one.
+                const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - attempt_started).count();
+                error_text += " after " + std::to_string(ms) + " ms with " + std::to_string(downloaded) + " bytes received";
+            } else if (!res.error_message.empty() && res.error_message != error_text) {
+                error_text += " (" + res.error_message + ")";
+            }
             curl_error(a, error_text);
             code = curl_exit_code(res.error);
         } else if (a.fail && res.status >= 400) {

@@ -850,6 +850,7 @@ def test_curl_max_time_ends_an_endless_answer_that_never_stalls(httpp_exe):
         r = run(httpp_exe, "curl", host, "-m", "2")  # a frame every 10 ms: no single step is slow, only the total is
         elapsed = time.monotonic() - started
     assert r.returncode == 28 and "error:" in r.stderr
+    assert re.search(r"^error: timed out after \d+ ms with [1-9]\d* bytes received$", r.stderr.strip())
     assert r.stdout.startswith("frame\n")  # what arrived before the limit was shown
     assert 1.5 < elapsed < 6
 
