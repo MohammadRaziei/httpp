@@ -1,5 +1,5 @@
 // ADR-0093 and ADR-0094: client and async_client are handles with clone(), the shared settings come from one mixin, and
-// client::request(path) starts a request from a session.
+// client::make_request(path) starts a request from a session.
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/server.hpp"
@@ -110,14 +110,14 @@ UTEST(httpp_client_request, a_request_from_a_session_joins_the_base_path_and_tak
     httpp::client c(httpp::url(ls.url("/api")));
     c.bearer("tok").header("X-Default", "d").timeout(9);
 
-    auto r = c.request("/echo");
+    auto r = c.make_request("/echo");
     ASSERT_EQ(9, r.timeout()); // a request has the same getters
     const auto res = r.method("POST").json("{\"a\":1}").run();
     ASSERT_EQ(200, res.status);
     ASSERT_STREQ("POST /api/echo?|application/json|Bearer tok|{\"a\":1}|d", res.body.c_str());
 
     // a path with a query, and a call-level parameter on top of it
-    const auto with_query = c.request("/echo?x=1").param("y", "2").run();
+    const auto with_query = c.make_request("/echo?x=1").param("y", "2").run();
     ASSERT_EQ(200, with_query.status);
     ASSERT_STREQ("GET /api/echo?x=1&y=2||Bearer tok||d", with_query.body.c_str());
 }
@@ -128,7 +128,7 @@ UTEST(httpp_client_request, a_request_is_a_snapshot_and_outlives_its_session) {
     {
         httpp::client c(httpp::url(ls.url()));
         c.bearer("old");
-        r = std::make_unique<httpp::request>(c.request("/echo"));
+        r = std::make_unique<httpp::request>(c.make_request("/echo"));
         c.bearer("new").header("X-Default", "later"); // after the request was made: it does not see these
         ASSERT_STREQ("GET /echo?||Bearer new||later", c.get("/echo").body.c_str());
     } // the client is gone
@@ -141,7 +141,7 @@ UTEST(httpp_client_request, the_request_settings_can_still_be_changed_after_it_s
     local_server ls(echo_route);
     httpp::client c(httpp::url(ls.url()));
     c.bearer("session").max_redirects(3);
-    auto r = c.request("/echo").bearer("call").max_redirects(0);
+    auto r = c.make_request("/echo").bearer("call").max_redirects(0);
     ASSERT_EQ(0, r.max_redirects());
     ASSERT_EQ(3, c.max_redirects()); // the session is untouched
     ASSERT_STREQ("GET /echo?||Bearer call||", r.run().body.c_str());
@@ -151,14 +151,14 @@ UTEST(httpp_client_request, async_client_makes_requests_too) {
     local_server ls(echo_route);
     httpp::async_client a(httpp::url(ls.url("/api")));
     a.bearer("tok");
-    const auto res = a.request("/echo").param("k", "v").run_async().get();
+    const auto res = a.make_request("/echo").param("k", "v").run_async().get();
     ASSERT_EQ(200, res.status);
     ASSERT_STREQ("GET /api/echo?k=v||Bearer tok||", res.body.c_str());
 }
 
 UTEST(httpp_client_request, an_ipv6_base_url_still_makes_a_usable_url) {
     httpp::client c(std::string("::1"), 1, false);  // nothing listens on port 1: the error must be the connection, not the URL
-    const auto res = c.request("/x").timeout(2).run();
+    const auto res = c.make_request("/x").timeout(2).run();
     ASSERT_EQ(0, res.status);
     ASSERT_TRUE(res.error != httpp::error_kind::invalid_url);
 }

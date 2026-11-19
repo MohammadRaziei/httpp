@@ -262,6 +262,61 @@ def test_request_run_async_is_awaitable():
         assert asyncio.run(main(url)) == [{"ok": True}] * 5
 
 
+def test_clone_is_an_independent_session_and_a_plain_assignment_is_the_same_one():
+    with running(echo_app()) as url:
+        base = Client(url + "/api", headers={"X-Default": "d"}, timeout=5)
+        same = base
+        same.header("X-Default", "shared")
+        assert base.get("/echo").json()["x-default"] == "shared"
+
+        other = base.clone()
+        assert other is not base
+        assert other.get("/echo").json() == {"path": "/api/echo", "x-default": "shared"}  # same base URL and headers
+        other.header("X-Default", "mine")
+        assert other.get("/echo").json()["x-default"] == "mine"
+        assert base.get("/echo").json()["x-default"] == "shared"  # the original did not change
+
+
+def test_make_request_starts_from_the_session_and_is_a_snapshot():
+    with running(echo_app()) as url:
+        c = Client(url, headers={"X-Default": "d"}, token="old")
+        req = c.make_request("/echo", params={"a": "1"})
+        assert isinstance(req, httpp.Request)
+        c.header("X-Default", "later")  # after the request was made: it does not see this
+        res = req.method("POST").json({"k": "v"}).param("b", "2").run().json()
+        assert res["method"] == "POST"
+        assert res["query"] == {"a": "1", "b": "2"}
+        assert res["headers"]["authorization"] == "Bearer old"
+        assert res["headers"]["x-default"] == "d"
+        assert json.loads(res["body"]) == {"k": "v"}
+        assert c.get("/echo").json()["headers"]["x-default"] == "later"
+
+
+def test_make_request_joins_the_base_path():
+    with running(echo_app()) as url:
+        c = Client(url + "/api", headers={"X-Default": "d"})
+        assert c.make_request("/echo").run().json() == {"path": "/api/echo", "x-default": "d"}
+
+
+def test_async_client_clone_and_make_request():
+    app = echo_app()
+
+    async def main(url):
+        base = httpp.AsyncClient(url + "/api", max_connections=2, headers={"X-Default": "d"})
+        other = base.clone()
+        assert other is not base and other._core is not base._core
+        other.make_request  # the factory is on both
+        direct = await base.get("/echo")
+        req_res = await base.make_request("/echo").run_async()
+        clone_res = await other.get("/echo")
+        return direct.json(), req_res.json(), clone_res.json()
+
+    with running(app) as url:
+        direct, via_request, via_clone = asyncio.run(main(url))
+    expected = {"path": "/api/echo", "x-default": "d"}
+    assert direct == via_request == via_clone == expected
+
+
 # ---- TLS, against a real server (the openssl command-line tool) ----------------
 
 needs_openssl = pytest.mark.skipif(

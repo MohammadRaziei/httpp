@@ -210,6 +210,19 @@ cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, follow_
         cli.proxy(proxy.encode("utf-8"))
 
 
+cdef extern from *:
+    """
+    #include <string>
+    #include "httpp/client.hpp"
+    static httpp::client* httpp_py_clone_client(const httpp::client& c) { return new httpp::client(c.clone()); }
+    static httpp::request* httpp_py_client_make_request(const httpp::client& c, const std::string& path) {
+        return new httpp::request(c.make_request(path));
+    }
+    """
+    cpp_client* py_clone_client "httpp_py_clone_client"(const cpp_client& c) except +
+    cpp_curl_request* py_client_make_request "httpp_py_client_make_request"(const cpp_client& c, const string& path) except +
+
+
 cdef class Client:
     """A small HTTP client session. It keeps its connection alive between calls, so repeated requests
     to one server skip the TCP/TLS handshake. A Client may be shared between threads and its
@@ -290,6 +303,23 @@ cdef class Client:
         """Send this header with every request from now on."""
         self._cli.header(name.encode("utf-8"), value.encode("utf-8"))
         return self
+
+    def clone(self):
+        """A new session to the same base URL with a copy of the current settings, independent of this one:
+        later changes to either do not reach the other. (`b = a` is the same session.)"""
+        cdef Client other = Client.__new__(Client)
+        other._cli = py_clone_client(self._cli[0])
+        return other
+
+    def make_request(self, str path, *, params=None):
+        """A Request to `path` (joined to the base URL as get() does) that starts with this session's headers
+        and settings as they are now: a copy, so later changes to the session do not reach it.
+
+            c.make_request("/users").method("POST").json({"name": "ann"}).run()
+        """
+        cdef Request req = Request.__new__(Request)
+        req._req = py_client_make_request(self._cli[0], _with_params(path, params).encode("utf-8"))
+        return req
 
     @staticmethod
     def fetch(str full_url):

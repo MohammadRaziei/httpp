@@ -26,7 +26,7 @@ Reading the header, `auto c = httpp::client("https://api.example.com").bearer(to
 2. **`client::clone()` and `async_client::clone()`** return a new, independent session with the same base URL and a copy of the current settings. For `async_client`, the queue and the in-flight count start empty and `max_connections` is copied. A copy made by `clone()` and its source never see each other's later changes.
 3. **`server::clone()` is not built now.** Its name and meaning are reserved: it copies the configuration (routes, mounts, settings) of a server that is not listening, never its sockets or threads. Handlers are copied as `std::function` values, so what a handler captured stays shared. A clone needs its own engine config (the sender side holds a `weak_ptr` to the config of the server it came from), which needs reading `server.cpp` first.
 4. **`request` stays move-only.** It is a one-shot builder.
-5. **`client::request(path)` takes a snapshot** of the settings when it is called (see ADR-0094); later changes to the client do not reach a request that already exists.
+5. **`client::make_request(path)` takes a snapshot** of the settings when it is called (see ADR-0094); later changes to the client do not reach a request that already exists.
 
 ## Rejected alternatives
 
@@ -46,15 +46,15 @@ Reading the header, `auto c = httpp::client("https://api.example.com").bearer(to
 - The name is `clone()` (the alternative named in discussion was `fork()`).
 - `server::clone()` is not built. Its name and meaning stay reserved (see decision 3).
 - A moved-from `client` has no session, as a moved-from `server` has none (ADR-0081): it may only be assigned to or destroyed.
-- `async_client::request(path)` makes a request that runs on its own (`run`, `run_async`); it does not go through that session's `max_connections` queue.
+- `async_client::make_request(path)` makes a request that runs on its own (`run`, `run_async`); it does not go through that session's `max_connections` queue.
 
 ## Verified
 
-Built on Linux (GCC 13, Release) and run: `tests/cpp/test_client_handle.cpp` (a copy is the same session and `clone()` is independent, for both classes; a chain on a temporary `client` keeps the session; a clone keeps the base URL, headers and credentials), and the whole existing C++ suite, which passes.
+Built on Linux (GCC 13, Release) and run: `tests/cpp/test_client_handle.cpp` (a copy is the same session and `clone()` is independent, for both classes; a chain on a temporary `client` keeps the session; a clone keeps the base URL, headers and credentials), and the whole existing C++ suite, which passes. Python: `Client.clone()` and `AsyncClient.clone()` are bound (`src/bindings/python/cy/client.pxi`, `transfer.pxi`, `httpp/_http.py`) and tested in `tests/python/test_client.py`.
 
 ## Not verified
 
-Windows and macOS. A listening `server` was not cloned (not built). Python: `clone` is not bound; it is listed in `NOT_EXPOSED` of `tests/python/test_cpp_python_parity.py` as a temporary entry, like `on_body` (the Cython `Client` holds a heap `cpp_client*` and is unchanged).
+Windows and macOS. A listening `server` was not cloned (not built).
 
 ## Related
 

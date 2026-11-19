@@ -143,8 +143,6 @@ CTOR_ARGS["rate_limit"] = {"rate": ("requests_per_second", 5.0), "burst": ("burs
 NOT_EXPOSED = {
     ("request", "on_body"): "temporary (ADR-0084): the Python binding of request streaming is the next step; remove this line and bind it then",
     ("request", "on_head"): "temporary (ADR-0084): same as on_body",
-    ("client", "clone"): "temporary (ADR-0093): the Python binding of clone() is the next step; remove this line and bind it then",
-    ("async_client", "clone"): "temporary (ADR-0093): same as client::clone",
     ("client", "settings_"): "internal hook of configurable (ADR-0094), not meant for users",
     ("async_client", "settings_"): "same as client::settings_",
     ("request", "settings_"): "same as client::settings_",

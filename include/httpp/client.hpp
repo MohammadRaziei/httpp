@@ -158,7 +158,7 @@ private:
 // basic_auth, bearer and proxy have no getter: the first two are secrets, and the parsed proxy is not the URL that was given.
 //
 // On a client or async_client a setting applies to the requests made after the call; a request made from it with
-// request(path) starts with a copy of them.
+// make_request(path) starts with a copy of them.
 // (HTTPP_MEMBER expands to nothing; it marks the public names for tests/python/test_cpp_python_parity.py, which counts them for each
 // of the three classes, see export.hpp.)
 template <class Self>
@@ -283,9 +283,9 @@ public:
 
     // A request to `path` (joined to the base URL as get() does) that starts with the headers and the settings of this session
     // as they are now: a copy, so later changes to the session do not reach it, and it may outlive the session. Everything of
-    // httpp::request is then available (method, json, params, cookies, streaming, ...): c.request("/users").method("POST").json(body).run().
+    // httpp::request is then available (method, json, params, cookies, streaming, ...): c.make_request("/users").method("POST").json(body).run().
     // httpp::request(url) is the same builder without a session.
-    HTTPP_API httpp::request request(const std::string& path) const;
+    HTTPP_API httpp::request make_request(const std::string& path) const;
 
     // Session settings: those of configurable (timeout, connect_timeout, max_time, max_redirects, auto_compression, basic_auth,
     // bearer, proxy, verify, ca_file), and these two. They apply to the requests made after the call.
@@ -398,7 +398,7 @@ private:
     friend class client;
     friend class async_client;
     HTTPP_API detail::settings_ref settings_() const; // what configurable<request> calls; exported because that code is inline
-    // A request that starts with a copy of a session's settings (client::request, async_client::request).
+    // A request that starts with a copy of a session's settings (client::make_request, async_client::make_request).
     request(const url& target, const detail::session_settings& from);
     struct impl;
     std::unique_ptr<impl> impl_;
@@ -442,9 +442,9 @@ public:
                         const std::string& body, const std::string& content_type,
                         std::function<void(response)> done);
 
-    // As client::request: a request to `path` with a copy of the settings. It runs on its own (run, run_async), not through
+    // As client::make_request: a request to `path` with a copy of the settings. It runs on its own (run, run_async), not through
     // this session's max_connections.
-    HTTPP_API httpp::request request(const std::string& path) const;
+    HTTPP_API httpp::request make_request(const std::string& path) const;
 
     // The same session settings as client, under the same names (those of configurable, and header).
     HTTPP_API async_client& header(std::string name, std::string value);

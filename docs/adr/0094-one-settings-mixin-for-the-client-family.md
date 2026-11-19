@@ -1,4 +1,4 @@
-# ADR-0094: one settings mixin for `request`, `client` and `async_client`; `client::request(path)`
+# ADR-0094: one settings mixin for `request`, `client` and `async_client`; `client::make_request(path)`
 
 - **Status:** implemented; the points under "Taken by default" are for the owner to confirm
 - **Decided by:** the project owner for: one shared declaration of the settings, no `set_` prefix and the same name for the getter (ADR-0092), the factory named `request`, setters and getters with no extra types in the way (`session_settings` stays plain data)
@@ -23,7 +23,7 @@ Constraints found in the code:
 3. **Setters come in two forms**, `Self& f(...) &` and `Self f(...) &&`, so a chain on a temporary yields a value, not a dangling reference (as ADR-0081 does for `server`), and each is written once for all three classes.
 4. **`session_settings` stays a plain struct with public fields.** Names follow ADR-0092 in the public API only; the struct is data and needs no accessors. The rules listed above move into small internal functions next to `session_settings` (in `http_exchange.cpp`), so each rule exists once; the mixin's inline setters call them through the hooks of point 2.
 5. **Settings that are not shared stay where they are:** `keep_alive` on `client` only, `max_response_size`, `on_body`, `on_head`, `cookie` and the rest of the request data on `request` only.
-6. **The factory.** `client::request(path)` and `async_client::request(path)` return a `request` that starts with the base URL joined to `path` (the rule of `client::get`) and a **snapshot** of the settings taken at that moment. The name is `request`, not `build`: the verb for sending is `send` on the sessions, and Python can use `Client.request(...)` without a clash. The standalone `httpp::request(url)` keeps working unchanged. Inside `class client` the name `request` refers to the member function, so the header writes `httpp::request` in full where it means the class (it already does).
+6. **The factory.** `client::make_request(path)` and `async_client::make_request(path)` return a `request` that starts with the base URL joined to `path` (the rule of `client::get`) and a **snapshot** of the settings taken at that moment. The name is `make_request`. It is not `request`: Python's `Client.request(method, path, ...)` is already the send call (C++ `send`), so a C++ `request(path)` that returns a builder would mean something else under the same name in the other language, and the project keeps the names of the two languages the same. It is not `build` or `prepare` either, which do not say what comes out. (Decided by the implementer, the owner having left the naming open.) The standalone `httpp::request(url)` keeps working unchanged. Inside `class client` the name `request` refers to the member function, so the header writes `httpp::request` in full where it means the class (it already does).
 
 ## Rejected alternatives
 
@@ -38,7 +38,7 @@ Constraints found in the code:
 - One declaration and one definition per shared setter and getter; adding a setting touches the mixin and `session_settings`, not three classes.
 - The names do not change (ADR-0092), so the Python declarations in `declarations.pxi` and the keywords of `_apply_client_options` are not expected to change; each class is still declared on its own in Cython.
 - Each class gains a base; callers rebuild, source code is compatible.
-- `client::request(path)` is a new public function; it needs tests for: the base path join, that a later change of the client does not reach an existing request, and that a request outlives its client.
+- `client::make_request(path)` is a new public function; it needs tests for: the base path join, that a later change of the client does not reach an existing request, and that a request outlives its client.
 
 ## How it is built
 
@@ -58,11 +58,11 @@ Constraints found in the code:
 - **`timeout(n <= 0)` on a request** now means the default, as on the sessions (before, the negative number was stored and then treated as the default when the request was made, so nothing visible changes).
 - **The internal helpers** keep their `set_` names.
 - **`download`** was not joined to the mixin. It holds its own `session_settings` and has its own `timeout`, `max_wait` and `max_redirects`.
-- **A naming conflict with Python (not resolved):** Python's `Client.request(method, path, ...)` is the send call (the parity test aliases C++ `send` to it), while C++ `client::request(path)` returns a builder. The names collide; the parity test passes because both map to the same Python name. Either the C++ factory gets another name, or Python's `Client.request` and `AsyncClient.request` become the builder and the send call is renamed. Python has no binding for the factory yet.
+- **The factory is `make_request`, bound in Python** as `Client.make_request(path)` and `AsyncClient.make_request(path)`, which return an `httpp.Request`. `clone()` is bound too, as `Client.clone()` and `AsyncClient.clone()`.
 
 ## Verified
 
-Built on Linux (GCC 13, Release). `tests/cpp/test_client_handle.cpp`: the same rules in all three classes (negative values, `-1`, `proxy` that is no proxy, `auto_compression`, `ca_file`), `client::request(path)` and `async_client::request(path)` (base path join, a path with a query, headers and credentials of the session, a snapshot that does not follow later changes and outlives the session, an IPv6 base URL), and a chain on a temporary `request`. The whole existing C++ suite passes.
+Built on Linux (GCC 13, Release). `tests/cpp/test_client_handle.cpp`: the same rules in all three classes (negative values, `-1`, `proxy` that is no proxy, `auto_compression`, `ca_file`), `client::make_request(path)` and `async_client::make_request(path)` (base path join, a path with a query, headers and credentials of the session, a snapshot that does not follow later changes and outlives the session, an IPv6 base URL), and a chain on a temporary `request`. The whole existing C++ suite passes. Python: `Client.make_request` and `AsyncClient.make_request` are tested in `tests/python/test_client.py`, and the parity test finds the mixin's names on all three classes.
 
 ## Not verified
 

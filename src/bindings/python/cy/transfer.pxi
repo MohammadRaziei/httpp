@@ -468,6 +468,18 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
 
 cdef extern from *:
     """
+    #include <string>
+    #include "httpp/client.hpp"
+    static httpp::async_client* httpp_py_clone_async(const httpp::async_client& c) { return new httpp::async_client(c.clone()); }
+    static httpp::request* httpp_py_async_make_request(const httpp::async_client& c, const std::string& path) {
+        return new httpp::request(c.make_request(path));
+    }
+    """
+    cpp_async_client* py_clone_async "httpp_py_clone_async"(const cpp_async_client& c) except +
+    cpp_curl_request* py_async_make_request "httpp_py_async_make_request"(const cpp_async_client& c, const string& path) except +
+
+cdef extern from *:
+    """
     #include <functional>
     #include "httpp/client.hpp"
     typedef void (*httpp_py_done_fn)(void*, httpp::response*);
@@ -527,6 +539,16 @@ cdef class _AsyncClientCore:
     def __dealloc__(self):
         if self._cli is not NULL:
             del self._cli
+
+    def clone(self):
+        cdef _AsyncClientCore other = _AsyncClientCore.__new__(_AsyncClientCore)
+        other._cli = py_clone_async(self._cli[0])
+        return other
+
+    def make_request(self, str path, *, params=None):
+        cdef Request req = Request.__new__(Request)
+        req._req = py_async_make_request(self._cli[0], _with_params(path, params).encode("utf-8"))
+        return req
 
     def request(self, str method, str path, *, params=None, headers=None, data=None, json=None, form=None,
                 str content_type=None):

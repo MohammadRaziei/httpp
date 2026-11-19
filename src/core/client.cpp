@@ -87,7 +87,7 @@ client client::clone() const {
 
 detail::settings_ref client::settings_() const { return detail::settings_ref(impl_->settings); }
 
-httpp::request client::request(const std::string& path) const {
+httpp::request client::make_request(const std::string& path) const {
     return httpp::request(url(detail::endpoint_url(impl_->where, path)), impl_->settings.snapshot());
 }
 
@@ -319,7 +319,7 @@ async_client async_client::clone() const {
 
 detail::settings_ref async_client::settings_() const { return detail::settings_ref(impl_->settings); }
 
-httpp::request async_client::request(const std::string& path) const {
+httpp::request async_client::make_request(const std::string& path) const {
     return httpp::request(url(detail::endpoint_url(impl_->where, path)), impl_->settings.snapshot());
 }
 

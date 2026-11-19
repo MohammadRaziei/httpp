@@ -108,6 +108,18 @@ class AsyncClient:
             raise ValueError("max_connections must be at least 1")
         self._core = _AsyncClientCore(base_url, max_connections, **client_options)  # validates the URL now
 
+    def clone(self):
+        """A new client to the same base URL with the same settings and max_connections, independent of this
+        one and with its own queue: later changes to either do not reach the other. (`b = a` is the same client.)"""
+        other = AsyncClient.__new__(AsyncClient)
+        other._core = self._core.clone()
+        return other
+
+    def make_request(self, path, *, params=None):
+        """A Request to `path` that starts with this client's headers and settings as they are now (a copy).
+        It runs on its own (run, run_async), not through this client's max_connections."""
+        return self._core.make_request(path, params=params)
+
     async def request(self, method, path, **kwargs):
         return await self._core.request(method, path, **kwargs)
 
