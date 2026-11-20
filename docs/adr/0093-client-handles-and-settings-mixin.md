@@ -1,11 +1,92 @@
-# ADR-0094: one settings mixin for `request`, `client` and `async_client`; `client::make_request(path)`
+# ADR-0093: Client classes: shared handles with `clone()`, and one settings mixin (`configurable`)
+
+- **Status:** implemented (merged ADR; the points marked "Taken by default" in the parts are for the owner to confirm)
+- **Merged on:** 2026-11-20, at the request of the project owner (the ADRs of one subject were spread over many numbers). The text of every part is kept; the old numbers still name the parts below.
+- **Merges:** ADR-0093, ADR-0094
+
+## Current state
+
+Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history, in the order they were decided.
+
+- **`client` and `async_client` are shared handles** like `server` (ADR-0081): a copy is the same session, and `clone()` makes an independent copy (0093). `server::clone()` is reserved, not built.
+- **One settings mixin (CRTP, named `configurable`)** declares the settings once for `request`, `client` and `async_client`, with the same name for the setter and the getter (0094). `session_settings` stays plain data. `download` derives from it too (ADR-0101).
+- **`header` is not in the mixin:** on a session it replaces, on a request it appends, so each class declares its own.
+- **`client::make_request(path)`** takes a snapshot of the session settings (0094).
+- A request has getters too (0094 replaces the line of ADR-0092 that said a builder has none).
+- Names and defaults marked "Taken by default" in the parts are still for the owner to confirm. The naming rules (no `set_`) are ADR-0092.
+
+## Parts
+
+### ADR-0093: `client` and `async_client` are shared handles; `clone()` makes an independent copy
+
+- **Status:** implemented for `client` and `async_client`; the points under "Taken by default" are for the owner to confirm
+- **Decided by:** the project owner, for the handle semantics ("a copy is the same session"); `clone()` was suggested by the owner for both `client` and `server`
+- **Source:** `include/httpp/client.hpp`, `src/core/client.cpp` (`client::impl`, `async_client::impl`), `src/bindings/python/cy/client.pxi`, `docs/adr/0081-server-is-a-shared-handle.md`
+- **Follows:** ADR-0081, ADR-0092
+
+#### Context
+
+Today the session classes do not agree on what a copy means:
+
+| Class | Holds its state as | Copy |
+|---|---|---|
+| `server` | `shared_ptr<impl>` (ADR-0081) | a copy is the same server |
+| `async_client` | `shared_ptr<impl>` (requests in flight keep the state alive) | a copy is the same session |
+| `client` | `unique_ptr<impl>` | deleted; move only |
+| `request` | `unique_ptr<impl>` | deleted; move only |
+
+`client::impl` holds an endpoint and the settings behind a mutex (`guarded_settings`); the code read for this ADR shows no socket or thread of its own (where a `client` keeps its keep-alive connection was not checked). A search of `src`, `include`, `tests` and `examples` found no place that stores a `client` as a member, captures it in a lambda, or chains setters on a temporary one.
+
+Reading the header, `auto c = httpp::client("https://api.example.com").bearer(token);` does not compile: `bearer` returns `client&`, and `auto` has to copy it. This is the same failure ADR-0081 describes for `server`. Python's `Client` and `AsyncClient` are reference types: `b = a` is the same object.
+
+#### Decision
+
+1. **`client` becomes a copyable handle** that shares its state (`shared_ptr<impl>`), like `async_client` and `server`. A copy is the same session: the same base URL, the same settings, the same mutex.
+2. **`client::clone()` and `async_client::clone()`** return a new, independent session with the same base URL and a copy of the current settings. For `async_client`, the queue and the in-flight count start empty and `max_connections` is copied. A copy made by `clone()` and its source never see each other's later changes.
+3. **`server::clone()` is not built now.** Its name and meaning are reserved: it copies the configuration (routes, mounts, settings) of a server that is not listening, never its sockets or threads. Handlers are copied as `std::function` values, so what a handler captured stays shared. A clone needs its own engine config (the sender side holds a `weak_ptr` to the config of the server it came from), which needs reading `server.cpp` first.
+4. **`request` stays move-only.** It is a one-shot builder.
+5. **`client::make_request(path)` takes a snapshot** of the settings when it is called (see ADR-0094); later changes to the client do not reach a request that already exists.
+
+#### Rejected alternatives
+
+- **Keep `unique_ptr` and add `&&` overloads that return a value.** It fixes chaining on a temporary, and it is smaller. It leaves `client` the only session class that is not a handle, and Python's `Client` is a reference type already.
+- **A value type (a copy is an independent session).** It is possible, since a `client` owns no resource of its own, but it would make `client` the one class where copy means "independent", while `async_client`, `server` and Python mean "the same". `clone()` gives the independent copy explicitly.
+- **No `clone()`.** Then the common case "a client like this one with another token" has no safe spelling.
+
+#### Consequences
+
+- `auto admin = base; admin.bearer(admin_token);` changes `base` as well. This is the intended meaning of a handle and must be documented in the header; the independent copy is `auto admin = base.clone();`.
+- Concurrent setter calls on a shared `client` are serialized by the mutex it already has. `async_client` keeps its rule "configure before the first request"; it has no mutex today, and this ADR does not change that (see ADR-0094).
+- The type of `client` changes (`unique_ptr<impl>` to `shared_ptr<impl>`), so callers rebuild; source code is compatible. The Cython `Client` holds a heap `cpp_client*` and is not expected to change.
+- `server::clone()` stays unbuilt until a real use case appears; a name that is reserved but not built costs nothing.
+
+#### Taken by default while implementing (owner to confirm)
+
+- The name is `clone()` (the alternative named in discussion was `fork()`).
+- `server::clone()` is not built. Its name and meaning stay reserved (see decision 3).
+- A moved-from `client` has no session, as a moved-from `server` has none (ADR-0081): it may only be assigned to or destroyed.
+- `async_client::make_request(path)` makes a request that runs on its own (`run`, `run_async`); it does not go through that session's `max_connections` queue.
+
+#### Verified
+
+Built on Linux (GCC 13, Release) and run: `tests/cpp/test_client_handle.cpp` (a copy is the same session and `clone()` is independent, for both classes; a chain on a temporary `client` keeps the session; a clone keeps the base URL, headers and credentials), and the whole existing C++ suite, which passes. Python: `Client.clone()` and `AsyncClient.clone()` are bound (`src/bindings/python/cy/client.pxi`, `transfer.pxi`, `httpp/_http.py`) and tested in `tests/python/test_client.py`.
+
+#### Not verified
+
+Windows and macOS. A listening `server` was not cloned (not built).
+
+#### Related
+
+ADR-0081, ADR-0092, ADR-0094
+
+### ADR-0094: one settings mixin for `request`, `client` and `async_client`; `client::make_request(path)`
 
 - **Status:** implemented; the points under "Taken by default" are for the owner to confirm
 - **Decided by:** the project owner for: one shared declaration of the settings, no `set_` prefix and the same name for the getter (ADR-0092), the factory named `request`, setters and getters with no extra types in the way (`session_settings` stays plain data)
 - **Source:** `include/httpp/client.hpp`, `src/core/client.cpp`, `src/core/download.cpp`, `src/core/internal/http_exchange.hpp`, `CMakeLists.txt` (C++17), `src/bindings/python/cy/client.pxi`
 - **Follows:** ADR-0092, ADR-0093
 
-## Context
+#### Context
 
 The settings are already **one type** in the implementation: `detail::session_settings` is held by `client::impl` (behind `guarded_settings`, a mutex), by `async_client::impl` (no mutex; the comment says "configure before the first request"), by `request::impl`, and, for a moment, by `download.cpp` (which built a fresh one from two numbers for each step; it was not held by the class, see ADR-0101). They are **not one thing in the public header**: `include/httpp/client.hpp` declares the same settings three times (about 50 declarations: 20 in `client`, 11 in `request`, 18 in `async_client`, counted from the header) and `src/core/client.cpp` forwards each of them by hand. The small rules sit inside those forwarders and are repeated: `timeout(n)` with `n <= 0` means the default, `max_redirects(n)` also sets `follow` and refuses a negative number other than -1, `basic_auth` and `bearer` write several fields, `header` replaces a same-name header.
 
@@ -16,7 +97,7 @@ Constraints found in the code:
 - `session_settings` is internal (`src/core/internal/`); the public header cannot name its fields.
 - ADR-0092 says `request` is a builder with **no getters**, and that `header`, `basic_auth`, `bearer` and `proxy` have none on the sessions either.
 
-## Decision
+#### Decision
 
 1. **A public class template (CRTP), working name `configurable<Self>`**, declares each shared setter once, and the getter where ADR-0092 has one. `client`, `async_client` and `request` derive from it, so each writes `class client : public configurable<client>`. The name is not final (see "Still open").
 2. **The mixin has no state.** Each derived class says how to read and how to update its `session_settings`. Ownership (a handle for `client` and `async_client`, a plain member for `request`) and locking (the mutex of `client`) stay in the class and are not the mixin's business.
@@ -25,7 +106,7 @@ Constraints found in the code:
 5. **Settings that are not shared stay where they are:** `keep_alive` on `client` only, `max_response_size`, `on_body`, `on_head`, `cookie` and the rest of the request data on `request` only.
 6. **The factory.** `client::make_request(path)` and `async_client::make_request(path)` return a `request` that starts with the base URL joined to `path` (the rule of `client::get`) and a **snapshot** of the settings taken at that moment. The name is `make_request`. It is not `request`: Python's `Client.request(method, path, ...)` is already the send call (C++ `send`), so a C++ `request(path)` that returns a builder would mean something else under the same name in the other language, and the project keeps the names of the two languages the same. It is not `build` or `prepare` either, which do not say what comes out. (Decided by the implementer, the owner having left the naming open.) The standalone `httpp::request(url)` keeps working unchanged. Inside `class client` the name `request` refers to the member function, so the header writes `httpp::request` in full where it means the class (it already does).
 
-## Rejected alternatives
+#### Rejected alternatives
 
 - **A non-template base for the three classes.** Chaining stops (see Context).
 - **Only the `impl` structs inherit a common base** (suggested by the owner). It puts the rules in one place, and it is compatible with this decision (point 4 can be done that way), but it does not remove the roughly 50 declarations in the public header, which was the main cost.
@@ -33,14 +114,14 @@ Constraints found in the code:
 - **`request` takes a `client&`.** A request can still be in `run_async` after the client is gone, so a reference can dangle; a copy of the settings is the same as the factory.
 - **Making the settings a public struct** that each class holds as a member. It removes the mixin, and every class would again write its own forwarding setters for the chain.
 
-## Consequences
+#### Consequences
 
 - One declaration and one definition per shared setter and getter; adding a setting touches the mixin and `session_settings`, not three classes.
 - The names do not change (ADR-0092), so the Python declarations in `declarations.pxi` and the keywords of `_apply_client_options` are not expected to change; each class is still declared on its own in Cython.
 - Each class gains a base; callers rebuild, source code is compatible.
 - `client::make_request(path)` is a new public function; it needs tests for: the base path join, that a later change of the client does not reach an existing request, and that a request outlives its client.
 
-## How it is built
+#### How it is built
 
 - `configurable<Self>` (public, `include/httpp/client.hpp`) declares the ten shared settings once: `timeout`, `connect_timeout`, `max_time`, `max_redirects`, `auto_compression`, `basic_auth`, `bearer`, `proxy`, `verify`, `ca_file`. Each setter has the `&` and the `&&` form; the getters are the same name with no argument.
 - Its inline code calls `detail::settings_ref`, an exported non-template view of a class's settings, where each setting and its rule are written once (`src/core/client.cpp`). The template cannot reach `session_settings` (internal), and exporting a class template would be fragile on MSVC, so the view is plain.
@@ -48,7 +129,7 @@ Constraints found in the code:
 - `session_settings` stays a plain struct. The rules that were repeated in the forwarders are members of it, with the `set_` prefix (`set_timeout`, `set_connect_timeout`, `set_max_time`, `set_max_redirects`, `set_proxy`, next to `set_basic`, `set_bearer`, `set_default_header`), because the fields carry the plain names.
 - `request` also got the `&&` form on its own setters (`method`, `header`, `param`, `data`, `json`, `form`, `content_type`, `cookie`, `max_response_size`, `on_body`, `on_head`), so a chain on a temporary is a `request` all the way: `auto r = httpp::request(url).json(body).timeout(5);`.
 
-## Taken by default while implementing (owner to confirm)
+#### Taken by default while implementing (owner to confirm)
 
 - **The name is `configurable`.** Candidates were `with_options` and `configurable_client`. It is one rename in `client.hpp` and the three `friend` lines.
 - **`request` has the getters too** (`r.timeout()`). That replaces one line of ADR-0092 ("`request` is a builder and has no getters"); one declaration serves the three classes, and a getter on a builder does no harm.
@@ -60,14 +141,14 @@ Constraints found in the code:
 - **`download`** was not joined to the mixin here. (The first version of this line said it "holds its own `session_settings`"; it did not: it kept `max_redirects_` and `timeout_seconds_` and built a `session_settings` from them for each step, which is why it had no credentials, proxy or TLS settings at all.) Done in ADR-0101.
 - **The factory is `make_request`, bound in Python** as `Client.make_request(path)` and `AsyncClient.make_request(path)`, which return an `httpp.Request`. `clone()` is bound too, as `Client.clone()` and `AsyncClient.clone()`.
 
-## Verified
+#### Verified
 
 Built on Linux (GCC 13, Release). `tests/cpp/test_client_handle.cpp`: the same rules in all three classes (negative values, `-1`, `proxy` that is no proxy, `auto_compression`, `ca_file`), `client::make_request(path)` and `async_client::make_request(path)` (base path join, a path with a query, headers and credentials of the session, a snapshot that does not follow later changes and outlives the session, an IPv6 base URL), and a chain on a temporary `request`. The whole existing C++ suite passes. Python: `Client.make_request` and `AsyncClient.make_request` are tested in `tests/python/test_client.py`, and the parity test finds the mixin's names on all three classes.
 
-## Not verified
+#### Not verified
 
 Windows and macOS (`HTTPP_API` on the private hook and on the view are the parts that matter there). That `request(path)` is free of races when the client is changed from another thread was not stress-tested; it takes a snapshot under the lock.
 
-## Related
+#### Related
 
 ADR-0081, ADR-0089, ADR-0092, ADR-0093, ADR-0095

@@ -4,6 +4,10 @@ Each file records one architectural decision with its **context, decision, rejec
 `docs/Architecture.md`, `handoff.md` and the real code; wherever something is not run or verified yet, the ADR says so.
 Things that CI runs and passes are written as facts; skipped tests are listed in ADR-0015.
 
+Several subjects were decided in many small steps and had spread over many numbers. They are now **merged ADRs**: one file per subject, with a
+"Current state" summary on top and the original ADRs kept, in order, as its parts. Old numbers still work: code comments, the handoff and the
+changelog that say "ADR-0057" mean the part with that number inside the merged file (see "Merged ADRs" at the end).
+
 | ADR | Decision | Status |
 |---|---|---|
 | [0001](0001-own-both-layers.md) | httpp owns both layers (replacing FastAPI/Starlette and uvicorn) | accepted |
@@ -16,14 +20,13 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0008](0008-swagger-ui-compiled-in.md) | Swagger UI compiled into the library | accepted |
 | [0009](0009-hot-path.md) | Hot path: dispatch on the I/O thread, one timer, an indexed router | accepted |
 | [0010](0010-mbedtls-threading.md) | Mbed TLS thread safety | accepted |
-| [0011](0011-logging.md) | Request and bind-address logs in C++; defaults | accepted |
+| [0011](0011-logging.md) | Logging: one public module, one level type, one logger for the library, a bridge to Python | accepted (merged: 0011, 0018, 0050, 0056, 0057, 0075, 0080, 0085, 0090, 0091) |
 | [0012](0012-run-wins-over-listen.md) | `httpp run` wins over a `listen` inside the file | accepted |
 | [0013](0013-packaging.md) | `cp39-abi3` + a separate wheel per free-threaded version | accepted |
 | [0014](0014-coding-conventions.md) | STL-style `snake_case`, ponytail style, English only, no em dash | accepted |
 | [0015](0015-testing-and-ci.md) | What is tested where; the list of skips | accepted |
 | [0016](0016-hybrid-api-parity.md) | Hybrid C++/Python API parity: inventory of differences | partly superseded by 0017 |
 | [0017](0017-python-binding-policy.md) | Python binding policy: speed decides, only public headers, only what is necessary | accepted |
-| [0018](0018-python-logging-bridge.md) | The C++ log goes through Python `logging`; the logger controls the C++ level | accepted |
 | [0019](0019-vendored-deflate-inflate.md) | gzip and deflate on vendored stb code, no system zlib | accepted |
 | [0020](0020-http-exception-and-response-classes.md) | HTTPException and response classes (Starlette names, native) | accepted |
 | [0021](0021-pool-thread-state-and-two-core-numbers.md) | Pool threads keep their Python thread state; first two-core numbers incl. FastAPI | accepted |
@@ -55,17 +58,14 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0047](0047-one-mime-table-and-exchange-leak.md) | One MIME table for the C++ and Python servers, and the exchange leak of `async_http` | accepted |
 | [0048](0048-websocket-on-routers-and-dependencies.md) | WebSocket routes on routers, and dependencies on WebSocket routes | accepted |
 | [0049](0049-split-the-cython-module-into-pxi-files.md) | Split the Cython module into `.pxi` files | accepted |
-| [0050](0050-own-logging-module-replaces-aixlog.md) | An internal logging module (ported from libstb) replaces AixLog | accepted |
 | [0051](0051-sync-client-on-the-async-engine.md) | The blocking client runs on the async engine and one shared policy layer | accepted |
 | [0052](0052-downloads-stream-through-a-body-sink.md) | Downloads stream through a body sink on their own engine | accepted |
 | [0053](0053-cpp-httplib-removed.md) | cpp-httplib is removed | accepted |
-| [0054](0054-own-file-system-module.md) | An own file system module, `httpp::fs`, replaces std::filesystem | accepted |
-| [0055](0055-httpp-path-class.md) | `httpp::path`, a pathlib-shaped public path type | accepted |
-| [0056](0056-operating-system-log-handlers.md) | The operating system log handlers of libstb, behind `set_log_system` | accepted |
-| [0057](0057-public-logging-module.md) | The logging module is public: `httpp/logging.hpp` | accepted, amends 0050 |
-| [0058](0058-fs-merged-into-path.md) | The file system module is merged into `httpp::path` | accepted, amends 0054 and 0055 |
+| [0054](0054-path-and-file-system.md) | Paths and the file system: no `std::filesystem`, one public `httpp::path` | accepted (merged: 0054, 0055, 0058) |
 | [0059](0059-free-threaded-pool-starts-at-two.md) | The worker pool of a free-threaded Python starts at two threads | accepted, amends 0025 |
+| [0060](0060-docs-site.md) | A documentation site with one page per concept and a Python/C++ code switch | proposed (seven pages; waiting for the first CI run and the owner's review) |
 | [0061](0061-server-gzip-defaults.md) | Server gzip stays off by default, level 1, and its cost is documented | accepted |
+| [0062](0062-request-names-match-python.md) | The C++ request names match Python's: `httpp::request` is the client builder, `httpp::server_request` is the handler's request | accepted (rename done and checked on Linux, see Consequences) |
 | [0063](0063-benchmark-json-and-docs-page.md) | The benchmark suite writes JSON; the docs site draws the charts | proposed |
 | [0064](0064-docs-site-on-github-pages.md) | The docs site is published to GitHub Pages | proposed |
 | [0065](0065-file-browser-builder.md) | The file browser is a builder class with enums | accepted, amends 0032 |
@@ -78,20 +78,49 @@ Things that CI runs and passes are written as facts; skipped tests are listed in
 | [0072](0072-httpp-url-is-liburlparser-url.md) | `httpp::url` is `urlparser::url` (liburlparser 2.3.0, shared); `url_*` policy functions; `fetch_public_suffix_list` | accepted |
 | [0073](0073-file-times-off-hidden-default-and-banner.md) | File times can be switched off (`show_dates`, `--no-dates`), `httpp server` hides dot names (`--hidden`), and the two commands print a small banner on a terminal | accepted |
 | [0074](0074-callback-handler-can-run-unserialized.md) | `callback_handler(fn, serialized = false)` calls `fn` without the handler's lock, so a callback that waits for the Python GIL cannot deadlock | accepted |
-| [0075](0075-one-logging-header.md) | `httpp/log.hpp` is merged into `httpp/logging.hpp` (one logging header and source) | accepted |
 | [0076](0076-https-for-httpp-server-and-browse.md) | `httpp server` and `httpp browse` serve HTTPS with `--ssl-certfile`, `--ssl-keyfile` and `--ssl-keyfile-password`, the names `httpp run` has | accepted |
-| [0077](0077-curl-flags-and-curl-hpp-retired.md) | `httpp curl` gets `-i -I -v -L -m -u` and prints the body byte for byte; `httpp/curl.hpp` and `httpp::curl::request` are retired in favour of `httpp::request` | accepted |
+| [0077](0077-curl-command.md) | `httpp curl`: a curl-compatible command that only calls `httpp::request` | accepted (merged: 0077, 0083, 0084, 0098) |
 | [0078](0078-the-cli-calls-the-library.md) | The `httpp` commands only call the library: `mount` returns the `server&`, and `bind`, `url`, `listen_until_signal`, `set_log_level(name)` and `banner()` are library API | accepted |
-| [0079](0079-request-max-redirects-and-connect-timeout.md) | `httpp::request` gets `max_redirects(n)` and `connect_timeout(seconds)` (C++, Python, `httpp curl`); no `user_agent()`/`referer()`, `header()` covers them | accepted (`max_redirects(0)` now means follow none, ADR-0089) |
-| [0080](0080-bridge-any-cpp-logger-tree-into-python-logging.md) | `httpp.bridge_logger(name)` sends a C++ logger tree (`libspeech`, `libspeech.dsp.stft`, ...) into Python's `logging` under the same names, the Python levels deciding the C++ levels | accepted |
+| [0079](0079-request-redirects-timeout-compression.md) | `httpp::request`: `max_redirects` is the one redirect setting, plus `connect_timeout` and `auto_compression` | accepted (merged: 0079, 0089) |
 | [0081](0081-server-is-a-shared-handle.md) | `server` is a copyable handle that shares its state; `mount` takes and returns it by value; `server_stopper` breaks handler cycles | accepted |
 | [0082](0082-swagger-takes-its-openapi-url-and-its-base.md) | `swagger(openapi_url)` replaces `swagger_ui` + `set_docs_path` + `set_openapi_url`; the base is the argument of `mount` | accepted |
-| [0083](0083-curl-exit-codes-and-curl-compat-retired.md) | `httpp curl` follows curl on errors (`-f`, exit codes 3/7/22/28/35/47/63, a 404 is exit 0) and repeated `-d`; `httpp/curl_compat.h` is retired | accepted |
-| [0084](0084-curl-the-rest-of-the-everyday-flags.md) | `httpp curl` gets `-s -S -w -O -T -D -d @file --compressed --retry` and several URLs; the docs get a page for it and use `httpp curl` in their examples | accepted |
-| [0085](0085-one-log-level-type.md) | `httpp::logging::level` is the only level type (gains `off`); `log_level` is removed; `set_log_level(name)` uses `level_from_string` | accepted |
 | [0086](0086-httpp-utils-base-library.md) | `httpp_utils`: a shared base library (logging, path, sformat, progress) below `httpp_core`; one logger registry per process; two export macros; core file is `libhttpp` | accepted |
 | [0087](0087-openapi-document-writer-in-cpp.md) | `httpp::openapi::document` writes OpenAPI JSON in C++ (no parser, no route reading); Python assembles its document through it as `httpp.openapi.Document` | accepted |
 | [0088](0088-swagger-header-name-and-mountable-base.md) | `swagger_ui.hpp` becomes `swagger.hpp`; `directory`, `file_browser` and `swagger` derive from `httpp::mountable` (one virtual `mount`) | accepted |
+| [0092](0092-settings-names.md) | Setting names: no `set_` prefix, the same names in C++ and Python, keywords as setter names | accepted / implemented (merged: 0092, 0096, 0100, 0103) |
+| [0093](0093-client-handles-and-settings-mixin.md) | Client classes: shared handles with `clone()`, and one settings mixin (`configurable`) | implemented, names to confirm (merged: 0093, 0094) |
+| [0095](0095-limit-and-unlimited-for-no-limit-settings.md) | a named "no limit" (`httpp::unlimited`) for `max_redirects`, `max_time` and `max_response_size`; the type and the Python spelling are open | proposed |
+| [0097](0097-response-reports-elapsed-time-and-bytes-received.md) | `response::elapsed_ms` and `response::bytes_received` come from the library, so `httpp curl` keeps no clock or byte counter of its own | implemented (C++) |
+| [0099](0099-retry-in-the-library.md) | `retry`, `retry_delay`, `retry_connrefused` (all three client classes) and `request::on_retry`: sending again after a timeout or a 5xx is the library's job, `httpp curl --retry` only passes the flags | implemented (C++) |
+| [0101](0101-download-takes-the-client-settings.md) | download derives from `configurable`: credentials, proxy, TLS, `connect_timeout`, `max_time` as in client and request; move-only; `auto_compression` and `retry*` deleted on it | implemented |
+| [0102](0102-save-the-body-to-a-file-from-request.md) | `request::save_to`, `save_in`, `create_dirs`, `overwrite`, `include_head`, `response::saved_as`, `error_kind::file`: writing the answer to a file is the library's job, `httpp curl -o` only passes the flags | implemented (C++) |
+| [0104](0104-retry-on-a-download-places-a-206-by-its-content-range.md) | `retry` works on `download`: a 206 is written where its Content-Range says it starts, so a retried or resumed body is never written twice | implemented (C++) |
+
+## Merged ADRs
+
+The numbers below no longer have a file of their own. Look them up here; the text of each is kept as a part of the merged ADR.
+
+| Old number | Is now a part of |
+|---|---|
+| 0018 | [0011](0011-logging.md) |
+| 0050 | [0011](0011-logging.md) |
+| 0055 | [0054](0054-path-and-file-system.md) |
+| 0056 | [0011](0011-logging.md) |
+| 0057 | [0011](0011-logging.md) |
+| 0058 | [0054](0054-path-and-file-system.md) |
+| 0075 | [0011](0011-logging.md) |
+| 0080 | [0011](0011-logging.md) |
+| 0083 | [0077](0077-curl-command.md) |
+| 0084 | [0077](0077-curl-command.md) |
+| 0085 | [0011](0011-logging.md) |
+| 0089 | [0079](0079-request-redirects-timeout-compression.md) |
+| 0090 | [0011](0011-logging.md) |
+| 0091 | [0011](0011-logging.md) |
+| 0094 | [0093](0093-client-handles-and-settings-mixin.md) |
+| 0096 | [0092](0092-settings-names.md) |
+| 0098 | [0077](0077-curl-command.md) |
+| 0100 | [0092](0092-settings-names.md) |
+| 0103 | [0092](0092-settings-names.md) |
 
 ## Not decided yet
 
@@ -101,21 +130,17 @@ removing the hop for `async def` handlers that await (see ADR-0023), WebSocket b
 
 ## Writing a new ADR
 
-File name `NNNN-short-english-title.md`. Sections: status, context, decision, rejected alternatives, consequences (including what is **not** verified), related.
+File name `NNNN-short-english-title.md`; the next free number is the highest number in the table plus one (the numbers of merged ADRs are never reused).
+Sections: status, context, decision, rejected alternatives, consequences (including what is **not** verified), related.
+Add the row to the table above in number order.
 Do not edit an accepted ADR; when a decision changes, write a new ADR and mark the old one "superseded by ADR-NNNN".
-| [0089](0089-follow-redirects-takes-the-limit-and-auto-compression.md) | `request::max_redirects(n)` is the one redirect setting (0 = follow none) and replaces `follow_redirects`; `request::auto_compression(bool)` switches Accept-Encoding and decoding off | accepted |
-| [0090](0090-stream-logging-and-inline-level-check.md) | `HTTPP_LOG` (streams) and `HTTPP_LOGF` (printf) skip their arguments when the level is disabled; `logger::enabled()` is an inline cached check; ABI 2 | accepted |
-| [0091](0091-one-level-for-the-library-log.md) | the library's own log is the logger `"httpp"`: its level is the logger's level, the internal macro is an alias of the public one; ABI 3 | accepted |
-| [0092](0092-client-settings-without-set-and-getters.md) | client-side settings (`request`, `client`, `async_client`, `download`) have no `set_` prefix; the same name with no argument reads the value; redirects are `max_redirects(int)` everywhere | accepted |
-| [0093](0093-client-and-async-client-are-shared-handles-with-clone.md) | `client` becomes a shared handle like `async_client` and `server`; `clone()` makes an independent copy; `server::clone()` is reserved, not built | implemented (names to confirm) |
-| [0094](0094-one-settings-mixin-for-the-client-family.md) | one stateless settings mixin (CRTP) for `request`, `client` and `async_client`; `session_settings` stays plain data; `client::make_request(path)` takes a snapshot of the settings | implemented (names to confirm) |
-| [0095](0095-limit-and-unlimited-for-no-limit-settings.md) | a named "no limit" (`httpp::unlimited`) for `max_redirects`, `max_time` and `max_response_size`; the type and the Python spelling are open | proposed |
-| [0096](0096-server-side-settings-without-set.md) | server, directory, file_browser, swagger, cookie, the middleware and websocket drop `set_` too; `set_view`/`set_sort`/`set_same_site` become `layout`/`sort_by`/`same_site_policy` | accepted |
-| [0097](0097-response-reports-elapsed-time-and-bytes-received.md) | `response::elapsed_ms` and `response::bytes_received` come from the library, so `httpp curl` keeps no clock or byte counter of its own | implemented (C++) |
-| [0098](0098-curl-https-trust-output-folders-json-and-fail-with-body.md) | `httpp curl` gets `-k`, `--cacert`, `-J`, `--output-dir`, `--create-dirs`, `--json` and `--fail-with-body`; `path::mkdirs`, `url_filename` and `response::filename` live in the library | accepted |
-| [0099](0099-retry-in-the-library.md) | `retry`, `retry_delay`, `retry_connrefused` (all three client classes) and `request::on_retry`: sending again after a timeout or a 5xx is the library's job, `httpp curl --retry` only passes the flags | implemented (C++) |
-| [0100](0100-the-same-names-in-c-plus-plus-and-python.md) | one name in C++ and Python where there is no language reason for two: `finished`, `before_request` and `after_request`, `websocket_routes`, `send` (Python `request` deprecated); the rest of the differences are listed with their reasons | implemented (names to confirm) |
-| [0101](0101-download-takes-the-client-settings.md) | download derives from `configurable`: credentials, proxy, TLS, `connect_timeout`, `max_time` as in client and request; move-only; `auto_compression` and `retry*` deleted on it | implemented |
-| [0102](0102-save-the-body-to-a-file-from-request.md) | `request::save_to`, `save_in`, `create_dirs`, `overwrite`, `include_head`, `response::saved_as`, `error_kind::file`: writing the answer to a file is the library's job, `httpp curl -o` only passes the flags | implemented (C++) |
-| [0103](0103-python-keywords-are-setter-names-no-module-level-helpers.md) | Python constructors (`Request`, `Download`, `Client`, `AsyncClient`) take the settings as keywords with the names of the setters; `token`/`auth` are `bearer`/`basic_auth`, `follow_redirects` is gone, and the module-level `httpp.get(...)` helpers are removed | implemented (names to confirm) |
-| [0104](0104-retry-on-a-download-places-a-206-by-its-content-range.md) | `retry` works on `download`: a 206 is written where its Content-Range says it starts, so a retried or resumed body is never written twice | implemented (C++) |
+
+## Merging ADRs
+
+When one subject has grown over several ADRs that amend or supersede each other, merge them (the project owner asked for this on 2026-11-20):
+
+- The merged file keeps the lowest number of its parts and gets a name for the subject. It starts with a "Current state" summary, then holds every part unchanged
+  (own heading `### ADR-NNNN: title`, its headings moved two levels down), in number order.
+- The other numbers are added to the "Merged ADRs" table and their files are deleted. Links to the old file names are changed to the merged file; the plain
+  text "ADR-NNNN" elsewhere is left alone and stays valid through the table.
+- Never renumber and never reuse a number.

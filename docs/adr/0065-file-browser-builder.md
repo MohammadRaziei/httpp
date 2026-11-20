@@ -1,4 +1,4 @@
-# ADR-0067: The file browser is a builder class with enums
+# ADR-0065: The file browser is a builder class with enums
 
 - **Status:** accepted; amends ADR-0032
 - **Decided by:** the project owner ("this is not principled: it should be OOP, `file_browser(...).set_...().mount()`, and the view must be an enum"); the details are Claude's
