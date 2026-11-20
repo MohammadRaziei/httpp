@@ -18,7 +18,7 @@ UTEST(httpp_progressbar, bar_tracks_current_and_total) {
     ASSERT_EQ(std::size_t(9), b.current());
 
     b.finish();
-    ASSERT_TRUE(b.is_finished());
+    ASSERT_TRUE(b.finished());
     ASSERT_EQ(std::size_t(10), b.current());
 }
 

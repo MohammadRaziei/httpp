@@ -40,7 +40,7 @@ The first hook runs before the route. It can answer the request itself, and then
 
 | | Python | C++ |
 |---|---|---|
-| Before the route | `@app.before_request`, return a response to answer | `app.before(fn)`, return `true` to answer |
-| After the route | `@app.after_request` | `app.after(fn)` |
+| Before the route | `@app.before_request`, return a response to answer | `app.before_request(fn)`, return `true` to answer |
+| After the route | `@app.after_request` | `app.after_request(fn)` |
 | Shape the server's own errors (404, 405) | `@app.error_handler(404)` | `app.error_handler(fn)` |
 | A route threw | `@app.exception_handler(ValueError)` | `app.exception_handler(fn)` |

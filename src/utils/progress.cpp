@@ -57,6 +57,6 @@ void bar::finish() {
 
 std::size_t bar::total() const { return impl_->total; }
 std::size_t bar::current() const { return impl_->current; }
-bool bar::is_finished() const { return impl_->finished; }
+bool bar::finished() const { return impl_->finished; }
 
 } // namespace httpp::progress

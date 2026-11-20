@@ -66,7 +66,7 @@ public:
     // Every route, paths relative to this router (the router's own prefix is not part of them).
     HTTPP_API const std::vector<entry>& routes() const;
     // Every WebSocket route, paths relative to this router.
-    HTTPP_API const std::vector<ws_entry>& ws_routes() const;
+    HTTPP_API const std::vector<ws_entry>& websocket_routes() const;
 
 private:
     std::string prefix_;

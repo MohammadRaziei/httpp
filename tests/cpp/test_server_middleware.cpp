@@ -74,9 +74,9 @@ UTEST(httpp_middleware_use, after_hooks_all_run_and_the_applications_own_hooks_s
     local_server srv([](httpp::server& s) {
         ok_route(s);
         s.use({}, [](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-One", "1"); });
-        s.after([](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-App", "1"); });
+        s.after_request([](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-App", "1"); });
         s.use({}, [](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-Two", "1"); });
-        s.before([](const httpp::server_request& r, httpp::response& res) {
+        s.before_request([](const httpp::server_request& r, httpp::response& res) {
             if (r.query_param("stop") == "1") { res.status = 403; return true; }
             return false;
         });

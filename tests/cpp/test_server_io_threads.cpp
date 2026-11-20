@@ -126,7 +126,7 @@ UTEST(httpp_server_io_threads, the_after_hook_and_an_unanswered_route_work_with_
     local_server srv([&](httpp::server& s) {
         s.io_threads(3);
         s.async_timeout(1);
-        s.after([&](const httpp::server_request&, httpp::response&) { ++after_calls; });
+        s.after_request([&](const httpp::server_request&, httpp::response&) { ++after_calls; });
         s.route_io("GET", "/ok", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "ok"); });
         s.route_io("GET", "/never", [](std::shared_ptr<const httpp::server_request>, httpp::responder) { /* kept by nobody */ });
     });

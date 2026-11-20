@@ -30,7 +30,7 @@ public:
 
     HTTPP_UTILS_API std::size_t total() const;
     HTTPP_UTILS_API std::size_t current() const;
-    HTTPP_UTILS_API bool is_finished() const;
+    HTTPP_UTILS_API bool finished() const;
 
 private:
     struct impl;

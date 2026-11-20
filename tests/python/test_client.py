@@ -317,6 +317,24 @@ def test_async_client_clone_and_make_request():
     assert direct == via_request == via_clone == expected
 
 
+def test_send_is_the_name_of_the_send_call_and_request_is_a_deprecated_alias():
+    """ADR-0096: the name is the same as in C++ (httpp::client::send); `request` stays for now and warns."""
+    with running(echo_app()) as url:
+        c = Client(url)
+        assert c.send("POST", "/echo", json={"a": 1}).json()["method"] == "POST"
+        with pytest.warns(DeprecationWarning, match="Client.request"):
+            assert c.request("GET", "/echo").json()["method"] == "GET"
+
+        async def main():
+            a = httpp.AsyncClient(url)
+            sent = await a.send("PUT", "/echo", data="x")
+            with pytest.warns(DeprecationWarning, match="AsyncClient.request"):
+                old = await a.request("GET", "/echo")
+            return sent.json()["method"], old.json()["method"]
+
+        assert asyncio.run(main()) == ("PUT", "GET")
+
+
 # ---- TLS, against a real server (the openssl command-line tool) ----------------
 
 needs_openssl = pytest.mark.skipif(

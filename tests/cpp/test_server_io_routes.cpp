@@ -112,7 +112,7 @@ UTEST(httpp_server_io, a_before_hook_still_runs_first_and_can_answer_in_front_of
     std::atomic<int> before_calls{0};
     local_server srv([&](httpp::server& s) {
         s.route_io("GET", "/io", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "io"); });
-        s.before([&](const httpp::server_request& req, httpp::response& res) {
+        s.before_request([&](const httpp::server_request& req, httpp::response& res) {
             before_calls++;
             if (req.query_param("deny") == "1") {
                 res.status = 403;
@@ -133,7 +133,7 @@ UTEST(httpp_server_io, the_after_and_error_hooks_see_io_routes_and_the_404_of_an
     std::atomic<int> after_calls{0};
     local_server srv([&](httpp::server& s) {
         s.route_io("GET", "/io", [](std::shared_ptr<const httpp::server_request>, httpp::responder r) { answer(r, 200, "io"); });
-        s.after([&](const httpp::server_request&, httpp::response& res) {
+        s.after_request([&](const httpp::server_request&, httpp::response& res) {
             after_calls++;
             res.headers.emplace_back("X-After", "1");
         });
@@ -164,7 +164,7 @@ UTEST(httpp_server_io, a_late_answer_through_the_after_hook_survives_the_server_
                 answer(r, 200, "late");
             });
         });
-        srv->after([](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-After", "1"); });
+        srv->after_request([](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-After", "1"); });
         const int port = srv->bind_to_any_port("127.0.0.1");
         std::thread th([&] { srv->listen_after_bind(); });
         std::this_thread::sleep_for(std::chrono::milliseconds(20));

@@ -5,6 +5,7 @@ API too (httpp::request, httpp::client, httpp::async_client).
 """
 
 import asyncio
+import warnings
 
 from .httpp_python import Client, Request, _AsyncClientCore
 
@@ -120,29 +121,34 @@ class AsyncClient:
         It runs on its own (run, run_async), not through this client's max_connections."""
         return self._core.make_request(path, params=params)
 
+    async def send(self, method, path, **kwargs):
+        return await self._core.send(method, path, **kwargs)
+
     async def request(self, method, path, **kwargs):
-        return await self._core.request(method, path, **kwargs)
+        """Deprecated: the name is send(), as in C++ (ADR-0096)."""
+        warnings.warn("AsyncClient.request() is deprecated, use AsyncClient.send()", DeprecationWarning, stacklevel=2)
+        return await self.send(method, path, **kwargs)
 
     async def get(self, path, **kwargs):
-        return await self.request("GET", path, **kwargs)
+        return await self.send("GET", path, **kwargs)
 
     async def head(self, path, **kwargs):
-        return await self.request("HEAD", path, **kwargs)
+        return await self.send("HEAD", path, **kwargs)
 
     async def options(self, path, **kwargs):
-        return await self.request("OPTIONS", path, **kwargs)
+        return await self.send("OPTIONS", path, **kwargs)
 
     async def post(self, path, **kwargs):
-        return await self.request("POST", path, **kwargs)
+        return await self.send("POST", path, **kwargs)
 
     async def put(self, path, **kwargs):
-        return await self.request("PUT", path, **kwargs)
+        return await self.send("PUT", path, **kwargs)
 
     async def patch(self, path, **kwargs):
-        return await self.request("PATCH", path, **kwargs)
+        return await self.send("PATCH", path, **kwargs)
 
     async def delete(self, path, **kwargs):
-        return await self.request("DELETE", path, **kwargs)
+        return await self.send("DELETE", path, **kwargs)
 
     async def aclose(self):
         pass  # connections belong to the shared network thread's pool and close when idle too long

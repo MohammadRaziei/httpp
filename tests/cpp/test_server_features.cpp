@@ -99,7 +99,7 @@ UTEST(httpp_server_async, an_answer_in_time_cancels_nothing_and_shorthands_regis
 
 UTEST(httpp_server_hooks, before_can_reject_and_after_adds_headers_to_sync_and_async_responses) {
     local_server srv([](httpp::server& s) {
-        s.before([](const httpp::server_request& req, httpp::response& res) {
+        s.before_request([](const httpp::server_request& req, httpp::response& res) {
             if (req.header("X-Key") != "secret" && req.path != "/open") {
                 res.status = 401;
                 res.body = "denied";
@@ -107,7 +107,7 @@ UTEST(httpp_server_hooks, before_can_reject_and_after_adds_headers_to_sync_and_a
             }
             return false;
         });
-        s.after([](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-After", "yes"); });
+        s.after_request([](const httpp::server_request&, httpp::response& res) { res.headers.emplace_back("X-After", "yes"); });
         s.get("/sync", [](const httpp::server_request&, httpp::response& res) { res.body = "s"; });
         s.get_async("/async", [](const httpp::server_request&, httpp::responder r) {
             httpp::response res;

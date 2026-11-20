@@ -117,7 +117,7 @@ UTEST(httpp_router, a_router_lists_its_websocket_routes_relative_to_itself) {
     r.route_ws("room", httpp::ws_handler{});  // no leading slash
     httpp::router outer("/api");
     outer.include(r);
-    ASSERT_EQ(1u, r.ws_routes().size());
-    ASSERT_STREQ("/room", r.ws_routes()[0].path.c_str());
-    ASSERT_STREQ("/chat/room", outer.ws_routes()[0].path.c_str());
+    ASSERT_EQ(1u, r.websocket_routes().size());
+    ASSERT_STREQ("/room", r.websocket_routes()[0].path.c_str());
+    ASSERT_STREQ("/chat/room", outer.websocket_routes()[0].path.c_str());
 }

@@ -254,9 +254,9 @@ cdef class Client:
         if self._cli is not NULL:
             del self._cli
 
-    def request(self, str method, str path, *, params=None, headers=None, data=None, json=None, form=None,
-                str content_type=None):
-        """Send one request. `json` (any JSON-serializable value), `form` (a dict) and `data`
+    def send(self, str method, str path, *, params=None, headers=None, data=None, json=None, form=None,
+             str content_type=None):
+        """Send one request (httpp::client::send). `json` (any JSON-serializable value), `form` (a dict) and `data`
         (str or bytes) set the body; they exclude each other."""
         cdef string m = method.encode("utf-8")
         cdef string p = _with_params(path, params).encode("utf-8")
@@ -278,26 +278,31 @@ cdef class Client:
             res = self._cli.send(m, p, hdrs, body, ctype)
         return _make_response(res)
 
+    def request(self, str method, str path, **kwargs):
+        """Deprecated: the name is send(), as in C++ (ADR-0096)."""
+        warnings.warn("Client.request() is deprecated, use Client.send()", DeprecationWarning, stacklevel=2)
+        return self.send(method, path, **kwargs)
+
     def get(self, str path, **kwargs):
-        return self.request("GET", path, **kwargs)
+        return self.send("GET", path, **kwargs)
 
     def head(self, str path, **kwargs):
-        return self.request("HEAD", path, **kwargs)
+        return self.send("HEAD", path, **kwargs)
 
     def options(self, str path, **kwargs):
-        return self.request("OPTIONS", path, **kwargs)
+        return self.send("OPTIONS", path, **kwargs)
 
     def post(self, str path, **kwargs):
-        return self.request("POST", path, **kwargs)
+        return self.send("POST", path, **kwargs)
 
     def put(self, str path, **kwargs):
-        return self.request("PUT", path, **kwargs)
+        return self.send("PUT", path, **kwargs)
 
     def patch(self, str path, **kwargs):
-        return self.request("PATCH", path, **kwargs)
+        return self.send("PATCH", path, **kwargs)
 
     def delete(self, str path, **kwargs):
-        return self.request("DELETE", path, **kwargs)
+        return self.send("DELETE", path, **kwargs)
 
     def header(self, str name, str value):
         """Send this header with every request from now on."""

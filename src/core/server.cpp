@@ -231,7 +231,7 @@ struct config { // read-only once listening; shared with answers that may outliv
     std::function<void(server_request&)> rewrite; // forwarded_headers: edits a request right after it is parsed
     server::before_hook before;  // what the engine calls: the middleware and the application's hook, composed by rebuild_hooks()
     server::after_hook after;
-    server::before_hook app_before; // the application's own hooks (server::before / server::after)
+    server::before_hook app_before; // the application's own hooks (server::before_request / server::after_request)
     server::after_hook app_after;
     std::vector<server::before_hook> mw_before; // server::use(), in registration order
     std::vector<server::after_hook> mw_after;
@@ -1323,8 +1323,8 @@ static void rebuild_hooks(config& c) {
     };
 }
 
-server& server::before(before_hook hook) & { impl_->cfg->app_before = std::move(hook); rebuild_hooks(*impl_->cfg); return *this; }
-server& server::after(after_hook hook) & { impl_->cfg->app_after = std::move(hook); rebuild_hooks(*impl_->cfg); return *this; }
+server& server::before_request(before_hook hook) & { impl_->cfg->app_before = std::move(hook); rebuild_hooks(*impl_->cfg); return *this; }
+server& server::after_request(after_hook hook) & { impl_->cfg->app_after = std::move(hook); rebuild_hooks(*impl_->cfg); return *this; }
 server& server::use(before_hook before, after_hook after) & {
     config& c = *impl_->cfg;
     if (before) c.mw_before.push_back(std::move(before));

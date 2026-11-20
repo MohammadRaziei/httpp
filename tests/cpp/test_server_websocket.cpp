@@ -310,7 +310,7 @@ UTEST(httpp_server_ws, the_upgrade_request_is_visible_to_the_handlers) {
 UTEST(httpp_server_ws, a_before_hook_that_refuses_stops_the_upgrade) {
     local_server srv([](httpp::server& s) {
         s.route_ws("/ws", echo());
-        s.before([](const httpp::server_request& r, httpp::response& res) {
+        s.before_request([](const httpp::server_request& r, httpp::response& res) {
             if (r.header("Authorization").empty()) { res.status = 401; return true; }
             return false;
         });

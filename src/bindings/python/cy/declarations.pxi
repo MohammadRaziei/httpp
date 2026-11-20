@@ -83,8 +83,8 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         void route_io(string method, string path, cpp_io_handler h) except +
         void serve_directory(string mount_path, string local_dir) except +
         # after_hook / error_hook are the same std::function type as handler, so cpp_handler stands for them.
-        cpp_server& before(cpp_before_hook h) except +
-        cpp_server& after(cpp_handler h) except +
+        cpp_server& before_request(cpp_before_hook h) except +
+        cpp_server& after_request(cpp_handler h) except +
         cpp_server& error_handler(cpp_handler h) except +
         cpp_server& thread_pool(size_t base, size_t max, microseconds grow_after) except +
         cpp_server& read_timeout(int seconds) except +
@@ -334,7 +334,7 @@ cdef extern from "httpp/progress.hpp" namespace "httpp::progress":
         void finish() except +
         size_t total()
         size_t current()
-        cbool is_finished()
+        cbool finished()
 
 
 cdef extern from "httpp/url.hpp" namespace "httpp":

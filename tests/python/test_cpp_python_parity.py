@@ -91,18 +91,17 @@ CONFIGURABLE_USERS = (("client", httpp.Client), ("async_client", httpp.AsyncClie
 
 # C++ name -> Python name, per owner, for names that differ on purpose.
 ALIASES = {
-    "client": {"del": "delete", "send": "request"},
-    "async_client": {"del": "delete", "send": "request"},
-    "bar": {"is_finished": "finished"},  # a property in Python, like total and current
+    "client": {"del": "delete"},  # a keyword in Python; `delete` is one in C++ (ADR-0096)
+    "async_client": {"del": "delete"},
     "server": {
-        "del": "delete", "before": "before_request", "after": "after_request",
+        "del": "delete",
         "use": "add_middleware",  # the C++ use() takes raw hooks; Python installs the ready-made classes of httpp.middleware
         # an `async def` handler goes through the ordinary decorator in Python
         "route_async": "route", "get_async": "get", "post_async": "post", "put_async": "put",
         "patch_async": "patch", "del_async": "delete",
     },
     "router": {
-        "del": "delete", "ws_routes": "websocket_routes",
+        "del": "delete",
         "route_async": "route", "get_async": "get", "post_async": "post", "put_async": "put",
         "patch_async": "patch", "del_async": "delete",
     },

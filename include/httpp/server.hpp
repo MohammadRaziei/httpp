@@ -255,10 +255,10 @@ public:
     using after_hook = std::function<void(const server_request&, response&)>;
     using error_hook = std::function<void(const server_request&, response&)>;
     using exception_hook = std::function<void(const server_request&, response&, std::exception_ptr)>;
-    HTTPP_API server& before(before_hook hook) &;
-    server before(before_hook hook) && { before(std::move(hook)); return std::move(*this); }
-    HTTPP_API server& after(after_hook hook) &;
-    server after(after_hook hook) && { after(std::move(hook)); return std::move(*this); }
+    HTTPP_API server& before_request(before_hook hook) &;
+    server before_request(before_hook hook) && { before_request(std::move(hook)); return std::move(*this); }
+    HTTPP_API server& after_request(after_hook hook) &;
+    server after_request(after_hook hook) && { after_request(std::move(hook)); return std::move(*this); }
     HTTPP_API server& error_handler(error_hook hook) &;
     server error_handler(error_hook hook) && { error_handler(std::move(hook)); return std::move(*this); }
     HTTPP_API server& exception_handler(exception_hook hook) &;

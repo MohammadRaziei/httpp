@@ -205,7 +205,7 @@ cdef class Bar:
 
     @property
     def finished(self):
-        return self._bar.is_finished()
+        return self._bar.finished()
 
 
 cdef bytes _query_text(object value):
@@ -550,8 +550,8 @@ cdef class _AsyncClientCore:
         req._req = py_async_make_request(self._cli[0], _with_params(path, params).encode("utf-8"))
         return req
 
-    def request(self, str method, str path, *, params=None, headers=None, data=None, json=None, form=None,
-                str content_type=None):
+    def send(self, str method, str path, *, params=None, headers=None, data=None, json=None, form=None,
+             str content_type=None):
         """Start one request and return an asyncio Future for its Response (await it)."""
         import asyncio
         cdef string m = method.encode("utf-8")

@@ -1,6 +1,6 @@
 # ADR-0016: Hybrid API parity: C++ and Python expose equivalent public APIs
 
-- **Status:** partly superseded by [ADR-0017](0017-python-binding-policy.md): the goal "parity everywhere" is replaced by the rule "bind only what is necessary"; the inventory below stays valid
+- **Status:** partly superseded by [ADR-0017](0017-python-binding-policy.md): the goal "parity everywhere" is replaced by the rule "bind only what is necessary"; the inventory below stays valid. The list of intentional name differences below is narrowed by [ADR-0096](0096-the-same-names-in-c-plus-plus-and-python.md)
 - **Date:** 2026-10-18
 - **Source:** comparison of `include/httpp/*.hpp` with `dir(httpp)` and `src/bindings/python/httpp_cy.pyx` (names and signatures, not behavior)
 

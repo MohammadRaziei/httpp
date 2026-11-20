@@ -80,7 +80,7 @@ router& router::include(const router& other, const std::string& prefix) {
 
 const std::string& router::prefix() const { return prefix_; }
 const std::vector<router::entry>& router::routes() const { return routes_; }
-const std::vector<router::ws_entry>& router::ws_routes() const { return ws_routes_; }
+const std::vector<router::ws_entry>& router::websocket_routes() const { return ws_routes_; }
 
 // ---- server::include (declared in server.hpp) ----
 void server::include(const router& r, const std::string& prefix) {
@@ -94,7 +94,7 @@ void server::include(const router& r, const std::string& prefix) {
             default: route_io(e.method, path, std::get<io_handler>(e.h)); break;
         }
     }
-    for (const router::ws_entry& e : r.ws_routes()) route_ws(join(outer, e.path), e.h);
+    for (const router::ws_entry& e : r.websocket_routes()) route_ws(join(outer, e.path), e.h);
 }
 
 }  // namespace httpp

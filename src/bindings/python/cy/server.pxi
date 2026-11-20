@@ -162,7 +162,7 @@ cdef class Server:
         if not callable(hook):
             raise TypeError("hook must be callable")
         self._handlers.append(hook)
-        self._srv.before(make_before(_dispatch_before, <void*>hook))
+        self._srv.before_request(make_before(_dispatch_before, <void*>hook))
         return self
 
     def set_after_hook(self, hook):
@@ -171,7 +171,7 @@ cdef class Server:
         if not callable(hook):
             raise TypeError("hook must be callable")
         self._handlers.append(hook)
-        self._srv.after(make_handler(_dispatch_after, <void*>hook))
+        self._srv.after_request(make_handler(_dispatch_after, <void*>hook))
         return self
 
     def set_error_hook(self, hook):
