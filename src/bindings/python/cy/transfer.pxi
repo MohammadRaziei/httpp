@@ -52,8 +52,42 @@ cdef class Download:
     """
     cdef cpp_download* _dl
 
-    def __init__(self, str url, dest_path=""):
+    def __init__(self, str url, dest_path="", *, enable_progress=None, resume=None, force=None, sha256=None,
+                 sha256_url=None, max_wait=None, timeout=None, max_redirects=None, connect_timeout=None,
+                 max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None, proxy=None):
+        """Every keyword is the name of a setter and does what the setter does (basic_auth takes (user, password));
+        Download(url, path, resume=True, timeout=30) is Download(url, path).resume().timeout(30)."""
         self._dl = new cpp_download(url.encode("utf-8"), _fs(dest_path))
+        if enable_progress is not None:
+            self.enable_progress(enable_progress)
+        if resume is not None:
+            self.resume(resume)
+        if force is not None:
+            self.force(force)
+        if sha256 is not None:
+            self.sha256(sha256)
+        if sha256_url is not None:
+            self.sha256_url(sha256_url)
+        if max_wait is not None:
+            self.max_wait(max_wait)
+        if timeout is not None:
+            self.timeout(timeout)
+        if max_redirects is not None:
+            self.max_redirects(max_redirects)
+        if connect_timeout is not None:
+            self.connect_timeout(connect_timeout)
+        if max_time is not None:
+            self.max_time(max_time)
+        if basic_auth is not None:
+            self.basic_auth(*basic_auth)
+        if bearer is not None:
+            self.bearer(bearer)
+        if verify is not None:
+            self.verify(verify)
+        if ca_file is not None:
+            self.ca_file(ca_file)
+        if proxy is not None:
+            self.proxy(proxy)
 
     def __dealloc__(self):
         if self._dl is not NULL:
@@ -347,8 +381,55 @@ cdef class Request:
     """
     cdef cpp_curl_request* _req
 
-    def __init__(self, str url):
+    def __init__(self, str url, *, method=None, params=None, headers=None, data=None, json=None, form=None,
+                 content_type=None, cookies=None, timeout=None, max_redirects=None, auto_compression=None,
+                 connect_timeout=None, max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None,
+                 proxy=None, max_response_size=None):
+        """Every keyword is the name of a setter and does what the setter does, so Request(url, method="PUT",
+        timeout=10) is Request(url).method("PUT").timeout(10). Three are plural because the setter is called once
+        per item: headers, params, cookies (a dict each). basic_auth takes (user, password). json, form and data
+        set the body and exclude each other."""
         self._req = new cpp_curl_request(url.encode("utf-8"))
+        if method is not None:
+            self.method(method)
+        if params:
+            self.params(params)
+        for name, value in (headers.items() if hasattr(headers, "items") else headers or ()):
+            self.header(name, value)
+        if (json is not None) + (form is not None) + (data is not None) > 1:
+            raise ValueError("json, form and data set the body: give only one of them")
+        if json is not None:
+            self.json(json)
+        elif form is not None:
+            self.form(form)
+        elif data is not None:
+            self.data(data)
+        if content_type is not None:
+            self.content_type(content_type)
+        for name, value in (cookies.items() if hasattr(cookies, "items") else cookies or ()):
+            self.cookie(name, value)
+        if timeout is not None:
+            self.timeout(timeout)
+        if max_redirects is not None:
+            self.max_redirects(max_redirects)
+        if auto_compression is not None:
+            self.auto_compression(auto_compression)
+        if connect_timeout is not None:
+            self.connect_timeout(connect_timeout)
+        if max_time is not None:
+            self.max_time(max_time)
+        if basic_auth is not None:
+            self.basic_auth(*basic_auth)
+        if bearer is not None:
+            self.bearer(bearer)
+        if verify is not None:
+            self.verify(verify)
+        if ca_file is not None:
+            self.ca_file(ca_file)
+        if proxy is not None:
+            self.proxy(proxy)
+        if max_response_size is not None:
+            self.max_response_size(max_response_size)
 
     def __dealloc__(self):
         if self._req is not NULL:
@@ -572,12 +653,12 @@ cdef class _AsyncClientCore:
         self._cli = NULL
 
     def __init__(self, str base_url, size_t max_connections=8, *, headers=None, timeout=None,
-                 follow_redirects=False, max_redirects=None, connect_timeout=None, max_time=None,
-                 cbool auto_compression=True, auth=None, token=None, cbool verify=True, ca_file=None,
+                 max_redirects=None, connect_timeout=None, max_time=None,
+                 cbool auto_compression=True, basic_auth=None, bearer=None, cbool verify=True, ca_file=None,
                  proxy=None):
         self._cli = new cpp_async_client(base_url.encode("utf-8"), max_connections)
-        _apply_client_options(self._cli, headers, timeout, follow_redirects, max_redirects, connect_timeout, max_time,
-                              auto_compression, auth, token, verify, ca_file, proxy)
+        _apply_client_options(self._cli, headers, timeout, max_redirects, connect_timeout, max_time,
+                              auto_compression, basic_auth, bearer, verify, ca_file, proxy)
 
     def __dealloc__(self):
         if self._cli is not NULL:

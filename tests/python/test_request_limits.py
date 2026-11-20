@@ -74,11 +74,11 @@ def test_connect_timeout_takes_seconds_like_timeout():
 
 def test_the_request_helper_takes_both_options():
     with running(chain_app()) as url:
-        r = httpp.request("GET", url + "/a", max_redirects=1)
+        r = httpp.Request(url + "/a", method="GET", max_redirects=1).run()
         assert r.error == "too_many_redirects"
-        r = httpp.request("GET", url + "/a", max_redirects=2, connect_timeout=5)
+        r = httpp.Request(url + "/a", method="GET", max_redirects=2, connect_timeout=5).run()
         assert r.ok and r.body == "end"
-        assert httpp.request("GET", url + "/a", follow_redirects=True).body == "end"  # the Client spelling: up to 20
+        assert httpp.Request(url + "/a", method="GET", max_redirects=20).run().body == "end"
 
 
 def test_max_time_ends_a_slow_request_with_a_timeout():
@@ -104,7 +104,7 @@ def test_client_takes_max_redirects_like_request():
         assert httpp.Client(url, max_redirects=2).get("/a").text == "end"
         assert httpp.Client(url, max_redirects=-1).get("/a").text == "end"
         assert httpp.Client(url, max_redirects=1).get("/a").error == "too_many_redirects"
-        assert httpp.Client(url, follow_redirects=True).get("/a").text == "end"  # the shorthand for 20
+        assert httpp.Client(url, max_redirects=20).get("/a").text == "end"
         with pytest.raises(ValueError):
             httpp.Client(url, max_redirects=-2)
 

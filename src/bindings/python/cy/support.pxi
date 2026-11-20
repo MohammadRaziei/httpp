@@ -194,7 +194,7 @@ def proxy_from_environment(str url):
     all_proxy or ALL_PROXY; no_proxy / NO_PROXY lists hosts that go direct. A request does not read the environment on its own: give
     the result to `proxy=` when you want that behavior (ADR-0067). Raises ValueError for a value that is not a usable proxy.
 
-        httpp.get(url, proxy=httpp.proxy_from_environment(url))
+        httpp.Request(url, proxy=httpp.proxy_from_environment(url), method="GET").run()
     """
     cdef cpp_url target = cpp_parse_url(url.encode("utf-8"))
     cdef optional[cpp_url] found = cpp_proxy_from_environment(target)

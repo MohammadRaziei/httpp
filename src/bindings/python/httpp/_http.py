@@ -1,92 +1,11 @@
-"""One-call helpers (httpp.get(...), httpp.post(...), ...) and AsyncClient.
+"""AsyncClient: the asyncio wrapper over the compiled _AsyncClientCore.
 
-Both are thin layers over the compiled Client / Request; every capability here exists in the C++
-API too (httpp::request, httpp::client, httpp::async_client).
+It is a thin layer; every capability here exists in the C++ API too (httpp::async_client). There are no
+module-level one-call helpers (httpp.get(...)): the name does not say whether it is a client or a server route,
+and Request(url, method="GET", timeout=10).run() is as short (ADR-0103).
 """
 
-import asyncio
-
-from .httpp_python import Client, Request, _AsyncClientCore
-
-
-def request(method, url, *, params=None, headers=None, data=None, json=None, form=None,
-            content_type=None, timeout=None, follow_redirects=False, max_redirects=None, connect_timeout=None,
-            max_time=None,
-            auth=None, token=None, cookies=None, verify=True, ca_file=None, proxy=None,
-            auto_compression=True):
-    """Make one request and return its Response. See Request for what each option means.
-
-        r = httpp.request("POST", "http://localhost:8000/items", json={"name": "apple"}, timeout=10)
-        r.raise_for_status().json()
-    """
-    req = Request(url).method(method)
-    if params:
-        req.params(params)
-    for name, value in (headers.items() if hasattr(headers, "items") else headers or ()):
-        req.header(name, value)
-    if json is not None:
-        req.json(json)
-    elif form is not None:
-        req.form(form)
-    elif data is not None:
-        req.data(data)
-    if content_type is not None:
-        req.content_type(content_type)
-    if timeout is not None:
-        req.timeout(timeout)
-    if max_redirects is not None:
-        req.max_redirects(max_redirects)
-    elif follow_redirects:  # the Client spelling: True means up to 20 hops
-        req.max_redirects(20)
-    if not auto_compression:
-        req.auto_compression(False)
-    if connect_timeout is not None:
-        req.connect_timeout(connect_timeout)
-    if max_time is not None:
-        req.max_time(max_time)
-    if auth is not None:
-        req.basic_auth(*auth)
-    if token is not None:
-        req.bearer(token)
-    for name, value in (cookies.items() if hasattr(cookies, "items") else cookies or ()):
-        req.cookie(name, value)
-    if not verify:
-        req.verify(False)
-    if ca_file is not None:
-        req.ca_file(ca_file)
-    if proxy is not None:
-        if not isinstance(proxy, str):
-            raise TypeError("proxy must be a URL string such as 'http://user:pass@127.0.0.1:3128'")
-        req.proxy(proxy)
-    return req.run()
-
-
-def get(url, **kwargs):
-    return request("GET", url, **kwargs)
-
-
-def head(url, **kwargs):
-    return request("HEAD", url, **kwargs)
-
-
-def options(url, **kwargs):
-    return request("OPTIONS", url, **kwargs)
-
-
-def post(url, **kwargs):
-    return request("POST", url, **kwargs)
-
-
-def put(url, **kwargs):
-    return request("PUT", url, **kwargs)
-
-
-def patch(url, **kwargs):
-    return request("PATCH", url, **kwargs)
-
-
-def delete(url, **kwargs):
-    return request("DELETE", url, **kwargs)
+from .httpp_python import _AsyncClientCore
 
 
 class AsyncClient:
@@ -99,8 +18,8 @@ class AsyncClient:
     request, connections are kept alive and reused, and at most `max_connections` requests are in
     flight (extra ones wait their turn). The C++ counterpart is httpp::async_client.
 
-    `**client_options` are the same as for Client: headers, timeout, follow_redirects, max_redirects,
-    connect_timeout, max_time, auto_compression, auth, token, verify, ca_file, proxy.
+    `**client_options` are the same as for Client: headers, timeout, max_redirects, connect_timeout, max_time,
+    auto_compression, basic_auth, bearer, verify, ca_file, proxy (each the name of a setter).
     """
 
     def __init__(self, base_url, *, max_connections=8, **client_options):

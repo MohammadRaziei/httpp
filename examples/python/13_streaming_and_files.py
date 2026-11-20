@@ -68,13 +68,13 @@ thread = threading.Thread(target=app.listen_after_bind, daemon=True)
 thread.start()
 base = f"http://127.0.0.1:{port}"
 
-res = httpp.get(base + "/countdown")
+res = httpp.Request(base + "/countdown", method="GET").run()
 print(repr(res.body), "| chunked:", res.header("Transfer-Encoding") == "chunked")
-print(repr(httpp.get(base + "/events").body))
-res = httpp.get(base + "/report")
+print(repr(httpp.Request(base + "/events", method="GET").run().body))
+res = httpp.Request(base + "/report", method="GET").run()
 print(res.body, "|", res.header("Content-Type"), "| length:", res.header("Content-Length"))
-print(httpp.get(base + "/old", follow_redirects=True).body)
-res = httpp.get(base + "/login", cookies={"seen": "1"})
+print(httpp.Request(base + "/old", max_redirects=20, method="GET").run().body)
+res = httpp.Request(base + "/login", cookies={"seen": "1"}, method="GET").run()
 for name, value in res.headers:
     if name.lower() == "set-cookie":
         print("Set-Cookie:", value)

@@ -73,7 +73,7 @@ key = {"X-Key": "secret"}
 
 for path, headers in [("/health", {}), ("/double/21", {}), ("/double/21", key), ("/double/abc", key),
                       ("/nowhere", key)]:
-    res = httpp.get(base + path, headers=headers)
+    res = httpp.Request(base + path, headers=headers, method="GET").run()
     print(f"{path:12} key={'yes' if headers else 'no ':3} -> {res.status} {res.body}  "
           f"X-Served-By={res.header('X-Served-By')}")
 

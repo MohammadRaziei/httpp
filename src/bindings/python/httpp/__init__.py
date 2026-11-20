@@ -43,7 +43,7 @@ from . import responses, status
 from . import middleware, security
 from .middleware import CORSMiddleware, TrustedHostMiddleware, GZipMiddleware, HTTPSRedirectMiddleware, ProxyHeadersMiddleware, BasicAuthMiddleware, RateLimitMiddleware
 from ._run import run
-from ._http import AsyncClient, request, get, head, options, post, put, patch, delete
+from ._http import AsyncClient
 from .errors import Error, HTTPError, RequestError, Timeout, TLSError, TooManyRedirects, InvalidURL
 
 _log.install()  # the C++ log goes through `logging` (logger "httpp"); see httpp/_log.py and ADR-0018
@@ -67,8 +67,7 @@ def get_cmake_dir():
 
 
 __all__ = [
-    "Client", "AsyncClient", "Request", "Response", "request", "get", "head", "options", "post", "put",
-    "patch", "delete", "Server", "FileBrowser", "Directory", "FileLock", "Swagger", "run", "WebSocket", "WebSocketDisconnect", "ServerRequest", "ResponseHead", "file", "redirect", "set_cookie", "download", "Download", "DownloadResult", "URL", "openapi", "progress", "utils",
+    "Client", "AsyncClient", "Request", "Response", "Server", "FileBrowser", "Directory", "FileLock", "Swagger", "run", "WebSocket", "WebSocketDisconnect", "ServerRequest", "ResponseHead", "file", "redirect", "set_cookie", "download", "Download", "DownloadResult", "URL", "openapi", "progress", "utils",
     "Query", "Path", "Header", "Cookie", "Body", "Depends", "APIRouter", "BackgroundTasks", "Form", "File", "UploadFile", "FormData",
     "HTTPException", "JSONResponse", "PlainTextResponse", "HTMLResponse", "RedirectResponse",
     "StreamingResponse", "FileResponse", "responses", "status", "middleware", "security", "CORSMiddleware", "TrustedHostMiddleware", "GZipMiddleware", "HTTPSRedirectMiddleware", "ProxyHeadersMiddleware", "BasicAuthMiddleware", "RateLimitMiddleware",

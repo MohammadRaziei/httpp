@@ -663,7 +663,7 @@ def test_thread_pool_size_caps_how_many_sync_handlers_run_at_once():
 
     statuses = []
     with running(app) as url:
-        threads = [threading.Thread(target=lambda: statuses.append(httpp.get(url + "/w").status))
+        threads = [threading.Thread(target=lambda: statuses.append(httpp.Request(url + "/w", method="GET").run().status))
                    for _ in range(6)]
         for t in threads:
             t.start()

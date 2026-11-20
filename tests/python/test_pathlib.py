@@ -61,9 +61,9 @@ def test_the_file_browser_root_and_file_take_a_path(tmp_path):
         return httpp.file(tmp_path / "a.txt")
 
     with running(app) as url:
-        listing = json.loads(httpp.get(f"{url}/files/api/list").text)
+        listing = json.loads(httpp.Request(f"{url}/files/api/list", method="GET").run().text)
         assert [e["name"] for e in listing["entries"]] == ["a.txt"]
-        assert httpp.get(f"{url}/raw").text == "bee"
+        assert httpp.Request(f"{url}/raw", method="GET").run().text == "bee"
 
 
 def test_set_log_file_takes_a_path(tmp_path):

@@ -45,7 +45,7 @@ def test_trace_level_reports_connection_events_to_a_callback():
     httpp.set_log_callback(lambda level, where, msg: seen.append((level, where, msg)))
     httpp.set_log_level("trace")
     with running(make_app()) as base:
-        assert httpp.get(base + "/").status == 200
+        assert httpp.Request(base + "/", method="GET").run().status == 200
     assert seen, "nothing was logged"
     assert all(isinstance(x, str) for entry in seen for x in entry)
     assert {level for level, _, _ in seen} <= {"trace", "debug", "info", "warning", "error"}
@@ -57,8 +57,8 @@ def test_info_level_logs_one_access_line_per_request():
     httpp.set_log_callback(lambda level, where, msg: seen.append((level, msg)))
     httpp.set_log_level("info")
     with running(make_app()) as base:
-        assert httpp.get(base + "/?a=1").status == 200
-        assert httpp.get(base + "/missing").status == 404
+        assert httpp.Request(base + "/?a=1", method="GET").run().status == 200
+        assert httpp.Request(base + "/missing", method="GET").run().status == 404
     assert ("info", "GET /?a=1 200") in seen
     assert ("info", "GET /missing 404") in seen
 
@@ -67,7 +67,7 @@ def test_default_level_is_quiet_for_a_normal_request():
     seen = []
     httpp.set_log_callback(lambda level, where, msg: seen.append(msg))
     with running(make_app()) as base:
-        assert httpp.get(base + "/").status == 200
+        assert httpp.Request(base + "/", method="GET").run().status == 200
     assert seen == []
 
 
@@ -76,7 +76,7 @@ def test_off_silences_everything_and_none_restores_stderr():
     httpp.set_log_callback(lambda level, where, msg: seen.append(msg))
     httpp.set_log_level("off")
     with running(make_app()) as base:
-        httpp.get(base + "/")
+        httpp.Request(base + "/", method="GET").run()
     assert seen == []
     httpp.set_log_callback(None)  # must not raise
 
@@ -88,7 +88,7 @@ def test_a_callback_that_raises_does_not_break_the_server():
     httpp.set_log_callback(broken)
     httpp.set_log_level("trace")
     with running(make_app()) as base:
-        assert httpp.get(base + "/").status == 200
+        assert httpp.Request(base + "/", method="GET").run().status == 200
 
 
 def test_log_file(tmp_path):
@@ -96,7 +96,7 @@ def test_log_file(tmp_path):
     httpp.set_log_file(str(path))
     httpp.set_log_level("trace")
     with running(make_app()) as base:
-        httpp.get(base + "/")
+        httpp.Request(base + "/", method="GET").run()
     httpp.set_log_file("")  # closes and flushes
     text = path.read_text()
     assert "connection closed" in text and "httpp" in text

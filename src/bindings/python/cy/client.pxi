@@ -174,8 +174,8 @@ cdef bytes _fs(object p):
     return os.fsencode(p)
 
 
-cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, follow_redirects, max_redirects, connect_timeout,
-                                max_time, cbool auto_compression, auth, token, cbool verify, ca_file, proxy) except *:
+cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, max_redirects, connect_timeout,
+                                max_time, cbool auto_compression, basic_auth, bearer, cbool verify, ca_file, proxy) except *:
     """The options httpp.Client and httpp.AsyncClient share (the C++ client and async_client have the same setters)."""
     if headers:
         for name, value in (headers.items() if hasattr(headers, "items") else headers):
@@ -194,12 +194,10 @@ cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, follow_
         cli.auto_compression(False)
     if max_redirects is not None:
         cli.max_redirects(<int>max_redirects)
-    elif follow_redirects:  # the shorthand: True means up to 20 hops
-        cli.max_redirects(20)
-    if auth is not None:
-        cli.basic_auth((<str>auth[0]).encode("utf-8"), (<str>auth[1]).encode("utf-8"))
-    if token is not None:
-        cli.bearer((<str>token).encode("utf-8"))
+    if basic_auth is not None:  # (user, password), the one thing the setter takes as two arguments
+        cli.basic_auth((<str>basic_auth[0]).encode("utf-8"), (<str>basic_auth[1]).encode("utf-8"))
+    if bearer is not None:
+        cli.bearer((<str>bearer).encode("utf-8"))
     if not verify:
         cli.verify(False)
     if ca_file is not None:
@@ -238,15 +236,15 @@ cdef class Client:
     cdef cpp_client* _cli
 
     def __init__(self, str host_or_url, port=None, cbool ssl=False, *, headers=None, timeout=None,
-                 follow_redirects=False, max_redirects=None, connect_timeout=None, max_time=None,
-                 cbool auto_compression=True, auth=None, token=None, cbool verify=True, ca_file=None,
+                 max_redirects=None, connect_timeout=None, max_time=None,
+                 cbool auto_compression=True, basic_auth=None, bearer=None, cbool verify=True, ca_file=None,
                  proxy=None, cbool keep_alive=True):
         if port is None:
             self._cli = new cpp_client(host_or_url.encode("utf-8"))
         else:
             self._cli = new cpp_client(host_or_url.encode("utf-8"), <int>port, ssl)
-        _apply_client_options(self._cli, headers, timeout, follow_redirects, max_redirects, connect_timeout, max_time,
-                              auto_compression, auth, token, verify, ca_file, proxy)
+        _apply_client_options(self._cli, headers, timeout, max_redirects, connect_timeout, max_time,
+                              auto_compression, basic_auth, bearer, verify, ca_file, proxy)
         if not keep_alive:
             self._cli.keep_alive(False)
 

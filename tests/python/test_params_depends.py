@@ -27,7 +27,7 @@ def running(app):
 
 
 def get(url, headers=None):
-    return httpp.get(url, headers=headers or {})
+    return httpp.Request(url, headers=headers or {}, method="GET").run()
 
 
 def detail(r):
@@ -179,11 +179,11 @@ def test_several_body_parameters_are_read_by_name():
         return {"item": item.name, "importance": importance, "note": note}
 
     with running(app) as url:
-        r = httpp.post(f"{url}/two", json={"item": {"name": "a"}, "importance": "3"})
+        r = httpp.Request(f"{url}/two", json={"item": {"name": "a"}, "importance": "3"}, method="POST").run()
         assert json.loads(r.text) == {"item": "a", "importance": 3, "note": None}
-        r = httpp.post(f"{url}/two", json={"item": {}, "note": 1})
+        r = httpp.Request(f"{url}/two", json={"item": {}, "note": 1}, method="POST").run()
         assert detail(r) == [("missing", ["body", "item", "name"]), ("missing", ["body", "importance"]), ("string_type", ["body", "note"])]
-        assert detail(httpp.post(f"{url}/two", json=[1]))[0][0] == "model_attributes_type"
+        assert detail(httpp.Request(f"{url}/two", json=[1], method="POST").run())[0][0] == "model_attributes_type"
     schema = app.openapi()["paths"]["/two"]["post"]["requestBody"]["content"]["application/json"]["schema"]
     assert schema["type"] == "object" and schema["required"] == ["item", "importance"]
     assert schema["properties"]["item"] == {"$ref": "#/components/schemas/Item", "title": "Item"}
@@ -201,8 +201,8 @@ def test_embed_and_a_scalar_body():
         return str(count + 1)
 
     with running(app) as url:
-        assert httpp.post(f"{url}/e", json={"item": {"name": "z"}}).text == "z"
-        assert httpp.post(f"{url}/s", json=4).text == "5"
+        assert httpp.Request(f"{url}/e", json={"item": {"name": "z"}}, method="POST").run().text == "z"
+        assert httpp.Request(f"{url}/s", json=4, method="POST").run().text == "5"
 
 
 # --- Depends -----------------------------------------------------------------------------------------

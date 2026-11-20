@@ -61,7 +61,7 @@ def running(app):
 
 def wait_for(url, proc, attempts=100):
     for _ in range(attempts):  # a failed connection is a response with status 0, not an exception
-        r = httpp.get(url)
+        r = httpp.Request(url, method="GET").run()
         if r.status != 0:
             return r
         assert proc.poll() is None, proc.stderr.read() if proc.stderr else "exited"
@@ -169,7 +169,7 @@ def test_server_serves_a_directory(httpp_exe, tmp_path, stop_process):
     try:
         r = wait_for(f"http://127.0.0.1:{port}/hello.txt", proc)
         assert (r.status, r.text) == (200, "hi there")
-        assert httpp.get(f"http://127.0.0.1:{port}/nope.txt").status == 404
+        assert httpp.Request(f"http://127.0.0.1:{port}/nope.txt", method="GET").run().status == 404
     finally:
         stop_process(proc)
 
@@ -180,7 +180,7 @@ def test_the_native_commands_log_the_address_and_each_request(httpp_exe, tmp_pat
     proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         assert wait_for(f"http://127.0.0.1:{port}/", proc).status != 0
-        assert httpp.get(f"http://127.0.0.1:{port}/nope.txt").status == 404
+        assert httpp.Request(f"http://127.0.0.1:{port}/nope.txt", method="GET").run().status == 404
     finally:
         _, err = stop_process(proc)
     assert f"listening on http://127.0.0.1:{port}" in err, err
@@ -230,7 +230,7 @@ def test_the_native_commands_serve_https_when_given_a_certificate(httpp_exe, tmp
     try:
         _wait_for_port(port, proc)
         assert _https_get(port, cert, page)[0] == 200
-        assert httpp.get(f"http://127.0.0.1:{port}{page}").status != 200  # one port serves TLS or plain HTTP, never both
+        assert httpp.Request(f"http://127.0.0.1:{port}{page}", method="GET").run().status != 200  # one port serves TLS or plain HTTP, never both
     finally:
         out, err = stop_process(proc)
     assert f"https://127.0.0.1:{port}/" in out, out
@@ -301,7 +301,7 @@ def test_the_native_commands_stay_quiet_with_log_level_off(httpp_exe, tmp_path, 
     proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port), "--log-level", "off"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         assert wait_for(f"http://127.0.0.1:{port}/", proc).status != 0
-        assert httpp.get(f"http://127.0.0.1:{port}/nope.txt").status == 404
+        assert httpp.Request(f"http://127.0.0.1:{port}/nope.txt", method="GET").run().status == 404
     finally:
         _, err = stop_process(proc)
     assert "GET /nope.txt" not in err and "listening on" not in err, err
@@ -341,15 +341,15 @@ def test_server_hides_names_that_start_with_a_dot_unless_hidden_is_given(httpp_e
     proc, url = _serve(httpp_exe, tmp_path)
     try:
         assert wait_for(f"{url}/hello.txt", proc).status == 200
-        assert httpp.get(f"{url}/.env").status == 404
-        assert httpp.get(f"{url}/.well-known/acme").status == 404
+        assert httpp.Request(f"{url}/.env", method="GET").run().status == 404
+        assert httpp.Request(f"{url}/.well-known/acme", method="GET").run().status == 404
     finally:
         stop_process(proc)
     proc, url = _serve(httpp_exe, tmp_path, "--hidden")
     try:
         assert wait_for(f"{url}/hello.txt", proc).status == 200
-        assert httpp.get(f"{url}/.env").text == "SECRET=1"
-        assert httpp.get(f"{url}/.well-known/acme").text == "token"
+        assert httpp.Request(f"{url}/.env", method="GET").run().text == "SECRET=1"
+        assert httpp.Request(f"{url}/.well-known/acme", method="GET").run().text == "token"
     finally:
         stop_process(proc)
 
@@ -384,7 +384,7 @@ def test_the_banner_is_for_a_terminal_only(httpp_exe, tmp_path, command, stop_pr
         else:
             master, proc = None, subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         for _ in range(100):  # wait until it listens
-            if httpp.get(f"http://127.0.0.1:{port}/").status != 0:
+            if httpp.Request(f"http://127.0.0.1:{port}/", method="GET").run().status != 0:
                 break
             time.sleep(0.1)
         text = ""

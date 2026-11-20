@@ -35,7 +35,7 @@ import time
 import urllib.parse
 
 from .errors import HTTPError, TooManyRedirects
-from ._http import request as _request
+from .httpp_python import Request as _Request
 from ._websocket import WebSocketDisconnect
 from .httpp_python import mime_type_for
 
@@ -544,8 +544,8 @@ class TestClient:
             jar = {**self.cookies, **extra_cookies}
             with self._lock:
                 self.app._exception_sink = []
-            raw = _request(method, f"http://127.0.0.1:{self._port}{target}", headers=out_headers, data=body, cookies=jar or None,
-                           auth=auth, timeout=timeout)
+            raw = _Request(f"http://127.0.0.1:{self._port}{target}", method=method, headers=out_headers, data=body,
+                           cookies=jar or None, basic_auth=auth, timeout=timeout).run()
             if raw.failed:
                 raw.raise_for_status()  # no HTTP response at all: raises the matching httpp error
             response = TestResponse(raw, full, history)

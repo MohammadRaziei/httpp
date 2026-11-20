@@ -113,14 +113,14 @@ CTOR_ARGS = {
     "client": {
         "timeout": ("timeout", 5), "max_redirects": ("max_redirects", 3), "connect_timeout": ("connect_timeout", 2),
         "max_time": ("max_time", 9), "auto_compression": ("auto_compression", False),
-        "basic_auth": ("auth", ("u", "p")), "bearer": ("token", "t"),
+        "basic_auth": ("basic_auth", ("u", "p")), "bearer": ("bearer", "t"),
         "verify": ("verify", False), "ca_file": ("ca_file", "ca.pem"),
         "proxy": ("proxy", "http://127.0.0.1:3128"), "keep_alive": ("keep_alive", False),
     },
     "async_client": {
         "timeout": ("timeout", 5), "max_redirects": ("max_redirects", 3), "connect_timeout": ("connect_timeout", 2),
         "max_time": ("max_time", 9), "auto_compression": ("auto_compression", False),
-        "basic_auth": ("auth", ("u", "p")), "bearer": ("token", "t"),
+        "basic_auth": ("basic_auth", ("u", "p")), "bearer": ("bearer", "t"),
         "verify": ("verify", False), "ca_file": ("ca_file", "ca.pem"),
         "proxy": ("proxy", "http://127.0.0.1:3128"), "header": ("headers", {"X": "1"}),
     },
@@ -266,6 +266,49 @@ def test_cpp_setters_are_accepted_as_constructor_arguments():
                 pytest.fail(f"{owner}::{setter} should be {cls.__name__}({keyword}=...): {e}")
             except Exception:
                 pass  # any other error (such as an unreadable ca_file) means the keyword itself was accepted
+
+
+# Python's constructors take the settings as keywords with the names of the setters (ADR-0103). The only differences:
+# the setters that are called once per item (header, param, cookie) take a dict under the plural name, and
+# basic_auth takes (user, password).
+PLURAL = {"header": "headers", "param": "params", "cookie": "cookies"}
+
+# keyword -> a value it must accept, for the Python classes whose settings are also methods
+KWARGS = {
+    "Request": {
+        "method": "PUT", "params": {"a": "1"}, "headers": {"X": "1"}, "data": "x", "json": {"a": 1}, "form": {"a": "1"},
+        "content_type": "text/plain", "cookies": {"a": "b"}, "timeout": 5, "max_redirects": 3, "auto_compression": False,
+        "connect_timeout": 2, "max_time": 9, "basic_auth": ("u", "p"), "bearer": "t", "verify": False, "ca_file": "ca.pem",
+        "proxy": "http://127.0.0.1:3128", "max_response_size": 100,
+    },
+    "Download": {
+        "enable_progress": False, "resume": True, "force": True, "sha256": "0" * 64, "sha256_url": "http://127.0.0.1:1/s",
+        "max_wait": 1, "timeout": 5, "max_redirects": 3, "connect_timeout": 2, "max_time": 9, "basic_auth": ("u", "p"),
+        "bearer": "t", "verify": False, "ca_file": "ca.pem", "proxy": "http://127.0.0.1:3128",
+    },
+}
+
+
+def test_constructor_keywords_of_client_and_async_client_are_setter_names():
+    for owner in ("client", "async_client"):
+        for setter, (keyword, _value) in CTOR_ARGS[owner].items():
+            assert keyword == PLURAL.get(setter, setter), f"{owner}::{setter} is passed as {keyword}=..., not {setter}=..."
+
+
+def test_request_and_download_take_every_setting_as_a_keyword_with_the_name_of_its_setter():
+    for cls in (httpp.Request, httpp.Download):
+        methods = _py_names(cls)
+        for keyword, value in KWARGS[cls.__name__].items():
+            setter = {v: k for k, v in PLURAL.items()}.get(keyword, keyword)
+            assert setter in methods, f"{cls.__name__}({keyword}=...) is not the name of a setter"
+            try:
+                cls("http://127.0.0.1:1/x", **{keyword: value})
+            except TypeError as e:
+                pytest.fail(f"{cls.__name__}({keyword}=...) is not accepted: {e}")
+            except Exception:
+                pass  # any other error (such as an unreadable ca_file) means the keyword itself was accepted
+    with pytest.raises(ValueError):
+        httpp.Request("http://127.0.0.1:1/x", json={"a": 1}, data="x")  # the three body keywords exclude each other
 
 
 def test_every_cpp_setter_is_covered_by_ctor_args_or_a_python_method():

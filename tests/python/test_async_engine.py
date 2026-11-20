@@ -112,7 +112,7 @@ def test_async_client_options_and_per_call_arguments():
     with running(app) as base:
 
         async def main():
-            async with AsyncClient(base + "/", headers={"X-Default": "d"}, auth=("u", "p"), timeout=5) as c:
+            async with AsyncClient(base + "/", headers={"X-Default": "d"}, basic_auth=("u", "p"), timeout=5) as c:
                 a = await c.get("/echo", params={"a": "1"}, headers={"X-Call": "c"})
                 b = await c.post("/echo", json={"k": 1})
                 return a, b
@@ -137,7 +137,7 @@ def test_follow_redirects_and_errors_come_back_as_responses():
     with running(app) as base:
 
         async def main():
-            async with AsyncClient(base) as plain, AsyncClient(base, follow_redirects=True) as follow:
+            async with AsyncClient(base) as plain, AsyncClient(base, max_redirects=20) as follow:
                 r1 = await plain.get("/a")
                 r2 = await follow.get("/a")
             # Windows answers a closed port only after its SYN retries (about 2 s), so give it room to say "connection"

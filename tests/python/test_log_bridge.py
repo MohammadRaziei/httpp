@@ -66,26 +66,26 @@ def test_cpp_errors_reach_logging_with_no_setup(caplog):
 
 def test_requests_are_not_logged_while_the_logger_is_at_warning(caplog):
     with running(make_app()) as base:
-        assert httpp.get(base + "/").status == 200
+        assert httpp.Request(base + "/", method="GET").run().status == 200
     assert not [m for m in messages(caplog) if m.startswith("GET ")]
 
 
 def test_the_logger_level_turns_the_cpp_access_log_on_and_off(caplog):
     LOGGER.setLevel(logging.INFO)
     with running(make_app()) as base:
-        assert httpp.get(base + "/?a=1").status == 200
+        assert httpp.Request(base + "/?a=1", method="GET").run().status == 200
         assert "GET /?a=1 200" in messages(caplog)
         assert any(m.startswith("listening on http://") for m in messages(caplog))
         caplog.clear()
         LOGGER.setLevel(logging.WARNING)
-        assert httpp.get(base + "/").status == 200
+        assert httpp.Request(base + "/", method="GET").run().status == 200
     assert not messages(caplog)
 
 
 def test_caplog_set_level_works_too(caplog):
     caplog.set_level(logging.INFO, logger="httpp")
     with running(make_app()) as base:
-        assert httpp.get(base + "/x").status == 404
+        assert httpp.Request(base + "/x", method="GET").run().status == 404
     assert "GET /x 404" in messages(caplog)
 
 
@@ -93,7 +93,7 @@ def test_dictconfig_controls_it(caplog):
     logging.config.dictConfig({"version": 1, "disable_existing_loggers": False,
                                "loggers": {"httpp": {"level": "INFO"}}})
     with running(make_app()) as base:
-        assert httpp.get(base + "/").status == 200
+        assert httpp.Request(base + "/", method="GET").run().status == 200
     assert "GET / 200" in messages(caplog)
 
 
@@ -120,7 +120,7 @@ def test_an_explicit_callback_replaces_the_bridge(caplog):
     httpp.set_log_callback(lambda level, where, msg: got.append((level, msg)))
     LOGGER.setLevel(logging.INFO)
     with running(make_app()) as base:
-        assert httpp.get(base + "/").status == 200
+        assert httpp.Request(base + "/", method="GET").run().status == 200
     assert ("info", "GET / 200") in got
     assert not messages(caplog)
 
@@ -129,5 +129,5 @@ def test_a_disabled_logger_is_silent(caplog):
     LOGGER.setLevel(logging.INFO)
     LOGGER.disabled = True  # what dictConfig does by default to loggers it does not mention
     with running(make_app()) as base:
-        assert httpp.get(base + "/").status == 200
+        assert httpp.Request(base + "/", method="GET").run().status == 200
     assert not messages(caplog)

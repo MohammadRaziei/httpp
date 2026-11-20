@@ -32,11 +32,11 @@ def running(app):
 
 
 def get(url):
-    return httpp.get(url)
+    return httpp.Request(url, method="GET").run()
 
 
 def post(url, data):
-    return httpp.post(url, json=data)
+    return httpp.Request(url, json=data, method="POST").run()
 
 
 # --- model_json_schema against Pydantic -----------------------------------------------------------
@@ -228,9 +228,9 @@ def test_json_body_is_validated_into_a_model_and_response_model_applies():
         errors = json.loads(r.text)["detail"]
         assert [(e["loc"], e["type"]) for e in errors] == [(["body", "name"], "string_too_short"), (["body", "price"], "greater_than")]
 
-        r = httpp.post(f"{url}/items", data=b"{nope")
+        r = httpp.Request(f"{url}/items", data=b"{nope", method="POST").run()
         assert r.status == 422 and json.loads(r.text)["detail"][0]["type"] == "json_invalid"
-        r = httpp.post(f"{url}/items", data=b"")
+        r = httpp.Request(f"{url}/items", data=b"", method="POST").run()
         assert r.status == 422 and json.loads(r.text)["detail"][0]["type"] == "missing"
 
 

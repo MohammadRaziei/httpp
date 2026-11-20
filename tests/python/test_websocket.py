@@ -495,8 +495,8 @@ def test_ordinary_routes_keep_working_next_to_a_websocket():
 
     with running(app) as port:
         c = Client(port)
-        r = httpp.get(f"http://127.0.0.1:{port}/hi")
-        assert r.text == "hi" and httpp.get(f"http://127.0.0.1:{port}/sync").text == "sync"
+        r = httpp.Request(f"http://127.0.0.1:{port}/hi", method="GET").run()
+        assert r.text == "hi" and httpp.Request(f"http://127.0.0.1:{port}/sync", method="GET").run().text == "sync"
         c.text("x")
         assert c.recv() == (1, b"x")
 

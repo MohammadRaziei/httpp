@@ -42,24 +42,24 @@ def test_lists_and_serves_files(tree):
     app = Server()
     FileBrowser(tree).title("My <files>").mount(app, "/files")
     with running(app) as url:
-        page = httpp.get(f"{url}/files")
+        page = httpp.Request(f"{url}/files", method="GET").run()
         assert page.status == 200 and "My &lt;files&gt;" in page.text
-        listing = json.loads(httpp.get(f"{url}/files/api/list").text)
+        listing = json.loads(httpp.Request(f"{url}/files/api/list", method="GET").run().text)
         names = [e["name"] for e in listing["entries"]]
         assert names == ["sub", "a.txt"]  # folders first, dotfiles hidden
-        assert httpp.get(f"{url}/files/raw/sub/b.txt").text == "bee"
-        assert httpp.get(f"{url}/files/raw/.hidden.txt").status == 404
-        assert httpp.get(f"{url}/files/raw/../outside.txt").status in (400, 404)
-        assert httpp.get(f"{url}/files/raw/%2e%2e/outside.txt").status in (400, 404)
+        assert httpp.Request(f"{url}/files/raw/sub/b.txt", method="GET").run().text == "bee"
+        assert httpp.Request(f"{url}/files/raw/.hidden.txt", method="GET").run().status == 404
+        assert httpp.Request(f"{url}/files/raw/../outside.txt", method="GET").run().status in (400, 404)
+        assert httpp.Request(f"{url}/files/raw/%2e%2e/outside.txt", method="GET").run().status in (400, 404)
 
 
 def test_options_are_applied(tree):
     app = Server()
     FileBrowser(tree, show_hidden=True, max_entries=2).mount(app)
     with running(app) as url:
-        listing = json.loads(httpp.get(f"{url}/api/list").text)
+        listing = json.loads(httpp.Request(f"{url}/api/list", method="GET").run().text)
         assert len(listing["entries"]) == 2 and listing["truncated"] is True and listing["limit"] == 2
-        assert httpp.get(f"{url}/raw/.hidden.txt").status == 200
+        assert httpp.Request(f"{url}/raw/.hidden.txt", method="GET").run().status == 200
 
 
 def test_the_enums_and_the_keywords_reach_the_page(tree):
@@ -67,7 +67,7 @@ def test_the_enums_and_the_keywords_reach_the_page(tree):
     (FileBrowser(tree, accent="#12ab34", search=False)
         .theme(FileBrowser.Theme.DARK).layout(FileBrowser.View.GRID).sort_by(FileBrowser.Sort.DATE).mount(app, "/files"))
     with running(app) as url:
-        page = httpp.get(f"{url}/files").text
+        page = httpp.Request(f"{url}/files", method="GET").run().text
         for fragment in ('"theme":"dark"', '"view":"grid"', '"sort":"date"', '"accent":"#12ab34"', '"search":false'):
             assert fragment in page
 
@@ -76,7 +76,7 @@ def test_the_defaults_are_those_of_the_cpp_class(tree):
     app = Server()
     FileBrowser(tree).mount(app, "/files")
     with running(app) as url:
-        page = httpp.get(f"{url}/files").text
+        page = httpp.Request(f"{url}/files", method="GET").run().text
         for fragment in ('"theme":"auto"', '"view":"list"', '"sort":"name"', '"accent":""', '"search":true', '"limit":5000', '"powered":true', '"zip":false', '"dates":true'):
             assert fragment in page
 
@@ -96,19 +96,19 @@ def test_html_and_svg_are_shown_behind_a_sandbox_by_default_and_safe_mode_makes_
     FileBrowser(tree, safe_mode=True).mount(keyword, "/files")
     for server in (default, loose):
         with running(server) as url:
-            assert '"safe":false' in httpp.get(f"{url}/files").text
+            assert '"safe":false' in httpp.Request(f"{url}/files", method="GET").run().text
             for name in ("p.html", "x.svg"):
-                r = httpp.get(f"{url}/files/raw/{name}")
+                r = httpp.Request(f"{url}/files/raw/{name}", method="GET").run()
                 assert r.header("Content-Disposition") is None  # shown, not downloaded
                 csp = r.header("Content-Security-Policy")
                 assert "sandbox;" in csp and "allow-" not in csp and "default-src 'none'" in csp
-                assert "attachment" in httpp.get(f"{url}/files/raw/{name}?download=1").header("Content-Disposition")
-            assert "attachment" in httpp.get(f"{url}/files/raw/x.xml").header("Content-Disposition")
+                assert "attachment" in httpp.Request(f"{url}/files/raw/{name}?download=1", method="GET").run().header("Content-Disposition")
+            assert "attachment" in httpp.Request(f"{url}/files/raw/x.xml", method="GET").run().header("Content-Disposition")
     for server in (safe, keyword):
         with running(server) as url:
-            assert '"safe":true' in httpp.get(f"{url}/files").text
+            assert '"safe":true' in httpp.Request(f"{url}/files", method="GET").run().text
             for name in ("p.html", "x.svg", "x.xml"):
-                r = httpp.get(f"{url}/files/raw/{name}")
+                r = httpp.Request(f"{url}/files/raw/{name}", method="GET").run()
                 assert "attachment" in r.header("Content-Disposition") and "sandbox" not in (r.header("Content-Security-Policy") or "")
 
 
@@ -128,15 +128,15 @@ def test_show_dates_false_shows_and_sends_no_file_time(tree):
     fb.mount(app, "/files")
     FileBrowser(tree, zip=True).mount(dated, "/files")
     with running(dated) as url:
-        assert '"dates":true' in httpp.get(f"{url}/files").text
-        assert '"mtime":' in httpp.get(f"{url}/files/api/list").text
-        assert httpp.get(f"{url}/files/raw/a.txt").header("Last-Modified") is not None
+        assert '"dates":true' in httpp.Request(f"{url}/files", method="GET").run().text
+        assert '"mtime":' in httpp.Request(f"{url}/files/api/list", method="GET").run().text
+        assert httpp.Request(f"{url}/files/raw/a.txt", method="GET").run().header("Last-Modified") is not None
         assert _zip_dates(url, "path=/&name=a.txt")["a.txt"][:3] != (1980, 1, 1)
     with running(app) as url:
-        assert '"dates":false' in httpp.get(f"{url}/files").text
-        listing = httpp.get(f"{url}/files/api/list").text
+        assert '"dates":false' in httpp.Request(f"{url}/files", method="GET").run().text
+        listing = httpp.Request(f"{url}/files/api/list", method="GET").run().text
         assert "a.txt" in listing and "mtime" not in listing
-        raw = httpp.get(f"{url}/files/raw/a.txt")
+        raw = httpp.Request(f"{url}/files/raw/a.txt", method="GET").run()
         assert raw.status == 200 and raw.header("ETag") is None and raw.header("Last-Modified") is None
         assert set(_zip_dates(url, "path=/").values()) == {(1980, 1, 1, 0, 0, 0)}
 
@@ -145,7 +145,7 @@ def test_the_show_dates_keyword_is_the_same_as_the_setter(tree):
     app = Server()
     FileBrowser(tree, show_dates=False).mount(app, "/files")
     with running(app) as url:
-        assert '"dates":false' in httpp.get(f"{url}/files").text
+        assert '"dates":false' in httpp.Request(f"{url}/files", method="GET").run().text
 
 
 def test_the_setters_chain_and_one_browser_mounts_twice(tree):
@@ -155,9 +155,9 @@ def test_the_setters_chain_and_one_browser_mounts_twice(tree):
     fb.mount(first, "/a")
     fb.mount(second, "/b")
     with running(first) as url:
-        assert httpp.get(f"{url}/a/api/list").status == 200
+        assert httpp.Request(f"{url}/a/api/list", method="GET").run().status == 200
     with running(second) as url:
-        assert httpp.get(f"{url}/b/api/list").status == 200
+        assert httpp.Request(f"{url}/b/api/list", method="GET").run().status == 200
 
 
 @pytest.mark.parametrize("call", [
@@ -173,7 +173,7 @@ def test_a_bad_value_raises_value_error_at_the_setter_and_changes_nothing(tree, 
     app = Server()
     fb.mount(app, "/files")
     with running(app) as url:
-        page = httpp.get(f"{url}/files").text
+        page = httpp.Request(f"{url}/files", method="GET").run().text
         assert '"accent":""' in page and '"limit":5000' in page
 
 
@@ -208,7 +208,7 @@ def test_write_methods_are_refused(tree):
     FileBrowser(tree).mount(app, "/files")
     with running(app) as url:
         for method in ("POST", "PUT", "DELETE", "PATCH"):
-            r = httpp.request(method, f"{url}/files/raw/a.txt")
+            r = httpp.Request(f"{url}/files/raw/a.txt", method=method).run()
             assert r.status in (404, 405)
         assert (tree / "a.txt").read_text() == "hello"
 
@@ -226,14 +226,14 @@ def test_browse_command(tree, httpp_exe, stop_process):
     try:
         url = f"http://127.0.0.1:{port}"
         for _ in range(100):  # a failed connection is a response with status 0, not an exception
-            r = httpp.get(f"{url}/api/list")
+            r = httpp.Request(f"{url}/api/list", method="GET").run()
             if r.status != 0:
                 break
             time.sleep(0.1)
         assert r.status == 200, (r.status, r.body[:200], proc.poll())
         names = [e["name"] for e in json.loads(r.text)["entries"]]
         assert ".hidden.txt" in names and "a.txt" in names
-        assert "Docs" in httpp.get(url).text
+        assert "Docs" in httpp.Request(url, method="GET").run().text
     finally:
         stop_process(proc)
 
@@ -256,7 +256,7 @@ def test_browse_command_shows_html_by_default_and_safe_makes_it_a_download(tree,
     try:
         url = f"http://127.0.0.1:{port}"
         for _ in range(100):
-            r = httpp.get(f"{url}/raw/p.html")
+            r = httpp.Request(f"{url}/raw/p.html", method="GET").run()
             if r.status != 0:
                 break
             time.sleep(0.1)
@@ -265,7 +265,7 @@ def test_browse_command_shows_html_by_default_and_safe_makes_it_a_download(tree,
             assert r.header("Content-Disposition") is None and "sandbox;" in r.header("Content-Security-Policy")
         else:
             assert "attachment" in r.header("Content-Disposition")
-        assert f'"safe":{"false" if shown else "true"}' in httpp.get(url).text
+        assert f'"safe":{"false" if shown else "true"}' in httpp.Request(url, method="GET").run().text
     finally:
         stop_process(proc)
 
@@ -294,11 +294,11 @@ def test_zip_is_off_by_default_and_set_zip_turns_it_on(tree):
     on = Server()
     FileBrowser(tree, zip=True).mount(on, "/files")
     with running(app) as url:
-        assert httpp.get(f"{url}/files/api/zip?path=/sub").status == 404
-        assert '"zip":false' in httpp.get(f"{url}/files").text
+        assert httpp.Request(f"{url}/files/api/zip?path=/sub", method="GET").run().status == 404
+        assert '"zip":false' in httpp.Request(f"{url}/files", method="GET").run().text
     with running(on) as url:
-        assert httpp.get(f"{url}/files/api/zip?path=/sub").status == 200
-        assert '"zip":true' in httpp.get(f"{url}/files").text
+        assert httpp.Request(f"{url}/files/api/zip?path=/sub", method="GET").run().status == 200
+        assert '"zip":true' in httpp.Request(f"{url}/files", method="GET").run().text
 
 
 def test_zip_of_a_folder_and_of_chosen_names_reads_back_with_zipfile(tree):
@@ -306,7 +306,7 @@ def test_zip_of_a_folder_and_of_chosen_names_reads_back_with_zipfile(tree):
     app = Server()
     FileBrowser(tree).zip(True).title("Music").mount(app, "/files")
     with running(app) as url:
-        whole = httpp.get(f"{url}/files/api/zip?path=/")
+        whole = httpp.Request(f"{url}/files/api/zip?path=/", method="GET").run()
         assert whole.status == 200 and whole.header("Content-Type") == "application/zip"
         assert "Music.zip" in whole.header("Content-Disposition")
         z = _archive(whole.content)
@@ -317,12 +317,12 @@ def test_zip_of_a_folder_and_of_chosen_names_reads_back_with_zipfile(tree):
         assert ".hidden.txt" not in " ".join(z.namelist())  # hidden names stay out
 
         # chosen names by POST (a form, repeated "name"), a Persian folder name, and the file name that goes with it
-        form = httpp.post(f"{url}/files/api/zip", form=[("path", "/"), ("name", "فارسی")])
+        form = httpp.Request(f"{url}/files/api/zip", form=[("path", "/"), ("name", "فارسی")], method="POST").run()
         assert form.status == 200
         assert "filename*=UTF-8''%D9%81%D8%A7%D8%B1%D8%B3%DB%8C.zip" in form.header("Content-Disposition")
         assert _archive(form.content).namelist() == ["فارسی/", "فارسی/آهنگ من.mp3"]
 
-        two = httpp.post(f"{url}/files/api/zip", form=[("path", "/"), ("name", "a.txt"), ("name", "sub")])
+        two = httpp.Request(f"{url}/files/api/zip", form=[("path", "/"), ("name", "a.txt"), ("name", "sub")], method="POST").run()
         assert _archive(two.content).namelist() == ["a.txt", "sub/", "sub/b.txt", "sub/empty/"]
 
 
@@ -330,13 +330,13 @@ def test_zip_refusals_and_the_entry_limit(tree):
     app = Server()
     FileBrowser(tree).zip(True).max_zip_entries(2).mount(app, "/files")
     with running(app) as url:
-        assert httpp.get(f"{url}/files/api/zip?path=/../x").status == 400
-        assert httpp.get(f"{url}/files/api/zip?path=/&name=..").status == 400
-        assert httpp.get(f"{url}/files/api/zip?path=/&name=.hidden.txt").status == 404
-        assert httpp.get(f"{url}/files/api/zip?path=/&name=nope").status == 404
-        too_many = httpp.get(f"{url}/files/api/zip?path=/")
+        assert httpp.Request(f"{url}/files/api/zip?path=/../x", method="GET").run().status == 400
+        assert httpp.Request(f"{url}/files/api/zip?path=/&name=..", method="GET").run().status == 400
+        assert httpp.Request(f"{url}/files/api/zip?path=/&name=.hidden.txt", method="GET").run().status == 404
+        assert httpp.Request(f"{url}/files/api/zip?path=/&name=nope", method="GET").run().status == 404
+        too_many = httpp.Request(f"{url}/files/api/zip?path=/", method="GET").run()
         assert too_many.status == 413 and "too many files" in too_many.text
-        assert httpp.get(f"{url}/files/api/zip?path=/&name=a.txt").status == 200
+        assert httpp.Request(f"{url}/files/api/zip?path=/&name=a.txt", method="GET").run().status == 200
 
 
 def test_the_credit_line_is_on_by_default_and_powered_by_false_turns_it_off(tree):
@@ -344,7 +344,7 @@ def test_the_credit_line_is_on_by_default_and_powered_by_false_turns_it_off(tree
     FileBrowser(tree).mount(app, "/on")
     FileBrowser(tree, powered_by=False).mount(app, "/off")
     with running(app) as url:
-        on, off = httpp.get(f"{url}/on").text, httpp.get(f"{url}/off").text
+        on, off = httpp.Request(f"{url}/on", method="GET").run().text, httpp.Request(f"{url}/off", method="GET").run().text
         assert '"powered":true' in on and "https://github.com/mohammadraziei/httpp" in on
         assert '"powered":false' in off
 
@@ -364,7 +364,7 @@ def test_browse_command_no_powered_by_hides_the_credit(tree, httpp_exe, stop_pro
     try:
         url = f"http://127.0.0.1:{port}"
         for _ in range(100):
-            r = httpp.get(url)
+            r = httpp.Request(url, method="GET").run()
             if r.status != 0:
                 break
             time.sleep(0.1)
@@ -380,13 +380,13 @@ def test_browse_command_offers_zip_and_no_zip_turns_it_off(tree, httpp_exe, stop
     try:
         url = f"http://127.0.0.1:{port}"
         for _ in range(100):
-            r = httpp.get(f"{url}/api/zip?path=/sub")
+            r = httpp.Request(f"{url}/api/zip?path=/sub", method="GET").run()
             if r.status != 0:
                 break
             time.sleep(0.1)
         assert (r.status == 200) == zip_on, (r.status, proc.poll())
         if zip_on:
             assert _archive(r.content).namelist() == ["sub/", "sub/b.txt"]
-        assert f'"zip":{"true" if zip_on else "false"}' in httpp.get(url).text
+        assert f'"zip":{"true" if zip_on else "false"}' in httpp.Request(url, method="GET").run().text
     finally:
         stop_process(proc)

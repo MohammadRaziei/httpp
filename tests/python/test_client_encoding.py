@@ -112,4 +112,4 @@ def test_request_auto_compression_off_returns_the_coded_body_and_sends_no_header
         assert coded.ok and coded.content[:2] == b"\x1f\x8b" and coded.content != TEXT
         assert app.seen["accept-encoding"] is None
         assert httpp.Request(url + "/gzip").auto_compression(False).auto_compression().run().content == TEXT
-        assert httpp.request("GET", url + "/gzip", auto_compression=False).content[:2] == b"\x1f\x8b"
+        assert httpp.Request(url + "/gzip", method="GET", auto_compression=False).run().content[:2] == b"\x1f\x8b"

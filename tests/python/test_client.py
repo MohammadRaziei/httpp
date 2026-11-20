@@ -49,7 +49,7 @@ def echo_app():
 
 
 def test_a_refused_connection_has_an_error_and_raise_for_status_explains_it():
-    r = httpp.get("http://127.0.0.1:1/", timeout=3)
+    r = httpp.Request("http://127.0.0.1:1/", timeout=3, method="GET").run()
     assert r.status == 0 and r.failed and r.error == "connection" and not r.ok
     with pytest.raises(httpp.RequestError) as e:
         r.raise_for_status()
@@ -58,7 +58,7 @@ def test_a_refused_connection_has_an_error_and_raise_for_status_explains_it():
 
 def test_a_404_is_a_response_and_raise_for_status_gives_http_error():
     with running(Server()) as url:
-        r = httpp.get(url + "/nothing")
+        r = httpp.Request(url + "/nothing", method="GET").run()
     assert r.status == 404 and not r.failed and not r.ok and r.error is None
     with pytest.raises(httpp.HTTPError) as e:
         r.raise_for_status()
@@ -73,7 +73,7 @@ def test_raise_for_status_returns_the_response_when_all_is_well():
         return {"a": 1}
 
     with running(app) as url:
-        assert httpp.get(url + "/ok").raise_for_status().json() == {"a": 1}
+        assert httpp.Request(url + "/ok", method="GET").run().raise_for_status().json() == {"a": 1}
 
 
 def test_binary_content_text_charset_and_json():
@@ -93,9 +93,9 @@ def test_binary_content_text_charset_and_json():
         return {"w": "سلام"}
 
     with running(app) as url:
-        assert httpp.get(url + "/bin").content == payload  # byte-for-byte, no decoding
-        assert httpp.get(url + "/latin").text == "café"  # the charset from Content-Type is honoured
-        assert httpp.get(url + "/uni").json() == {"w": "سلام"}
+        assert httpp.Request(url + "/bin", method="GET").run().content == payload  # byte-for-byte, no decoding
+        assert httpp.Request(url + "/latin", method="GET").run().text == "café"  # the charset from Content-Type is honoured
+        assert httpp.Request(url + "/uni", method="GET").run().json() == {"w": "سلام"}
 
 
 def test_binary_request_body_survives():
@@ -106,25 +106,25 @@ def test_binary_request_body_survives():
         return {"n": len(request.body), "first": request.body[0], "has_nul": b"\x00" in request.body}
 
     with running(app) as url:
-        r = httpp.post(url + "/len", data=b"\x80\x00\xff" * 100).json()
+        r = httpp.Request(url + "/len", data=b"\x80\x00\xff" * 100, method="POST").run().json()
     assert r == {"n": 300, "first": 0x80, "has_nul": True}
 
 
 def test_params_json_form_auth_token_cookies_headers():
     with running(echo_app()) as url:
-        r = httpp.get(url + "/echo?keep=1", params={"q": "a b&c", "tag": ["x", "y"]}).json()
+        r = httpp.Request(url + "/echo?keep=1", params={"q": "a b&c", "tag": ["x", "y"]}, method="GET").run().json()
         assert r["query"]["keep"] == "1" and r["query"]["q"] == "a b&c"
 
-        r = httpp.post(url + "/echo", json={"a": [1, "س"]}).json()
+        r = httpp.Request(url + "/echo", json={"a": [1, "س"]}, method="POST").run().json()
         assert r["headers"]["content-type"] == "application/json" and json.loads(r["body"]) == {"a": [1, "س"]}
 
-        r = httpp.post(url + "/echo", form={"k": "v w"}).json()
+        r = httpp.Request(url + "/echo", form={"k": "v w"}, method="POST").run().json()
         assert r["headers"]["content-type"] == "application/x-www-form-urlencoded"
 
-        assert httpp.get(url + "/echo", auth=("user", "pass")).json()["headers"]["authorization"] == "Basic dXNlcjpwYXNz"
-        assert httpp.get(url + "/echo", token="tok").json()["headers"]["authorization"] == "Bearer tok"
-        assert httpp.get(url + "/echo", cookies={"a": "1", "b": "2"}).json()["headers"]["cookie"] == "a=1; b=2"
-        assert httpp.get(url + "/echo", headers={"X-Default": "yes"}).json()["headers"]["x-default"] == "yes"
+        assert httpp.Request(url + "/echo", basic_auth=("user", "pass"), method="GET").run().json()["headers"]["authorization"] == "Basic dXNlcjpwYXNz"
+        assert httpp.Request(url + "/echo", bearer="tok", method="GET").run().json()["headers"]["authorization"] == "Bearer tok"
+        assert httpp.Request(url + "/echo", cookies={"a": "1", "b": "2"}, method="GET").run().json()["headers"]["cookie"] == "a=1; b=2"
+        assert httpp.Request(url + "/echo", headers={"X-Default": "yes"}, method="GET").run().json()["headers"]["x-default"] == "yes"
 
 
 def test_client_session_base_path_default_headers_and_methods():
@@ -155,9 +155,9 @@ def test_redirects_only_when_asked_for():
         return "arrived"
 
     with running(app) as url:
-        raw = httpp.get(url + "/redir")
+        raw = httpp.Request(url + "/redir", method="GET").run()
         assert raw.status == 302 and raw.header("location") == "/target"
-        assert httpp.get(url + "/redir", follow_redirects=True).text == "arrived"
+        assert httpp.Request(url + "/redir", max_redirects=20, method="GET").run().text == "arrived"
 
 
 def test_a_slow_server_times_out():
@@ -170,7 +170,7 @@ def test_a_slow_server_times_out():
 
     with running(app) as url:
         started = time.time()
-        r = httpp.get(url + "/slow", timeout=1)
+        r = httpp.Request(url + "/slow", timeout=1, method="GET").run()
         assert r.error == "timeout" and time.time() - started < 2.2
         with pytest.raises(httpp.Timeout):
             r.raise_for_status()
@@ -279,7 +279,7 @@ def test_clone_is_an_independent_session_and_a_plain_assignment_is_the_same_one(
 
 def test_make_request_starts_from_the_session_and_is_a_snapshot():
     with running(echo_app()) as url:
-        c = Client(url, headers={"X-Default": "d"}, token="old")
+        c = Client(url, headers={"X-Default": "d"}, bearer="old")
         req = c.make_request("/echo", params={"a": "1"})
         assert isinstance(req, httpp.Request)
         c.header("X-Default", "later")  # after the request was made: it does not see this
@@ -363,12 +363,12 @@ def test_https_verifies_certificates_and_can_be_configured(tmp_path):
             except OSError:
                 time.sleep(0.1)
         url = f"https://localhost:{port}/"
-        untrusted = httpp.get(url, timeout=5)
+        untrusted = httpp.Request(url, timeout=5, method="GET").run()
         assert untrusted.error == "tls", untrusted  # a self-signed certificate is refused by default
         with pytest.raises(httpp.TLSError):
             untrusted.raise_for_status()
-        assert httpp.get(url, verify=False, timeout=5).status == 200  # explicit opt-out
-        assert httpp.get(url, ca_file=str(cert), timeout=5).status == 200  # or trust that certificate
+        assert httpp.Request(url, verify=False, timeout=5, method="GET").run().status == 200  # explicit opt-out
+        assert httpp.Request(url, ca_file=str(cert), timeout=5, method="GET").run().status == 200  # or trust that certificate
         assert Client(f"https://localhost:{port}", ca_file=str(cert), timeout=5).get("/").status == 200
     finally:
         server.kill()
