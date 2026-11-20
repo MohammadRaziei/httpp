@@ -206,3 +206,14 @@ UTEST(httpp_url, fetch_public_suffix_list_defaults_to_the_address_liburlparser_n
     // No network in the tests: only check that the default is the one the parser names and that it is an https URL.
     ASSERT_TRUE(httpp::url_is_http(httpp::parse_url(std::string(urlparser::psl::instance().source_url()))));
 }
+
+UTEST(httpp_url, url_filename_is_the_last_piece_of_the_path) {
+    auto name = [](const char* text) { return httpp::url_filename(httpp::parse_url(text)); };
+    ASSERT_STREQ("report.txt", name("http://h/files/report.txt").c_str());
+    ASSERT_STREQ("report.txt", name("http://h/files/report.txt?x=1#top").c_str());
+    ASSERT_STREQ("a%20b.txt", name("http://h/a%20b.txt").c_str()); // not decoded
+    ASSERT_STREQ("", name("http://h/").c_str());
+    ASSERT_STREQ("", name("http://h").c_str());
+    ASSERT_STREQ("", name("http://h/dir/").c_str());
+    ASSERT_STREQ("", name("http://h/dir/..").c_str());
+}

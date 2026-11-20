@@ -197,3 +197,24 @@ UTEST(httpp_client_request, timeout_still_limits_the_wait_for_the_answer_whateve
                               .run();
     ASSERT_TRUE(res.error == httpp::error_kind::timeout);
 }
+
+UTEST(httpp_client_request, response_filename_reads_the_content_disposition_name) {
+    auto name = [](const char* value) {
+        httpp::response r;
+        if (value) r.headers.emplace_back("content-disposition", value);
+        return r.filename();
+    };
+    ASSERT_STREQ("report.pdf", name("attachment; filename=\"report.pdf\"").c_str());
+    ASSERT_STREQ("report.pdf", name("attachment; filename=report.pdf").c_str());
+    ASSERT_STREQ("report.pdf", name("attachment; filename=report.pdf; size=3").c_str());
+    ASSERT_STREQ("my file.txt", name("attachment; FileName = \"my file.txt\"").c_str());
+    ASSERT_STREQ("name.txt", name("attachment; filename=\"../../etc/name.txt\"").c_str()); // the folder part goes
+    ASSERT_STREQ("name.txt", name("attachment; filename=\"C:\\\\dir\\\\name.txt\"").c_str());
+    ASSERT_STREQ("a\"b.txt", name("attachment; filename=\"a\\\"b.txt\"").c_str());
+    ASSERT_STREQ("", name("attachment; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf").c_str()); // the extended form is not read
+    ASSERT_STREQ("plain.txt", name("attachment; filename*=UTF-8''x.pdf; filename=plain.txt").c_str());
+    ASSERT_STREQ("", name("attachment; filename=\"..\"").c_str());
+    ASSERT_STREQ("", name("attachment; filename=\"\"").c_str());
+    ASSERT_STREQ("", name("inline").c_str());
+    ASSERT_STREQ("", name(nullptr).c_str());
+}

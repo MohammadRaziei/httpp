@@ -120,6 +120,41 @@ struct response {
         }
         return "";
     }
+
+    // The file name the server suggests in Content-Disposition (filename="report.pdf"), as a bare name: any folder part
+    // is cut off, control characters are dropped, and "" comes back when there is no header, no filename, or nothing
+    // usable ("", "." or ".."). The extended form filename*= is not read, like curl -J.
+    std::string filename() const {
+        const std::string value = header("Content-Disposition");
+        auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
+        std::string low(value.size(), ' ');
+        std::transform(value.begin(), value.end(), low.begin(), lower);
+        for (std::size_t at = low.find("filename"); at != std::string::npos; at = low.find("filename", at + 1)) {
+            const bool starts_a_parameter = at == 0 || low[at - 1] == ';' || low[at - 1] == ' ' || low[at - 1] == '\t';
+            std::size_t i = at + 8;
+            while (i < value.size() && (value[i] == ' ' || value[i] == '\t')) ++i;
+            if (!starts_a_parameter || i >= value.size() || value[i] != '=') continue; // filename*= and other words
+            ++i;
+            while (i < value.size() && (value[i] == ' ' || value[i] == '\t')) ++i;
+            std::string name;
+            if (i < value.size() && value[i] == '"') {
+                for (++i; i < value.size() && value[i] != '"'; ++i) {
+                    if (value[i] == '\\' && i + 1 < value.size()) ++i; // \" and \\ inside the quotes
+                    name += value[i];
+                }
+            } else {
+                for (; i < value.size() && value[i] != ';'; ++i) name += value[i];
+            }
+            const std::size_t cut = name.find_last_of("/\\");
+            if (cut != std::string::npos) name.erase(0, cut + 1);
+            name.erase(std::remove_if(name.begin(), name.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }), name.end());
+            const std::size_t first = name.find_first_not_of(' ');
+            const std::size_t last = name.find_last_not_of(' ');
+            name = first == std::string::npos ? std::string() : name.substr(first, last - first + 1);
+            return name == "." || name == ".." ? std::string() : name;
+        }
+        return std::string();
+    }
 };
 
 class client;

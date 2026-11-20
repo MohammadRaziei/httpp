@@ -123,6 +123,14 @@ public:
     // One level. True only when THIS call created the directory: creating one is atomic, so the winner owns it (the
     // download lock stands on that). False: it was there already (is_dir() tells) or it could not be made.
     HTTPP_UTILS_API bool mkdir() const;
+    // pathlib's mkdir(parents=True, exist_ok=True): every missing level. True when the directory exists afterwards.
+    bool mkdirs() const {
+        if (empty()) return false;
+        if (is_dir()) return true;
+        if (!is_root()) parent().mkdirs(); // "a" has the parent ".", which is there; "/" and "C:/" are roots
+        mkdir();                           // may lose a race with another process: is_dir() tells
+        return is_dir();
+    }
     HTTPP_UTILS_API bool rmdir() const;                // an empty directory
     HTTPP_UTILS_API bool unlink() const;               // a file
     // Moves this over `to`, replacing it. std::rename does that on POSIX only (on Windows it fails when `to` exists);

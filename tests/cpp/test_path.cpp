@@ -192,6 +192,18 @@ UTEST(path, mkdir_is_true_only_for_the_call_that_created_it) {
     ASSERT_FALSE(d.exists());
 }
 
+UTEST(path, mkdirs_makes_every_missing_level_and_is_true_when_the_folder_is_there) {
+    fresh();
+    const path deep = area / "a/b/c";
+    ASSERT_TRUE(deep.mkdirs());
+    ASSERT_TRUE((area / "a/b").is_dir());
+    ASSERT_TRUE(deep.mkdirs()); // there already
+    (area / "file").write_text("x");
+    ASSERT_FALSE((area / "file/sub").mkdirs()); // a file is in the way
+    ASSERT_FALSE(path().mkdirs());
+    ASSERT_TRUE(path(".").mkdirs());
+}
+
 UTEST(path, iterdir_leaves_out_dot_and_dotdot) {
     fresh();
     (area / "one").write_text("1");

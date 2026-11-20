@@ -85,6 +85,15 @@ def echo_app():
     def report():
         return "report body"
 
+    @app.get("/dl")
+    def dl(response):
+        response.add_header("Content-Disposition", 'attachment; filename="../evil/name.txt"')  # only the name is used
+        return "payload"
+
+    @app.post("/json-echo")
+    def json_echo(request):
+        return json.dumps({"ct": request.headers.get("content-type"), "accept": request.headers.get("accept"), "body": request.body.decode()})
+
     @app.put("/up/{name}")
     def upload(name, request):
         return f"{name}:{request.body.decode()}"
@@ -930,6 +939,85 @@ def test_curl_capital_o_names_the_file_after_the_url(httpp_exe, echo_app, tmp_pa
     assert r.returncode == 0 and r.stdout == ""
     assert (tmp_path / "report.txt").read_text() == "report body"
     assert bare.returncode == 23 and "file name" in bare.stderr
+
+
+def test_curl_fail_with_body_exits_22_but_still_shows_and_saves_the_body(httpp_exe, echo_app, tmp_path):
+    out = tmp_path / "error-page.txt"
+    with running(echo_app) as url:
+        shown = run(httpp_exe, "curl", f"{url}/nothing-here", "--fail-with-body")
+        saved = run(httpp_exe, "curl", f"{url}/nothing-here", "--fail-with-body", "-o", str(out))
+        ok = run(httpp_exe, "curl", f"{url}/text", "--fail-with-body")
+        both = run(httpp_exe, "curl", f"{url}/text", "-f", "--fail-with-body")
+    assert shown.returncode == 22 and shown.stdout != "" and "404" in shown.stderr
+    assert saved.returncode == 22 and out.read_text() != ""
+    assert ok.returncode == 0 and ok.stdout == "plain body"
+    assert both.returncode == 2  # -f and --fail-with-body exclude each other
+
+
+def test_curl_json_sends_the_body_with_both_json_headers(httpp_exe, echo_app, tmp_path):
+    (tmp_path / "doc.json").write_text('{\n"a": 1\n}\n')
+    with running(echo_app) as url:
+        one = run(httpp_exe, "curl", f"{url}/json-echo", "--json", '{"a":1}')
+        joined = run(httpp_exe, "curl", f"{url}/json-echo", "--json", '{"a":', "--json", "1}")
+        from_file = run(httpp_exe, "curl", f"{url}/json-echo", "--json", f"@{tmp_path / 'doc.json'}")
+        own_type = run(httpp_exe, "curl", f"{url}/json-echo", "--json", "{}", "-H", "Content-Type: application/vnd.x+json")
+        mixed = run(httpp_exe, "curl", f"{url}/json-echo", "--json", "{}", "-d", "x")
+    assert json.loads(one.stdout) == {"ct": "application/json", "accept": "application/json", "body": '{"a":1}'}
+    assert json.loads(joined.stdout)["body"] == '{"a":1}'  # pieces are joined without a separator
+    assert json.loads(from_file.stdout)["body"] == '{\n"a": 1\n}\n'  # unlike -d, the line breaks stay
+    assert json.loads(own_type.stdout)["ct"] == "application/vnd.x+json"  # -H wins
+    assert mixed.returncode == 1 and "--json" in mixed.stderr
+
+
+def test_curl_J_names_the_file_after_content_disposition_and_never_replaces_one(httpp_exe, echo_app, tmp_path):
+    with running(echo_app) as url:
+        first = run(httpp_exe, "curl", f"{url}/dl", "-O", "-J", cwd=str(tmp_path))
+        second = run(httpp_exe, "curl", f"{url}/dl", "-O", "-J", cwd=str(tmp_path))
+        plain = run(httpp_exe, "curl", f"{url}/files/report.txt", "-O", "-J", cwd=str(tmp_path))  # no header: the URL's name
+        without_O = run(httpp_exe, "curl", f"{url}/dl", "-J", cwd=str(tmp_path))  # -J only works with -O
+    assert first.returncode == 0 and (tmp_path / "name.txt").read_text() == "payload"  # "../evil/" is cut off
+    assert second.returncode == 23 and "Refusing to overwrite" in second.stderr
+    assert plain.returncode == 0 and (tmp_path / "report.txt").read_text() == "report body"
+    assert without_O.returncode == 0 and without_O.stdout == "payload"
+
+
+def test_curl_output_dir_and_create_dirs(httpp_exe, echo_app, tmp_path):
+    with running(echo_app) as url:
+        named = run(httpp_exe, "curl", f"{url}/files/report.txt", "-O", "--output-dir", "out/deep", "--create-dirs", cwd=str(tmp_path))
+        given = run(httpp_exe, "curl", f"{url}/text", "-o", "x.txt", "--output-dir", "out", cwd=str(tmp_path))
+        nested = run(httpp_exe, "curl", f"{url}/text", "-o", "a/b/y.txt", "--create-dirs", cwd=str(tmp_path))
+        missing = run(httpp_exe, "curl", f"{url}/text", "-o", "nodir/z.txt", cwd=str(tmp_path))
+        absolute = run(httpp_exe, "curl", f"{url}/text", "-o", str(tmp_path / "abs.txt"), "--output-dir", "ignored", cwd=str(tmp_path))
+    assert named.returncode == 0 and (tmp_path / "out/deep/report.txt").read_text() == "report body"
+    assert given.returncode == 0 and (tmp_path / "out/x.txt").read_text() == "plain body"
+    assert nested.returncode == 0 and (tmp_path / "a/b/y.txt").read_text() == "plain body"
+    assert missing.returncode == 23 and not (tmp_path / "nodir").exists()  # without --create-dirs the folder is not made
+    assert absolute.returncode == 0 and (tmp_path / "abs.txt").read_text() == "plain body"  # an absolute name stays where it is
+
+
+def test_curl_k_and_cacert_open_an_https_server_with_a_self_signed_certificate(httpp_exe, tmp_path, stop_process, certs):  # noqa: F811
+    cert, key, _ = certs
+    (tmp_path / "hello.txt").write_text("hi there")
+    port = free_port()
+    proc = subprocess.Popen([*httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", str(port), "--ssl-certfile", cert, "--ssl-keyfile", key],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        _wait_for_port(port, proc)
+        url = f"https://127.0.0.1:{port}/hello.txt"
+        unchecked = run(httpp_exe, "curl", url)
+        insecure = run(httpp_exe, "curl", "-k", url)
+        long_form = run(httpp_exe, "curl", "--insecure", url)
+        pinned = run(httpp_exe, "curl", "--cacert", cert, url)
+        k_wins = run(httpp_exe, "curl", "-k", "--cacert", str(tmp_path / "no-such.pem"), url)
+        missing = run(httpp_exe, "curl", "--cacert", str(tmp_path / "no-such.pem"), url)
+    finally:
+        stop_process(proc)
+    assert unchecked.returncode == 35 and unchecked.stdout == ""  # a certificate nobody trusts
+    assert insecure.returncode == 0 and insecure.stdout == "hi there"
+    assert long_form.returncode == 0 and long_form.stdout == "hi there"
+    assert pinned.returncode == 0 and pinned.stdout == "hi there"
+    assert k_wins.returncode == 0 and k_wins.stdout == "hi there"
+    assert missing.returncode == 77 and "certificate" in missing.stderr
 
 
 def test_curl_T_uploads_a_file_with_put(httpp_exe, echo_app, tmp_path):

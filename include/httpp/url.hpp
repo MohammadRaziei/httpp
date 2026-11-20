@@ -60,6 +60,15 @@ inline std::string url_password(const url& u) { return urlparser::percent_codec:
 // The path with "." and ".." resolved; an empty path is "/".
 inline std::string url_path(const url& u) { return u.abspath().empty() ? std::string("/") : u.abspath(); }
 inline std::string url_query(const url& u) { return std::string(u.query()); }
+// The last piece of the path: the file name `curl -O` and a browser give a download. "" when there is none (the path ends in
+// "/"), when it is "." or "..", or when it holds a backslash. It is not percent-decoded.
+inline std::string url_filename(const url& u) {
+    const std::string p = url_path(u);
+    const std::size_t slash = p.rfind('/');
+    std::string name = slash == std::string::npos ? p : p.substr(slash + 1);
+    if (name == "." || name == ".." || name.find('\\') != std::string::npos) return std::string();
+    return name;
+}
 
 // --- percent-encoding (same names as Python's httpp.URL static methods) ---
 

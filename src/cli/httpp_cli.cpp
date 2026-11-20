@@ -243,6 +243,8 @@ struct curl_args {
     std::vector<std::string> headers;
     std::vector<std::string> data; // every -d; joined with '&' like curl; "@file" reads a file
     std::string proxy, noproxy;   // -x, --noproxy
+    std::string cacert, output_dir; // --cacert, --output-dir
+    std::vector<std::string> json;  // every --json; joined without a separator
     bool has_user = false;
     bool has_proxy = false;       // -x was given (an empty value means no proxy at all)
     bool has_noproxy = false;     // --noproxy was given (an empty value excludes nothing)
@@ -251,6 +253,10 @@ struct curl_args {
     bool show_error = false;      // -S
     bool compressed = false;      // --compressed: accepted, changes nothing (the answer is streamed and arrives uncoded)
     bool fail = false;            // -f
+    bool fail_with_body = false;  // --fail-with-body: as -f, but the body is shown
+    bool insecure = false;        // -k
+    bool create_dirs = false;     // --create-dirs
+    bool remote_header_name = false; // -J
     bool include_headers = false; // -i
     bool head_only = false;       // -I
     bool verbose = false;         // -v
@@ -304,6 +310,7 @@ int curl_exit_code(httpp::error_kind kind) {
 constexpr int curl_exit_proxy = 5;        // CURLE_COULDNT_RESOLVE_PROXY: the proxy from -x or the environment is not usable
 constexpr int curl_exit_http_error = 22; // CURLE_HTTP_RETURNED_ERROR, with -f
 constexpr int curl_exit_write_error = 23; // CURLE_WRITE_ERROR: a file could not be written or named
+constexpr int curl_exit_cacert = 77;      // CURLE_SSL_CACERT_BADFILE: the --cacert file is not usable
 constexpr int curl_exit_read_error = 26;  // CURLE_READ_ERROR: a file for -d or -T could not be read
 
 // "error: ..." on stderr, unless -s hides it and -S does not bring it back.
@@ -338,11 +345,7 @@ std::string file_base_name(const std::string& path) {
 // The file name -O uses: the last piece of the URL path. Empty when there is none to use.
 std::string remote_file_name(const std::string& url) {
     try {
-        std::string path = httpp::url_path(httpp::parse_url(url));
-        std::size_t slash = path.rfind('/');
-        std::string name = slash == std::string::npos ? path : path.substr(slash + 1);
-        if (name == "." || name == ".." || name.find('\\') != std::string::npos) return std::string();
-        return name;
+        return httpp::url_filename(httpp::parse_url(url));
     } catch (const std::exception&) {
         return std::string();
     }
@@ -467,6 +470,8 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         if (a.max_time > 0) req.max_time(a.max_time);
         if (a.connect_timeout > 0) req.connect_timeout(a.connect_timeout);
         if (a.has_user) req.basic_auth(plan.user_name, plan.user_password);
+        if (a.insecure) req.verify(false);
+        else if (!a.cacert.empty()) req.ca_file(httpp::path(a.cacert));
     };
 
     const bool malformed = url_has_unsafe_character(url);
@@ -475,16 +480,22 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
     std::string error_text;
     httpp::response res;
 
-    // Where the body goes: a file (-o, or -O named after the URL), else stdout.
+    // Where the body goes: a file (-o, or -O named after the URL, or with -J after the answer's Content-Disposition), else
+    // stdout. --output-dir puts a relative name in that folder; an absolute one stays where it is.
+    const bool name_from_answer = a.remote_header_name && a.remote_name && output.empty();
+    auto in_output_dir = [&](const std::string& name) {
+        return a.output_dir.empty() || name.empty() ? name : (httpp::path(a.output_dir) / httpp::path(name)).str();
+    };
     std::string target = output;
     if (target.empty() && a.remote_name) {
         target = remote_file_name(url);
-        if (target.empty()) {
+        if (target.empty() && !name_from_answer) {
             error_text = "no file name to use for -O in '" + url + "'";
             curl_error(a, error_text);
             code = curl_exit_write_error;
         }
     }
+    target = in_output_dir(target);
 
     if (code == 0 && !proxy_error.empty()) {
         error_text = proxy_error;
@@ -553,6 +564,26 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
             if (plan.dump_to_stdout) write_stdout(head_block);
             else if (plan.dump_file.is_open()) plan.dump_file << head_block << std::flush;
             if (a.fail && head.status >= 400) return false; // like curl, an HTTP error status is an answer, not a failure, unless -f asks for one
+            if (name_from_answer) { // -J: the server's name wins, and it never replaces a file that is there
+                const std::string named = head.filename();
+                if (!named.empty()) {
+                    target = in_output_dir(named);
+                    if (httpp::path(target).exists()) {
+                        write_failed = true;
+                        write_error = "Refusing to overwrite '" + target + "': File exists";
+                        return false;
+                    }
+                } else if (target.empty()) {
+                    write_failed = true;
+                    write_error = "no file name to use for -O in '" + url + "'";
+                    return false;
+                }
+            }
+            if (!target.empty() && a.create_dirs && !httpp::path(target).parent().mkdirs()) {
+                write_failed = true;
+                write_error = "cannot create the folder of '" + target + "'";
+                return false;
+            }
             if (!target.empty()) {
                 file.open(httpp::path(target).native(), std::ios::binary);
                 if (!file) {
@@ -611,7 +642,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
             }
             curl_error(a, error_text);
             code = curl_exit_code(res.error);
-        } else if (a.fail && res.status >= 400) {
+        } else if ((a.fail || a.fail_with_body) && res.status >= 400) {
             error_text = "the requested URL returned error: " + std::to_string(res.status);
             curl_error(a, error_text);
             code = curl_exit_http_error;
@@ -659,6 +690,27 @@ int cmd_curl(const curl_args& a) {
     if (!a.upload_file.empty() && !a.data.empty()) {
         curl_error(a, "-T and -d cannot be used together");
         return 1;
+    }
+    if (!a.json.empty() && (!a.upload_file.empty() || !a.data.empty())) {
+        curl_error(a, "--json cannot be used with -d or -T");
+        return 1;
+    }
+    if (!a.cacert.empty() && !a.insecure && !httpp::path(a.cacert).is_file()) {
+        curl_error(a, "error setting certificate file: " + a.cacert);
+        return curl_exit_cacert;
+    }
+    if (!a.json.empty()) {
+        add_unless_given("Content-Type", "application/json");
+        add_unless_given("Accept", "application/json");
+        for (const std::string& piece : a.json) {
+            std::string value = piece;
+            if (!piece.empty() && piece[0] == '@' && !read_whole(piece.substr(1), value)) { // unlike -d, the line breaks stay
+                curl_error(a, "cannot read '" + piece.substr(1) + "'");
+                return curl_exit_read_error;
+            }
+            plan.body += value;
+        }
+        plan.has_body = true;
     }
     if (!a.upload_file.empty()) {
         if (!read_whole(a.upload_file, plan.body)) {
@@ -909,7 +961,14 @@ int main(int argc, char** argv) {
     c_curl->add_option("--retry", ca.retry, "Try again up to NUM times after a timeout or a 408, 429, 500, 502, 503 or 504")->check(CLI::Range(0, 1000000))->type_name("NUM");
     c_curl->add_option("--retry-delay", ca.retry_delay, "Seconds between retries (default 1, 2, 4, ... up to 600)")->check(CLI::Range(0L, 86400L))->type_name("SECONDS");
     c_curl->add_flag("--retry-connrefused", ca.retry_connrefused, "Also retry when the connection fails (a refused connection, a failed lookup)");
-    c_curl->add_flag("--fail,-f", ca.fail, "Exit with 22 and print nothing when the status is 400 or more");
+    auto* curl_fail_opt = c_curl->add_flag("--fail,-f", ca.fail, "Exit with 22 and print nothing when the status is 400 or more");
+    c_curl->add_flag("--fail-with-body", ca.fail_with_body, "Like -f (exit 22 when the status is 400 or more), but the body is still shown or saved")->excludes(curl_fail_opt);
+    c_curl->add_flag("--insecure,-k", ca.insecure, "https: do not check the server's certificate");
+    c_curl->add_option("--cacert", ca.cacert, "https: trust the CA certificates in this PEM file instead of the system's (ignored with -k)")->type_name("FILE");
+    c_curl->add_option("--output-dir", ca.output_dir, "Put the files of -o and -O in this folder (a name that is an absolute path stays where it is)")->type_name("DIR");
+    c_curl->add_flag("--create-dirs", ca.create_dirs, "Create the folders above an -o or -O file when they are missing");
+    c_curl->add_flag("--remote-header-name,-J", ca.remote_header_name, "With -O: name the file after the answer's Content-Disposition filename instead of the URL (never replaces a file that exists)");
+    c_curl->add_option("--json", ca.json, "Send this JSON as the body with Content-Type and Accept application/json ('@file' reads a file as it is; repeatable: pieces are joined without a separator)")->type_name("DATA")->allow_extra_args(false);
     c_curl->add_flag("--include,-i", ca.include_headers, "Print the status line and the response headers before the body");
     c_curl->add_flag("--head,-I", ca.head_only, "Send HEAD and print only the status line and the headers");
     c_curl->add_flag("--verbose,-v", ca.verbose, "Print the request line and the -H headers, then the response status and headers, to stderr");
