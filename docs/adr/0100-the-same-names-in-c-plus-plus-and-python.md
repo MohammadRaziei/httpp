@@ -28,7 +28,7 @@ A difference with no reason is a cost for whoever moves between the two language
    - `bar::finished()` (C++), as the getter rule of ADR-0092 says (no `is_` or `get_`); it stays a property in Python, which is only the way each language writes a getter.
    - `server::before_request(hook)` and `server::after_request(hook)`, as in Python. (The name is Flask's; FastAPI has no such pair.)
    - `router::websocket_routes()`, as in Python.
-   - `send` in Python: `Client.send(method, path, ...)` and `AsyncClient.send(...)`, as in C++. `Client.request` and `AsyncClient.request` stay for now as **deprecated aliases** that warn with `DeprecationWarning` and call `send`. They are removed in a later release.
+   - `send` in Python: `Client.send(method, path, ...)` and `AsyncClient.send(...)`, as in C++. `Client.request` and `AsyncClient.request` are gone, with no alias: the project has no deprecation (the owner's rule), so the two languages have one name, not two.
 2. **The remaining differences stay, and each now has its reason here and in `ALIASES`:**
    - `del` and `delete`: `delete` is a C++ keyword and `del` a Python one, so no single name that is the HTTP verb exists in both. A third word (`remove`, `erase`) would work in both but hides that the call is DELETE, so it was not taken.
    - `*_async` versus one name: Python tells an `async def` handler from the function itself; C++ cannot overload on a `std::function` that differs only by what it promises, so it needs the suffix.
@@ -39,19 +39,19 @@ A difference with no reason is a cost for whoever moves between the two language
 ## Taken by default while implementing (owner to confirm)
 
 - **`del` and `delete` stay** (the owner floated `remove` or `clear`, not decided).
-- **C++ is renamed without a deprecated alias,** as ADR-0062 did ("breaking for C++ code"); Python keeps `request` as a deprecated alias, because `Client.request` is the one Python name that changes and the Python API is the more widely used.
+- **No alias on either side,** as ADR-0062 did ("breaking for C++ code"). Both are renamed outright: the owner said there is no such thing as deprecated here, and the names are the same in both languages or they are not.
 - **Which side changes:** the C++ names move to Python's for `finished`, `before_request`, `after_request` and `websocket_routes`; Python moves to C++'s for `send`. The reason for the split is that Python's names were the clearer ones in the first group, and `send` the clearer one (it is a verb, and `request` is also the name of the builder class) in the second.
 
 ## Consequences
 
 - C++ callers of `bar::is_finished`, `server::before`, `server::after` and `router::ws_routes` must rename them (a compile error says where).
-- Python callers of `Client.request` and `AsyncClient.request` get a `DeprecationWarning` and nothing else changes.
+- Python callers of `Client.request` and `AsyncClient.request` must rename to `send` (an `AttributeError` says where).
 - The `ALIASES` of the parity test shrinks to the rows with a reason: `del`, `use`, and the `*_async` family.
 - `make_request` (ADR-0094) and `clone` (ADR-0093) are the same in both languages.
 
 ## Verified
 
-Built on Linux and run: the whole C++ suite, and the Python suite against a wheel built from the same tree, including `test_send_is_the_name_of_the_send_call_and_request_is_a_deprecated_alias` and the parity test (names found on the Python side for the renamed C++ names).
+Built on Linux and run: the whole C++ suite, and the Python suite against a wheel built from the same tree, including `test_send_is_the_name_of_the_send_call_in_python_and_in_cpp` and the parity test (names found on the Python side for the renamed C++ names).
 
 ## Not verified
 

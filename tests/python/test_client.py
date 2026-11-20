@@ -317,22 +317,19 @@ def test_async_client_clone_and_make_request():
     assert direct == via_request == via_clone == expected
 
 
-def test_send_is_the_name_of_the_send_call_and_request_is_a_deprecated_alias():
-    """ADR-0100: the name is the same as in C++ (httpp::client::send); `request` stays for now and warns."""
+def test_send_is_the_name_of_the_send_call_in_python_and_in_cpp():
+    """ADR-0100: the name is the same as in C++ (httpp::client::send); there is no `request` method on the sessions."""
     with running(echo_app()) as url:
         c = Client(url)
         assert c.send("POST", "/echo", json={"a": 1}).json()["method"] == "POST"
-        with pytest.warns(DeprecationWarning, match="Client.request"):
-            assert c.request("GET", "/echo").json()["method"] == "GET"
+        assert not hasattr(c, "request")
+        assert not hasattr(httpp.AsyncClient(url), "request")
 
         async def main():
             a = httpp.AsyncClient(url)
-            sent = await a.send("PUT", "/echo", data="x")
-            with pytest.warns(DeprecationWarning, match="AsyncClient.request"):
-                old = await a.request("GET", "/echo")
-            return sent.json()["method"], old.json()["method"]
+            return (await a.send("PUT", "/echo", data="x")).json()["method"]
 
-        assert asyncio.run(main()) == ("PUT", "GET")
+        assert asyncio.run(main()) == "PUT"
 
 
 # ---- TLS, against a real server (the openssl command-line tool) ----------------

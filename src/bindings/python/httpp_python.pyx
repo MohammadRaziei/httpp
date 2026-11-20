@@ -21,7 +21,6 @@ from cpython.ref cimport Py_INCREF, Py_DECREF
 
 import os
 import traceback
-import warnings
 
 # The module is split into textual includes (Cython .pxi files), in this order; one module, one .so.
 include "cy/declarations.pxi"

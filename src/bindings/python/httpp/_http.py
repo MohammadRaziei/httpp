@@ -5,7 +5,6 @@ API too (httpp::request, httpp::client, httpp::async_client).
 """
 
 import asyncio
-import warnings
 
 from .httpp_python import Client, Request, _AsyncClientCore
 
@@ -123,11 +122,6 @@ class AsyncClient:
 
     async def send(self, method, path, **kwargs):
         return await self._core.send(method, path, **kwargs)
-
-    async def request(self, method, path, **kwargs):
-        """Deprecated: the name is send(), as in C++ (ADR-0100)."""
-        warnings.warn("AsyncClient.request() is deprecated, use AsyncClient.send()", DeprecationWarning, stacklevel=2)
-        return await self.send(method, path, **kwargs)
 
     async def get(self, path, **kwargs):
         return await self.send("GET", path, **kwargs)
