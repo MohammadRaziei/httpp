@@ -1,11 +1,13 @@
 #pragma once
 
+#include "httpp/client.hpp"
 #include "httpp/export.hpp"
 #include "httpp/path.hpp"
 #include "httpp/url.hpp"
 
 #include <chrono>
 #include <future>
+#include <memory>
 #include <string>
 
 namespace httpp {
@@ -35,24 +37,50 @@ struct download_result {
 //
 //   auto fut = httpp::download(url, path).run_async();
 //   download_result res = fut.get();
-class download {
+//
+// The network settings (timeout, connect_timeout, max_time, max_redirects, basic_auth, bearer, proxy, verify, ca_file) are the
+// ones of client and request, from configurable (ADR-0094, ADR-0101), under the same names. Where a download differs:
+//   - max_redirects is 20 by default, not 0: redirects are followed here unlike in request. The common case (GitHub release
+//     assets, CDN links, shortened URLs) answers 302 before serving anything, and a plain "download this URL" is expected to
+//     land the real file. 0 follows none (a 3xx is the final response), -1 has no limit.
+//   - timeout is also how long a download waits for another process that holds the same file's lock while that lock shows
+//     no sign of life: see "Locking". 0 or less keeps the default (300 s for the network, 15 s for the lock).
+//   - auto_compression, retry, retry_delay and retry_connrefused are deleted (a call does not compile). A download always
+//     asks for identity coding, because the bytes on disk are what the server sent and a checksum is over those; and a try
+//     that fails in the middle of the body would write the file twice (retry is left for a later step, with resume).
+// A credential is sent to the URL and to the checksum file only when that is on the same host and port as the URL; the
+// redirects that are followed keep the rule of request (never to another origin).
+//
+// Like request, a download is a builder for one job: move-only, and a chain on a temporary is a download.
+class download : public configurable<download> {
 public:
     // dest_path can be given here (the common case: url + where to save
     // it) or filled in later via output() - e.g. when it isn't known yet
     // at construction time, or alongside other fluent options.
     explicit HTTPP_API download(const url& source, const path& dest_path = path());
+    HTTPP_API ~download();
 
-    HTTPP_API download& output(const path& dest_path);
-    HTTPP_API download& enable_progress(bool enable = true);
-    HTTPP_API download& disable_progress();
+    HTTPP_API download(download&&) noexcept;
+    HTTPP_API download& operator=(download&&) noexcept;
+    download(const download&) = delete;
+    download& operator=(const download&) = delete;
 
-    // -L/--location and --max-redirs in one: how many redirects to follow, 20 by default. Redirects are
-    // followed here unlike in request: the common case (GitHub release assets, CDN links, shortened URLs)
-    // answers 302 before serving anything, and a plain "download this URL" is expected to land the real file.
-    // 0 follows none (a 3xx is the final response), -1 has no limit, any other negative number throws
-    // std::invalid_argument. The same name with no argument returns the value.
-    HTTPP_API download& max_redirects(int count);
-    HTTPP_API int max_redirects() const;
+    // Not for a download (see above). Declared here so that the names of configurable are hidden.
+    download& auto_compression(bool) = delete;
+    bool auto_compression() const = delete;
+    download& retry(int) = delete;
+    int retry() const = delete;
+    download& retry_delay(long) = delete;
+    long retry_delay() const = delete;
+    download& retry_connrefused(bool) = delete;
+    bool retry_connrefused() const = delete;
+
+    HTTPP_API download& output(const path& dest_path) &;
+    download output(const path& dest_path) && { output(dest_path); return std::move(*this); }
+    HTTPP_API download& enable_progress(bool enable = true) &;
+    download enable_progress(bool enable = true) && { enable_progress(enable); return std::move(*this); }
+    HTTPP_API download& disable_progress() &;
+    download disable_progress() && { disable_progress(); return std::move(*this); }
 
     // wget -c-style resume, off by default:
     //   - if dest_path already exists and a HEAD request confirms it's
@@ -69,36 +97,35 @@ public:
     //   - requires the server to answer HEAD and Range requests; if it
     //     doesn't, resume degrades to the same always-fresh behavior as
     //     when this is off.
-    HTTPP_API download& resume(bool enable = true);
+    HTTPP_API download& resume(bool enable = true) &;
+    download resume(bool enable = true) && { resume(enable); return std::move(*this); }
 
     // Ignore any of the above (a complete dest_path, or a partial .part)
     // and always redownload from byte 0. Has no effect unless resume() is
     // also enabled, since that's the only mode that looks at existing
     // files in the first place.
-    HTTPP_API download& force(bool enable = true);
+    HTTPP_API download& force(bool enable = true) &;
+    download force(bool enable = true) && { force(enable); return std::move(*this); }
 
     // Verify the finished file against this SHA-256 (64 hex digits, any case). The check happens before run()
     // reports success: on a mismatch the file is deleted and ok is false, with the digest it got in `error`.
     // A malformed digest fails at once, before any request. With resume(), a file that is already there or a
     // .part that was resumed is hashed too; if it does not match, it is downloaded again once from byte 0.
-    HTTPP_API download& sha256(std::string hex);
+    HTTPP_API download& sha256(std::string hex) &;
+    download sha256(std::string hex) && { sha256(std::move(hex)); return std::move(*this); }
 
     // Read the expected SHA-256 from a checksum file instead: one line as `sha256sum` writes it, i.e.
     // `<64 hex digits>` optionally followed by the file name (which must be the name in the download URL).
     // `checksum_url` empty (the default, url("")) means `<download url>.sha256`. It is fetched before the file, so a missing or malformed
     // checksum file (an HTML error page, say) fails the call without downloading anything. Overrides sha256().
-    HTTPP_API download& sha256_url(const url& checksum_url = url());
-
-    // Seconds, for connecting, reading and writing (like client::timeout); 0 or less keeps the default
-    // (300 s) for those. It is also how long a download waits for another process that holds the same file's
-    // lock (below) while that lock shows no sign of life: see "Locking". With no argument it returns the value.
-    HTTPP_API download& timeout(long seconds);
-    HTTPP_API long timeout() const;
+    HTTPP_API download& sha256_url(const url& checksum_url = url()) &;
+    download sha256_url(const url& checksum_url = url()) && { sha256_url(checksum_url); return std::move(*this); }
 
     // How long a lock that is NOT being updated is waited for before its owner is taken for dead and the lock is
-    // taken over; default 2 s, values <= 0 are ignored. The wait is min(max_wait, timeout). It is not a limit on
+    // taken over; default 2 s, values <= 0 are ignored. The wait is min(max_wait, timeout()). It is not a limit on
     // waiting in general: a lock that keeps being updated is waited for as long as it lives.
-    HTTPP_API download& max_wait(std::chrono::milliseconds wait);
+    HTTPP_API download& max_wait(std::chrono::milliseconds wait) &;
+    download max_wait(std::chrono::milliseconds wait) && { max_wait(wait); return std::move(*this); }
     HTTPP_API std::chrono::milliseconds max_wait() const;
 
     // Locking (always on). Only one process (or thread) at a time downloads a given dest_path; the others wait,
@@ -119,17 +146,10 @@ public:
     HTTPP_API std::future<download_result> run_async() const;
 
 private:
-    std::string url_;
-    std::string dest_path_;
-    bool show_progress_ = true;
-    int max_redirects_ = 20;
-    bool resume_ = false;
-    bool force_ = false;
-    std::string sha256_;
-    std::string sha256_url_;
-    bool use_sha256_url_ = false;
-    long timeout_seconds_ = 0;
-    std::chrono::milliseconds max_wait_{2000};
+    friend class configurable<download>;
+    HTTPP_API detail::settings_ref settings_() const; // what configurable<download> calls; exported because that code is inline
+    struct impl;
+    std::unique_ptr<impl> impl_;
 };
 
 } // namespace httpp

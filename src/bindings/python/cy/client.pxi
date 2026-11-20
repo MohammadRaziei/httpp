@@ -279,7 +279,7 @@ cdef class Client:
         return _make_response(res)
 
     def request(self, str method, str path, **kwargs):
-        """Deprecated: the name is send(), as in C++ (ADR-0096)."""
+        """Deprecated: the name is send(), as in C++ (ADR-0100)."""
         warnings.warn("Client.request() is deprecated, use Client.send()", DeprecationWarning, stacklevel=2)
         return self.send(method, path, **kwargs)
 

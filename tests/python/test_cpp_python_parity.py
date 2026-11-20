@@ -87,11 +87,12 @@ TARGETS = {
 }
 
 # The classes that derive from configurable<Self> (ADR-0094): its names must exist on each of them.
-CONFIGURABLE_USERS = (("client", httpp.Client), ("async_client", httpp.AsyncClient), ("request", httpp.Request))
+CONFIGURABLE_USERS = (("client", httpp.Client), ("async_client", httpp.AsyncClient), ("request", httpp.Request),
+                      ("download", httpp.Download))
 
 # C++ name -> Python name, per owner, for names that differ on purpose.
 ALIASES = {
-    "client": {"del": "delete"},  # a keyword in Python; `delete` is one in C++ (ADR-0096)
+    "client": {"del": "delete"},  # a keyword in Python; `delete` is one in C++ (ADR-0100)
     "async_client": {"del": "delete"},
     "server": {
         "del": "delete",
@@ -152,6 +153,11 @@ NOT_EXPOSED = {
     ("request", "retry"): "temporary (ADR-0099): same as request::on_retry",
     ("request", "retry_delay"): "temporary (ADR-0099): same as request::on_retry",
     ("request", "retry_connrefused"): "temporary (ADR-0099): same as request::on_retry",
+    ("download", "auto_compression"): "deleted on a download (ADR-0101): it always asks for identity coding",
+    ("download", "retry"): "deleted on a download (ADR-0101): a try that fails in the body would write the file twice",
+    ("download", "retry_delay"): "deleted on a download (ADR-0101): same as download::retry",
+    ("download", "retry_connrefused"): "deleted on a download (ADR-0101): same as download::retry",
+    ("download", "settings_"): "internal hook of configurable (ADR-0094), not meant for users",
     ("client", "settings_"): "internal hook of configurable (ADR-0094), not meant for users",
     ("async_client", "settings_"): "same as client::settings_",
     ("request", "settings_"): "same as client::settings_",

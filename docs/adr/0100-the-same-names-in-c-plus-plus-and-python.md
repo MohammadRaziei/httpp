@@ -1,4 +1,4 @@
-# ADR-0096: the same names in C++ and Python, except where the language forces a difference
+# ADR-0100: the same names in C++ and Python, except where the language forces a difference
 
 - **Status:** implemented; the points under "Taken by default" are for the owner to confirm
 - **Date:** 2026-11-19

@@ -309,6 +309,13 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         cpp_download& sha256_url(string checksum_url) except +
         cpp_download& timeout(long seconds) except +
         long timeout() except +
+        cpp_download& connect_timeout(long seconds) except +  # std::invalid_argument -> ValueError
+        cpp_download& max_time(long seconds) except +  # std::invalid_argument -> ValueError
+        cpp_download& basic_auth(string user, string password) except +
+        cpp_download& bearer(string token) except +
+        cpp_download& proxy(string proxy_url) except +  # std::invalid_argument -> ValueError
+        cpp_download& verify(cbool enable) except +
+        cpp_download& ca_file(string path) except +
         cpp_download& max_wait(cpp_milliseconds wait) except +
         cpp_milliseconds max_wait() except +
         download_result run() except + nogil

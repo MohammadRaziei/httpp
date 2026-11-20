@@ -109,14 +109,12 @@ private:
     std::string error_;
 };
 
-// The request every download step makes: identity coding (the bytes on disk are what the server sent, and a
-// checksum is over those), redirects as asked, and `extra` headers.
-bool make_transfer_spec(const std::string& url_str, const char* method, int max_redirects, long timeout_seconds,
+// The request every download step makes: the settings of the download (redirects, timeouts, credentials, proxy, TLS),
+// identity coding (the bytes on disk are what the server sent, and a checksum is over those), and `extra` headers.
+bool make_transfer_spec(const std::string& url_str, const char* method, const detail::session_settings& net,
                         const detail::header_list& extra, detail::request_spec& spec, std::string& error) {
-    detail::session_settings settings;
-    settings.follow = max_redirects != 0;
-    settings.max_redirects = detail::redirect_hops(max_redirects);
-    settings.set_timeout(timeout_seconds);
+    detail::session_settings settings = net;
+    settings.auto_compression = false;
     detail::header_list headers{{"Accept-Encoding", "identity"}};
     headers.insert(headers.end(), extra.begin(), extra.end());
     response bad;
@@ -125,12 +123,12 @@ bool make_transfer_spec(const std::string& url_str, const char* method, int max_
     return false;
 }
 
-transfer_result transfer(const std::string& url_str, int max_redirects, long timeout_seconds, long long range_from, file_target& target) {
+transfer_result transfer(const std::string& url_str, const detail::session_settings& net, long long range_from, file_target& target) {
     transfer_result result;
     detail::header_list extra;
     if (range_from > 0) extra.emplace_back("Range", "bytes=" + std::to_string(range_from) + "-");
     detail::request_spec spec;
-    if (!make_transfer_spec(url_str, "GET", max_redirects, timeout_seconds, extra, spec, result.error)) return result;
+    if (!make_transfer_spec(url_str, "GET", net, extra, spec, result.error)) return result;
     spec.sink = target.sink();
     const response r = detail::run_blocking(std::make_shared<detail::request_spec>(std::move(spec)));
     target.finish();
@@ -145,10 +143,10 @@ transfer_result transfer(const std::string& url_str, int max_redirects, long tim
 }
 
 // The size the server reports for the whole file (HEAD), or -1 if it does not say.
-long long probe_size(const std::string& url_str, int max_redirects, long timeout_seconds) {
+long long probe_size(const std::string& url_str, const detail::session_settings& net) {
     detail::request_spec spec;
     std::string error;
-    if (!make_transfer_spec(url_str, "HEAD", max_redirects, timeout_seconds, {}, spec, error)) return -1;
+    if (!make_transfer_spec(url_str, "HEAD", net, {}, spec, error)) return -1;
     const response r = detail::run_blocking(std::make_shared<detail::request_spec>(std::move(spec)));
     const std::string length = r.header("Content-Length");
     return r.status >= 200 && r.status < 300 && !length.empty() ? std::atoll(length.c_str()) : -1;
@@ -166,9 +164,9 @@ download_result to_result(const transfer_result& t) {
 // dest_path. Used directly when resume() is off, for the checksum file, and as the fallback from run_resumable()
 // when the server does not report a size.
 download_result run_plain(const std::string& url_str, const std::string& dest_path, bool show_progress,
-                          int max_redirects, long timeout_seconds) {
+                          const detail::session_settings& net) {
     file_target target(dest_path, false, 0, -1, show_progress);
-    const transfer_result t = transfer(url_str, max_redirects, timeout_seconds, 0, target);
+    const transfer_result t = transfer(url_str, net, 0, target);
     // A failed download must not leave a 0-byte (or half-written) file at dest_path: callers reasonably treat
     // "the file exists" as "it worked".
     if (!t.ok) httpp::path(dest_path).unlink();
@@ -178,7 +176,7 @@ download_result run_plain(const std::string& url_str, const std::string& dest_pa
 // resume()/force()-aware implementation: skip-if-complete, stage into dest_path + ".part", and Range-resume that
 // .part if it already has bytes from an earlier attempt. See download::resume() in the header for the contract.
 download_result run_resumable(const std::string& url_str, const std::string& dest_path, bool show_progress,
-                              int max_redirects, bool force, long timeout_seconds) {
+                              const detail::session_settings& net, bool force) {
     download_result result;
     if (!url_is_http(parse_url(url_str))) {
         result.error = "invalid or unsupported URL: " + url_str;
@@ -187,8 +185,8 @@ download_result run_resumable(const std::string& url_str, const std::string& des
 
     // Find out the full size up front: both "already complete, skip" and "is this .part already the full file"
     // are checked against it. Without it resume/skip have nothing to compare with: do a plain download.
-    const long long total_size = probe_size(url_str, max_redirects, timeout_seconds);
-    if (total_size < 0) return run_plain(url_str, dest_path, show_progress, max_redirects, timeout_seconds);
+    const long long total_size = probe_size(url_str, net);
+    if (total_size < 0) return run_plain(url_str, dest_path, show_progress, net);
 
     if (!force && file_size_or_negative(dest_path) == total_size) {
         result.ok = true;
@@ -213,7 +211,7 @@ download_result run_resumable(const std::string& url_str, const std::string& des
     }
 
     file_target target(part_path, true, offset, total_size, show_progress);
-    const transfer_result t = transfer(url_str, max_redirects, timeout_seconds, offset, target);
+    const transfer_result t = transfer(url_str, net, offset, target);
     result = to_result(t);
     if (t.ok) {
         result.ok = httpp::path(part_path).rename(dest_path);
@@ -228,11 +226,10 @@ download_result run_resumable(const std::string& url_str, const std::string& des
 struct job {
     std::string url, dest;
     bool progress = true;
-    int max_redirects = 20;
+    detail::session_settings net; // timeout 0: the default (300 s) for the network, 15 s for the lock
     bool resume = false, force = false;
     std::string sha256, sha256_url;
     bool use_sha256_url = false;
-    long timeout_seconds = 0; // 0: the default (300 s) for the network, 15 s for the lock
     std::chrono::milliseconds max_wait{2000}; // how long an unchanged lock is waited for
 };
 
@@ -251,13 +248,29 @@ std::string file_name_of(const std::string& url_str) {
     return base.substr(base.find_last_of('/') + 1);
 }
 
+bool same_host_and_port(const std::string& a, const std::string& b) {
+    try {
+        const url ua = parse_url(a), ub = parse_url(b);
+        return url_scheme(ua) == url_scheme(ub) && url_host(ua) == url_host(ub) && url_port(ua) == url_port(ub);
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
 // The digest the file must have, lowercase; empty if no verification was asked for. On a problem returns false.
 bool expected_digest(const job& j, std::string& digest, std::string& error) {
     digest.clear();
     if (j.use_sha256_url) {
         const std::string sum_url = j.sha256_url.empty() ? without_query(j.url) + ".sha256" : j.sha256_url;
         const std::string tmp = j.dest + ".sha256.part";
-        const download_result got = run_plain(sum_url, tmp, false, j.max_redirects, j.timeout_seconds);
+        detail::session_settings net = j.net;
+        if (!same_host_and_port(j.url, sum_url)) { // never hand the credentials of the file to another server
+            net.has_basic = false;
+            net.user.clear();
+            net.password.clear();
+            net.bearer.clear();
+        }
+        const download_result got = run_plain(sum_url, tmp, false, net);
         if (!got.ok) {
             httpp::path(tmp).unlink();
             error = "could not download the checksum file " + sum_url + ": " + got.error;
@@ -290,7 +303,7 @@ bool expected_digest(const job& j, std::string& digest, std::string& error) {
 
 download_result execute(const job& j) {
     // Locked first: the checksum file is fetched to a temporary name next to dest, which two processes must not share.
-    const long timeout = j.timeout_seconds > 0 ? j.timeout_seconds : 15;
+    const long timeout = j.net.timeout > 0 ? j.net.timeout : 15;
     const auto stale_after = std::min(std::chrono::milliseconds(timeout * 1000), j.max_wait);
     const auto lock = std::make_unique<httpp::file_lock>(httpp::path(j.dest), stale_after);
 
@@ -313,8 +326,8 @@ download_result execute(const job& j) {
 
     bool force = j.force;
     for (int attempt = 0;; ++attempt) {
-        download_result r = j.resume ? run_resumable(j.url, j.dest, j.progress, j.max_redirects, force, j.timeout_seconds)
-                                     : run_plain(j.url, j.dest, j.progress, j.max_redirects, j.timeout_seconds);
+        download_result r = j.resume ? run_resumable(j.url, j.dest, j.progress, j.net, force)
+                                     : run_plain(j.url, j.dest, j.progress, j.net);
         if (!r.ok || expected.empty()) return r;
 
         std::string actual;
@@ -342,75 +355,83 @@ download_result execute(const job& j) {
 
 } // namespace
 
-download::download(const url& source, const path& dest_path)
-    : url_(source.str()), dest_path_(dest_path.str()) {}
+struct download::impl {
+    detail::guarded_settings settings;
+    std::string url, dest;
+    bool show_progress = true;
+    bool resume = false, force = false;
+    std::string sha256, sha256_url;
+    bool use_sha256_url = false;
+    std::chrono::milliseconds max_wait{2000};
 
-download& download::output(const path& dest_path) {
-    dest_path_ = dest_path.str();
+    static detail::session_settings defaults() {
+        detail::session_settings s; // redirects are followed (20), unlike request; identity coding, see make_transfer_spec
+        s.follow = true;
+        s.auto_compression = false;
+        return s;
+    }
+    impl(std::string u, std::string d) : settings(defaults()), url(std::move(u)), dest(std::move(d)) {}
+
+    // Everything run() and run_async() need, copied out of the builder so run_async() can outlive it.
+    job to_job() const {
+        return job{url, dest, show_progress, settings.snapshot(), resume, force, sha256, sha256_url, use_sha256_url, max_wait};
+    }
+};
+
+download::download(const url& source, const path& dest_path) : impl_(std::make_unique<impl>(source.str(), dest_path.str())) {}
+download::~download() = default;
+download::download(download&&) noexcept = default;
+download& download::operator=(download&&) noexcept = default;
+
+detail::settings_ref download::settings_() const { return detail::settings_ref(impl_->settings); }
+
+download& download::output(const path& dest_path) & {
+    impl_->dest = dest_path.str();
     return *this;
 }
 
-download& download::enable_progress(bool enable) {
-    show_progress_ = enable;
+download& download::enable_progress(bool enable) & {
+    impl_->show_progress = enable;
     return *this;
 }
 
-download& download::disable_progress() {
+download& download::disable_progress() & {
     return enable_progress(false);
 }
 
-download& download::max_redirects(int count) {
-    detail::redirect_hops(count); // refuses a number below -1
-    max_redirects_ = count;
-    return *this;
-}
-int download::max_redirects() const { return max_redirects_; }
-
-download& download::resume(bool enable) {
-    resume_ = enable;
+download& download::resume(bool enable) & {
+    impl_->resume = enable;
     return *this;
 }
 
-download& download::force(bool enable) {
-    force_ = enable;
+download& download::force(bool enable) & {
+    impl_->force = enable;
     return *this;
 }
 
-download& download::sha256(std::string hex) {
-    sha256_ = std::move(hex);
-    use_sha256_url_ = false;
+download& download::sha256(std::string hex) & {
+    impl_->sha256 = std::move(hex);
+    impl_->use_sha256_url = false;
     return *this;
 }
 
-download& download::sha256_url(const url& checksum_url) {
-    sha256_url_ = checksum_url.str();
-    use_sha256_url_ = true;
+download& download::sha256_url(const url& checksum_url) & {
+    impl_->sha256_url = checksum_url.str();
+    impl_->use_sha256_url = true;
     return *this;
 }
 
-download& download::timeout(long seconds) {
-    timeout_seconds_ = seconds;
+download& download::max_wait(std::chrono::milliseconds wait) & {
+    if (wait.count() > 0) impl_->max_wait = wait;
     return *this;
 }
-long download::timeout() const { return timeout_seconds_; }
+std::chrono::milliseconds download::max_wait() const { return impl_->max_wait; }
 
-download& download::max_wait(std::chrono::milliseconds wait) {
-    if (wait.count() > 0) max_wait_ = wait;
-    return *this;
-}
-std::chrono::milliseconds download::max_wait() const { return max_wait_; }
-
-download_result download::run() const {
-    return execute({url_, dest_path_, show_progress_, max_redirects_, resume_, force_, sha256_, sha256_url_,
-                    use_sha256_url_, timeout_seconds_, max_wait_});
-}
+download_result download::run() const { return execute(impl_->to_job()); }
 
 std::future<download_result> download::run_async() const {
     // The job is a copy: the builder may go out of scope before the async task runs.
-    return std::async(std::launch::async, [j = job{url_, dest_path_, show_progress_, max_redirects_, resume_, force_,
-                                                    sha256_, sha256_url_, use_sha256_url_, timeout_seconds_, max_wait_}] {
-        return execute(j);
-    });
+    return std::async(std::launch::async, [j = impl_->to_job()] { return execute(j); });
 }
 
 } // namespace httpp

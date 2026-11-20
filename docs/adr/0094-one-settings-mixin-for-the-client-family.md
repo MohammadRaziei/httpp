@@ -7,7 +7,7 @@
 
 ## Context
 
-The settings are already **one type** in the implementation: `detail::session_settings` is held by `client::impl` (behind `guarded_settings`, a mutex), by `async_client::impl` (no mutex; the comment says "configure before the first request"), by `request::impl`, and by `download.cpp`. They are **not one thing in the public header**: `include/httpp/client.hpp` declares the same settings three times (about 50 declarations: 20 in `client`, 11 in `request`, 18 in `async_client`, counted from the header) and `src/core/client.cpp` forwards each of them by hand. The small rules sit inside those forwarders and are repeated: `timeout(n)` with `n <= 0` means the default, `max_redirects(n)` also sets `follow` and refuses a negative number other than -1, `basic_auth` and `bearer` write several fields, `header` replaces a same-name header.
+The settings are already **one type** in the implementation: `detail::session_settings` is held by `client::impl` (behind `guarded_settings`, a mutex), by `async_client::impl` (no mutex; the comment says "configure before the first request"), by `request::impl`, and, for a moment, by `download.cpp` (which built a fresh one from two numbers for each step; it was not held by the class, see ADR-0101). They are **not one thing in the public header**: `include/httpp/client.hpp` declares the same settings three times (about 50 declarations: 20 in `client`, 11 in `request`, 18 in `async_client`, counted from the header) and `src/core/client.cpp` forwards each of them by hand. The small rules sit inside those forwarders and are repeated: `timeout(n)` with `n <= 0` means the default, `max_redirects(n)` also sets `follow` and refuses a negative number other than -1, `basic_auth` and `bearer` write several fields, `header` replaces a same-name header.
 
 Constraints found in the code:
 
@@ -57,7 +57,7 @@ Constraints found in the code:
 - **Locking:** all three hold a mutex now. `async_client` and `request` had none; the cost is an uncontended lock per call. A setter on an `async_client` while requests are in flight is now safe, and each request still uses the settings it started with. The header comment "configure before the first request" is kept as advice, not a rule.
 - **`timeout(n <= 0)` on a request** now means the default, as on the sessions (before, the negative number was stored and then treated as the default when the request was made, so nothing visible changes).
 - **The internal helpers** keep their `set_` names.
-- **`download`** was not joined to the mixin. It holds its own `session_settings` and has its own `timeout`, `max_wait` and `max_redirects`.
+- **`download`** was not joined to the mixin here. (The first version of this line said it "holds its own `session_settings`"; it did not: it kept `max_redirects_` and `timeout_seconds_` and built a `session_settings` from them for each step, which is why it had no credentials, proxy or TLS settings at all.) Done in ADR-0101.
 - **The factory is `make_request`, bound in Python** as `Client.make_request(path)` and `AsyncClient.make_request(path)`, which return an `httpp.Request`. `clone()` is bound too, as `Client.clone()` and `AsyncClient.clone()`.
 
 ## Verified

@@ -107,6 +107,49 @@ cdef class Download:
         self._dl.timeout(<long>seconds)
         return self
 
+    def connect_timeout(self, seconds):
+        """Limit, in seconds, for resolving the host, connecting and the TLS handshake. timeout() still
+        limits each write and read; without this one it covers the connect steps too. ValueError for a
+        negative number."""
+        if seconds < 0:
+            raise ValueError("connect_timeout must not be negative")
+        self._dl.connect_timeout(max(1, int(round(seconds))))
+        return self
+
+    def max_time(self, seconds):
+        """Limit, in seconds, for the whole download: redirects and the body included. When it runs out the
+        download ends with an error, even while the server is still sending. 0 (default) sets no such
+        limit; timeout() is separate and limits each step. ValueError for a negative number."""
+        if seconds < 0:
+            raise ValueError("max_time must not be negative")
+        self._dl.max_time(0 if seconds == 0 else max(1, int(round(seconds))))
+        return self
+
+    def basic_auth(self, str user, str password):
+        """Send these credentials to the URL (and to a checksum file on the same host and port)."""
+        self._dl.basic_auth(user.encode("utf-8"), password.encode("utf-8"))
+        return self
+
+    def bearer(self, str token):
+        """Send "Authorization: Bearer <token>" to the URL (and to a checksum file on the same host and port)."""
+        self._dl.bearer(token.encode("utf-8"))
+        return self
+
+    def proxy(self, str proxy_url):
+        """Download through an HTTP proxy: "http://[user[:pass]@]host[:port]". ValueError for anything else."""
+        self._dl.proxy(proxy_url.encode("utf-8"))
+        return self
+
+    def verify(self, cbool enable):
+        """https: verify the server certificate (default True)."""
+        self._dl.verify(enable)
+        return self
+
+    def ca_file(self, path):
+        """https: trust this CA bundle instead of the system's."""
+        self._dl.ca_file(_fs(path))
+        return self
+
     def max_wait(self, seconds=None):
         """Seconds a lock that is not being updated is waited for before it is taken over (default 2);
         values <= 0 are ignored. (C++ takes milliseconds; Python uses seconds, like timeout.) With no
