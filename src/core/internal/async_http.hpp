@@ -90,6 +90,11 @@ public:
     // response carries status 0 and `error` instead (same contract as httpp::client).
     void submit(async_job job, done_fn done);
 
+    // Thread-safe. Runs `fn` on the loop thread once `delay` has passed: a timer, not a sleep, so the loop goes on with other
+    // exchanges meanwhile (the wait between two tries of a retried request, ADR-0099). Like `done` it must not block. A
+    // timer still pending when the engine is destroyed never fires; the two engines of the process are never destroyed.
+    void post_after(std::chrono::milliseconds delay, std::function<void()> fn);
+
     // True on the engine's own thread, i.e. inside a `done` callback. A blocking wait there would
     // wait for the very loop it blocks, so callers use this to refuse instead.
     bool on_loop_thread() const;

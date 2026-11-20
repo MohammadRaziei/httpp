@@ -26,7 +26,7 @@ That was logic of the request in the front end. The library already runs the clo
 - **Put the whole sentence into `error_message`** (`"timed out after 2003 ms with 120 bytes received"`). It would change a string callers may match on, and the CLI would have to avoid printing the label and the message twice. Numbers are easier to use than a sentence, and the sentence can be made from them.
 - **A separate `timing` struct on `response`.** More names for two numbers, and the Python and C++ parity work (ADR-0094) would grow with it.
 - **`std::chrono::milliseconds` as the type.** It would put `<chrono>` into the public header and the Python binding would have to convert it. A plain count with the unit in the name is what `timeout(long seconds)` and `max_time(long seconds)` already do.
-- **Retry inside `request` (`--retry`)** was considered in the same pass and left out. It is a larger public API (`retry`, `retry_delay`, `retry_connrefused` on all three classes of ADR-0094, plus Python) and needs its own decision.
+- **Retry inside `request` (`--retry`)** was considered in the same pass and left out. It is a larger public API (`retry`, `retry_delay`, `retry_connrefused` on all three classes of ADR-0094, plus Python) and needed its own decision (done in ADR-0099).
 
 ## Consequences
 

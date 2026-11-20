@@ -40,7 +40,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -420,18 +419,6 @@ std::string expand_write_out(const std::string& format, const std::string& url, 
     return out;
 }
 
-// Only a few statuses and a timeout are worth another try, as in curl; a refused connection only with --retry-connrefused.
-bool is_transient_status(int status) {
-    return status == 408 || status == 429 || status == 500 || status == 502 || status == 503 || status == 504;
-}
-
-bool is_transient(const curl_args& a, const httpp::response& res) {
-    if (res.failed()) {
-        return res.error == httpp::error_kind::timeout || (a.retry_connrefused && res.error == httpp::error_kind::connection);
-    }
-    return is_transient_status(res.status);
-}
-
 void write_stdout(const std::string& bytes) {
     stdout_binary();
     std::fwrite(bytes.data(), 1, bytes.size(), stdout);
@@ -472,6 +459,14 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         if (a.has_user) req.basic_auth(plan.user_name, plan.user_password);
         if (a.insecure) req.verify(false);
         else if (!a.cacert.empty()) req.ca_file(httpp::path(a.cacert));
+        if (a.retry > 0) { // the library sends the request again (ADR-0099); the warning is only what curl prints before it waits
+            req.retry(a.retry).retry_delay(a.retry_delay).retry_connrefused(a.retry_connrefused);
+            if (!a.silent) {
+                req.on_retry([&a](const httpp::response&, int number, long delay) {
+                    std::cerr << "Warning: transient problem, will retry in " << delay << " seconds (" << number << " of " << a.retry << ")" << std::endl;
+                });
+            }
+        }
     };
 
     const bool malformed = url_has_unsafe_character(url);
@@ -526,7 +521,6 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         bool write_failed = false;
         std::string write_error;
         bool redirect_refused = false; // -L --max-redirs 0: the first redirect is an error, as in curl
-        int tries_done = 0;
 
         auto put = [&](const char* data, std::size_t size) {
             if (!target.empty()) {
@@ -554,7 +548,6 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
                     if (n == "location") { redirect_refused = true; return false; }
                 }
             }
-            if (tries_done < a.retry && is_transient_status(head.status)) return false; // another try follows: none of this answer is shown
             if (a.verbose) {
                 std::cerr << "< HTTP/1.1 " << head.status << "\n";
                 for (const auto& [name, value] : head.headers) std::cerr << "< " << name << ": " << value << "\n";
@@ -617,15 +610,6 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
             return answer;
         };
         res = attempt();
-        for (; tries_done < a.retry && is_transient(a, res); ) {
-            long delay = a.retry_delay > 0 ? a.retry_delay : std::min<long>(600, 1L << std::min(tries_done, 9));
-            ++tries_done;
-            if (!a.silent) {
-                std::cerr << "Warning: transient problem, will retry in " << delay << " seconds (" << tries_done << " of " << a.retry << ")" << std::endl;
-            }
-            std::this_thread::sleep_for(std::chrono::seconds(delay));
-            res = attempt();
-        }
         if (file.is_open()) file.close();
 
         if (write_failed) { // a file or a closed pipe: curl's exit code 23

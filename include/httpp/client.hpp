@@ -176,6 +176,12 @@ public:
     HTTPP_API long connect_timeout() const;
     HTTPP_API void max_time(long seconds) const;
     HTTPP_API long max_time() const;
+    HTTPP_API void retry(int times) const;
+    HTTPP_API int retry() const;
+    HTTPP_API void retry_delay(long seconds) const;
+    HTTPP_API long retry_delay() const;
+    HTTPP_API void retry_connrefused(bool enable) const;
+    HTTPP_API bool retry_connrefused() const;
     HTTPP_API void max_redirects(int count) const;
     HTTPP_API int max_redirects() const;
     HTTPP_API void auto_compression(bool enable) const;
@@ -227,6 +233,27 @@ public:
     HTTPP_MEMBER Self& max_time(long seconds) & { ref().max_time(seconds); return self(); }
     Self max_time(long seconds) && { ref().max_time(seconds); return std::move(self()); }
     HTTPP_MEMBER long max_time() const { return ref().max_time(); }
+
+    // --retry (ADR-0099): how many more times to send the request after a try that may pass. Only a timeout and the statuses
+    // 408, 429, 500, 502, 503 and 504 count (and a failed connection with retry_connrefused()); any other answer, a 404 or
+    // a redirect included, is returned at once. Each try has its own timeout() and max_time(), and the response is that of
+    // the last try (elapsed_ms and bytes_received too). 0 (the default) never sends again. With on_body() an answer that is
+    // about to be sent again is never shown to the callbacks. Throws std::invalid_argument for a negative number.
+    HTTPP_MEMBER Self& retry(int times) & { ref().retry(times); return self(); }
+    Self retry(int times) && { ref().retry(times); return std::move(self()); }
+    HTTPP_MEMBER int retry() const { return ref().retry(); }
+
+    // --retry-delay (seconds): the wait before each new try. 0 (the default) waits 1, 2, 4, ... seconds, 600 at most. The
+    // wait is a timer on the network thread, not a sleep: other requests go on. It holds the connection slot of an
+    // async_client. Throws std::invalid_argument for a negative number.
+    HTTPP_MEMBER Self& retry_delay(long seconds) & { ref().retry_delay(seconds); return self(); }
+    Self retry_delay(long seconds) && { ref().retry_delay(seconds); return std::move(self()); }
+    HTTPP_MEMBER long retry_delay() const { return ref().retry_delay(); }
+
+    // --retry-connrefused: also send again after error_kind::connection (a refused connection, a failed lookup). Off by default.
+    HTTPP_MEMBER Self& retry_connrefused(bool enable) & { ref().retry_connrefused(enable); return self(); }
+    Self retry_connrefused(bool enable) && { ref().retry_connrefused(enable); return std::move(self()); }
+    HTTPP_MEMBER bool retry_connrefused() const { return ref().retry_connrefused(); }
 
     // -L/--location and --max-redirs in one: how many redirects to follow. 0 (the default) follows none: a 3xx is the
     // answer. n > 0 follows up to n hops; one more fails with error_kind::too_many_redirects. -1 follows without a limit
@@ -331,7 +358,7 @@ public:
     // httpp::request(url) is the same builder without a session.
     HTTPP_API httpp::request make_request(const std::string& path) const;
 
-    // Session settings: those of configurable (timeout, connect_timeout, max_time, max_redirects, auto_compression, basic_auth,
+    // Session settings: those of configurable (timeout, connect_timeout, max_time, retry, retry_delay, retry_connrefused, max_redirects, auto_compression, basic_auth,
     // bearer, proxy, verify, ca_file), and these two. They apply to the requests made after the call.
     HTTPP_API client& header(std::string name, std::string value); // sent with every request
     HTTPP_API client& keep_alive(bool enable); // default true
@@ -425,6 +452,11 @@ public:
     // called, and run() still returns the response (an error status you do not want written, say).
     HTTPP_API request& on_head(std::function<bool(const response& head)> head) &;
     request on_head(std::function<bool(const response& head)> head) && { on_head(std::move(head)); return std::move(*this); }
+    // With retry() (ADR-0099): called before each new try, with the response of the try that failed, the number of the
+    // retry about to start (1, 2, ...) and the seconds it waits first. Say "will retry" here; the wait has not begun. It
+    // runs on the network thread, like the callbacks above: keep it short and do not call a blocking httpp request.
+    HTTPP_API request& on_retry(std::function<void(const response& last, int retry_number, long delay_seconds)> notice) &;
+    request on_retry(std::function<void(const response& last, int retry_number, long delay_seconds)> notice) && { on_retry(std::move(notice)); return std::move(*this); }
 
     HTTPP_API response run() const;
     // Starts the request on the library's non-blocking network thread and returns at once. No

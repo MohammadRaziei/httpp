@@ -40,6 +40,12 @@ void detail::settings_ref::connect_timeout(long seconds) const { g_->update([&](
 long detail::settings_ref::connect_timeout() const { return g_->read([](const session_settings& s) { return s.connect_timeout; }); }
 void detail::settings_ref::max_time(long seconds) const { g_->update([&](session_settings& s) { s.set_max_time(seconds); }); }
 long detail::settings_ref::max_time() const { return g_->read([](const session_settings& s) { return s.max_time; }); }
+void detail::settings_ref::retry(int times) const { g_->update([&](session_settings& s) { s.set_retry(times); }); }
+int detail::settings_ref::retry() const { return g_->read([](const session_settings& s) { return s.retries; }); }
+void detail::settings_ref::retry_delay(long seconds) const { g_->update([&](session_settings& s) { s.set_retry_delay(seconds); }); }
+long detail::settings_ref::retry_delay() const { return g_->read([](const session_settings& s) { return s.retry_delay; }); }
+void detail::settings_ref::retry_connrefused(bool enable) const { g_->update([&](session_settings& s) { s.retry_connrefused = enable; }); }
+bool detail::settings_ref::retry_connrefused() const { return g_->read([](const session_settings& s) { return s.retry_connrefused; }); }
 void detail::settings_ref::max_redirects(int count) const { g_->update([&](session_settings& s) { s.set_max_redirects(count); }); }
 int detail::settings_ref::max_redirects() const { return g_->read([](const session_settings& s) { return s.redirects(); }); }
 void detail::settings_ref::auto_compression(bool enable) const { g_->update([&](session_settings& s) { s.auto_compression = enable; }); }
@@ -150,6 +156,7 @@ struct request::impl {
     guarded_settings settings; // timeout, redirects, auth, proxy, TLS, size limit
     std::function<bool(std::string_view)> on_piece; // on_body(): streams the final body (ADR-0084)
     std::function<bool(const response&)> on_head_fn;
+    std::function<void(const response&, int, long)> on_retry_fn; // on_retry() (ADR-0099)
 
     explicit impl(std::string u) : url(std::move(u)) {}
 
@@ -177,6 +184,7 @@ struct request::impl {
             sink->on_data = [piece = on_piece](const char* data, std::size_t size) { return piece(std::string_view(data, size)); };
             out.sink = std::move(sink);
         }
+        out.on_retry = on_retry_fn;
         return true;
     }
 };
@@ -233,6 +241,10 @@ request& request::on_body(std::function<bool(std::string_view piece)> piece) & {
 }
 request& request::on_head(std::function<bool(const response& head)> head) & {
     impl_->on_head_fn = std::move(head);
+    return *this;
+}
+request& request::on_retry(std::function<void(const response& last, int retry_number, long delay_seconds)> notice) & {
+    impl_->on_retry_fn = std::move(notice);
     return *this;
 }
 

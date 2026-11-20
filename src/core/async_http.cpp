@@ -801,6 +801,15 @@ void async_http::submit(async_job job, done_fn done) {
     });
 }
 
+void async_http::post_after(std::chrono::milliseconds delay, std::function<void()> fn) {
+    asio::post(impl_->io, [this, delay, fn = std::move(fn)]() mutable {
+        auto timer = std::make_shared<asio::steady_timer>(impl_->io, delay);
+        timer->async_wait([timer, fn = std::move(fn)](const asio::error_code& ec) {
+            if (!ec) fn();
+        });
+    });
+}
+
 bool async_http::on_loop_thread() const { return std::this_thread::get_id() == impl_->thread.get_id(); }
 
 async_http& shared_async_http() {

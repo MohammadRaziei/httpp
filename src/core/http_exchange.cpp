@@ -126,6 +126,16 @@ void session_settings::set_max_time(long seconds) {
     max_time = seconds;
 }
 
+void session_settings::set_retry(int times) {
+    if (times < 0) throw std::invalid_argument("retry must not be negative");
+    retries = times;
+}
+
+void session_settings::set_retry_delay(long seconds) {
+    if (seconds < 0) throw std::invalid_argument("retry_delay must not be negative");
+    retry_delay = seconds;
+}
+
 void session_settings::set_max_redirects(int count) {
     const int hops = redirect_hops(count); // throws before anything changes
     follow = count != 0;
@@ -174,6 +184,9 @@ bool session_settings::make_spec(const endpoint& where, const std::string& metho
     out.timeout = timeout;
     out.connect_timeout = connect_timeout;
     out.max_time = max_time;
+    out.retries = retries;
+    out.retry_delay = retry_delay;
+    out.retry_connrefused = retry_connrefused;
     out.redirects_left = max_redirects;
     out.follow = follow;
     out.auto_compression = auto_compression;
@@ -344,12 +357,63 @@ void run_hops(std::shared_ptr<request_spec> spec, std::function<void(response)> 
 
 } // namespace
 
-void run_chain(std::shared_ptr<request_spec> spec, std::function<void(response)> done) {
+namespace {
+
+// One try: the clock of elapsed_ms and max_time starts here, so each try has its own.
+void run_attempt(std::shared_ptr<request_spec> spec, std::function<void(response)> done) {
     const auto started = std::chrono::steady_clock::now();
     run_hops(std::move(spec), [started, done = std::move(done)](response r) mutable {
         r.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
         done(std::move(r));
     });
+}
+
+// As in curl: a few statuses and a timeout may pass on another try; a failed connection only when asked.
+bool transient_status(int status) {
+    return status == 408 || status == 429 || status == 500 || status == 502 || status == 503 || status == 504;
+}
+
+bool worth_another_try(const request_spec& spec, const response& r) {
+    if (r.failed()) return r.error == error_kind::timeout || (spec.retry_connrefused && r.error == error_kind::connection);
+    return transient_status(r.status);
+}
+
+long wait_before_retry(const request_spec& spec, int retried) {
+    return spec.retry_delay > 0 ? spec.retry_delay : std::min<long>(600, 1L << std::min(retried, 9));
+}
+
+// Try number `retried` + 1. `base` is never run itself: each try gets a copy, because a try writes its own deadline and its redirect count.
+void run_tries(std::shared_ptr<const request_spec> base, int retried, std::function<void(response)> done) {
+    auto spec = std::make_shared<request_spec>(*base);
+    spec->deadline = {};
+    if (spec->sink && retried < base->retries) { // an answer that is about to be sent again is read and thrown away, never shown
+        auto inner = spec->sink;
+        spec->sink = std::make_shared<body_sink>();
+        spec->sink->on_head = [inner](const response& head) {
+            return transient_status(head.status) ? body_sink::verdict::skip : inner->on_head(head);
+        };
+        spec->sink->on_data = inner->on_data;
+    }
+    run_attempt(std::move(spec), [base, retried, done = std::move(done)](response r) mutable {
+        if (retried >= base->retries || !worth_another_try(*base, r)) return done(std::move(r));
+        const long wait = wait_before_retry(*base, retried);
+        if (base->on_retry) {
+            try {
+                base->on_retry(r, retried + 1, wait);
+            } catch (...) { // a notice that throws must not strand the request on the network thread
+            }
+        }
+        engine_for(*base).post_after(std::chrono::seconds(wait), [base, retried, done = std::move(done)]() mutable {
+            run_tries(base, retried + 1, std::move(done));
+        });
+    });
+}
+
+} // namespace
+
+void run_chain(std::shared_ptr<request_spec> spec, std::function<void(response)> done) {
+    if (spec->retries <= 0) return run_attempt(std::move(spec), std::move(done));
+    run_tries(std::move(spec), 0, std::move(done));
 }
 
 response run_blocking(std::shared_ptr<request_spec> spec) {
