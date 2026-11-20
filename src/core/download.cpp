@@ -42,6 +42,19 @@ struct transfer_result {
     std::string error;
 };
 
+// The first byte of a 206 as its Content-Range gives it ("bytes 4-9/10" -> 4), -1 when the header is missing or not that form.
+long long content_range_start(const std::string& value) {
+    std::size_t i = 0;
+    while (i < value.size() && value[i] == ' ') ++i;
+    if (value.compare(i, 5, "bytes") != 0) return -1;
+    i += 5;
+    while (i < value.size() && value[i] == ' ') ++i;
+    if (i >= value.size() || !std::isdigit(static_cast<unsigned char>(value[i]))) return -1;
+    long long start = 0;
+    for (; i < value.size() && std::isdigit(static_cast<unsigned char>(value[i])); ++i) start = start * 10 + (value[i] - '0');
+    return i < value.size() && value[i] == '-' ? start : -1;
+}
+
 class file_target {
 public:
     // strict: only 200 and 206 count as success (a resumable download); otherwise any 2xx.
@@ -70,9 +83,21 @@ private:
     detail::body_sink::verdict on_head(const response& head) {
         status_ = head.status;
         if (!accepts(status_)) return detail::body_sink::verdict::skip; // an error page, or a redirect we do not follow
-        if (status_ != 206) offset_ = 0;                                 // the server ignored the Range: start over
-        if (!out_.open(httpp::path(path_), offset_ > 0 ? detail::file_writer::mode::append : detail::file_writer::mode::truncate, false, true)) {
-            error_ = "could not open destination file: " + path_;
+        // Where the bytes go is what the server says, not what we asked for (ADR-0104): a retry sends the same Range again after
+        // some bytes were appended, and a server that ignored the Range sends 200 from byte 0.
+        offset_ = 0;
+        if (status_ == 206) {
+            offset_ = content_range_start(head.header("Content-Range"));
+            if (offset_ < 0) {
+                offset_ = 0;
+                error_ = "the server answered 206 without a usable Content-Range, so the bytes cannot be placed in " + path_;
+                return detail::body_sink::verdict::abort;
+            }
+        }
+        const bool opened = offset_ > 0 ? out_.open_at(httpp::path(path_), offset_)
+                                        : out_.open(httpp::path(path_), detail::file_writer::mode::truncate, false, true);
+        if (!opened) {
+            error_ = offset_ > 0 ? out_.error() : "could not open destination file: " + path_;
             return detail::body_sink::verdict::abort;
         }
         real_ = true;

@@ -62,7 +62,6 @@ def test_the_rules_are_the_ones_of_request(tmp_path):
         d.proxy("host:3128")
 
 
-def test_retry_and_auto_compression_are_not_for_a_download():
+def test_auto_compression_is_not_for_a_download():
     d = Download("http://127.0.0.1:1/x")
-    assert not hasattr(d, "retry")
     assert not hasattr(d, "auto_compression")

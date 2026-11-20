@@ -38,6 +38,32 @@ public:
         return true;
     }
 
+    // Continues a file at byte `offset`: nothing is cut off, writing starts there and replaces what was after it (ADR-0104). A
+    // retry that is sent again after some bytes were appended writes the same bytes at the same places. The file must have at
+    // least `offset` bytes: a longer gap would be a hole. (httpp uses no std::filesystem, so there is no truncate; if the
+    // resource got shorter in between, the old tail stays after the new end.)
+    bool open_at(const path& file, long long offset) {
+        close();
+        error_.clear();
+        shown_ = file.str();
+        const long long have = file.size(); // -1 when it is not a file
+        if (have < offset) {
+            error_ = "the answer starts at byte " + std::to_string(offset) + " but '" + shown_ + "' has " + (have < 0 ? std::string("no bytes") : std::to_string(have) + " bytes");
+            return false;
+        }
+        out_.open(file.native(), std::ios::in | std::ios::binary); // "out" is implied; "in" keeps the file as it is
+        if (!out_) {
+            error_ = "cannot write '" + shown_ + "'";
+            return false;
+        }
+        out_.seekp(static_cast<std::streamoff>(offset));
+        if (!out_) {
+            error_ = "cannot write '" + shown_ + "'";
+            return false;
+        }
+        return true;
+    }
+
     bool write(const char* data, std::size_t size) {
         out_.write(data, static_cast<std::streamsize>(size));
         if (!out_) {

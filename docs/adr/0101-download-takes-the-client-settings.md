@@ -20,7 +20,7 @@
 4. **Defaults of a download stay:** redirects are followed (20), `timeout` 0 means 300 s for the network and 15 s for the lock. The settings of a new download start with `follow = true`.
 5. **Deleted on `download`:** `auto_compression`, `retry`, `retry_delay`, `retry_connrefused` (both the setter and the getter), declared `= delete` in the class so that the names of the mixin are hidden and a call does not compile.
    - `auto_compression`: a download always asks for identity coding, because the bytes on disk are what the server sent and a checksum is over those. A setter that is accepted and ignored would be a trap.
-   - `retry` (ADR-0099): a try that fails in the middle of the body would write the file twice. It needs resume to be safe; left for a later step.
+   - `retry` (ADR-0099): a try that fails in the middle of the body would write the file twice. It needs resume to be safe; left for a later step. (Done in ADR-0104: the sink places a 206 by its Content-Range, so a retried try does not write twice, and `retry` is not deleted any more.)
 6. **Credentials go to a checksum file only if it is on the same scheme, host and port as the URL.** `sha256_url(...)` can name any URL, and sending the token of the file to another server would leak it. The redirects that are followed keep the rule of `request` (credentials are not sent to another origin).
 7. **Python:** `Download` gets `connect_timeout`, `max_time`, `basic_auth`, `bearer`, `proxy`, `verify`, `ca_file`. `Download` joins `CONFIGURABLE_USERS` in the parity test; the deleted names are in `NOT_EXPOSED` with the reason.
 

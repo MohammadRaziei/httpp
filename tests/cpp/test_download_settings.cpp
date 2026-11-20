@@ -100,7 +100,7 @@ template <class D> struct has_timeout<D, decltype(void(std::declval<D&>().timeou
 
 static_assert(has_retry<httpp::request>::value && has_auto_compression<httpp::request>::value, "the detection works on a request");
 static_assert(has_timeout<httpp::download>::value, "the shared settings are there");
-static_assert(!has_retry<httpp::download>::value, "retry is not for a download (ADR-0101)");
+static_assert(has_retry<httpp::download>::value, "retry is for a download since ADR-0104");
 static_assert(!has_auto_compression<httpp::download>::value, "auto_compression is not for a download (ADR-0101)");
 
 UTEST(download_settings, a_download_always_asks_for_identity_coding) {

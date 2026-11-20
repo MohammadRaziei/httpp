@@ -47,9 +47,13 @@ struct download_result {
 //     land the real file. 0 follows none (a 3xx is the final response), -1 has no limit.
 //   - timeout is also how long a download waits for another process that holds the same file's lock while that lock shows
 //     no sign of life: see "Locking". 0 or less keeps the default (300 s for the network, 15 s for the lock).
-//   - auto_compression, retry, retry_delay and retry_connrefused are deleted (a call does not compile). A download always
-//     asks for identity coding, because the bytes on disk are what the server sent and a checksum is over those; and a try
-//     that fails in the middle of the body would write the file twice (retry is left for a later step, with resume).
+//   - auto_compression is deleted (a call does not compile): a download always asks for identity coding, because the bytes
+//     on disk are what the server sent and a checksum is over those.
+//   - retry, retry_delay and retry_connrefused work as on request (ADR-0099), each try with its own timeout and max_time.
+//     A try that is cut off in the middle of the body does not leave the file wrong (ADR-0104): a 206 is written where its
+//     Content-Range says it starts, over what an earlier try already appended, and a 200 starts the file again. A 206 with no
+//     usable Content-Range, or one that starts after the end of the file, is an error, not a guess. With resume() the Range
+//     is still the one asked for at the start, so a retry takes again the bytes the failed try already wrote.
 // A credential is sent to the URL and to the checksum file only when that is on the same host and port as the URL; the
 // redirects that are followed keep the rule of request (never to another origin).
 //
@@ -67,15 +71,9 @@ public:
     download(const download&) = delete;
     download& operator=(const download&) = delete;
 
-    // Not for a download (see above). Declared here so that the names of configurable are hidden.
+    // Not for a download (see above). Declared here so that the name of configurable is hidden.
     download& auto_compression(bool) = delete;
     bool auto_compression() const = delete;
-    download& retry(int) = delete;
-    int retry() const = delete;
-    download& retry_delay(long) = delete;
-    long retry_delay() const = delete;
-    download& retry_connrefused(bool) = delete;
-    bool retry_connrefused() const = delete;
 
     HTTPP_API download& output(const path& dest_path) &;
     download output(const path& dest_path) && { output(dest_path); return std::move(*this); }
