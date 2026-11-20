@@ -26,7 +26,9 @@ struct download_result {
     std::string sha256;
 };
 
-// Fluent builder - the one way to download a URL to a file in httpp:
+// Fluent builder - the way to download a URL to a file in httpp, with the file semantics a download needs (the .part file, resume,
+// SHA-256, a lock, progress; only a good status is written). To write the answer of one request as it is, an error page included,
+// as curl -o does, use request::save_to() (ADR-0102):
 //
 //   httpp::download("http://x.com/f.zip", "f.zip").run();
 //

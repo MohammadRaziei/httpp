@@ -29,6 +29,7 @@ enum class error_kind {
     too_many_redirects,
     too_large,          // response body exceeded max_response_size (status is 413)
     canceled,
+    file,               // save_to() / save_in(): the file could not be named, made, opened or written (ADR-0102); see error_message
     other,
 };
 
@@ -51,6 +52,12 @@ struct response {
     // cut off while the server was still sending.
     long long elapsed_ms = 0;
     std::size_t bytes_received = 0;
+
+    // Client side only: the file save_to() or save_in() wrote the body to, as that call was given it (with save_in(), the
+    // folder joined with the name chosen). "" when no file was opened: nothing was asked, the answer was refused by
+    // on_head(), or the request failed before a final head. After a failure in the middle of the body it names the
+    // partly written file, as curl leaves it (ADR-0102).
+    std::string saved_as;
 
     // --- Server side only (what a route handler fills in) ---
     // If set, the body is streamed from this file, with a known Content-Length. Set Content-Type
@@ -101,6 +108,7 @@ struct response {
             case error_kind::too_many_redirects: return "too_many_redirects";
             case error_kind::too_large: return "too_large";
             case error_kind::canceled: return "canceled";
+            case error_kind::file: return "file";
             case error_kind::other: return "other";
         }
         return "other";
@@ -457,6 +465,31 @@ public:
     // runs on the network thread, like the callbacks above: keep it short and do not call a blocking httpp request.
     HTTPP_API request& on_retry(std::function<void(const response& last, int retry_number, long delay_seconds)> notice) &;
     request on_retry(std::function<void(const response& last, int retry_number, long delay_seconds)> notice) && { on_retry(std::move(notice)); return std::move(*this); }
+
+    // Save the body of the final response to a file as it arrives, instead of into response::body (ADR-0102), like curl -o.
+    // The file is opened when the final head is accepted, so a redirect, an answer that retry() sends again, an on_head()
+    // that returns false and a request that never gets an answer leave nothing behind; a retry that follows a cut-off body
+    // starts the file again. Every answer is written, an error page included (httpp::download writes only a good one; it
+    // is the tool for resume, a checksum and a lock). A body cut off in the middle leaves the file as far as it got.
+    // on_body(), when set too, still gets every piece. A file that cannot be made, opened or written ends the request
+    // with error_kind::file and a message naming the path. response::bytes_received counts the body only.
+    HTTPP_API request& save_to(const path& file) &;
+    request save_to(const path& file) && { save_to(file); return std::move(*this); }
+    // Like save_to(), the name chosen by the answer (curl -J): Content-Disposition (response::filename()), else the last
+    // segment of the request URL; error_kind::file when neither gives one. `folder` "" means the working folder. With
+    // overwrite(false) a file that is already there is an error, whichever of the two names was used.
+    HTTPP_API request& save_in(const path& folder) &;
+    request save_in(const path& folder) && { save_in(folder); return std::move(*this); }
+    // Make the missing folders above the file first (curl --create-dirs). Default off: a missing folder is an error.
+    HTTPP_API request& create_dirs(bool enable) &;
+    request create_dirs(bool enable) && { create_dirs(enable); return std::move(*this); }
+    // Default true: an existing file is replaced. false: it is kept and the request ends with error_kind::file.
+    HTTPP_API request& overwrite(bool enable) &;
+    request overwrite(bool enable) && { overwrite(enable); return std::move(*this); }
+    // Write the status line and headers of the final response before the body, as curl -i -o does: "HTTP/1.1 200" and one
+    // "Name: value" line per header, each ended by CRLF, then an empty line. Default off.
+    HTTPP_API request& include_head(bool enable) &;
+    request include_head(bool enable) && { include_head(enable); return std::move(*this); }
 
     HTTPP_API response run() const;
     // Starts the request on the library's non-blocking network thread and returns at once. No

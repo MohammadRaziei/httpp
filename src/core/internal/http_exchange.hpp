@@ -77,6 +77,7 @@ struct request_spec {
     long retry_delay = 0; // seconds before each new try; 0 = 1, 2, 4, ... up to 600
     bool retry_connrefused = false; // also try again after error_kind::connection
     std::function<void(const response&, int, long)> on_retry; // before each new try: the last response, its number, the wait
+    std::function<void(response&)> on_finish; // once, with the final response, before it is handed to the caller (ADR-0102)
     bool follow = false;
     bool auto_compression = true; // send Accept-Encoding and decode gzip / deflate bodies
     bool verify = true;

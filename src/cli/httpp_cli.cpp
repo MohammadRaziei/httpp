@@ -517,24 +517,17 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         // The answer is written as it arrives (ADR-0084): an endless one shows up at once, a big one never sits in
         // memory, and a closed pipe stops the transfer. The file is opened when the final head is accepted, so a
         // transfer that never happens leaves no file behind.
-        std::ofstream file;
+        // A file is written by the library (save_to / save_in, ADR-0102); only standard output is written here.
+        const bool to_file = !target.empty() || name_from_answer;
         bool write_failed = false;
         std::string write_error;
         bool redirect_refused = false; // -L --max-redirs 0: the first redirect is an error, as in curl
 
         auto put = [&](const char* data, std::size_t size) {
-            if (!target.empty()) {
-                file.write(data, static_cast<std::streamsize>(size));
-                if (!file) {
-                    write_failed = true;
-                    write_error = "cannot write '" + target + "'";
-                }
-            } else {
-                stdout_binary();
-                if (std::fwrite(data, 1, size, stdout) != size || std::fflush(stdout) != 0) {
-                    write_failed = true;
-                    write_error = "cannot write to standard output";
-                }
+            stdout_binary();
+            if (std::fwrite(data, 1, size, stdout) != size || std::fflush(stdout) != 0) {
+                write_failed = true;
+                write_error = "cannot write to standard output";
             }
             return !write_failed;
         };
@@ -557,37 +550,9 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
             if (plan.dump_to_stdout) write_stdout(head_block);
             else if (plan.dump_file.is_open()) plan.dump_file << head_block << std::flush;
             if (a.fail && head.status >= 400) return false; // like curl, an HTTP error status is an answer, not a failure, unless -f asks for one
-            if (name_from_answer) { // -J: the server's name wins, and it never replaces a file that is there
-                const std::string named = head.filename();
-                if (!named.empty()) {
-                    target = in_output_dir(named);
-                    if (httpp::path(target).exists()) {
-                        write_failed = true;
-                        write_error = "Refusing to overwrite '" + target + "': File exists";
-                        return false;
-                    }
-                } else if (target.empty()) {
-                    write_failed = true;
-                    write_error = "no file name to use for -O in '" + url + "'";
-                    return false;
-                }
-            }
-            if (!target.empty() && a.create_dirs && !httpp::path(target).parent().mkdirs()) {
-                write_failed = true;
-                write_error = "cannot create the folder of '" + target + "'";
-                return false;
-            }
-            if (!target.empty()) {
-                file.open(httpp::path(target).native(), std::ios::binary);
-                if (!file) {
-                    write_failed = true;
-                    write_error = "cannot write '" + target + "'";
-                    return false;
-                }
-            }
-            // -i and -I put the head in front of the body (-I has no body).
-            if ((a.include_headers || a.head_only) && !put(head_block.data(), head_block.size())) return false;
-            return !a.head_only;
+            // -i and -I put the head in front of the body (-I has no body). A file gets it from the library (include_head).
+            if (!to_file && (a.include_headers || a.head_only) && !put(head_block.data(), head_block.size())) return false;
+            return to_file || !a.head_only; // a HEAD has no body to write; the file is made even for it, with the head in it
         };
 
         auto attempt = [&]() {
@@ -599,7 +564,14 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
             }
             httpp::request req(url);
             fill(req);
-            req.on_head(on_head).on_body([&](std::string_view piece) { return put(piece.data(), piece.size()); });
+            req.on_head(on_head);
+            if (to_file) {
+                if (name_from_answer) req.save_in(a.output_dir).overwrite(false); // -J: the server's name, never over a file that is there
+                else req.save_to(target);
+                req.create_dirs(a.create_dirs).include_head(a.include_headers || a.head_only);
+            } else {
+                req.on_body([&](std::string_view piece) { return put(piece.data(), piece.size()); });
+            }
             redirect_refused = false;
             httpp::response answer = req.run();
             if (redirect_refused) {
@@ -610,10 +582,9 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
             return answer;
         };
         res = attempt();
-        if (file.is_open()) file.close();
 
-        if (write_failed) { // a file or a closed pipe: curl's exit code 23
-            error_text = write_error;
+        if (write_failed || res.error == httpp::error_kind::file) { // a file or a closed pipe: curl's exit code 23
+            error_text = write_failed ? write_error : res.error_message;
             curl_error(a, error_text);
             code = curl_exit_write_error;
         } else if (res.failed()) { // no HTTP answer to show

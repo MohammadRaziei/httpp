@@ -412,6 +412,12 @@ void run_tries(std::shared_ptr<const request_spec> base, int retried, std::funct
 } // namespace
 
 void run_chain(std::shared_ptr<request_spec> spec, std::function<void(response)> done) {
+    if (spec->on_finish) {
+        done = [finish = spec->on_finish, done = std::move(done)](response r) mutable {
+            finish(r);
+            done(std::move(r));
+        };
+    }
     if (spec->retries <= 0) return run_attempt(std::move(spec), std::move(done));
     run_tries(std::move(spec), 0, std::move(done));
 }

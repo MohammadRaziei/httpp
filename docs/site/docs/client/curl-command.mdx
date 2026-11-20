@@ -65,6 +65,8 @@ httpp curl http://127.0.0.1:8000/a.txt http://127.0.0.1:8000/b.txt -o a.out -o b
 
 `--retry NUM` repeats a transfer up to NUM times after a timeout or a status of 408, 429, 500, 502, 503 or 504. The wait is 1, 2, 4, ... seconds up to 10 minutes, or `--retry-delay SECONDS` every time. A refused connection or a failed lookup is retried only with `--retry-connrefused`. `-s` hides the warning that is printed before each new try. The command only passes the flags on: the library does the retrying (`retry`, `retry_delay`, `retry_connrefused` and `on_retry` of `httpp::request`, ADR-0099), so a C++ program gets the same behavior.
 
+The file flags work the same way: `-o`, `-O`, `-J`, `--output-dir`, `--create-dirs` and `-i` are passed to `httpp::request` (`save_to`, `save_in`, `create_dirs`, `overwrite`, `include_head`, ADR-0102), which writes the answer. The file is opened only for the final answer, so a redirect, a retried answer or a `-f` failure leaves no file behind.
+
 ## Exit codes
 
 | Code | Meaning |

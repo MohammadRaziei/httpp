@@ -4,12 +4,14 @@
 #include "httpp/client.hpp"
 #include "httpp/url.hpp"
 
+#include "internal/file_writer.hpp"
 #include "internal/http_exchange.hpp"
 
 #include <limits>
 #include <deque>
 #include <future>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -157,6 +159,19 @@ struct request::impl {
     std::function<bool(std::string_view)> on_piece; // on_body(): streams the final body (ADR-0084)
     std::function<bool(const response&)> on_head_fn;
     std::function<void(const response&, int, long)> on_retry_fn; // on_retry() (ADR-0099)
+    // save_to() / save_in() (ADR-0102)
+    std::optional<path> save_file;   // save_to(): this file
+    std::optional<path> save_folder; // save_in(): the folder, the name comes from the answer
+    bool make_dirs = false;
+    bool replace = true;
+    bool head_in_file = false;
+
+    // What one run of the request keeps while it writes: the file, the path chosen, why it stopped.
+    struct saving {
+        detail::file_writer out;
+        std::string saved_as;
+        std::string error;
+    };
 
     explicit impl(std::string u) : url(std::move(u)) {}
 
@@ -172,11 +187,62 @@ struct request::impl {
             call.emplace_back("Cookie", std::move(joined));
         }
         // Streamed bytes are passed on as the server sent them: ask for no coding, as downloads do (ADR-0052).
-        if (on_piece && !detail::has_header(call, "Accept-Encoding")) call.emplace_back("Accept-Encoding", "identity");
+        const bool saving_body = save_file || save_folder;
+        if ((on_piece || saving_body) && !detail::has_header(call, "Accept-Encoding")) call.emplace_back("Accept-Encoding", "identity");
         if (!settings.make_spec_for_url(url, params.empty() ? std::string() : httpp::build_query(params), method, call, body,
                                         content_type, out, error))
             return false;
-        if (on_piece) {
+        if (saving_body) {
+            auto keep = std::make_shared<saving>();
+            auto sink = std::make_shared<detail::body_sink>();
+            // Copies, not `this`: the sink runs on the network thread, maybe after this request is gone (run_async on a temporary).
+            sink->on_head = [keep, head = on_head_fn, file = save_file, folder = save_folder, requested = url, dirs = make_dirs,
+                             replace_it = replace, with_head = head_in_file](const response& r) {
+                if (head && !head(r)) return detail::body_sink::verdict::skip; // nothing is written for an answer that is refused
+                path target;
+                if (file) {
+                    target = *file;
+                } else {
+                    std::string name = r.filename();
+                    if (name.empty()) name = httpp::url_filename(httpp::parse_url(requested));
+                    if (name.empty()) {
+                        keep->error = "no file name to use in '" + requested + "'";
+                        return detail::body_sink::verdict::abort;
+                    }
+                    target = folder->str().empty() ? path(name) : *folder / path(name);
+                }
+                // reopened for every accepted head: a retry after a cut-off body starts the file again
+                if (!keep->out.open(target, detail::file_writer::mode::truncate, dirs, replace_it)) {
+                    keep->error = keep->out.error();
+                    return detail::body_sink::verdict::abort;
+                }
+                keep->saved_as = target.str();
+                if (with_head) {
+                    const std::string text = detail::head_text(r);
+                    if (!keep->out.write(text.data(), text.size())) {
+                        keep->error = keep->out.error();
+                        return detail::body_sink::verdict::abort;
+                    }
+                }
+                return detail::body_sink::verdict::stream;
+            };
+            sink->on_data = [keep, piece = on_piece](const char* data, std::size_t size) {
+                if (!keep->out.write(data, size)) {
+                    keep->error = keep->out.error();
+                    return false;
+                }
+                return !piece || piece(std::string_view(data, size));
+            };
+            out.sink = std::move(sink);
+            out.on_finish = [keep](response& r) {
+                keep->out.close(); // flushed before the caller reads the file
+                r.saved_as = keep->saved_as;
+                if (!keep->error.empty()) {
+                    r.error = error_kind::file;
+                    r.error_message = keep->error;
+                }
+            };
+        } else if (on_piece) {
             auto sink = std::make_shared<detail::body_sink>();
             sink->on_head = [head = on_head_fn](const response& r) {
                 return !head || head(r) ? detail::body_sink::verdict::stream : detail::body_sink::verdict::skip;
@@ -245,6 +311,28 @@ request& request::on_head(std::function<bool(const response& head)> head) & {
 }
 request& request::on_retry(std::function<void(const response& last, int retry_number, long delay_seconds)> notice) & {
     impl_->on_retry_fn = std::move(notice);
+    return *this;
+}
+request& request::save_to(const path& file) & {
+    impl_->save_file = file;
+    impl_->save_folder.reset(); // the last of save_to() and save_in() wins
+    return *this;
+}
+request& request::save_in(const path& folder) & {
+    impl_->save_folder = folder;
+    impl_->save_file.reset();
+    return *this;
+}
+request& request::create_dirs(bool enable) & {
+    impl_->make_dirs = enable;
+    return *this;
+}
+request& request::overwrite(bool enable) & {
+    impl_->replace = enable;
+    return *this;
+}
+request& request::include_head(bool enable) & {
+    impl_->head_in_file = enable;
     return *this;
 }
 

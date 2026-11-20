@@ -4,6 +4,7 @@
 #include "httpp/progress.hpp"
 #include "httpp/sha256.hpp"
 
+#include "internal/file_writer.hpp"
 #include "internal/http_exchange.hpp"
 
 #include <algorithm>
@@ -70,8 +71,7 @@ private:
         status_ = head.status;
         if (!accepts(status_)) return detail::body_sink::verdict::skip; // an error page, or a redirect we do not follow
         if (status_ != 206) offset_ = 0;                                 // the server ignored the Range: start over
-        out_.open(httpp::path(path_).native(), std::ios::binary | (offset_ > 0 ? std::ios::app : std::ios::trunc));
-        if (!out_) {
+        if (!out_.open(httpp::path(path_), offset_ > 0 ? detail::file_writer::mode::append : detail::file_writer::mode::truncate, false, true)) {
             error_ = "could not open destination file: " + path_;
             return detail::body_sink::verdict::abort;
         }
@@ -86,8 +86,7 @@ private:
     }
 
     bool on_data(const char* data, std::size_t size) {
-        out_.write(data, static_cast<std::streamsize>(size));
-        if (!out_) {
+        if (!out_.write(data, size)) {
             error_ = "could not write to " + path_;
             return false;
         }
@@ -101,7 +100,7 @@ private:
     long long offset_;
     long long total_hint_;
     bool progress_;
-    std::ofstream out_;
+    detail::file_writer out_; // the mechanics are shared with request::save_to() (ADR-0102); the messages stay this class's own
     std::unique_ptr<progress::bar> bar_;
     std::size_t received_ = 0;
     int status_ = 0;
