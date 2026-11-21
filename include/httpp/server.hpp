@@ -177,6 +177,13 @@ public:
     HTTPP_API server& operator=(const server&) noexcept;
     HTTPP_API server& operator=(server&&) noexcept;
 
+    // A new, independent server with a copy of this one's configuration (ADR-0105): routes, mounts, hooks, middleware, error and
+    // exception handlers, TLS, compression and every setting (including io_threads), but never sockets or threads: the clone is not
+    // bound, so give it its own port. Later changes to either do not reach the other (a copy made with `=` is the same server).
+    // Handlers are copied as std::function values, so what they captured stays shared, and a handler that captured stopper()
+    // still stops the server it was made on. Throws std::logic_error while this server is listening; clone it before listen()
+    // (a bound server that is not yet listening is fine).
+    HTTPP_API server clone() const;
     // True when both handles are the same server (handles are copied, so their addresses say nothing).
     HTTPP_API bool same_as(const server& other) const noexcept;
     // A handle that can stop this server but does not keep it alive; see server_stopper.

@@ -293,6 +293,7 @@ bool expected_digest(const job& j, std::string& digest, std::string& error) {
             net.user.clear();
             net.password.clear();
             net.bearer.clear();
+            net.headers.clear(); // custom headers (an API key, say) are credentials too
         }
         const download_result got = run_plain(sum_url, tmp, false, net);
         if (!got.ok) {
@@ -408,6 +409,14 @@ download::download(download&&) noexcept = default;
 download& download::operator=(download&&) noexcept = default;
 
 detail::settings_ref download::settings_() const { return detail::settings_ref(impl_->settings); }
+
+download& download::header(std::string name, std::string value) & {
+    const detail::header_list one{{name, ""}};
+    if (detail::has_header(one, "Range") || detail::has_header(one, "Accept-Encoding"))
+        throw std::invalid_argument("httpp::download::header: " + name + " is set by the download itself");
+    impl_->settings.update([&](detail::session_settings& s) { s.set_default_header(std::move(name), std::move(value)); });
+    return *this;
+}
 
 download& download::output(const path& dest_path) & {
     impl_->dest = dest_path.str();

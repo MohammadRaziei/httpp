@@ -404,6 +404,13 @@ public:
     request(const request&) = delete;
     request& operator=(const request&) = delete;
 
+    // An independent copy of this builder as it is now (ADR-0105): the URL, method, body, headers, parameters, cookies, the
+    // settings and the streaming / saving options. A change to either afterwards does not reach the other, so a prepared request
+    // is a template: `auto base = request(url).bearer(t).timeout(5); auto a = base.clone().param("page", "1");`. The callbacks
+    // (on_body, on_head, on_retry) are copied as std::function values, so what they captured stays shared. A copy made with `=`
+    // does not exist (the class is move-only); this is the explicit one.
+    HTTPP_API request clone() const;
+
     // -X METHOD (GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS). If never
     // called, defaults to GET, unless a body was set, in which case
     // it defaults to POST - matching curl's own behavior.

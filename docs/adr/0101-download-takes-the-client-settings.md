@@ -34,7 +34,7 @@
 ## Taken by default while implementing (owner to confirm)
 
 - **`max_time` is available on a download.** It limits the whole transfer (curl `--max-time`), which for a large file is a real cut-off; it is the same meaning as on a request, and off by default.
-- **No `header(name, value)` on a download.** Credentials, proxy and TLS were the gap; arbitrary headers are a separate small step.
+- **No `header(name, value)` on a download here.** Credentials, proxy and TLS were the gap; ADR-0105 adds the header.
 - **The move-only change is breaking** for code that copied a `download` (none was found in this repository).
 - **`auto_compression` is deleted, not a no-op;** the same for `retry`.
 

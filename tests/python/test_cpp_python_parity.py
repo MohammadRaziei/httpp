@@ -141,6 +141,7 @@ CTOR_ARGS["rate_limit"] = {"rate": ("requests_per_second", 5.0), "burst": ("burs
 # Public C++ names that Python deliberately does not carry (ADR-0017 rule 3). An entry must still be unbound (a test
 # checks), so adding the binding later forces the entry to go.
 NOT_EXPOSED = {
+    ("server", "clone"): "ADR-0105: the Python Server keeps its routes, validators and OpenAPI state in Python, which a C++ clone would drop; a Python-level clone is a separate step",
     ("request", "on_body"): "temporary (ADR-0084): the Python binding of request streaming is the next step; remove this line and bind it then",
     ("request", "on_head"): "temporary (ADR-0084): same as on_body",
     ("request", "on_retry"): "temporary (ADR-0099): the Python binding of retry is the next step; remove this line and bind it then",
@@ -289,6 +290,7 @@ KWARGS = {
         "enable_progress": False, "resume": True, "force": True, "sha256": "0" * 64, "sha256_url": "http://127.0.0.1:1/s",
         "max_wait": 1, "timeout": 5, "max_redirects": 3, "connect_timeout": 2, "max_time": 9, "basic_auth": ("u", "p"),
         "bearer": "t", "verify": False, "ca_file": "ca.pem", "proxy": "http://127.0.0.1:3128",
+        "headers": {"X-Api-Key": "k"},
     },
 }
 

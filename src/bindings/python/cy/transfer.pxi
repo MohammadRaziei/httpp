@@ -54,8 +54,9 @@ cdef class Download:
 
     def __init__(self, str url, dest_path="", *, enable_progress=None, resume=None, force=None, sha256=None,
                  sha256_url=None, max_wait=None, timeout=None, max_redirects=None, connect_timeout=None,
-                 max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None, proxy=None):
-        """Every keyword is the name of a setter and does what the setter does (basic_auth takes (user, password));
+                 max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None, proxy=None, headers=None):
+        """Every keyword is the name of a setter and does what the setter does (basic_auth takes (user, password);
+        headers is a dict, one header() call per item);
         Download(url, path, resume=True, timeout=30) is Download(url, path).resume().timeout(30)."""
         self._dl = new cpp_download(url.encode("utf-8"), _fs(dest_path))
         if enable_progress is not None:
@@ -88,10 +89,18 @@ cdef class Download:
             self.ca_file(ca_file)
         if proxy is not None:
             self.proxy(proxy)
+        for name, value in (headers.items() if hasattr(headers, "items") else headers or ()):
+            self.header(name, value)
 
     def __dealloc__(self):
         if self._dl is not NULL:
             del self._dl
+
+    def header(self, str name, str value):
+        """Send this header with every step (the size probe, the file, a checksum file on the same host and port);
+        the same name again replaces it. ValueError for Range and Accept-Encoding: the download sets those."""
+        self._dl.header(name.encode("utf-8"), value.encode("utf-8"))
+        return self
 
     def output(self, dest_path):
         self._dl.output(_fs(dest_path))
@@ -372,6 +381,14 @@ def download(str url, str dest_path, cbool show_progress=True):
     Download(url, dest_path).enable_progress(show_progress).run()."""
     return Download(url, dest_path).enable_progress(show_progress).run()
 
+cdef extern from *:
+    """
+    #include "httpp/client.hpp"
+    static httpp::request* httpp_py_clone_request(const httpp::request& r) { return new httpp::request(r.clone()); }
+    """
+    cpp_curl_request* py_clone_request "httpp_py_clone_request"(const cpp_curl_request& r) except +
+
+
 cdef class Request:
     """A small, curl-flavored fluent request builder, for one-off requests where a Client session
     is overkill. NOT a libcurl-compatible shim.
@@ -434,6 +451,13 @@ cdef class Request:
     def __dealloc__(self):
         if self._req is not NULL:
             del self._req
+
+    def clone(self):
+        """An independent copy of this request as it is now (ADR-0105): a change to either afterwards does not
+        reach the other, so a prepared request is a template."""
+        cdef Request other = Request.__new__(Request)
+        other._req = py_clone_request(self._req[0])
+        return other
 
     def method(self, str m):
         self._req.method(m.encode("utf-8"))

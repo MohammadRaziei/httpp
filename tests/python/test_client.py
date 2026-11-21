@@ -373,3 +373,18 @@ def test_https_verifies_certificates_and_can_be_configured(tmp_path):
     finally:
         server.kill()
         server.wait()
+
+
+def test_request_clone_is_an_independent_copy():
+    with running(echo_app()) as url:
+        base = httpp.Request(url + "/echo", headers={"X-Default": "d"}, params={"a": "1"}, bearer="base")
+        other = base.clone()
+        assert other is not base
+        other.param("b", "2").method("POST").json({"k": "v"})
+        before = base.run().json()
+        assert before["method"] == "GET" and before["body"] == ""  # the original did not change
+        assert before["headers"]["x-default"] == "d" and before["headers"]["authorization"] == "Bearer base"
+        after = other.run().json()
+        assert after["method"] == "POST" and after["body"] == '{"k": "v"}'
+        assert after["headers"]["x-default"] == "d"  # copied from the original
+        assert after["query"] in ({"a": "1", "b": "2"}, {"a": ["1"], "b": ["2"]})

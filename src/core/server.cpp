@@ -1262,6 +1262,44 @@ server::server(const server&) noexcept = default;
 server::server(server&&) noexcept = default;
 server& server::operator=(const server&) noexcept = default;
 server& server::operator=(server&&) noexcept = default;
+server server::clone() const {
+    const impl& from = *impl_;
+    if (from.pool.load()) throw std::logic_error("httpp::server::clone: the server is listening; clone it before listen()");
+    server out;
+    impl& to = *out.impl_;
+    // Field by field into the config that `to` already has: `to.pool` is a reference to that very object's member, so the
+    // object must not be replaced. `pool` itself is not copied (it is the running pool of one server).
+    config& c = *to.cfg;
+    const config& f = *from.cfg;
+    c.rewrite = f.rewrite;
+    c.before = f.before;
+    c.after = f.after;
+    c.app_before = f.app_before;
+    c.app_after = f.app_after;
+    c.mw_before = f.mw_before;
+    c.mw_after = f.mw_after;
+    c.error = f.error;
+    c.exception = f.exception;
+    c.compression = f.compression;
+    to.routes = from.routes;
+    to.index = from.index; // positions in `routes`, which keeps its order
+    to.io_route_count = from.io_route_count;
+    to.mounts = from.mounts;
+    to.pool_base = from.pool_base;
+    to.pool_max = from.pool_max;
+    to.pool_grow_after = from.pool_grow_after;
+    to.tls_on = from.tls_on;
+    to.async_timeout = from.async_timeout.load();
+    to.max_conn_total = from.max_conn_total;
+    // The engine settings are replayed on each engine of the clone (make_engine applies `applied`), one engine per I/O thread.
+    to.applied = from.applied;
+    to.engines.clear();
+    for (std::size_t i = 0; i < from.engines.size(); ++i) to.engines.push_back(to.make_engine());
+    to.engine = to.engines[0].get();
+    to.share_max_connections();
+    return out;
+}
+
 bool server::same_as(const server& other) const noexcept { return impl_ == other.impl_; }
 server_stopper server::stopper() const {
     server_stopper st;

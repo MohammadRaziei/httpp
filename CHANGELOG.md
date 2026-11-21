@@ -7,6 +7,10 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Added
+
+- **`request::clone()`, `server::clone()` and `download::header(name, value)` (ADR-0105).** `request::clone()` is an independent copy of a prepared request (a template); `server::clone()` copies the configuration (routes, mounts, hooks, middleware, TLS, settings, I/O threads) of a server that is not listening, never its sockets, and throws `std::logic_error` while it listens; `download::header()` sends a header with the size probe, the file and a same-origin checksum file (`Range` and `Accept-Encoding` are refused). Python: `Request.clone()`, `Download.header()` and `Download(headers=...)`; `Server.clone()` is not bound yet.
+
 ### Changed
 
 - **Python: the settings are keywords with the names of the setters, and the module-level helpers are gone (ADR-0103; breaking).** `Request(url, method="PUT", timeout=10, bearer=token)` is `Request(url).method("PUT").timeout(10).bearer(token)`; `Download` takes keywords too. `headers`, `params` and `cookies` are dicts, `basic_auth=(user, password)`. `Client` and `AsyncClient` `token=` and `auth=` are now `bearer=` and `basic_auth=`; `follow_redirects` is removed (`max_redirects=N`; 20 is what `True` meant). `httpp.request`, `httpp.get`, `httpp.post` and the other one-call helpers are removed: use `httpp.Request(url, method="GET", ...).run()`. `TestClient` keeps its Starlette-style interface.

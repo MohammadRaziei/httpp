@@ -298,6 +298,7 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
 
     cdef cppclass cpp_download "httpp::download":
         cpp_download(string url, string dest_path) except +
+        cpp_download& header(string name, string value) except +  # std::invalid_argument -> ValueError
         cpp_download& output(string dest_path) except +
         cpp_download& enable_progress(cbool enable) except +
         cpp_download& disable_progress() except +

@@ -75,6 +75,14 @@ public:
     download& auto_compression(bool) = delete;
     bool auto_compression() const = delete;
 
+    // A header sent with every step of the job: the size probe, the file and the checksum file (ADR-0105). Like the header() of a
+    // client session, a second call with the same name (any case) replaces the first. The credentials rule holds for it: a
+    // header is sent to the checksum file only when that is on the same host and port as the URL. A redirect that is followed
+    // keeps it, as request does (only Authorization, Proxy-Authorization and Cookie are dropped for another origin). Range and
+    // Accept-Encoding are the download's own (resume and identity coding), so they throw std::invalid_argument.
+    HTTPP_API download& header(std::string name, std::string value) &;
+    download header(std::string name, std::string value) && { header(std::move(name), std::move(value)); return std::move(*this); }
+
     HTTPP_API download& output(const path& dest_path) &;
     download output(const path& dest_path) && { output(dest_path); return std::move(*this); }
     HTTPP_API download& enable_progress(bool enable = true) &;

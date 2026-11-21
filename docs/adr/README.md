@@ -95,6 +95,7 @@ changelog that say "ADR-0057" mean the part with that number inside the merged f
 | [0101](0101-download-takes-the-client-settings.md) | download derives from `configurable`: credentials, proxy, TLS, `connect_timeout`, `max_time` as in client and request; move-only; `auto_compression` and `retry*` deleted on it | implemented |
 | [0102](0102-save-the-body-to-a-file-from-request.md) | `request::save_to`, `save_in`, `create_dirs`, `overwrite`, `include_head`, `response::saved_as`, `error_kind::file`: writing the answer to a file is the library's job, `httpp curl -o` only passes the flags | implemented (C++) |
 | [0104](0104-retry-on-a-download-places-a-206-by-its-content-range.md) | `retry` works on `download`: a 206 is written where its Content-Range says it starts, so a retried or resumed body is never written twice | implemented (C++) |
+| [0105](0105-request-clone-server-clone-download-header.md) | `request::clone()`, `server::clone()` (configuration only, throws while listening) and `download::header(name, value)` (replaces, same-origin rule for the checksum file, `Range` and `Accept-Encoding` refused) | implemented (names to confirm) |
 
 ## Merged ADRs
 

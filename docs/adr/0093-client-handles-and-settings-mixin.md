@@ -8,7 +8,7 @@
 
 Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history, in the order they were decided.
 
-- **`client` and `async_client` are shared handles** like `server` (ADR-0081): a copy is the same session, and `clone()` makes an independent copy (0093). `server::clone()` is reserved, not built.
+- **`client` and `async_client` are shared handles** like `server` (ADR-0081): a copy is the same session, and `clone()` makes an independent copy (0093). `server::clone()` was built later by ADR-0105.
 - **One settings mixin (CRTP, named `configurable`)** declares the settings once for `request`, `client` and `async_client`, with the same name for the setter and the getter (0094). `session_settings` stays plain data. `download` derives from it too (ADR-0101).
 - **`header` is not in the mixin:** on a session it replaces, on a request it appends, so each class declares its own.
 - **`client::make_request(path)`** takes a snapshot of the session settings (0094).
@@ -43,7 +43,7 @@ Reading the header, `auto c = httpp::client("https://api.example.com").bearer(to
 
 1. **`client` becomes a copyable handle** that shares its state (`shared_ptr<impl>`), like `async_client` and `server`. A copy is the same session: the same base URL, the same settings, the same mutex.
 2. **`client::clone()` and `async_client::clone()`** return a new, independent session with the same base URL and a copy of the current settings. For `async_client`, the queue and the in-flight count start empty and `max_connections` is copied. A copy made by `clone()` and its source never see each other's later changes.
-3. **`server::clone()` is not built now.** Its name and meaning are reserved: it copies the configuration (routes, mounts, settings) of a server that is not listening, never its sockets or threads. Handlers are copied as `std::function` values, so what a handler captured stays shared. A clone needs its own engine config (the sender side holds a `weak_ptr` to the config of the server it came from), which needs reading `server.cpp` first.
+3. **`server::clone()` was not built here; ADR-0105 builds it.** Its name and meaning are reserved: it copies the configuration (routes, mounts, settings) of a server that is not listening, never its sockets or threads. Handlers are copied as `std::function` values, so what a handler captured stays shared. A clone needs its own engine config (the sender side holds a `weak_ptr` to the config of the server it came from), which needs reading `server.cpp` first.
 4. **`request` stays move-only.** It is a one-shot builder.
 5. **`client::make_request(path)` takes a snapshot** of the settings when it is called (see ADR-0094); later changes to the client do not reach a request that already exists.
 
@@ -58,12 +58,12 @@ Reading the header, `auto c = httpp::client("https://api.example.com").bearer(to
 - `auto admin = base; admin.bearer(admin_token);` changes `base` as well. This is the intended meaning of a handle and must be documented in the header; the independent copy is `auto admin = base.clone();`.
 - Concurrent setter calls on a shared `client` are serialized by the mutex it already has. `async_client` keeps its rule "configure before the first request"; it has no mutex today, and this ADR does not change that (see ADR-0094).
 - The type of `client` changes (`unique_ptr<impl>` to `shared_ptr<impl>`), so callers rebuild; source code is compatible. The Cython `Client` holds a heap `cpp_client*` and is not expected to change.
-- `server::clone()` stays unbuilt until a real use case appears; a name that is reserved but not built costs nothing.
+- `server::clone()` was left unbuilt here; ADR-0105 built it.
 
 #### Taken by default while implementing (owner to confirm)
 
 - The name is `clone()` (the alternative named in discussion was `fork()`).
-- `server::clone()` is not built. Its name and meaning stay reserved (see decision 3).
+- `server::clone()` is built by ADR-0105 (see decision 3).
 - A moved-from `client` has no session, as a moved-from `server` has none (ADR-0081): it may only be assigned to or destroyed.
 - `async_client::make_request(path)` makes a request that runs on its own (`run`, `run_async`); it does not go through that session's `max_connections` queue.
 

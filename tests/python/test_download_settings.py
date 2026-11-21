@@ -65,3 +65,33 @@ def test_the_rules_are_the_ones_of_request(tmp_path):
 def test_auto_compression_is_not_for_a_download():
     d = Download("http://127.0.0.1:1/x")
     assert not hasattr(d, "auto_compression")
+
+
+def test_header_reaches_the_server_and_the_same_name_replaces(tmp_path):
+    app = Server()
+
+    @app.get("/key")
+    def key(request):
+        return request.headers.get("x-api-key") or ""
+
+    port = app.bind_to_any_port("127.0.0.1")
+    th = threading.Thread(target=app.listen_after_bind)
+    th.start()
+    time.sleep(0.05)
+    try:
+        out = tmp_path / "key.bin"
+        url = f"http://127.0.0.1:{port}/key"
+        assert Download(url, str(out)).enable_progress(False).header("X-Api-Key", "one").header("x-api-key", "two").run().ok
+        assert out.read_text() == "two"
+        out = tmp_path / "key2.bin"
+        assert Download(url, str(out), enable_progress=False, headers={"X-Api-Key": "three"}).run().ok
+        assert out.read_text() == "three"
+    finally:
+        app.stop()
+        th.join()
+
+
+def test_range_and_accept_encoding_are_the_downloads_own():
+    for name in ("Range", "accept-encoding"):
+        with pytest.raises(ValueError):
+            Download("http://127.0.0.1:1/f", "x.bin").header(name, "v")

@@ -265,6 +265,29 @@ request& request::operator=(request&&) noexcept = default;
 
 detail::settings_ref request::settings_() const { return detail::settings_ref(impl_->settings); }
 
+request request::clone() const {
+    request out(url(impl_->url), impl_->settings.snapshot());
+    impl& to = *out.impl_;
+    const impl& from = *impl_;
+    // Every field of impl except `settings` (copied above). A field added to impl must be added here too; the test
+    // `a_request_clone_carries_every_field` in test_clone.cpp fails when one is missed.
+    to.method = from.method;
+    to.body = from.body;
+    to.content_type = from.content_type;
+    to.headers = from.headers;
+    to.params = from.params;
+    to.cookies = from.cookies;
+    to.on_piece = from.on_piece;
+    to.on_head_fn = from.on_head_fn;
+    to.on_retry_fn = from.on_retry_fn;
+    to.save_file = from.save_file;
+    to.save_folder = from.save_folder;
+    to.make_dirs = from.make_dirs;
+    to.replace = from.replace;
+    to.head_in_file = from.head_in_file;
+    return out;
+}
+
 request& request::method(std::string m) & { impl_->method = std::move(m); return *this; }
 request& request::header(std::string name, std::string value) & {
     impl_->headers.emplace_back(std::move(name), std::move(value));
