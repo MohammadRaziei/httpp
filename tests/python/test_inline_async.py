@@ -144,6 +144,16 @@ def test_a_failing_handler_answers_500_and_the_server_goes_on():
         assert Client(base).get("/who").status == 200  # the gate was given back
 
 
+def wait_until_inline(base, timeout=5.0):
+    """True once `/who` is answered on the I/O thread (not on the loop thread); False after `timeout` seconds."""
+    end = time.perf_counter() + timeout
+    while time.perf_counter() < end:
+        if Client(base).get("/who").text != LOOP:
+            return True
+        time.sleep(0.002)
+    return False
+
+
 @inline_only
 @pytest.mark.skipif(hasattr(sys, "_is_gil_enabled") and not sys._is_gil_enabled(), reason="without a GIL the I/O thread has nothing to wait for")
 def test_a_running_def_handler_keeps_the_io_thread_away_from_the_gil():
@@ -157,7 +167,10 @@ def test_a_running_def_handler_keeps_the_io_thread_away_from_the_gil():
         finally:
             app.release.set()
             blocked.join()
-        assert Client(base).get("/who").text != LOOP  # idle again: inline
+        # idle again: inline. "Idle" is when the worker thread has left the handler and its after-send work, which can
+        # be a moment after the client got the answer (measured: up to ~2 ms on one busy core), so wait for it
+        # instead of asking once. Until then the server hops to the loop thread, which is correct, only slower.
+        assert wait_until_inline(base), "still hopping to the loop thread 5 s after the blocked handler returned"
 
 
 @inline_only
