@@ -8,7 +8,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from httpp import Directory, Server, Swagger
+from httpp import Directory, FileBrowser, Server, Swagger
 
 
 @contextmanager
@@ -105,6 +105,28 @@ def test_directory_inline_active_chains_and_shows_html_and_svg_only_behind_a_san
                 assert "attachment" in r.headers["Content-Disposition"]
         with urllib.request.urlopen(url + "/off/p.html") as r:
             assert "attachment" in r.headers["Content-Disposition"]
+
+
+def test_mount_returns_the_server_so_a_chain_can_go_on(tmp_path):
+    app = Server()
+    assert Directory(tmp_path).mount(app, "/a") is app
+    assert FileBrowser(tmp_path).mount(app, "/files") is app
+    assert Swagger("/openapi.json").mount(app, "/docs") is app
+    # one chain, from a temporary: this is what the C++ `mount(httpp::server(), ...)` does
+    chained = Directory(tmp_path).show_hidden(False).mount(Server(), "/").tls(*_cert_and_key(tmp_path))
+    assert isinstance(chained, Server)
+
+
+def _cert_and_key(folder):
+    """A throwaway self-signed pair, so that `.tls(...)` can end the chain above."""
+    import shutil
+    import subprocess
+    if shutil.which("openssl") is None:
+        pytest.skip("openssl is needed to make a certificate")
+    cert, key = folder / "c.pem", folder / "k.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(key), "-out", str(cert),
+                    "-days", "1", "-subj", "/CN=localhost"], check=True, capture_output=True)
+    return str(cert), str(key)
 
 
 def test_directory_refuses_a_base_without_a_slash(tmp_path):

@@ -53,9 +53,10 @@ cdef class Directory:
         return self
 
     def mount(self, Server server, str base="/"):
-        """Add the folder to `server` under `base` ("/static", or "/" for the whole server); runs entirely in C++ (no GIL)."""
+        """Add the folder to `server` under `base` ("/static", or "/" for the whole server); runs entirely in C++ (no GIL).
+        Returns `server`, so a chain can go on: `Directory("public").mount(Server(), "/").tls(cert, key)`."""
         try:
             self._d.mount(server._srv[0], base.encode("utf-8"))
         except (RuntimeError, ValueError) as e:
             raise ValueError(str(e)) from None
-        return None
+        return server

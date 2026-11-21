@@ -40,13 +40,13 @@ httpp::directory("public").mount(app, "/static");   // `app` now serves /static
 <Only lang="python">
 
 ```python
-app = httpp.Server()
-httpp.Directory("public").show_hidden(False).mount(app, "/")
-app.tls("cert.pem", "key.pem")
+app = (httpp.Directory("public").show_hidden(False)
+       .mount(httpp.Server(), "/")
+       .tls("cert.pem", "key.pem"))
 app.listen("0.0.0.0", 8443)
 ```
 
-`Directory.mount(app, base)` changes the server you give it and returns nothing, so a server that is already in use sees what was mounted:
+`mount` returns the server it was given, so a temporary works, and a `Server` you already have sees what was mounted:
 
 ```python
 app = httpp.Server()
@@ -111,7 +111,7 @@ def quit_server():
 
 <Only lang="python">
 
-`Directory.mount(app, base)` returns nothing, so write the statements one after another, as in the first example. `Server.tls(...)` returns the server, so it can end a chain: `httpp.Server().tls("cert.pem", "key.pem")`.
+`mount` and `tls` return the server, so the chain at the top of this page is one expression, and `app` is the server itself. In Python there are no copies, so nothing about it needs care.
 
 </Only>
 

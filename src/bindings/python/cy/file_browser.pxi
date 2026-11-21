@@ -142,5 +142,6 @@ cdef class FileBrowser:
         return self
 
     def mount(self, Server server, str base="/"):
-        """Add the routes to `server` under `base` ("/files", or "/" for the whole server); runs entirely in C++ (no GIL)."""
+        """Add the routes to `server` under `base` ("/files", or "/" for the whole server); runs entirely in C++ (no GIL). Returns `server`."""
         self._b.mount(server._srv[0], base.encode("utf-8"))
+        return server

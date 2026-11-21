@@ -26,5 +26,6 @@ cdef class Swagger:
         return self
 
     def mount(self, Server server, str base="/docs"):
-        """Add the page and its files to `server`: the page at `base`, the files under it."""
+        """Add the page and its files to `server`: the page at `base`, the files under it. Returns `server`."""
         self._u.mount(server._srv[0], base.encode("utf-8"))
+        return server
