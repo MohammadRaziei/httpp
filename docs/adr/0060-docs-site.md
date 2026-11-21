@@ -8,7 +8,7 @@
 Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history. Where a part and this summary disagree, this summary wins.
 
 - **A Docusaurus site in `docs/site/`,** one page per concept; the code on a page follows one language choice made in the top bar and remembered in the browser.
-- **The code lives in real files** (`examples/<topic>/<lang>/main.<ext>`, with a `README.md` in `examples/<topic>/`), never pasted into a page; `scripts/prepare.py check` fails when an example exists in one language only or has no README. Each code box links to its file on GitHub and each README links back to the page. `tests/python/test_examples.py` runs every example (the C++ ones through CMake) and compares what it does with what its page says.
+- **The code lives in real files** (`examples/<topic>/<lang>/main.<ext>`, with a `README.md` in `examples/<topic>/`; a topic has the name of its page, `serve-directory` is `serve_directory`), never pasted into a page; `scripts/prepare.py check` fails when an example exists in one language only or has no README. Each code box links to its file on GitHub and each README links back to the page. `tests/python/test_examples.py` runs every example (the C++ ones through CMake) and compares what it does with what its page says.
 - **Published to GitHub Pages:** `url` is `https://mohammadraziei.github.io`, `baseUrl` is `/httpp/`; `.github/workflows/pages.yml` builds `docs/site` and deploys it on pushes to master that touch the site or `benchmarks/results/*.json`, and on demand. `docs.yml` stays the check and does not publish.
 
 ## Parts
@@ -82,7 +82,7 @@ The code of the pages was in `docs/site/snippets/<lang>/<name>.<ext>` and was ch
 
 #### Decision
 
-- One folder per topic: `examples/<topic>/python/main.py`, `examples/<topic>/cpp/main.cpp` and `examples/<topic>/README.md` (what it does, how to run it, the link to its page). The `<Lang name="<topic>" />` of a page shows these files.
+- One folder per docs page: `examples/<topic>/python/main.py`, `examples/<topic>/cpp/main.cpp` and `examples/<topic>/README.md` (what it does, how to run it, the link to its page). The topic has the name of its page (`client/download.mdx` is `download`), and `prepare.py check` fails for a topic without a page of its name. Pages that have no code (install, intro, benchmarks, the command pages) have no topic. `main` is the example of the page and exists in both languages; a page that needs more shows other files of the topic below it, `<Lang name="download" file="verified" />`, and such an extra file may exist in one language only (the text around it says so). The `<Lang name="<topic>" />` of a page shows these files.
 - `scripts/prepare.py` builds the code boxes from `examples/`, puts a GitHub link on each file name, and its check fails when a topic lacks a language or a README.
 - The checks moved to `tests/python/test_examples.py` (pytest), so the normal test run and every workflow that runs the suite run them. The C++ side builds with the CMake recipe of the install page and is skipped when CMake is not there. `test_every_example_has_a_check` fails for a topic that has no check.
 - The 15 numbered scripts of `examples/python/` were deleted: they overlapped the topics above, had no test and no C++ twin. A topic they covered alone comes back as a topic folder when its page is written. `examples/find_httpp_via_python/` stays: it shows a CMake consumer, which is not a page snippet.
@@ -95,8 +95,8 @@ The code of the pages was in `docs/site/snippets/<lang>/<name>.<ext>` and was ch
 
 #### Consequences
 
-- A topic that is truly single-language has no way to say so yet: `prepare.py check` asks for both. When the first one appears the check needs an explicit marker.
-- The test file knows each topic by name (`SERVERS`, `CLIENTS`); a new topic needs one entry there.
+- A topic whose `main` is truly single-language has no way to say so: `prepare.py check` asks for both. An extra file may be single-language; only `main` may not.
+- The test file knows each file by name (`SERVERS`, `CLIENTS`, unit `topic` or `topic/file`); a new file needs one entry there.
 - Not verified here: the docs workflow after the change (the site build and `prepare.py check` pass locally).
 
 #### Related

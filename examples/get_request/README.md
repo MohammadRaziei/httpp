@@ -1,4 +1,4 @@
-# client_get
+# get_request
 
 A client that sends a `GET` and prints the status and the body, then does the same with one full URL.
 
@@ -14,4 +14,4 @@ python python/main.py       # Python
 
 For C++, build `cpp/main.cpp` like any program that uses httpp (CMake and `httpp::httpp_core`, see the [Install page](https://mohammadraziei.github.io/httpp/docs/install/)) and run the program.
 
-The code is in `python/main.py` and `cpp/main.cpp`; the tests in `tests/python/test_examples.py` run both and check what they do.
+The tests in `tests/python/test_examples.py` run every file here and check what it does.

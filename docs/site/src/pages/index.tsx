@@ -8,7 +8,7 @@ import {useLang} from '@site/src/components/LangContext';
 import styles from './index.module.css';
 
 type Entry = {code: string; path: string; url: string};
-const data = snippets as unknown as Record<string, Record<string, Entry>>;  // each topic also has a `readme` string, which is not a language
+const data = snippets as unknown as Record<string, {files: Record<string, Record<string, Entry>>}>;
 const theme = {...themes.vsDark, plain: {...themes.vsDark.plain, backgroundColor: 'transparent', color: '#d7dde4'}};
 
 function Install() {
@@ -29,7 +29,7 @@ function Install() {
 
 function CodeWindow() {
   const {lang, setLang} = useLang();
-  const entry = data.get_route?.[lang] ?? data.get_route?.[languages[0].id];
+  const entry = data.get_route?.files.main?.[lang] ?? data.get_route?.files.main?.[languages[0].id];
   const known = languages.find((l) => l.id === lang) ?? languages[0];
   return (
     <div className={styles.window}>

@@ -24,13 +24,13 @@ It runs every example on a free port and compares the result with what its page 
 
 ## Add a lesson
 
-1. Add `examples/<topic>/python/main.py`, `examples/<topic>/cpp/main.cpp` and `examples/<topic>/README.md`. Same job in both languages, listening on port 8000, plus a check in `tests/python/test_examples.py`. The README says what it does, how to run it and links to the page; it does not repeat the code.
+1. Add `examples/<topic>/python/main.py`, `examples/<topic>/cpp/main.cpp` and `examples/<topic>/README.md`, where `<topic>` is the name of the page with `_` for `-` (`serve-directory.mdx` is `serve_directory`). Same job in both languages, listening on port 8000, plus a check in `tests/python/test_examples.py`. The README says what it does, how to run it and links to the page; it does not repeat the code. More files in the topic (`examples/<topic>/python/verified.py`, ...) are extras that the page shows below the main one with `<Lang name="<topic>" file="verified" />`; an extra may exist in one language only.
 2. Add `docs/<area>/<page>.mdx`, use `<Lang name="<topic>" />` for the code and `<Only lang="cpp">...</Only>` for text that applies to one language. Do not put a heading inside `<Only>`: the table of contents would list it for the other language too.
 3. Add the page id to `sidebars.ts`.
 
 ## Add a language
 
-One line in `languages.json` and a `<lang>/main.<ext>` folder in each topic of `examples/`.
+One line in `languages.json` and a `<lang>/main.<ext>` file in each topic of `examples/`.
 
 ## Publishing
 

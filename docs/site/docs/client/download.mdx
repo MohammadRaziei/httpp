@@ -8,7 +8,7 @@ import Only from '@site/src/components/Only';
 
 A download fetches a URL and saves the body to a file. It follows redirects, so a link to a release asset or a CDN lands on the real file, and it draws a progress bar on stderr, which keeps piped output clean. This example saves the answer of the server from [Answer a GET request](../server/get-route.mdx), so start that one first.
 
-<Lang name="download_file" />
+<Lang name="download" />
 
 `run()` waits until the file is complete and returns a result with `ok`, `status`, `error` and `skipped`. A download that fails does not throw: look at `ok`, and at `error` for the reason.
 
@@ -22,7 +22,7 @@ For a one-off download there is a shorthand, `httpp.download(url, path)`, which 
 
 `sha256` checks the finished file against a digest before `run()` reports success. On a mismatch the file is deleted and the result is not `ok`, with the digest it got in `error`. A digest that is not 64 hex digits fails at once, before any request.
 
-<Lang name="download_verified" />
+<Lang name="download" file="verified" />
 
 If the checksum is published next to the file, `sha256_url()` reads it for you: it fetches `<download url>.sha256` (or the URL you pass) before the file, and fails without downloading anything when that file is missing or is not a `sha256sum` line.
 
@@ -52,7 +52,7 @@ httpp::download(url, "f.zip").resume().run();
 
 ## Do other work meanwhile
 
-<Lang name="download_async" />
+<Lang name="download" file="async" />
 
 <Only lang="python">
 

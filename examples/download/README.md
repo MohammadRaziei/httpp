@@ -1,6 +1,6 @@
-# download_verified
+# download
 
-Downloads a URL to a file and checks its SHA-256 while it arrives.
+Downloads a URL to a file and reports the status.
 
 The page that explains it: [https://mohammadraziei.github.io/httpp/docs/client/download/](https://mohammadraziei.github.io/httpp/docs/client/download/)
 
@@ -14,4 +14,9 @@ python python/main.py       # Python
 
 For C++, build `cpp/main.cpp` like any program that uses httpp (CMake and `httpp::httpp_core`, see the [Install page](https://mohammadraziei.github.io/httpp/docs/install/)) and run the program.
 
-The code is in `python/main.py` and `cpp/main.cpp`; the tests in `tests/python/test_examples.py` run both and check what they do.
+## More files
+
+- `verified` (Python and C++): checks the SHA-256 of the file while it arrives.
+- `async` (Python and C++): downloads without blocking: `await ...run_async()` in Python, a `std::future` in C++.
+
+The tests in `tests/python/test_examples.py` run every file here and check what it does.

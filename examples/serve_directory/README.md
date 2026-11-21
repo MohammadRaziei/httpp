@@ -1,4 +1,4 @@
-# serve_folder
+# serve_directory
 
 Serves a folder under a URL prefix: `/static/notes.txt` is `public/notes.txt`.
 
@@ -20,4 +20,4 @@ It listens on `127.0.0.1:8000`. In another terminal:
 curl http://127.0.0.1:8000/static/notes.txt
 ```
 
-The code is in `python/main.py` and `cpp/main.cpp`; the tests in `tests/python/test_examples.py` run both and check what they do.
+The tests in `tests/python/test_examples.py` run every file here and check what it does.

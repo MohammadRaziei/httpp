@@ -3,6 +3,7 @@ id: server-handle
 title: The server handle
 ---
 
+import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
 
 <Only lang="cpp">
@@ -19,41 +20,13 @@ Python's `Server` is an ordinary object: `b = a` gives two names for one server,
 
 ## Mount a folder and serve it over TLS
 
-<Only lang="cpp">
+`mount` returns the server it was given, so the whole chain is one expression and a temporary works:
 
-```cpp
-auto srv = httpp::directory("public").show_hidden(false)
-               .mount(httpp::server(), "/")
-               .tls("cert.pem", "key.pem");
-srv.listen("0.0.0.0", 8443);
-```
+<Lang name="server_handle" />
 
-`mount` takes the server by value and gives it back, so a temporary works, and a `server` you already have sees what was mounted:
+It needs a folder `public` and a certificate and key (`cert.pem`, `key.pem`). `mount` also works on a server you already have, which then sees what was mounted:
 
-```cpp
-httpp::server app;
-httpp::directory("public").mount(app, "/static");   // `app` now serves /static
-```
-
-</Only>
-
-<Only lang="python">
-
-```python
-app = (httpp.Directory("public").show_hidden(False)
-       .mount(httpp.Server(), "/")
-       .tls("cert.pem", "key.pem"))
-app.listen("0.0.0.0", 8443)
-```
-
-`mount` returns the server it was given, so a temporary works, and a `Server` you already have sees what was mounted:
-
-```python
-app = httpp.Server()
-httpp.Directory("public").mount(app, "/static")   # `app` now serves /static
-```
-
-</Only>
+<Lang name="server_handle" file="mount_into" />
 
 ## What sharing means
 
@@ -78,30 +51,23 @@ Nothing beyond what any Python object does: two names for a `Server` are the sam
 
 A handler that must stop the server captures `srv.stopper()`, **never a `server`**. A handler that holds a `server` makes a cycle (the server keeps the handler, the handler keeps the server) and the server is never freed.
 
-```cpp
-httpp::server srv;
-srv.get("/quit", [stop = srv.stopper()](const httpp::server_request&, httpp::response& res) {
-    stop.shutdown(std::chrono::seconds(2));
-    res.body = "bye";
-});
-```
+</Only>
+
+<Only lang="python">
+
+A handler can call the methods of the server it belongs to. There is no stopper to capture, because there is no handle and no cycle to be careful about.
+
+</Only>
+
+<Lang name="server_handle" file="stop" />
+
+<Only lang="cpp">
 
 A `server_stopper` is a copyable weak handle with `stop()`, `shutdown(grace)` and `alive()`. It does not keep the server alive; once the server is gone, `stop()` and `shutdown()` do nothing.
 
 </Only>
 
 <Only lang="python">
-
-A handler can call the methods of the server it belongs to. There is no stopper to capture, because there is no handle and no cycle to be careful about:
-
-```python
-app = httpp.Server()
-
-@app.get("/quit")
-def quit_server():
-    app.shutdown(2)   # refuse new connections, let requests in progress finish, give up after 2 seconds
-    return "bye"
-```
 
 `shutdown(grace)` takes the grace period in seconds (default `10`) and makes `listen()` return when it is done; it does nothing when the server is not listening. `stop()` is the immediate one.
 
@@ -117,12 +83,6 @@ def quit_server():
 
 <Only lang="cpp">
 
-Write `auto srv = chain...;`. A chain on a temporary returns a handle, not a reference into the temporary, so this is safe:
-
-```cpp
-auto srv = httpp::directory(".").mount(httpp::server(), "/").tls("cert.pem", "key.pem");
-```
-
-and a reference to the temporary does not compile: `auto& r = httpp::server().tls(...)` is an error, where it would have dangled at the end of the statement.
+Write `auto srv = chain...;`. A chain on a temporary returns a handle, not a reference into the temporary, so this is safe, and a reference to the temporary does not compile: `auto& r = httpp::server().tls(...)` is an error, where it would have dangled at the end of the statement.
 
 </Only>

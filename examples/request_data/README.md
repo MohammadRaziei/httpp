@@ -1,4 +1,4 @@
-# request_info
+# request_data
 
 What a handler can read from the request: method, path, query, headers and body.
 
@@ -18,4 +18,4 @@ It listens on `127.0.0.1:8000`. In another terminal:
 curl -X POST "http://127.0.0.1:8000/inspect?page=2" -H "X-Token: abc" -d hello
 ```
 
-The code is in `python/main.py` and `cpp/main.cpp`; the tests in `tests/python/test_examples.py` run both and check what they do.
+The tests in `tests/python/test_examples.py` run every file here and check what it does.

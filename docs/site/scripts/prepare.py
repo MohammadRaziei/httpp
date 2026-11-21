@@ -2,7 +2,7 @@
 """Prepare the generated inputs of the docs site. Standard library only.
 
     python3 scripts/prepare.py snippets   build src/generated/snippets.json from ../../examples/<topic>/<lang>/main.<ext>
-    python3 scripts/prepare.py check      fail when an example exists in one language only or has no README.md
+    python3 scripts/prepare.py check      fail when a topic's main example misses a language, has no README.md or has no page of its name
     python3 scripts/prepare.py bench      build src/generated/bench.json from benchmarks/results/full/
     python3 scripts/prepare.py all        snippets + check + bench
 
@@ -30,27 +30,31 @@ BENCH_SCHEMA = 1
 
 
 def collect():
-    """{topic: {language id: file path}} from examples/<topic>/<lang>/main.<ext>."""
+    """{topic: {file: {language id: path}}} from examples/<topic>/<lang>/<file>.<ext>. `main` is the example of the page;
+    any other file is an extra that a page shows below it (an extra may exist in one language only)."""
     found = {}
     for lang in LANGS:
-        for f in sorted(EXAMPLES.glob(f"*/{lang['id']}/main.{lang['ext']}")):
-            found.setdefault(f.parent.parent.name, {})[lang["id"]] = f
+        for f in sorted(EXAMPLES.glob(f"*/{lang['id']}/*.{lang['ext']}")):
+            found.setdefault(f.parent.parent.name, {}).setdefault(f.stem, {})[lang["id"]] = f
     return found
 
 
 def cmd_snippets():
     data = {}
-    for name, per_lang in collect().items():
-        topic = f"examples/{name}"
-        data[name] = {
-            "readme": f"{GITHUB}/tree/{BRANCH}/{topic}",
-            **{
-                lang: {
-                    "code": f.read_text(encoding="utf-8").rstrip("\n"),
-                    "path": f.relative_to(REPO).as_posix(),
-                    "url": f"{GITHUB}/blob/{BRANCH}/{f.relative_to(REPO).as_posix()}",
+    for topic, files in collect().items():
+        folder = f"examples/{topic}"
+        data[topic] = {
+            "readme": f"{GITHUB}/tree/{BRANCH}/{folder}",
+            "files": {
+                stem: {
+                    lang: {
+                        "code": f.read_text(encoding="utf-8").rstrip("\n"),
+                        "path": f.relative_to(REPO).as_posix(),
+                        "url": f"{GITHUB}/blob/{BRANCH}/{f.relative_to(REPO).as_posix()}",
+                    }
+                    for lang, f in per_lang.items()
                 }
-                for lang, f in per_lang.items()
+                for stem, per_lang in sorted(files.items())
             },
         }
     OUT.mkdir(parents=True, exist_ok=True)
@@ -98,13 +102,19 @@ def cmd_bench():
 
 def cmd_check():
     ids = [lang["id"] for lang in LANGS]
+    pages = {f.stem for f in (ROOT / "docs").rglob("*.mdx")}
     bad = []
-    for name, per_lang in sorted(collect().items()):
-        missing = [i for i in ids if i not in per_lang]
-        if missing:
-            bad.append(f"  {name}: missing in {', '.join(missing)}")
-        if not (EXAMPLES / name / "README.md").is_file():
-            bad.append(f"  {name}: no README.md")
+    for topic, files in sorted(collect().items()):
+        if "main" not in files:
+            bad.append(f"  {topic}: no main file")
+        else:
+            missing = [i for i in ids if i not in files["main"]]
+            if missing:
+                bad.append(f"  {topic}: main is missing in {', '.join(missing)}")
+        if not (EXAMPLES / topic / "README.md").is_file():
+            bad.append(f"  {topic}: no README.md")
+        if topic.replace("_", "-") not in pages:
+            bad.append(f"  {topic}: no page docs/**/{topic.replace('_', '-')}.mdx (a topic has the name of its page)")
     if bad:
         print("examples check failed:\n" + "\n".join(bad), file=sys.stderr)
         return 1

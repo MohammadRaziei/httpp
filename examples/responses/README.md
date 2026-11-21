@@ -20,4 +20,4 @@ curl -i http://127.0.0.1:8000/items/1
 curl -i http://127.0.0.1:8000/items/2     # 404
 ```
 
-The code is in `python/main.py` and `cpp/main.cpp`; the tests in `tests/python/test_examples.py` run both and check what they do.
+The tests in `tests/python/test_examples.py` run every file here and check what it does.

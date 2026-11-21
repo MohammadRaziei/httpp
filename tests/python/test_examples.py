@@ -6,13 +6,17 @@ Needs `pip install .` of this repository first (the examples import httpp). The 
 is skipped when CMake is not there. The C++ build uses the same CMake recipe as docs/site/docs/install.mdx, so a broken recipe fails
 here too.
 
+A topic is examples/<topic>/<lang>/<file>.<ext>: `main` is the example of its page, any other file is an extra that the page shows
+below it, and an extra may exist in one language only. A unit is named `topic` for the main file and `topic/file` for an extra.
+
 Each example listens on the literal port 8000, which is what a reader copies. Here the port is replaced by a free one in a private
-copy of the file; the files in examples/ are not touched. An example needs a check below: a server example in SERVERS, an example
-that talks to one in CLIENTS (`test_every_example_has_a_check` fails otherwise).
+copy of the file; the files in examples/ are not touched. A unit needs a check below: a server in SERVERS, a program that talks to
+a server in CLIENTS (`test_every_example_has_a_check` fails otherwise).
 """
 
 import json
 import shutil
+import ssl
 import socket
 import subprocess
 import sys
@@ -49,8 +53,9 @@ endforeach()
 
 def http(method, url, headers=None, data=None):
     req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+    context = ssl._create_unverified_context() if url.startswith("https://") else None  # the test certificate is self-signed
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with urllib.request.urlopen(req, timeout=10, context=context) as r:
             return r.status, r.headers, r.read().decode()
     except urllib.error.HTTPError as e:  # a 4xx/5xx is an answer here, not a failure
         return e.code, e.headers, e.read().decode()
@@ -71,7 +76,7 @@ def check_get_route(base):
     expect((status, body) == (200, "hello world"), f"GET /hello/world gave {status} {body!r}")
 
 
-def check_request_info(base):
+def check_request_data(base):
     status, _, body = http("POST", base + "/inspect?page=2", {"X-Token": "abc"}, b"hello")
     expect(status == 200, f"status {status}")
     expect(body == INSPECT, f"body {body!r}, expected {INSPECT!r}")
@@ -96,11 +101,11 @@ def check_hooks(base):
     expect(h.get("X-Served-By") == "httpp", f"X-Served-By {h.get('X-Served-By')!r}")
 
 
-def check_client_get(out, cwd):
+def check_get_request(out, cwd):
     expect(out.splitlines() == ["200 hello world", "200"], f"output {out!r}")
 
 
-def check_client_post(out, cwd):
+def check_post_request(out, cwd):
     lines = out.splitlines()
     expect(lines[:1] == ["200"], f"output {out!r}")
     expect("\n".join(lines[1:]) == 'POST /inspect\npage=2\ntoken=abc\nbody={"a": 1}', f"output {out!r}")
@@ -113,7 +118,7 @@ def saved_hello(cwd):
     expect((cwd / "hello.txt").read_text() == "hello world", f"hello.txt holds {(cwd / 'hello.txt').read_text()!r}")
 
 
-def check_download_file(out, cwd):
+def check_download(out, cwd):
     expect(out.strip() == "200", f"output {out!r}")
     saved_hello(cwd)
 
@@ -128,14 +133,6 @@ def check_download_async(out, cwd):
     saved_hello(cwd)
 
 
-# files a server example expects in its working folder
-FIXTURES = {
-    "send_file": {"report.txt": "quarterly numbers\n"},
-    "serve_folder": {"public/index.html": "<h1>home</h1>", "public/notes.txt": "notes", "public/.hidden": "dotfile"},
-    "file_browser": {"shared/a.txt": "alpha", "shared/sub/b.txt": "beta", "secret.txt": "outside the shared folder"},
-}
-
-
 def check_send_file(base):
     status, h, body = http("GET", base + "/report")
     expect(status == 200 and body == "quarterly numbers\n", f"GET /report gave {status} {body!r}")
@@ -143,7 +140,7 @@ def check_send_file(base):
     expect((h.get("Content-Disposition") or "").startswith("attachment"), f"Content-Disposition {h.get('Content-Disposition')!r}")
 
 
-def check_serve_folder(base):
+def check_serve_directory(base):
     status, _, body = http("GET", base + "/static/notes.txt")
     expect((status, body) == (200, "notes"), f"/static/notes.txt gave {status} {body!r}")
     status, _, body = http("GET", base + "/static/")
@@ -169,30 +166,112 @@ def check_file_browser(base):
     expect(status == 404 and "outside" not in body, f"a path above the root gave {status} {body!r}")
 
 
+
+def check_swagger(base):
+    status, _, body = http("GET", base + "/openapi.json")
+    doc = json.loads(body)
+    expect(status == 200 and doc["info"]["title"] == "Hello API", f"/openapi.json gave {status} {body[:120]!r}")
+    expect(set(doc["paths"]) == {"/hello/{name}", "/health"}, f"paths {sorted(doc['paths'])}")
+    expect(doc["paths"]["/health"]["get"]["security"] == [], "/health is not public")
+    expect(doc["security"] == [{"jwt": []}], f"default security {doc.get('security')}")
+    status, h, body = http("GET", base + "/docs")
+    expect(status == 200 and "swagger" in body.lower(), f"/docs gave {status} {body[:120]!r}")
+    status, _, body = http("GET", base + "/hello/ann")
+    expect(status == 200 and json.loads(body) == {"hello": "ann"}, f"/hello/ann gave {status} {body!r}")
+
+
+def check_swagger_auto_document(base):
+    status, _, body = http("GET", base + "/openapi.json")
+    doc = json.loads(body)
+    expect(status == 200 and doc["info"]["title"] == "Library API", f"/openapi.json gave {status} {body[:120]!r}")
+    expect({"/books", "/books/{book_id}", "/health"} <= set(doc["paths"]), f"paths {sorted(doc['paths'])}")
+    expect(doc["paths"]["/books/by-author/{author}"]["get"].get("deprecated") is True, "by-author is not deprecated")
+    status, _, body = http("GET", base + "/docs")
+    expect(status == 200 and "swagger" in body.lower(), f"/docs gave {status} {body[:120]!r}")
+    status, _, body = http("GET", base + "/books?limit=2")
+    expect(status == 200 and len(json.loads(body)) == 2, f"/books?limit=2 gave {status} {body[:120]!r}")
+    status, _, _ = http("GET", base + "/books/99")
+    expect(status == 404, f"/books/99 gave {status}")
+
+
+def check_server_handle(base):
+    status, _, body = http("GET", base + "/a.txt")
+    expect(status == 200 and body == "alpha", f"/a.txt over TLS gave {status} {body!r}")
+    status, _, _ = http("GET", base + "/.hidden")
+    expect(status == 404, f"a dotfile gave {status}")
+
+
+def check_server_handle_mount_into(base):
+    status, _, body = http("GET", base + "/static/notes.txt")
+    expect(status == 200 and body == "notes", f"/static/notes.txt gave {status} {body!r}")
+    status, _, body = http("GET", base + "/ping")
+    expect(status == 200 and body == "pong", f"/ping gave {status} {body!r}")
+
+
+def check_server_handle_stop(base):
+    status, _, body = http("GET", base + "/quit")
+    expect(status == 200 and body == "bye", f"/quit gave {status} {body!r}")
+
+
+# files a server example expects in its working folder (the key is the unit)
+FIXTURES = {
+    "send_file": {"report.txt": "quarterly numbers\n"},
+    "serve_directory": {"public/index.html": "<h1>home</h1>", "public/notes.txt": "notes", "public/.hidden": "dotfile"},
+    "file_browser": {"shared/a.txt": "alpha", "shared/sub/b.txt": "beta", "secret.txt": "outside the shared folder"},
+    "server_handle": {"public/a.txt": "alpha", "public/.hidden": "dotfile"},
+    "server_handle/mount_into": {"public/notes.txt": "notes"},
+}
+HTTPS = {"server_handle"}                 # these listen with TLS: they need cert.pem and key.pem, and the checks use https://
+EXITS = {"server_handle/stop"}            # these end themselves once the check has run
+
 SERVERS = {
     "get_route": check_get_route,
-    "request_info": check_request_info,
+    "request_data": check_request_data,
     "responses": check_responses,
     "hooks": check_hooks,
     "send_file": check_send_file,
-    "serve_folder": check_serve_folder,
+    "serve_directory": check_serve_directory,
     "file_browser": check_file_browser,
+    "swagger": check_swagger,
+    "swagger/auto_document": check_swagger_auto_document,
+    "server_handle": check_server_handle,
+    "server_handle/mount_into": check_server_handle_mount_into,
+    "server_handle/stop": check_server_handle_stop,
 }
-# client snippet: (the server snippet it talks to, its check)
+# a program that talks to a server: (the unit of that server, its check)
 CLIENTS = {
-    "client_get": ("get_route", check_client_get),
-    "client_post": ("request_info", check_client_post),
-    "download_file": ("get_route", check_download_file),
-    "download_verified": ("get_route", check_download_verified),
-    "download_async": ("get_route", check_download_async),
+    "get_request": ("get_route", check_get_request),
+    "post_request": ("request_data", check_post_request),
+    "download": ("get_route", check_download),
+    "download/verified": ("get_route", check_download_verified),
+    "download/async": ("get_route", check_download_async),
 }
+
+
+def source(lang, unit):
+    topic, _, file = unit.partition("/")
+    return EXAMPLES / topic / lang / f"{file or 'main'}.{LANGS[lang]}"
+
+
+def target(unit):
+    return unit.replace("/", "__")
+
+
+def units_in_the_folder():
+    """{unit: [languages]} found in examples/."""
+    found = {}
+    for lang, ext in LANGS.items():
+        for f in sorted(EXAMPLES.glob(f"*/{lang}/*.{ext}")):
+            topic = f.parent.parent.name
+            found.setdefault(topic if f.stem == "main" else f"{topic}/{f.stem}", []).append(lang)
+    return found
 
 
 # ---- running ---------------------------------------------------------------------------------------------------------
 
-def patched(lang, name, port, dest):
-    src = (EXAMPLES / name / lang / f"main.{LANGS[lang]}").read_text(encoding="utf-8")
-    assert "8000" in src, f"{name}: no port 8000 to replace"
+def patched(lang, unit, port, dest):
+    src = source(lang, unit).read_text(encoding="utf-8")
+    assert "8000" in src, f"{unit}: no port 8000 to replace"
     dest.write_text(src.replace("8000", str(port)), encoding="utf-8")
 
 
@@ -209,22 +288,28 @@ def wait_listening(port, proc, log):
     raise AssertionError(f"nothing listening on {port} after 20 s:\n{log.read_text()}")
 
 
-def run_client(lang, name, port, check, work):
+def make_certificate(folder):
+    if shutil.which("openssl") is None:
+        pytest.skip("openssl is needed to make a certificate")
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(folder / "key.pem"), "-out",
+                    str(folder / "cert.pem"), "-days", "1", "-subj", "/CN=localhost"], check=True, capture_output=True)
+
+
+def run_client(lang, unit, port, check, work):
     if lang == "python":
-        # a client example needs the port of the server it talks to; the C++ ones were patched before the build
-        dest = work / "python" / f"{name}.py"
-        patched("python", name, port, dest)
+        dest = work / "python" / f"{target(unit)}.py"
+        patched("python", unit, port, dest)
         command = [sys.executable, str(dest)]
-    else:
-        command = [str(work / "cpp" / "build" / name)]
-    cwd = work / lang / f"{name}.cwd"  # an example that saves a file saves it here
+    else:  # the C++ ones were patched before the build
+        command = [str(work / "cpp" / "build" / target(unit))]
+    cwd = work / lang / f"{target(unit)}.cwd"  # a program that saves a file saves it here
     cwd.mkdir(exist_ok=True)
     r = subprocess.run(command, capture_output=True, text=True, timeout=60, cwd=cwd)
     try:
         expect(r.returncode == 0, f"exited with {r.returncode}:\n{r.stdout}{r.stderr}")
         check(r.stdout, cwd)
     except AssertionError as e:
-        raise AssertionError(f"client example {name}: {e}") from None
+        raise AssertionError(f"client example {unit} ({lang}): {e}") from None
 
 
 @pytest.fixture(scope="session")
@@ -235,25 +320,27 @@ def work(tmp_path_factory):
 @pytest.fixture(scope="session")
 def ports():
     found = {}
-    for name in SERVERS:
+    for unit in SERVERS:
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
-            found[name] = s.getsockname()[1]
+            found[unit] = s.getsockname()[1]
     return found
 
 
 @pytest.fixture(scope="session")
 def cpp_build(work, ports):
-    """Every C++ example in one CMake project, ports already replaced."""
+    """Every C++ file of every unit in one CMake project, ports already replaced."""
     if shutil.which("cmake") is None:
         pytest.skip("CMake is needed to build the C++ examples")
     folder = work / "cpp"
     folder.mkdir(exist_ok=True)
-    for name in SERVERS:
-        patched("cpp", name, ports[name], folder / f"{name}.cpp")
-    for name, (server, _) in CLIENTS.items():
-        patched("cpp", name, ports[server], folder / f"{name}.cpp")
-    names = list(SERVERS) + list(CLIENTS)
+    names = []
+    for unit in list(SERVERS) + list(CLIENTS):
+        if not source("cpp", unit).is_file():
+            continue
+        server = unit if unit in SERVERS else CLIENTS[unit][0]
+        patched("cpp", unit, ports[server], folder / f"{target(unit)}.cpp")
+        names.append(target(unit))
     (folder / "CMakeLists.txt").write_text(CMAKE.replace("@NAMES@", " ".join(names)), encoding="utf-8")
     for step in (
         ["cmake", "-S", str(folder), "-B", str(folder / "build"), f"-DPython3_EXECUTABLE={sys.executable}", "-DCMAKE_BUILD_TYPE=Release"],
@@ -264,50 +351,62 @@ def cpp_build(work, ports):
             pytest.fail(f"C++ examples did not build ({' '.join(step[:2])}):\n{r.stdout[-4000:]}\n{r.stderr[-4000:]}")
 
 
-@pytest.mark.parametrize("lang", list(LANGS))
-@pytest.mark.parametrize("name", list(SERVERS))
-def test_server_example_does_what_its_page_says(lang, name, work, ports, request):
-    """Start the example, run the checks that talk to it and the client examples that belong to it, stop it."""
+CASES = [(lang, unit) for unit in SERVERS for lang in LANGS if source(lang, unit).is_file()]
+
+
+@pytest.mark.parametrize("lang,unit", CASES, ids=[f"{lang}-{unit.replace('/', '-')}" for lang, unit in CASES])
+def test_server_example_does_what_its_page_says(lang, unit, work, ports, request):
+    """Start the example, run the check that talks to it and the clients that belong to it, stop it."""
     if lang == "cpp":
         request.getfixturevalue("cpp_build")
-        command = [str(work / "cpp" / "build" / name)]
+        command = [str(work / "cpp" / "build" / target(unit))]
     else:
-        dest = work / "python" / f"{name}.py"
+        dest = work / "python" / f"{target(unit)}.py"
         dest.parent.mkdir(exist_ok=True)
-        patched("python", name, ports[name], dest)
+        patched("python", unit, ports[unit], dest)
         command = [sys.executable, str(dest)]
-    port = ports[name]
-    log = work / f"{lang}-{name}.log"
-    home = work / lang / f"{name}.srv"
+    port = ports[unit]
+    log = work / f"{lang}-{target(unit)}.log"
+    home = work / lang / f"{target(unit)}.srv"
     home.mkdir(parents=True, exist_ok=True)
-    for rel, text in FIXTURES.get(name, {}).items():
+    for rel, text in FIXTURES.get(unit, {}).items():
         (home / rel).parent.mkdir(parents=True, exist_ok=True)
         (home / rel).write_text(text, encoding="utf-8")
+    if unit in HTTPS:
+        make_certificate(home)
+    scheme = "https" if unit in HTTPS else "http"
     with open(log, "w") as out:
         proc = subprocess.Popen(command, stdout=out, stderr=subprocess.STDOUT, cwd=home)
         try:
             wait_listening(port, proc, log)
-            SERVERS[name](f"http://127.0.0.1:{port}")
+            SERVERS[unit](f"{scheme}://127.0.0.1:{port}")
             for client, (server, check) in CLIENTS.items():
-                if server == name:
+                if server == unit and source(lang, client).is_file():
                     run_client(lang, client, port, check, work)
+            if unit in EXITS:
+                try:
+                    proc.wait(10)
+                except subprocess.TimeoutExpired:
+                    raise AssertionError(f"{unit} did not end by itself:\n{log.read_text()}") from None
         finally:
-            proc.terminate()
-            try:
-                proc.wait(5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
 
 
 def test_every_example_has_a_check():
-    """A new folder in examples/ without a check here would be an example that nothing runs."""
-    topics = {p.parent.parent.name for p in EXAMPLES.glob("*/python/main.py")} | {p.parent.parent.name for p in EXAMPLES.glob("*/cpp/main.cpp")}
-    unchecked = sorted(topics - set(SERVERS) - set(CLIENTS))
+    """A file in examples/ without a check here would be an example that nothing runs."""
+    found = set(units_in_the_folder())
+    unchecked = sorted(found - set(SERVERS) - set(CLIENTS))
     assert not unchecked, f"examples with no check in tests/python/test_examples.py: {unchecked}"
-    assert not sorted((set(SERVERS) | set(CLIENTS)) - topics), "a check names an example that does not exist"
+    assert not sorted((set(SERVERS) | set(CLIENTS)) - found), "a check names an example that does not exist"
+    assert not sorted(set(CLIENTS) & set(SERVERS)), "a unit is both a server and a client"
 
 
-def test_every_example_has_both_languages_and_a_readme():
+def test_every_topic_has_both_languages_in_main_and_a_readme():
     for folder in sorted(p for p in EXAMPLES.iterdir() if (p / "python").is_dir() or (p / "cpp").is_dir()):
         assert (folder / "python" / "main.py").is_file(), f"{folder.name}: no python/main.py"
         assert (folder / "cpp" / "main.cpp").is_file(), f"{folder.name}: no cpp/main.cpp"
