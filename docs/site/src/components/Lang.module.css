@@ -52,6 +52,12 @@
 .file {
   font: 0.78rem var(--ifm-font-family-monospace);
   color: #6b7684;
+  text-decoration: none;
+}
+
+.file:hover {
+  color: var(--ifm-link-color);
+  text-decoration: underline;
 }
 
 .box :global(.theme-code-block) {

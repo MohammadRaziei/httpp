@@ -7,8 +7,8 @@ import snippets from '@site/src/generated/snippets.json';
 import {useLang} from '@site/src/components/LangContext';
 import styles from './index.module.css';
 
-type Entry = {code: string; path: string};
-const data = snippets as Record<string, Record<string, Entry>>;
+type Entry = {code: string; path: string; url: string};
+const data = snippets as unknown as Record<string, Record<string, Entry>>;  // each topic also has a `readme` string, which is not a language
 const theme = {...themes.vsDark, plain: {...themes.vsDark.plain, backgroundColor: 'transparent', color: '#d7dde4'}};
 
 function Install() {

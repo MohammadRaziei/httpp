@@ -5,13 +5,15 @@ import snippets from '@site/src/generated/snippets.json';
 import {useLang} from './LangContext';
 import styles from './Lang.module.css';
 
-type Entry = {code: string; path: string};
-const data = snippets as Record<string, Record<string, Entry>>;
+type Entry = {code: string; path: string; url: string};
+// per topic: one Entry per language id, plus `readme` (the topic folder on GitHub)
+const data = snippets as unknown as Record<string, Record<string, Entry | string>>;
 
-// The code of one snippet in the language chosen in the navbar. The code comes from snippets/<lang>/<name>.<ext>.
+// The code of one example in the language chosen in the navbar. The code comes from examples/<name>/<lang>/main.<ext>;
+// the file name above it links to that file on GitHub.
 export default function Lang({name}: {name: string}) {
   const {lang, setLang} = useLang();
-  const entry = data[name]?.[lang];
+  const entry = data[name]?.[lang] as Entry | undefined;
   const known = languages.find((l) => l.id === lang);
 
   if (!data[name]) {
@@ -34,7 +36,11 @@ export default function Lang({name}: {name: string}) {
             </button>
           ))}
         </div>
-        {entry && <span className={styles.file}>{entry.path.split('/').pop()}</span>}
+        {entry && (
+          <a className={styles.file} href={entry.url} target="_blank" rel="noopener noreferrer">
+            {entry.path.replace(/^examples\//, '')}
+          </a>
+        )}
       </div>
       {entry ? (
         <CodeBlock language={known?.prism ?? 'text'}>{entry.code}</CodeBlock>

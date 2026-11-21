@@ -8,7 +8,7 @@
 Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history. Where a part and this summary disagree, this summary wins.
 
 - **A Docusaurus site in `docs/site/`,** one page per concept; the code on a page follows one language choice made in the top bar and remembered in the browser.
-- **The code lives in real files** (`snippets/<lang>/<name>.<ext>`), never pasted into a page; `scripts/prepare.py check` fails when a snippet exists in one language only.
+- **The code lives in real files** (`examples/<topic>/<lang>/main.<ext>`, with a `README.md` in `examples/<topic>/`), never pasted into a page; `scripts/prepare.py check` fails when an example exists in one language only or has no README. Each code box links to its file on GitHub and each README links back to the page. `tests/python/test_examples.py` runs every example (the C++ ones through CMake) and compares what it does with what its page says.
 - **Published to GitHub Pages:** `url` is `https://mohammadraziei.github.io`, `baseUrl` is `/httpp/`; `.github/workflows/pages.yml` builds `docs/site` and deploys it on pushes to master that touch the site or `benchmarks/results/*.json`, and on demand. `docs.yml` stays the check and does not publish.
 
 ## Parts
@@ -74,3 +74,31 @@ the part "A documentation site with one page per concept and a Python/C++ code s
 #### Related
 
 ADR-0063 and the part "A documentation site with one page per concept and a Python/C++ code switch".
+
+### The examples live in `examples/<topic>/<lang>/`, not in the docs site
+#### Context
+
+The code of the pages was in `docs/site/snippets/<lang>/<name>.<ext>` and was checked by `docs/site/scripts/test_snippets.py`, which only the docs workflow ran. The repository also had `examples/python/`, 15 numbered scripts that nothing ran and that overlapped the snippets. A reader on GitHub saw one of them, a reader of the site the other, and neither was a place to look for both languages of one topic.
+
+#### Decision
+
+- One folder per topic: `examples/<topic>/python/main.py`, `examples/<topic>/cpp/main.cpp` and `examples/<topic>/README.md` (what it does, how to run it, the link to its page). The `<Lang name="<topic>" />` of a page shows these files.
+- `scripts/prepare.py` builds the code boxes from `examples/`, puts a GitHub link on each file name, and its check fails when a topic lacks a language or a README.
+- The checks moved to `tests/python/test_examples.py` (pytest), so the normal test run and every workflow that runs the suite run them. The C++ side builds with the CMake recipe of the install page and is skipped when CMake is not there. `test_every_example_has_a_check` fails for a topic that has no check.
+- The 15 numbered scripts of `examples/python/` were deleted: they overlapped the topics above, had no test and no C++ twin. A topic they covered alone comes back as a topic folder when its page is written. `examples/find_httpp_via_python/` stays: it shows a CMake consumer, which is not a page snippet.
+- `pages.yml` and `docs.yml` also watch `examples/**`, so a changed example rebuilds the site.
+
+#### Rejected alternatives
+
+- **Keep `docs/site/snippets/` and add a link:** the repository would keep two places for examples, one of them untested.
+- **Keep the numbered scripts as a learning path:** the order is the job of the docs, and 15 untested single-language files drift from the API without anyone noticing.
+
+#### Consequences
+
+- A topic that is truly single-language has no way to say so yet: `prepare.py check` asks for both. When the first one appears the check needs an explicit marker.
+- The test file knows each topic by name (`SERVERS`, `CLIENTS`); a new topic needs one entry there.
+- Not verified here: the docs workflow after the change (the site build and `prepare.py check` pass locally).
+
+#### Related
+
+The part "A documentation site with one page per concept and a Python/C++ code switch" (its snippet folder is replaced by this part).

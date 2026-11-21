@@ -9,6 +9,8 @@ on:
     branches: [ master ]
     paths:
       - "docs/site/**"
+      - "examples/**"
+      - "tests/python/test_examples.py"
       - ".github/workflows/docs.yml"
 
 permissions:
@@ -32,13 +34,16 @@ jobs:
         node-version: "22"
         cache: npm
         cache-dependency-path: docs/site/package-lock.json
-    - name: Both languages have every snippet
+    - name: Both languages have every example, and a README
       run: python3 scripts/prepare.py all
     - name: Build and install httpp
       working-directory: .
       run: pip install .
-    - name: Snippets build, run and do what their pages say
-      run: python3 scripts/test_snippets.py
+    - name: Examples build, run and do what their pages say
+      working-directory: .
+      run: |
+        pip install pytest
+        python -m pytest tests/python/test_examples.py -q
     - name: Install
       run: npm ci
     - name: Type check

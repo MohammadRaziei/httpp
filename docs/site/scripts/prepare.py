@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Prepare the generated inputs of the docs site. Standard library only.
 
-    python3 scripts/prepare.py snippets   build src/generated/snippets.json
-    python3 scripts/prepare.py check      fail when a snippet exists in one language only
+    python3 scripts/prepare.py snippets   build src/generated/snippets.json from ../../examples/<topic>/<lang>/main.<ext>
+    python3 scripts/prepare.py check      fail when an example exists in one language only or has no README.md
     python3 scripts/prepare.py bench      build src/generated/bench.json from benchmarks/results/full/
     python3 scripts/prepare.py all        snippets + check + bench
 
@@ -19,6 +19,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+REPO = ROOT.parent.parent
+EXAMPLES = REPO / "examples"
+GITHUB = "https://github.com/mohammadraziei/httpp"
+BRANCH = "master"
 LANGS = json.loads((ROOT / "languages.json").read_text(encoding="utf-8"))
 OUT = ROOT / "src" / "generated"
 RESULTS = ROOT.parent.parent / "benchmarks" / "results"
@@ -26,29 +30,34 @@ BENCH_SCHEMA = 1
 
 
 def collect():
-    """{snippet name: {language id: file path}} from snippets/<lang>/<name>.<ext>."""
+    """{topic: {language id: file path}} from examples/<topic>/<lang>/main.<ext>."""
     found = {}
     for lang in LANGS:
-        folder = ROOT / "snippets" / lang["id"]
-        if not folder.is_dir():
-            continue
-        for f in sorted(folder.glob("*." + lang["ext"])):
-            found.setdefault(f.stem, {})[lang["id"]] = f
+        for f in sorted(EXAMPLES.glob(f"*/{lang['id']}/main.{lang['ext']}")):
+            found.setdefault(f.parent.parent.name, {})[lang["id"]] = f
     return found
 
 
 def cmd_snippets():
     data = {}
     for name, per_lang in collect().items():
+        topic = f"examples/{name}"
         data[name] = {
-            lang: {"code": f.read_text(encoding="utf-8").rstrip("\n"), "path": f.relative_to(ROOT).as_posix()}
-            for lang, f in per_lang.items()
+            "readme": f"{GITHUB}/tree/{BRANCH}/{topic}",
+            **{
+                lang: {
+                    "code": f.read_text(encoding="utf-8").rstrip("\n"),
+                    "path": f.relative_to(REPO).as_posix(),
+                    "url": f"{GITHUB}/blob/{BRANCH}/{f.relative_to(REPO).as_posix()}",
+                }
+                for lang, f in per_lang.items()
+            },
         }
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "snippets.json").write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"snippets.json: {len(data)} snippets")
+    print(f"snippets.json: {len(data)} examples")
     if not data:
-        print("warning: no snippet files found; pages that use <Lang> will show nothing", file=sys.stderr)
+        print("warning: no example files found; pages that use <Lang> will show nothing", file=sys.stderr)
 
 
 def load_run(directory):
@@ -94,10 +103,12 @@ def cmd_check():
         missing = [i for i in ids if i not in per_lang]
         if missing:
             bad.append(f"  {name}: missing in {', '.join(missing)}")
+        if not (EXAMPLES / name / "README.md").is_file():
+            bad.append(f"  {name}: no README.md")
     if bad:
-        print("parity check failed:\n" + "\n".join(bad), file=sys.stderr)
+        print("examples check failed:\n" + "\n".join(bad), file=sys.stderr)
         return 1
-    print("parity check: ok")
+    print("examples check: ok")
     return 0
 
 
