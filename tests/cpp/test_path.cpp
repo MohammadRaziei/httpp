@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <iterator>
 #include <stdexcept>
 #include <string>
@@ -70,7 +71,8 @@ UTEST(path, cwd_absolute_uri_and_the_source_file_idiom) {
     ASSERT_TRUE(path("/a b/c#d.txt").as_uri() == "file:///a%20b/c%23d.txt");
     ASSERT_TRUE(path("/a/b").as_posix() == "/a/b");
     // the usual "next to this source file" line
-    const path data = (path(__FILE__).parent() / "some" / "dir");
+    ASSERT_TRUE(HTTPP_PATH_CWD == path(__FILE__).parent());
+    const path data = (HTTPP_PATH_CWD / "some" / "dir");
     ASSERT_TRUE(data.name() == path("dir"));
     ASSERT_TRUE(data.parent().name() == path("some"));
     ASSERT_TRUE(data.as_uri().compare(0, 8, "file:///") == 0 || data.as_uri().compare(0, 7, "file://") == 0);
@@ -145,7 +147,14 @@ UTEST(path, a_path_is_what_a_route_serves_as_a_file) {
 
 namespace {
 
-const path area = "fs_test_area";
+// Scratch folder in the system temp directory, one per run: nothing is written into the source tree or the working directory,
+// and two runs at the same time (parallel ctest, two builds) do not meet in one folder.
+path make_area() {
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count() % 1000000007;
+    return path((std::filesystem::temp_directory_path() / ("httpp_path_test_" + std::to_string(stamp))).generic_string());
+}
+
+const path area = make_area();
 
 // a fresh empty directory
 void fresh() {
@@ -312,7 +321,7 @@ UTEST(path, rmtree_removes_a_link_and_never_follows_it) {
 
 UTEST(path, zz_cleanup) {
     fresh();
-    area.rmdir();
+    ASSERT_TRUE(area.rmtree());
     ASSERT_FALSE(area.exists());
 }
 

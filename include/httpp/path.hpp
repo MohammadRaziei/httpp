@@ -173,3 +173,8 @@ private:
 };
 
 } // namespace httpp
+
+// The directory of the source file it is written in: Python's Path(__file__).parent, for data that lies next to the code
+// (a test fixture, a template). A macro because __FILE__ must expand where the macro is used. It is not the working directory
+// of the process: that is path::cwd().
+#define HTTPP_PATH_CWD (::httpp::path(__FILE__).parent())
