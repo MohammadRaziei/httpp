@@ -7,6 +7,9 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         vector[pair[string, string]] headers
         string error_message
         string file  # server side: stream the body from this path
+        long long elapsed_ms
+        size_t bytes_received
+        string saved_as
         cbool ok()
         const char* error_name()
 
@@ -21,6 +24,9 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         cpp_client& max_redirects(int count) except +  # std::invalid_argument -> ValueError
         cpp_client& connect_timeout(long seconds) except +
         cpp_client& max_time(long seconds) except +
+        cpp_client& retry(int times) except +
+        cpp_client& retry_delay(long seconds) except +
+        cpp_client& retry_connrefused(cbool enable) except +
         cpp_client& auto_compression(cbool enable) except +
         cpp_client& basic_auth(string user, string password) except +
         cpp_client& bearer(string token) except +
@@ -312,6 +318,9 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         long timeout() except +
         cpp_download& connect_timeout(long seconds) except +  # std::invalid_argument -> ValueError
         cpp_download& max_time(long seconds) except +  # std::invalid_argument -> ValueError
+        cpp_download& retry(int times) except +
+        cpp_download& retry_delay(long seconds) except +
+        cpp_download& retry_connrefused(cbool enable) except +
         cpp_download& basic_auth(string user, string password) except +
         cpp_download& bearer(string token) except +
         cpp_download& proxy(string proxy_url) except +  # std::invalid_argument -> ValueError
@@ -382,6 +391,14 @@ cdef extern from "httpp/client.hpp" namespace "httpp::client":
         cpp_curl_request& auto_compression(cbool enable) except +
         cpp_curl_request& connect_timeout(long seconds) except +  # std::invalid_argument -> ValueError
         cpp_curl_request& max_time(long seconds) except +  # std::invalid_argument -> ValueError
+        cpp_curl_request& retry(int times) except +
+        cpp_curl_request& retry_delay(long seconds) except +
+        cpp_curl_request& retry_connrefused(cbool enable) except +
+        cpp_curl_request& save_to(string file) except +
+        cpp_curl_request& save_in(string folder) except +
+        cpp_curl_request& create_dirs(cbool enable) except +
+        cpp_curl_request& overwrite(cbool enable) except +
+        cpp_curl_request& include_head(cbool enable) except +
         cpp_curl_request& verify(cbool enable) except +
         cpp_curl_request& ca_file(string path) except +
         cpp_curl_request& proxy(string proxy_url) except +

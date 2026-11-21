@@ -54,7 +54,8 @@ cdef class Download:
 
     def __init__(self, str url, dest_path="", *, enable_progress=None, resume=None, force=None, sha256=None,
                  sha256_url=None, max_wait=None, timeout=None, max_redirects=None, connect_timeout=None,
-                 max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None, proxy=None, headers=None):
+                 max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None, proxy=None, headers=None,
+                 retry=None, retry_delay=None, retry_connrefused=None):
         """Every keyword is the name of a setter and does what the setter does (basic_auth takes (user, password);
         headers is a dict, one header() call per item);
         Download(url, path, resume=True, timeout=30) is Download(url, path).resume().timeout(30)."""
@@ -89,12 +90,38 @@ cdef class Download:
             self.ca_file(ca_file)
         if proxy is not None:
             self.proxy(proxy)
+        if retry is not None:
+            self.retry(retry)
+        if retry_delay is not None:
+            self.retry_delay(retry_delay)
+        if retry_connrefused is not None:
+            self.retry_connrefused(retry_connrefused)
         for name, value in (headers.items() if hasattr(headers, "items") else headers or ()):
             self.header(name, value)
 
     def __dealloc__(self):
         if self._dl is not NULL:
             del self._dl
+
+    def retry(self, int times):
+        """Send again up to this many more times after a try that may pass (a timeout, a refused-by-load status such as 503,
+        a body cut off in the middle); with resume() a retry continues the .part file. 0 (default) never sends again."""
+        if times < 0:
+            raise ValueError("retry must not be negative")
+        self._dl.retry(times)
+        return self
+
+    def retry_delay(self, seconds):
+        """The wait in seconds before each new try; 0 (default) waits 1, 2, 4, ... seconds, 600 at most."""
+        if seconds < 0:
+            raise ValueError("retry_delay must not be negative")
+        self._dl.retry_delay(int(round(seconds)))
+        return self
+
+    def retry_connrefused(self, cbool enable=True):
+        """Also send again after a refused connection or a failed lookup (off by default)."""
+        self._dl.retry_connrefused(enable)
+        return self
 
     def header(self, str name, str value):
         """Send this header with every step (the size probe, the file, a checksum file on the same host and port);
@@ -389,6 +416,77 @@ cdef extern from *:
     cpp_curl_request* py_clone_request "httpp_py_clone_request"(const cpp_curl_request& r) except +
 
 
+cdef extern from *:
+    """
+    #include <cstddef>
+    #include <functional>
+    #include <string_view>
+    #include "httpp/client.hpp"
+    typedef bool (*httpp_py_body_cb)(void*, const char*, std::size_t);
+    typedef bool (*httpp_py_head_cb)(void*, const httpp::response&);
+    typedef void (*httpp_py_retry_cb)(void*, const httpp::response&, int, long);
+    static void httpp_py_on_body(httpp::request& r, void* ctx, httpp_py_body_cb fn) {
+        r.on_body([ctx, fn](std::string_view piece) { return fn(ctx, piece.data(), piece.size()); });
+    }
+    static void httpp_py_on_head(httpp::request& r, void* ctx, httpp_py_head_cb fn) {
+        r.on_head([ctx, fn](const httpp::response& head) { return fn(ctx, head); });
+    }
+    static void httpp_py_on_retry(httpp::request& r, void* ctx, httpp_py_retry_cb fn) {
+        r.on_retry([ctx, fn](const httpp::response& last, int number, long delay) { fn(ctx, last, number, delay); });
+    }
+    """
+    ctypedef bint (*body_cb_fn "httpp_py_body_cb")(void*, const char*, size_t) noexcept nogil
+    ctypedef bint (*head_cb_fn "httpp_py_head_cb")(void*, const response&) noexcept nogil
+    ctypedef void (*retry_cb_fn "httpp_py_retry_cb")(void*, const response&, int, long) noexcept nogil
+    void py_on_body "httpp_py_on_body"(cpp_curl_request& r, void* ctx, body_cb_fn fn) except +
+    void py_on_head "httpp_py_on_head"(cpp_curl_request& r, void* ctx, head_cb_fn fn) except +
+    void py_on_retry "httpp_py_on_retry"(cpp_curl_request& r, void* ctx, retry_cb_fn fn) except +
+
+
+cdef class _Callback:
+    """A Python callable that a C++ request calls from a network thread (on_body, on_head, on_retry). An exception it raises
+    is kept in `errors` (a list shared with the Request) and re-raised by run() / the awaited run_async(); the transfer is
+    stopped (on_body, on_head) or goes on (on_retry)."""
+    cdef object fn
+    cdef list errors
+
+    def __init__(self, fn, list errors):
+        self.fn = fn
+        self.errors = errors
+
+
+cdef bint _body_trampoline(void* ctx, const char* data, size_t n) noexcept nogil:
+    httpp_py_pin_thread()
+    with gil:
+        cb = <_Callback>ctx
+        try:
+            return cb.fn(data[:n]) is not False
+        except BaseException as e:
+            cb.errors.append(e)
+            return False
+
+
+cdef bint _head_trampoline(void* ctx, const response& head) noexcept nogil:
+    httpp_py_pin_thread()
+    with gil:
+        cb = <_Callback>ctx
+        try:
+            return cb.fn(_make_response(head)) is not False
+        except BaseException as e:
+            cb.errors.append(e)
+            return False
+
+
+cdef void _retry_trampoline(void* ctx, const response& last, int number, long delay) noexcept nogil:
+    httpp_py_pin_thread()
+    with gil:
+        cb = <_Callback>ctx
+        try:
+            cb.fn(_make_response(last), number, delay)
+        except BaseException as e:
+            cb.errors.append(e)
+
+
 cdef class Request:
     """A small, curl-flavored fluent request builder, for one-off requests where a Client session
     is overkill. NOT a libcurl-compatible shim.
@@ -397,11 +495,18 @@ cdef class Request:
         await Request(url).params({"q": "x"}).run_async()
     """
     cdef cpp_curl_request* _req
+    cdef _Callback _on_body, _on_head, _on_retry
+    cdef list _errors
+
+    def __cinit__(self):
+        self._errors = []
 
     def __init__(self, str url, *, method=None, params=None, headers=None, data=None, json=None, form=None,
                  content_type=None, cookies=None, timeout=None, max_redirects=None, auto_compression=None,
                  connect_timeout=None, max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None,
-                 proxy=None, max_response_size=None):
+                 proxy=None, max_response_size=None, retry=None, retry_delay=None, retry_connrefused=None,
+                 save_to=None, save_in=None, create_dirs=None, overwrite=None, include_head=None,
+                 on_body=None, on_head=None, on_retry=None):
         """Every keyword is the name of a setter and does what the setter does, so Request(url, method="PUT",
         timeout=10) is Request(url).method("PUT").timeout(10). Three are plural because the setter is called once
         per item: headers, params, cookies (a dict each). basic_auth takes (user, password). json, form and data
@@ -447,6 +552,28 @@ cdef class Request:
             self.proxy(proxy)
         if max_response_size is not None:
             self.max_response_size(max_response_size)
+        if retry is not None:
+            self.retry(retry)
+        if retry_delay is not None:
+            self.retry_delay(retry_delay)
+        if retry_connrefused is not None:
+            self.retry_connrefused(retry_connrefused)
+        if save_to is not None:
+            self.save_to(save_to)
+        if save_in is not None:
+            self.save_in(save_in)
+        if create_dirs is not None:
+            self.create_dirs(create_dirs)
+        if overwrite is not None:
+            self.overwrite(overwrite)
+        if include_head is not None:
+            self.include_head(include_head)
+        if on_body is not None:
+            self.on_body(on_body)
+        if on_head is not None:
+            self.on_head(on_head)
+        if on_retry is not None:
+            self.on_retry(on_retry)
 
     def __dealloc__(self):
         if self._req is not NULL:
@@ -457,6 +584,14 @@ cdef class Request:
         reach the other, so a prepared request is a template."""
         cdef Request other = Request.__new__(Request)
         other._req = py_clone_request(self._req[0])
+        other._errors = []
+        # the copied C++ callbacks point at this object's _Callback holders: give the copy its own
+        if self._on_body is not None:
+            other.on_body(self._on_body.fn)
+        if self._on_head is not None:
+            other.on_head(self._on_head.fn)
+        if self._on_retry is not None:
+            other.on_retry(self._on_retry.fn)
         return other
 
     def method(self, str m):
@@ -567,6 +702,83 @@ cdef class Request:
         self._req.proxy(proxy_url.encode("utf-8"))
         return self
 
+    def retry(self, int times):
+        """Send the request again up to this many more times after a try that may pass: a timeout, a status 408, 429, 500,
+        502, 503 or 504 (and a failed connection with retry_connrefused()). Any other answer is final. 0 (default) never
+        sends again. ValueError for a negative number."""
+        if times < 0:
+            raise ValueError("retry must not be negative")
+        self._req.retry(times)
+        return self
+
+    def retry_delay(self, seconds):
+        """The wait in seconds before each new try; 0 (default) waits 1, 2, 4, ... seconds, 600 at most."""
+        if seconds < 0:
+            raise ValueError("retry_delay must not be negative")
+        self._req.retry_delay(int(round(seconds)))
+        return self
+
+    def retry_connrefused(self, cbool enable=True):
+        """Also send again after a refused connection or a failed lookup (off by default)."""
+        self._req.retry_connrefused(enable)
+        return self
+
+    def save_to(self, path):
+        """Write the body of the final response to this file as it arrives, instead of into .content (like curl -o). The
+        file is opened when the final head is accepted, so a redirect, a retried answer or a request that fails leaves nothing
+        behind. A file that cannot be made or written ends the request with error "file"; Response.saved_as names it."""
+        self._req.save_to(_fs(path))
+        return self
+
+    def save_in(self, folder):
+        """Like save_to, in this folder, with the name the answer chooses (Content-Disposition, else the end of the URL)."""
+        self._req.save_in(_fs(folder))
+        return self
+
+    def create_dirs(self, cbool enable=True):
+        """With save_to / save_in: make the missing folders of the path (default off)."""
+        self._req.create_dirs(enable)
+        return self
+
+    def overwrite(self, cbool enable=True):
+        """With save_to / save_in: False makes a file that is already there an error (default True)."""
+        self._req.overwrite(enable)
+        return self
+
+    def include_head(self, cbool enable=True):
+        """With save_to / save_in: write the status line and headers before the body, like curl -i (default off)."""
+        self._req.include_head(enable)
+        return self
+
+    def on_body(self, fn):
+        """Stream the body of the final response: fn(piece: bytes) is called for each piece as it arrives, in order, and
+        .content stays empty. Return False to stop (the response then has error "canceled"). It runs on a network thread
+        (with the GIL): a blocking write is fine, a blocking httpp request inside it is not. An exception it raises stops
+        the transfer and is raised by run() (or by the await of run_async())."""
+        if not callable(fn):
+            raise TypeError("on_body takes a callable")
+        self._on_body = _Callback(fn, self._errors)
+        py_on_body(self._req[0], <void*>self._on_body, <body_cb_fn>_body_trampoline)
+        return self
+
+    def on_head(self, fn):
+        """With on_body: fn(response) is called once with the status and headers of the final response (empty body) before
+        the first piece. Return False to skip the body (it is read and thrown away; run() still returns the response)."""
+        if not callable(fn):
+            raise TypeError("on_head takes a callable")
+        self._on_head = _Callback(fn, self._errors)
+        py_on_head(self._req[0], <void*>self._on_head, <head_cb_fn>_head_trampoline)
+        return self
+
+    def on_retry(self, fn):
+        """With retry: fn(response, retry_number, delay_seconds) is called before each new try with the response of the try that
+        failed, the number of the retry about to start (1, 2, ...) and the seconds it waits first."""
+        if not callable(fn):
+            raise TypeError("on_retry takes a callable")
+        self._on_retry = _Callback(fn, self._errors)
+        py_on_retry(self._req[0], <void*>self._on_retry, <retry_cb_fn>_retry_trampoline)
+        return self
+
     def max_response_size(self, size_t nbytes):
         self._req.max_response_size(nbytes)
         return self
@@ -575,6 +787,8 @@ cdef class Request:
         cdef response res
         with nogil:
             res = self._req.run()
+        if self._errors:  # a callback raised: the transfer was stopped, and that is the error to report
+            raise self._errors.pop(0)
         return _make_response(res)
 
     def run_async(self):
@@ -583,7 +797,8 @@ cdef class Request:
         import asyncio
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
-        holder = (loop, fut)
+        # the callbacks are kept alive by the holder until the request is done, even if this Request is dropped meanwhile
+        holder = (loop, fut, self._errors, (self._on_body, self._on_head, self._on_retry))
         Py_INCREF(holder)  # owned by the C++ callback until _done_trampoline releases it
         try:
             with nogil:
@@ -607,6 +822,9 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         cpp_async_client& max_redirects(int count) except +
         cpp_async_client& connect_timeout(long seconds) except +
         cpp_async_client& max_time(long seconds) except +
+        cpp_async_client& retry(int times) except +
+        cpp_async_client& retry_delay(long seconds) except +
+        cpp_async_client& retry_connrefused(cbool enable) except +
         cpp_async_client& auto_compression(cbool enable) except +
         cpp_async_client& basic_auth(string user, string password) except +
         cpp_async_client& bearer(string token) except +
@@ -646,6 +864,12 @@ cdef extern from *:
                               const string&, const string&, void*, done_fn) except + nogil
 
 
+def _fail_future(fut, exc):
+    # runs on the event loop thread: a callback of the request raised
+    if not fut.done():
+        fut.set_exception(exc)
+
+
 def _resolve(fut, value):
     # runs on the event loop thread; the awaiting task may have been cancelled meanwhile
     if not fut.done():
@@ -661,9 +885,12 @@ cdef void _done_trampoline(void* ctx, response* res) noexcept nogil:
         holder = <object>ctx
         Py_DECREF(holder)  # balances the Py_INCREF made when the request was started
         try:
-            loop, fut = holder
-            result = _make_response(res[0])
-            loop.call_soon_threadsafe(_resolve, fut, result)
+            loop, fut, errors = holder[0], holder[1], holder[2]
+            if errors:
+                loop.call_soon_threadsafe(_fail_future, fut, errors.pop(0))
+            else:
+                result = _make_response(res[0])
+                loop.call_soon_threadsafe(_resolve, fut, result)
         except BaseException:
             pass  # e.g. the loop was closed: nobody is waiting any more
 
@@ -679,10 +906,11 @@ cdef class _AsyncClientCore:
     def __init__(self, str base_url, size_t max_connections=8, *, headers=None, timeout=None,
                  max_redirects=None, connect_timeout=None, max_time=None,
                  cbool auto_compression=True, basic_auth=None, bearer=None, cbool verify=True, ca_file=None,
-                 proxy=None):
+                 proxy=None, retry=None, retry_delay=None, retry_connrefused=None):
         self._cli = new cpp_async_client(base_url.encode("utf-8"), max_connections)
         _apply_client_options(self._cli, headers, timeout, max_redirects, connect_timeout, max_time,
-                              auto_compression, basic_auth, bearer, verify, ca_file, proxy)
+                              auto_compression, basic_auth, bearer, verify, ca_file, proxy,
+                              retry, retry_delay, retry_connrefused)
 
     def __dealloc__(self):
         if self._cli is not NULL:
@@ -719,7 +947,7 @@ cdef class _AsyncClientCore:
             ctype = content_type.encode("utf-8")
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
-        holder = (loop, fut)
+        holder = (loop, fut, None)
         Py_INCREF(holder)  # owned by the C++ callback until _done_trampoline releases it
         try:
             with nogil:

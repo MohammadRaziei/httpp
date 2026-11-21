@@ -9,6 +9,8 @@ such changes are listed under **Changed**).
 
 ### Added
 
+- **Python: `retry`, `retry_delay`, `retry_connrefused` (`Request`, `Client`, `AsyncClient`, `Download`), `Request.on_body`, `on_head`, `on_retry`, `save_to`, `save_in`, `create_dirs`, `overwrite`, `include_head`, and `Response.elapsed_ms`, `bytes_received`, `saved_as`.** Each is a method on `Request` (and `Download` for retry) and a keyword of the constructors, as in ADR-0100. A callback runs on a network thread with the GIL; an exception in it stops the transfer and is raised by `run()` or by the await of `run_async()`.
+
 - **`request::clone()`, `server::clone()` and `download::header(name, value)` (ADR-0093).** `request::clone()` is an independent copy of a prepared request (a template); `server::clone()` copies the configuration (routes, mounts, hooks, middleware, TLS, settings, I/O threads) of a server that is not listening, never its sockets, and throws `std::logic_error` while it listens; `download::header()` sends a header with the size probe, the file and a same-origin checksum file (`Range` and `Accept-Encoding` are refused). Python: `Request.clone()`, `Download.header()` and `Download(headers=...)`; `Server.clone()` is not bound yet.
 
 ### Changed
@@ -92,6 +94,7 @@ such changes are listed under **Changed**).
 
 ### Fixed
 
+- **`Request(max_response_size=...)` in Python was accepted and ignored;** the constructor now calls the setter.
 - **Percent-encoded file names on macOS (Content-Disposition, `file://` URIs, URL escaping).** The encoders asked `std::isalnum` about bytes of 0x80 and above, which on macOS (a UTF-8 locale) says yes for some of them, so a UTF-8 file name such as the Persian `.zip` name of a file browser download came out with raw lead bytes instead of `%D9%81...`. Only ASCII letters and digits are left unescaped now, whatever the locale.
 
 ## [0.9.0] - 2026-11-14

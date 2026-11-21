@@ -116,6 +116,7 @@ CTOR_ARGS = {
         "basic_auth": ("basic_auth", ("u", "p")), "bearer": ("bearer", "t"),
         "verify": ("verify", False), "ca_file": ("ca_file", "ca.pem"),
         "proxy": ("proxy", "http://127.0.0.1:3128"), "keep_alive": ("keep_alive", False),
+        "retry": ("retry", 2), "retry_delay": ("retry_delay", 1), "retry_connrefused": ("retry_connrefused", True),
     },
     "async_client": {
         "timeout": ("timeout", 5), "max_redirects": ("max_redirects", 3), "connect_timeout": ("connect_timeout", 2),
@@ -123,6 +124,7 @@ CTOR_ARGS = {
         "basic_auth": ("basic_auth", ("u", "p")), "bearer": ("bearer", "t"),
         "verify": ("verify", False), "ca_file": ("ca_file", "ca.pem"),
         "proxy": ("proxy", "http://127.0.0.1:3128"), "header": ("headers", {"X": "1"}),
+        "retry": ("retry", 2), "retry_delay": ("retry_delay", 1), "retry_connrefused": ("retry_connrefused", True),
     },
 }
 
@@ -142,27 +144,7 @@ CTOR_ARGS["rate_limit"] = {"rate": ("requests_per_second", 5.0), "burst": ("burs
 # checks), so adding the binding later forces the entry to go.
 NOT_EXPOSED = {
     ("server", "clone"): "ADR-0093: the Python Server keeps its routes, validators and OpenAPI state in Python, which a C++ clone would drop; a Python-level clone is a separate step",
-    ("request", "on_body"): "temporary (ADR-0077): the Python binding of request streaming is the next step; remove this line and bind it then",
-    ("request", "on_head"): "temporary (ADR-0077): same as on_body",
-    ("request", "on_retry"): "temporary (ADR-0097): the Python binding of retry is the next step; remove this line and bind it then",
-    ("request", "save_to"): "temporary (ADR-0097): the Python binding of save_to and its options is the next step; remove this line and bind it then",
-    ("request", "save_in"): "temporary (ADR-0097): the Python binding of save_to and its options is the next step; remove this line and bind it then",
-    ("request", "create_dirs"): "temporary (ADR-0097): the Python binding of save_to and its options is the next step; remove this line and bind it then",
-    ("request", "overwrite"): "temporary (ADR-0097): the Python binding of save_to and its options is the next step; remove this line and bind it then",
-    ("request", "include_head"): "temporary (ADR-0097): the Python binding of save_to and its options is the next step; remove this line and bind it then",
-    ("client", "retry"): "temporary (ADR-0097): same as request::on_retry",
-    ("client", "retry_delay"): "temporary (ADR-0097): same as request::on_retry",
-    ("client", "retry_connrefused"): "temporary (ADR-0097): same as request::on_retry",
-    ("async_client", "retry"): "temporary (ADR-0097): same as request::on_retry",
-    ("async_client", "retry_delay"): "temporary (ADR-0097): same as request::on_retry",
-    ("async_client", "retry_connrefused"): "temporary (ADR-0097): same as request::on_retry",
-    ("request", "retry"): "temporary (ADR-0097): same as request::on_retry",
-    ("request", "retry_delay"): "temporary (ADR-0097): same as request::on_retry",
-    ("request", "retry_connrefused"): "temporary (ADR-0097): same as request::on_retry",
     ("download", "auto_compression"): "deleted on a download (ADR-0093): it always asks for identity coding",
-    ("download", "retry"): "temporary (ADR-0097): C++ only until the Python binding of retry (ADR-0097) is done",
-    ("download", "retry_delay"): "temporary (ADR-0097): same as download::retry",
-    ("download", "retry_connrefused"): "temporary (ADR-0097): same as download::retry",
     ("download", "settings_"): "internal hook of configurable (ADR-0093), not meant for users",
     ("client", "settings_"): "internal hook of configurable (ADR-0093), not meant for users",
     ("async_client", "settings_"): "same as client::settings_",
@@ -285,12 +267,15 @@ KWARGS = {
         "content_type": "text/plain", "cookies": {"a": "b"}, "timeout": 5, "max_redirects": 3, "auto_compression": False,
         "connect_timeout": 2, "max_time": 9, "basic_auth": ("u", "p"), "bearer": "t", "verify": False, "ca_file": "ca.pem",
         "proxy": "http://127.0.0.1:3128", "max_response_size": 100,
+        "retry": 2, "retry_delay": 1, "retry_connrefused": True, "save_to": "out.bin", "save_in": "dir", "create_dirs": True,
+        "overwrite": False, "include_head": True, "on_body": lambda piece: True, "on_head": lambda head: True,
+        "on_retry": lambda last, n, delay: None,
     },
     "Download": {
         "enable_progress": False, "resume": True, "force": True, "sha256": "0" * 64, "sha256_url": "http://127.0.0.1:1/s",
         "max_wait": 1, "timeout": 5, "max_redirects": 3, "connect_timeout": 2, "max_time": 9, "basic_auth": ("u", "p"),
         "bearer": "t", "verify": False, "ca_file": "ca.pem", "proxy": "http://127.0.0.1:3128",
-        "headers": {"X-Api-Key": "k"},
+        "headers": {"X-Api-Key": "k"}, "retry": 2, "retry_delay": 1, "retry_connrefused": True,
     },
 }
 

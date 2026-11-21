@@ -63,13 +63,36 @@ cdef class Response:
     cdef list _headers  # list of (str, str) tuples, in server order
     cdef str _error
     cdef str _error_message
+    cdef long long _elapsed_ms
+    cdef size_t _bytes_received
+    cdef str _saved_as
 
-    def __init__(self, int status, bytes body, list headers=None, str error=None, str error_message=""):
+    def __init__(self, int status, bytes body, list headers=None, str error=None, str error_message="",
+                 long long elapsed_ms=0, size_t bytes_received=0, str saved_as=None):
         self._status = status
         self._body = body
         self._headers = headers or []
         self._error = error
         self._error_message = error_message
+        self._elapsed_ms = elapsed_ms
+        self._bytes_received = bytes_received
+        self._saved_as = saved_as
+
+    @property
+    def elapsed_ms(self):
+        """How long the whole request ran in milliseconds, redirects and retries' last try included, until the last byte or the failure."""
+        return self._elapsed_ms
+
+    @property
+    def bytes_received(self):
+        """Body bytes of the final response that arrived, before any gzip / deflate decoding (what on_body() was given, or what
+        save_to() wrote)."""
+        return self._bytes_received
+
+    @property
+    def saved_as(self):
+        """The file save_to() or save_in() wrote the body to, or None."""
+        return self._saved_as
 
     @property
     def status(self):
@@ -161,7 +184,9 @@ cdef _make_response(response res):
     cdef str error = (<bytes>res.error_name()).decode("ascii")
     return Response(res.status, res.body, headers,
                     None if error == "none" else error,
-                    res.error_message.decode("utf-8", errors="replace"))
+                    res.error_message.decode("utf-8", errors="replace"),
+                    res.elapsed_ms, res.bytes_received,
+                    res.saved_as.decode("utf-8", errors="replace") if not res.saved_as.empty() else None)
 
 
 ctypedef fused _cpp_http_client:
@@ -175,7 +200,8 @@ cdef bytes _fs(object p):
 
 
 cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, max_redirects, connect_timeout,
-                                max_time, cbool auto_compression, basic_auth, bearer, cbool verify, ca_file, proxy) except *:
+                                max_time, cbool auto_compression, basic_auth, bearer, cbool verify, ca_file, proxy,
+                                retry=None, retry_delay=None, retry_connrefused=None) except *:
     """The options httpp.Client and httpp.AsyncClient share (the C++ client and async_client have the same setters)."""
     if headers:
         for name, value in (headers.items() if hasattr(headers, "items") else headers):
@@ -190,6 +216,16 @@ cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, max_red
         if max_time < 0:
             raise ValueError("max_time must not be negative")
         cli.max_time(0 if max_time == 0 else max(1, int(round(max_time))))
+    if retry is not None:
+        if retry < 0:
+            raise ValueError("retry must not be negative")
+        cli.retry(retry)
+    if retry_delay is not None:
+        if retry_delay < 0:
+            raise ValueError("retry_delay must not be negative")
+        cli.retry_delay(int(round(retry_delay)))
+    if retry_connrefused is not None:
+        cli.retry_connrefused(retry_connrefused)
     if not auto_compression:
         cli.auto_compression(False)
     if max_redirects is not None:
@@ -238,13 +274,14 @@ cdef class Client:
     def __init__(self, str host_or_url, port=None, cbool ssl=False, *, headers=None, timeout=None,
                  max_redirects=None, connect_timeout=None, max_time=None,
                  cbool auto_compression=True, basic_auth=None, bearer=None, cbool verify=True, ca_file=None,
-                 proxy=None, cbool keep_alive=True):
+                 proxy=None, cbool keep_alive=True, retry=None, retry_delay=None, retry_connrefused=None):
         if port is None:
             self._cli = new cpp_client(host_or_url.encode("utf-8"))
         else:
             self._cli = new cpp_client(host_or_url.encode("utf-8"), <int>port, ssl)
         _apply_client_options(self._cli, headers, timeout, max_redirects, connect_timeout, max_time,
-                              auto_compression, basic_auth, bearer, verify, ca_file, proxy)
+                              auto_compression, basic_auth, bearer, verify, ca_file, proxy,
+                              retry, retry_delay, retry_connrefused)
         if not keep_alive:
             self._cli.keep_alive(False)
 
