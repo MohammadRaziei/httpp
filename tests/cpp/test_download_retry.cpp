@@ -1,4 +1,4 @@
-// retry() on a download (ADR-0104). A try that fails in the middle of the body must not leave the file wrong: the sink puts each
+// retry() on a download (ADR-0097). A try that fails in the middle of the body must not leave the file wrong: the sink puts each
 // 206 where the server says it starts (Content-Range) and cuts the file back to that point, so a Range that is sent again after
 // some bytes were already appended does not write them twice.
 #include "utest/utest.h"

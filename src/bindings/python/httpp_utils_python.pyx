@@ -3,7 +3,7 @@
 
 """
 The log part of the Python bindings (ADR-0086): library logging (httpp.set_log_*) and the bridge for any C++ logger tree
-(httpp.bridge_logger, ADR-0080). This module links only libhttpp_utils, so importing it does not load libhttpp (the HTTP stack).
+(httpp.bridge_logger, ADR-0011). This module links only libhttpp_utils, so importing it does not load libhttpp (the HTTP stack).
 httpp_python.pyx has the rest. Both modules in one process use the one logger registry of libhttpp_utils.
 """
 
@@ -14,7 +14,7 @@ import os
 
 
 cdef bytes _fs(object p):
-    """A path argument (str, bytes or any os.PathLike such as pathlib.Path) as the bytes C++ httpp::path takes (ADR-0055)."""
+    """A path argument (str, bytes or any os.PathLike such as pathlib.Path) as the bytes C++ httpp::path takes (ADR-0054)."""
     return os.fsencode(p)
 
 
@@ -25,7 +25,7 @@ cdef bytes _fs(object p):
 # ---------------------------------------------------------------------------------------------
 
 cdef extern from "httpp/logging.hpp" namespace "httpp":
-    # the library's level is httpp::logging::level (ADR-0085); the binding sets it by name, so it needs no copy of the enum
+    # the library's level is httpp::logging::level (ADR-0011); the binding sets it by name, so it needs no copy of the enum
     cbool cpp_set_log_level "httpp::set_log_level"(const string&) except + nogil
     cbool cpp_set_log_file "httpp::set_log_file"(const string&) except + nogil
     cdef enum class log_system:
@@ -133,7 +133,7 @@ def set_log_callback(callback):
 
 
 # ---------------------------------------------------------------------------------------------
-# A bridge for any C++ logger tree (ADR-0080). `httpp.bridge_logger("libspeech")` sends every record of the logger
+# A bridge for any C++ logger tree (ADR-0011). `httpp.bridge_logger("libspeech")` sends every record of the logger
 # "libspeech" and of the loggers below it ("libspeech.dsp.stft") to one Python function, which hands it to the Python
 # logger of the same name (httpp/_log.py). Unlike set_log_callback it does not touch the "httpp" logger's output and
 # it keeps the logger's name.

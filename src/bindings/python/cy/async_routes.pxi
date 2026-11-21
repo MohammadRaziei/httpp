@@ -64,7 +64,7 @@ cdef extern from *:
     #include <sys/socket.h>
     #endif
     // One WebSocket connection as seen from Python: a mailbox that the I/O thread fills (no GIL) and the loop thread
-    // empties. See ADR-0027.
+    // empties. See ADR-0026.
     struct httpp_py_wsconn {
         std::mutex mu;
         std::deque<std::pair<std::string, bool>> q;  // (message, binary)

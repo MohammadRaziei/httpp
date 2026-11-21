@@ -17,7 +17,7 @@ Differences from Starlette's client, on purpose or for now:
   Startup and shutdown hooks run when the server starts and stops (Starlette without `with` never runs them).
 - The scheme of `base_url` only shows in `response.url`; the connection is always plain HTTP, so `request.secure` is false.
 - `files=` sends multipart/form-data (a bare bytes or str value is a file named after its field). `websocket_connect(url)` opens a
-  WebSocket to the app with a small RFC 6455 client of its own (ADR-0046); `receive_text()` and friends raise
+  WebSocket to the app with a small RFC 6455 client of its own (ADR-0042); `receive_text()` and friends raise
   `httpp.WebSocketDisconnect` when the server closes.
 - Not there: an in-memory mode without a socket (ADR-0042).
 - Cookies are kept by name only (no Domain, Path or Secure matching): there is one host.

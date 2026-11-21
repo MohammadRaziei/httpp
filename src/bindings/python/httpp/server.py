@@ -1083,14 +1083,14 @@ class Server(_Server):
                 raise ValueError("max_threads needs threads")
             if not _gil_free():
                 # With a GIL, workers only take turns at running Python: on a CPU-bound handler one worker gave 16.7k
-                # req/s and p99 8 ms, sixteen 10.6k and 35 ms (ADR-0025). So the pool starts with one thread and grows
+                # req/s and p99 8 ms, sixteen 10.6k and 35 ms (ADR-0024). So the pool starts with one thread and grows
                 # only when a job has waited 10 ms for a free one (a blocked handler makes that certain, CPU-bound
                 # work at saturation rarely waits that long), up to what the C++ default would have been.
                 self.thread_pool(1, max(8, cpus) * 4, grow_after_ms=10)
             else:
                 # Without a GIL workers do run in parallel, but a pool that grows to many threads quickly costs: on a
                 # CPU-bound handler 16 threads from the start (the C++ default) gave 57.4k req/s at one I/O thread,
-                # a pool of 2 that grows after a 2 ms wait 68.8k with half the p99 (3.14t, 16 threads, ADR-0059).
+                # a pool of 2 that grows after a 2 ms wait 68.8k with half the p99 (3.14t, 16 threads, ADR-0024).
                 # Growing after 0.5 ms or 10 ms was no better (56.0k) or far worse (26.4k). The ceiling is the C++
                 # default's, so a burst of blocked handlers still gets its threads (4 per step of the 2 ms wait).
                 self.thread_pool(2, max(8, cpus) * 4, grow_after_ms=2)

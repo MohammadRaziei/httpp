@@ -30,4 +30,4 @@ Handlers could only return a body or `(body, status, headers)`, and errors were 
 - Verified: `tests/python/test_responses.py`, plus the 405 and symlink C++ tests in `tests/cpp/test_server_features.cpp`.
 
 ## Related
-ADR-0007 (422 bodies), ADR-0017 (binding policy).
+ADR-0007 (422 bodies), ADR-0016 (binding policy).

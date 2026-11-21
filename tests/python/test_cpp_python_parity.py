@@ -1,5 +1,5 @@
 """Every public C++ name (HTTPP_API in include/httpp/*.hpp) is either bound in Python or listed in NOT_EXPOSED
-with the reason (ADR-0017: a binding is added only when it is necessary). It compares names, not behavior.
+with the reason (ADR-0016: a binding is added only when it is necessary). It compares names, not behavior.
 The Python binding may include only the public headers.
 
 ponytail: the headers are read with regexes, not a C++ parser. It handles the plain declarations this project
@@ -52,7 +52,7 @@ TARGETS = {
     ("client.hpp", "client"): httpp.Client,
     ("client.hpp", "async_client"): httpp.AsyncClient,
     ("client.hpp", "request"): httpp.Request,
-    ("client.hpp", "configurable"): None,  # the settings the three classes above share (ADR-0094); _missing() checks each name against all three
+    ("client.hpp", "configurable"): None,  # the settings the three classes above share (ADR-0093); _missing() checks each name against all three
     ("client.hpp", "settings_ref"): None,  # what configurable calls; internal
     ("download.hpp", "download"): httpp.Download,
     ("progress.hpp", "bar"): httpp.progress.bar,
@@ -62,9 +62,9 @@ TARGETS = {
     ("server.hpp", "server_request"): httpp.ServerRequest,  # httpp::server_request: the handler's request object
     ("proxy.hpp", ""): httpp,  # proxy_from_environment and resolve_proxy (ADR-0067)
     ("url.hpp", ""): httpp.URL,  # the codec helpers and fetch_public_suffix_list are statics of URL (httpp::url is urlparser::url)
-    ("banner.hpp", ""): None,  # the terminal banner of the httpp commands (ADR-0078); a Python program prints its own
-    ("logging.hpp", ""): httpp,  # set_log_* live in httpp; the module functions (level_name, get_logger, ...) imitate Python's own `logging` (ADR-0057), see NOT_EXPOSED
-    ("path.hpp", "path"): None,  # pathlib.Path is the Python side of httpp::path: every path argument takes one (ADR-0055)
+    ("banner.hpp", ""): None,  # the terminal banner of the httpp commands (ADR-0041); a Python program prints its own
+    ("logging.hpp", ""): httpp,  # set_log_* live in httpp; the module functions (level_name, get_logger, ...) imitate Python's own `logging` (ADR-0011), see NOT_EXPOSED
+    ("path.hpp", "path"): None,  # pathlib.Path is the Python side of httpp::path: every path argument takes one (ADR-0054)
     ("cookie.hpp", "cookie"): None,  # httpp.set_cookie() builds a Set-Cookie header and request.cookies reads the Cookie header; both call this class, so the rules live once
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("server.hpp", ""): httpp.utils,  # mime_type_for, the same way
@@ -82,17 +82,17 @@ TARGETS = {
     ("middleware.hpp", "rate_limit"): httpp.middleware.RateLimitMiddleware,
     ("server.hpp", "server_stopper"): None,  # what a C++ handler captures to stop its server without a cycle (ADR-0081); Python's Server already stops on a signal and owns its handlers
     ("server.hpp", "responder"): None,  # handed to route_async handlers; Python handlers just return or await
-    ("websocket.hpp", "websocket"): None,  # Python's WebSocket is its own awaitable API over a mailbox (ADR-0027), not this handle
+    ("websocket.hpp", "websocket"): None,  # Python's WebSocket is its own awaitable API over a mailbox (ADR-0026), not this handle
     ("websocket.hpp", "ws_acceptor"): None,  # Python's handler accepts through `await websocket.accept()`
 }
 
-# The classes that derive from configurable<Self> (ADR-0094): its names must exist on each of them.
+# The classes that derive from configurable<Self> (ADR-0093): its names must exist on each of them.
 CONFIGURABLE_USERS = (("client", httpp.Client), ("async_client", httpp.AsyncClient), ("request", httpp.Request),
                       ("download", httpp.Download))
 
 # C++ name -> Python name, per owner, for names that differ on purpose.
 ALIASES = {
-    "client": {"del": "delete"},  # a keyword in Python; `delete` is one in C++ (ADR-0100)
+    "client": {"del": "delete"},  # a keyword in Python; `delete` is one in C++ (ADR-0092)
     "async_client": {"del": "delete"},
     "server": {
         "del": "delete",
@@ -138,50 +138,50 @@ CTOR_ARGS["https_redirect"] = {"trust_forwarded_proto": ("trust_forwarded_proto"
 CTOR_ARGS["basic_auth"] = {"realm": ("realm", "Tools"), "users": ("users", {"u": "p"}), "path_prefix": ("path_prefix", "/admin"), "verifier": ("verifier", lambda user, password: True)}
 CTOR_ARGS["rate_limit"] = {"rate": ("requests_per_second", 5.0), "burst": ("burst", 3), "max_clients": ("max_clients", 10)}
 
-# Public C++ names that Python deliberately does not carry (ADR-0017 rule 3). An entry must still be unbound (a test
+# Public C++ names that Python deliberately does not carry (ADR-0016 rule 3). An entry must still be unbound (a test
 # checks), so adding the binding later forces the entry to go.
 NOT_EXPOSED = {
-    ("server", "clone"): "ADR-0105: the Python Server keeps its routes, validators and OpenAPI state in Python, which a C++ clone would drop; a Python-level clone is a separate step",
-    ("request", "on_body"): "temporary (ADR-0084): the Python binding of request streaming is the next step; remove this line and bind it then",
-    ("request", "on_head"): "temporary (ADR-0084): same as on_body",
-    ("request", "on_retry"): "temporary (ADR-0099): the Python binding of retry is the next step; remove this line and bind it then",
-    ("request", "save_to"): "temporary (ADR-0102): the Python binding of save_to and its options is the next step; remove this line and bind it then",
-    ("request", "save_in"): "temporary (ADR-0102): the Python binding of save_to and its options is the next step; remove this line and bind it then",
-    ("request", "create_dirs"): "temporary (ADR-0102): the Python binding of save_to and its options is the next step; remove this line and bind it then",
-    ("request", "overwrite"): "temporary (ADR-0102): the Python binding of save_to and its options is the next step; remove this line and bind it then",
-    ("request", "include_head"): "temporary (ADR-0102): the Python binding of save_to and its options is the next step; remove this line and bind it then",
-    ("client", "retry"): "temporary (ADR-0099): same as request::on_retry",
-    ("client", "retry_delay"): "temporary (ADR-0099): same as request::on_retry",
-    ("client", "retry_connrefused"): "temporary (ADR-0099): same as request::on_retry",
-    ("async_client", "retry"): "temporary (ADR-0099): same as request::on_retry",
-    ("async_client", "retry_delay"): "temporary (ADR-0099): same as request::on_retry",
-    ("async_client", "retry_connrefused"): "temporary (ADR-0099): same as request::on_retry",
-    ("request", "retry"): "temporary (ADR-0099): same as request::on_retry",
-    ("request", "retry_delay"): "temporary (ADR-0099): same as request::on_retry",
-    ("request", "retry_connrefused"): "temporary (ADR-0099): same as request::on_retry",
-    ("download", "auto_compression"): "deleted on a download (ADR-0101): it always asks for identity coding",
-    ("download", "retry"): "temporary (ADR-0104): C++ only until the Python binding of retry (ADR-0099) is done",
-    ("download", "retry_delay"): "temporary (ADR-0104): same as download::retry",
-    ("download", "retry_connrefused"): "temporary (ADR-0104): same as download::retry",
-    ("download", "settings_"): "internal hook of configurable (ADR-0094), not meant for users",
-    ("client", "settings_"): "internal hook of configurable (ADR-0094), not meant for users",
+    ("server", "clone"): "ADR-0093: the Python Server keeps its routes, validators and OpenAPI state in Python, which a C++ clone would drop; a Python-level clone is a separate step",
+    ("request", "on_body"): "temporary (ADR-0077): the Python binding of request streaming is the next step; remove this line and bind it then",
+    ("request", "on_head"): "temporary (ADR-0077): same as on_body",
+    ("request", "on_retry"): "temporary (ADR-0097): the Python binding of retry is the next step; remove this line and bind it then",
+    ("request", "save_to"): "temporary (ADR-0097): the Python binding of save_to and its options is the next step; remove this line and bind it then",
+    ("request", "save_in"): "temporary (ADR-0097): the Python binding of save_to and its options is the next step; remove this line and bind it then",
+    ("request", "create_dirs"): "temporary (ADR-0097): the Python binding of save_to and its options is the next step; remove this line and bind it then",
+    ("request", "overwrite"): "temporary (ADR-0097): the Python binding of save_to and its options is the next step; remove this line and bind it then",
+    ("request", "include_head"): "temporary (ADR-0097): the Python binding of save_to and its options is the next step; remove this line and bind it then",
+    ("client", "retry"): "temporary (ADR-0097): same as request::on_retry",
+    ("client", "retry_delay"): "temporary (ADR-0097): same as request::on_retry",
+    ("client", "retry_connrefused"): "temporary (ADR-0097): same as request::on_retry",
+    ("async_client", "retry"): "temporary (ADR-0097): same as request::on_retry",
+    ("async_client", "retry_delay"): "temporary (ADR-0097): same as request::on_retry",
+    ("async_client", "retry_connrefused"): "temporary (ADR-0097): same as request::on_retry",
+    ("request", "retry"): "temporary (ADR-0097): same as request::on_retry",
+    ("request", "retry_delay"): "temporary (ADR-0097): same as request::on_retry",
+    ("request", "retry_connrefused"): "temporary (ADR-0097): same as request::on_retry",
+    ("download", "auto_compression"): "deleted on a download (ADR-0093): it always asks for identity coding",
+    ("download", "retry"): "temporary (ADR-0097): C++ only until the Python binding of retry (ADR-0097) is done",
+    ("download", "retry_delay"): "temporary (ADR-0097): same as download::retry",
+    ("download", "retry_connrefused"): "temporary (ADR-0097): same as download::retry",
+    ("download", "settings_"): "internal hook of configurable (ADR-0093), not meant for users",
+    ("client", "settings_"): "internal hook of configurable (ADR-0093), not meant for users",
     ("async_client", "settings_"): "same as client::settings_",
     ("request", "settings_"): "same as client::settings_",
-    ("server", "bind"): "not necessary: Server.run binds and serves in one call; bind_to_any_port covers the ephemeral-port case (ADR-0078)",
-    ("server", "url"): "not necessary: Python knows the host and the port it passed to Server.run (ADR-0078)",
-    ("server", "listen_until_signal"): "not necessary: Server.run already serves until a signal (ADR-0078)",
+    ("server", "bind"): "not necessary: Server.run binds and serves in one call; bind_to_any_port covers the ephemeral-port case (ADR-0041)",
+    ("server", "url"): "not necessary: Python knows the host and the port it passed to Server.run (ADR-0041)",
+    ("server", "listen_until_signal"): "not necessary: Server.run already serves until a signal (ADR-0041)",
     ("server", "same_as"): "not necessary: a Python Server is its own object, `is` compares it; the shared handle is a C++ idea (ADR-0081)",
     ("server", "stopper"): "not necessary: Python handlers hold the Server (Python's garbage collector breaks the cycle) and Server.run stops on a signal (ADR-0081)",
     ("server", "route_io"): "not necessary: Python handlers need the GIL anyway, so add_loop_route is the fast path",
     ("server", "route_shared"): "not necessary: add_route already hands Python the request on a pool thread",
-    ("server", "route_ws"): "Python registers WebSocket routes with the Server.websocket decorator (ADR-0027)",
-    ("router", "route_ws"): "Python registers WebSocket routes with the APIRouter.websocket decorator (ADR-0048)",
+    ("server", "route_ws"): "Python registers WebSocket routes with the Server.websocket decorator (ADR-0026)",
+    ("router", "route_ws"): "Python registers WebSocket routes with the APIRouter.websocket decorator (ADR-0026)",
     ("router", "route_io"): "same as server::route_io",
     ("router", "route_shared"): "same as server::route_shared",
     ("", "utils_abi_version"): "internal: the C++ side checks that the loaded libhttpp_utils matches its headers; a Python user never links against it",
-    ("", "raw_scheme"): "not necessary: a Python scheme is already a dict (or JSON text) that Document.security_scheme takes as it is (ADR-0087)",
+    ("", "raw_scheme"): "not necessary: a Python scheme is already a dict (or JSON text) that Document.security_scheme takes as it is (ADR-0007)",
     ("", "find_swagger_ui_asset"): "internal lookup behind swagger::mount, not meant for users",
-    ("", "level_name"): "the logging module imitates Python's own `logging`, which is the Python side (ADR-0057)",
+    ("", "level_name"): "the logging module imitates Python's own `logging`, which is the Python side (ADR-0011)",
     ("", "level_from_string"): "same: Python's logging.getLevelName",
     ("", "get_logger"): "same: logging.getLogger; the \"httpp\" logger is bridged to it (httpp/_log.py)",
     ("", "basic_config"): "same: logging.basicConfig",
@@ -273,7 +273,7 @@ def test_cpp_setters_are_accepted_as_constructor_arguments():
                 pass  # any other error (such as an unreadable ca_file) means the keyword itself was accepted
 
 
-# Python's constructors take the settings as keywords with the names of the setters (ADR-0103). The only differences:
+# Python's constructors take the settings as keywords with the names of the setters (ADR-0092). The only differences:
 # the setters that are called once per item (header, param, cookie) take a dict under the plural name, and
 # basic_auth takes (user, password).
 PLURAL = {"header": "headers", "param": "params", "cookie": "cookies"}
@@ -328,7 +328,7 @@ def test_every_cpp_setter_is_covered_by_ctor_args_or_a_python_method():
 
 
 def test_the_binding_includes_only_public_headers():
-    """ADR-0017 rule 2: the Cython sources may include only include/httpp/*.hpp from this project."""
+    """ADR-0016 rule 2: the Cython sources may include only include/httpp/*.hpp from this project."""
     public = {f"httpp/{p.name}" for p in INCLUDE.iterdir()}
     src = INCLUDE.parents[1] / "src" / "bindings" / "python"
     seen = 0

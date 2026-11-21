@@ -55,7 +55,7 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - **Python, C++ and a CLI from the same wheel.** One binary core, three front ends.
 - **HTTP and HTTPS** on the client (mbedtls, vendored).
 - **WebSocket server (C++ so far).** `server::route_ws` with callbacks on the I/O thread, thread-safe sends and a bounded send
-  queue ([ADR-0026](docs/adr/0026-websocket.md)); Python: `@app.websocket` with `async def` ([ADR-0027](docs/adr/0027-websocket-python-and-async-handshake.md)).
+  queue ([ADR-0026](docs/adr/0026-websocket.md)); Python: `@app.websocket` with `async def` ([ADR-0026](docs/adr/0026-websocket.md)).
 - **Hooks, streaming and files** on the server: `before_request` / `after_request`, error and exception
   handlers, generators as streamed bodies, files sent from disk, cookies and redirects.
 - **A client with a real error model**: `res.json()`, `res.error`, `raise_for_status()`, typed
@@ -530,7 +530,7 @@ def test_items():
 It follows Starlette's interface: `get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `request`; `params`, `headers`, `json`, `data` (a dict is a form), `content`, `cookies`, `auth=("user", "pw")`,
 `follow_redirects` (on by default), `base_url` (default `http://testserver`, the `Host` the app sees). Cookies the server sets are kept and sent back (`client.cookies`).
 A handler that raises with no exception handler for it is raised again in your test (`raise_server_exceptions=False` gives you the 500 instead). Without `with`, the first request starts the server and `client.close()` stops it.
-`files=` sends multipart, and `client.websocket_connect("/ws")` gives a session with `send_text`, `receive_text`, `send_json` and friends (ADR-0046). Not there: a mode without a socket (ADR-0042).
+`files=` sends multipart, and `client.websocket_connect("/ws")` gives a session with `send_text`, `receive_text`, `send_json` and friends (ADR-0042). Not there: a mode without a socket (ADR-0042).
 
 ### TLS (https, wss)
 
@@ -596,7 +596,7 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
 - There is no ASGI or WSGI interface (see above), so ASGI/WSGI applications such as FastAPI or Flask
   cannot be mounted on it yet.
 - cpp-httplib is no longer used: the server, the client (blocking and async) and downloads all run on our own
-  engines (Asio + llhttp + mbedTLS), see ADR-0051 to ADR-0053.
+  engines (Asio + llhttp + mbedTLS), see ADR-0051 to ADR-0051.
 - `httpp curl` is a subset of curl (no `-F`, `--json`, `-G`, `-b`, `-x`, `-k`, `--cacert`, `--data-binary`, `-C`, `-r`, `--http2`; `httpp::request` has several of these, the command does not expose them yet); there is no libcurl-style C API.
 - `--workers` is Linux only.
 
@@ -630,7 +630,7 @@ logging.getLogger("libspeech.dsp").setLevel(logging.DEBUG)     # also from dictC
 ```
 
 
-### Stream style and lazy lines (ADR-0090)
+### Stream style and lazy lines (ADR-0011)
 
 ```cpp
 auto& log = httpp::logging::get_logger("libspeech.dsp");

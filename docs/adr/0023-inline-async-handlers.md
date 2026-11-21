@@ -1,12 +1,12 @@
 # ADR-0023: `async def` handlers that cannot suspend run on the I/O thread
 
 ## Status
-Accepted (2026-10-26). The owner asked for the thread hop of `async def` to be removed and delegated the design (ADR-0022).
+Accepted (2026-10-26). The owner asked for the thread hop of `async def` to be removed and delegated the design (ADR-0016).
 Broader scope (handlers that do await) is deliberately not done; see "Not done".
 
 ## Context
 An `async def` request is parsed on the I/O thread, queued to the single asyncio loop thread, run there, and its answer is
-posted back (ADR-0022, "Why `async def` is about 10 to 15 percent behind `def`"). Measured floor: the hop is about 4 us of 22 us.
+posted back (ADR-0016, "Why `async def` is about 10 to 15 percent behind `def`"). Measured floor: the hop is about 4 us of 22 us.
 
 ## What was measured before deciding (2026-10-26, 2 cores shared with `oha`, Python 3.13)
 1. **Ceiling.** A prototype that took the GIL on the I/O thread and ran a no-await handler there: 59.3k against 45.1k req/s
@@ -38,7 +38,7 @@ anything or suspended in a way we did not foresee (an exception handler that awa
 its wake socket. Debug mode is refused (it checks the thread of every call).
 
 C++ needs nothing new: `route_io` already is the inline path, and the gate and `busy` are about the GIL and the asyncio bridge,
-the kind of difference ADR-0022 allows.
+the kind of difference ADR-0016 allows.
 
 ## Measured result (2026-10-26, same box, interleaved A/B, 6 rounds of 5 s, median)
 | handler | before | after |
@@ -60,7 +60,7 @@ the kind of difference ADR-0022 allows.
 Windows and macOS. Free-threaded Python 3.14t (GIL off) was run on 2026-10-26: the whole Python suite (618 passed, 3 skipped, the inline tests included) and `benchmarks/stress.py` (20 s, 8 threads: 57.9k good answers, 0 wrong, no traceback) are clean. On 3.14t a no-await `async def` (59.0k req/s) and a `def` (59.7k) are equal, as expected without a GIL; an awaiting `async def` gets 49.4k. TSan covers the C++ core only; the gate is in the Cython layer and is not covered by it.
 
 ## Related
-ADR-0009, ADR-0021, ADR-0022
+ADR-0009, 0021 and 0016
 
 ## Addendum: fewer allocations and frees on the other thread (2026-10-26)
 The handlers that await still pay the hop, so the cost of the hop was looked at again.

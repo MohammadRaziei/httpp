@@ -1,4 +1,4 @@
-// ADR-0105: request::clone(), server::clone() and download::header(name, value).
+// ADR-0093: request::clone(), server::clone() and download::header(name, value).
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/download.hpp"

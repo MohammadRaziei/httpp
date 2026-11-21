@@ -1,4 +1,4 @@
-"""Request.max_redirects, Request.connect_timeout and Request.max_time (ADR-0079, ADR-0089, ADR-0084)."""
+"""Request.max_redirects, Request.connect_timeout and Request.max_time (ADR-0079 and 0077)."""
 import time
 
 import pytest

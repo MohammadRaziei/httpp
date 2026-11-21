@@ -1,4 +1,4 @@
-"""httpp.openapi.Document (httpp/openapi.hpp, ADR-0087) and Server.openapi(), which is written through it."""
+"""httpp.openapi.Document (httpp/openapi.hpp, ADR-0007) and Server.openapi(), which is written through it."""
 
 import json
 import re
@@ -193,7 +193,7 @@ def rich_app():
 
 
 def assembled_the_old_way(app):
-    """What build_openapi did before ADR-0087: every part a dict, the document one dict, no C++ in between."""
+    """What build_openapi did before ADR-0007: every part a dict, the document one dict, no C++ in between."""
     defs = _schema.Defs("#/components/schemas/{model}")
     paths, uses_422 = {}, False
     for route in app._routes:

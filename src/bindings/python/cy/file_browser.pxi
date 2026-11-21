@@ -1,4 +1,4 @@
-# FileBrowser: the Python face of httpp::file_browser (ADR-0065). Included by httpp_python.pyx after server.pxi.
+# FileBrowser: the Python face of httpp::file_browser (ADR-0032). Included by httpp_python.pyx after server.pxi.
 
 import enum as _enum
 

@@ -346,7 +346,7 @@ cdef extern from "httpp/progress.hpp" namespace "httpp::progress":
 
 
 cdef extern from "httpp/url.hpp" namespace "httpp":
-    cdef cppclass cpp_url "httpp::url":  # urlparser::url (ADR-0072)
+    cdef cppclass cpp_url "httpp::url":  # urlparser::url (ADR-0067)
         cpp_url()
     cpp_url cpp_parse_url "httpp::parse_url"(const string& raw) except +
     cbool cpp_url_valid "httpp::url_valid"(const cpp_url& u)

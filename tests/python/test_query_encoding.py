@@ -1,5 +1,5 @@
 """Client query/form encoding must stay byte for byte what urllib produces (spaces as %20), whichever
-implementation does the work (C++ httpp::url::build_query since ADR-0017 rule 1)."""
+implementation does the work (C++ httpp::url::build_query since ADR-0016 rule 1)."""
 
 import random
 import string

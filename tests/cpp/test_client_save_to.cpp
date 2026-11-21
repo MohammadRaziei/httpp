@@ -12,7 +12,7 @@
 #include <thread>
 
 // request::save_to(), save_in(), create_dirs(), overwrite() and include_head(): the body of the final response goes to a file
-// as it arrives (ADR-0102). The file is opened only when the final head is accepted, so a redirect, an answer that is sent
+// as it arrives (ADR-0097). The file is opened only when the final head is accepted, so a redirect, an answer that is sent
 // again (retry) or an on_head() that says no leaves nothing behind. Unlike httpp::download, an error page is an answer: a 404
 // body is written, as curl -o does.
 

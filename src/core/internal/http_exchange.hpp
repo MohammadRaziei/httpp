@@ -73,11 +73,11 @@ struct request_spec {
     long connect_timeout = 0; // 0 = timeout covers the connect steps too
     long max_time = 0; // seconds for the whole request, redirects included; 0 = no such limit
     std::chrono::steady_clock::time_point deadline{}; // set from max_time when the request starts; epoch = none
-    int retries = 0; // more tries after one that may pass (ADR-0099); 0 = never
+    int retries = 0; // more tries after one that may pass (ADR-0097); 0 = never
     long retry_delay = 0; // seconds before each new try; 0 = 1, 2, 4, ... up to 600
     bool retry_connrefused = false; // also try again after error_kind::connection
     std::function<void(const response&, int, long)> on_retry; // before each new try: the last response, its number, the wait
-    std::function<void(response&)> on_finish; // once, with the final response, before it is handed to the caller (ADR-0102)
+    std::function<void(response&)> on_finish; // once, with the final response, before it is handed to the caller (ADR-0097)
     bool follow = false;
     bool auto_compression = true; // send Accept-Encoding and decode gzip / deflate bodies
     bool verify = true;
@@ -121,7 +121,7 @@ struct session_settings {
     bool has_basic = false;
     std::string user, password, bearer;
 
-    // The rules of the settings, once (ADR-0094): what a setter does beyond storing the value. They are not accessors
+    // The rules of the settings, once (ADR-0093): what a setter does beyond storing the value. They are not accessors
     // (the fields carry the names), so they keep the `set_` prefix.
     // The session default, replacing a same-name one (the session setter).
     void set_default_header(std::string name, std::string value);
@@ -161,7 +161,7 @@ inline int redirect_hops(int count) {
 // The public value of an engine limit (what a getter returns).
 inline int redirect_count(int hops) { return hops == std::numeric_limits<int>::max() ? -1 : hops; }
 
-// A session's or a request's settings under a mutex (ADR-0094): a session can be shared between threads, and a request made from it
+// A session's or a request's settings under a mutex (ADR-0093): a session can be shared between threads, and a request made from it
 // uses the settings it started with (the spec is a copy). Every class of the client family holds one of these, so a setter
 // and a getter are the same code for all of them.
 class guarded_settings {

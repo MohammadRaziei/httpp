@@ -1,6 +1,6 @@
 #pragma once
 
-// The file a body is written to, shared by request::save_to() (ADR-0102) and download. It does the mechanics and says what went
+// The file a body is written to, shared by request::save_to() (ADR-0097) and download. It does the mechanics and says what went
 // wrong in words that name the path; what to write, when to open and what an answer is worth stay with the caller.
 
 #include "httpp/client.hpp"
@@ -38,7 +38,7 @@ public:
         return true;
     }
 
-    // Continues a file at byte `offset`: nothing is cut off, writing starts there and replaces what was after it (ADR-0104). A
+    // Continues a file at byte `offset`: nothing is cut off, writing starts there and replaces what was after it (ADR-0097). A
     // retry that is sent again after some bytes were appended writes the same bytes at the same places. The file must have at
     // least `offset` bytes: a longer gap would be a hole. (httpp uses no std::filesystem, so there is no truncate; if the
     // resource got shorter in between, the old tail stays after the new end.)

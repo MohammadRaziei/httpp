@@ -1,4 +1,4 @@
-// What a program does around a server (ADR-0078, ADR-0081): `server` is a shared handle, mount() takes and returns it, bind() before
+// What a program does around a server (ADR-0041 and 0081): `server` is a shared handle, mount() takes and returns it, bind() before
 // listening, url(), listen_until_signal(), stopper(), the log level by name, the banner.
 #include "utest/utest.h"
 #include "httpp.h"

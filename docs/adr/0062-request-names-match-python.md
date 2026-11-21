@@ -23,6 +23,6 @@ Python names the two requests by role: `httpp.Request` is the client's builder a
 
 ## Consequences
 
-- Every C++ handler spells its first parameter `const httpp::server_request&`; code that built requests with `httpp::client::request` writes `httpp::request`. Tests, examples, the benchmark and the Cython declarations were updated; ADRs 0051 to 0053 keep their original wording as a record.
+- Every C++ handler spells its first parameter `const httpp::server_request&`; code that built requests with `httpp::client::request` writes `httpp::request`. Tests, examples, the benchmark and the Cython declarations were updated; ADR-0051 to 0053 keep their original wording as a record.
 - Still different on purpose, to decide later: C++ has one `httpp::response` for both the client's reply and the server's reply, while Python has `Response` and `ResponseHead`.
 - Checked on Linux (GCC 13, Python 3.12, a build of this tree): the library, the CLI and the C++ tests compile with no error and 522 of 522 C++ tests pass; the Cython binding builds and the Python suite gives 576 passed, 7 skipped, 0 failed (the parity test included, with the new `server_request` key). Not checked: Windows, macOS, a pip-built wheel, Python 3.14t.

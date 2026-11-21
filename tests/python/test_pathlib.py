@@ -1,4 +1,4 @@
-"""Every path argument takes a pathlib.Path as well as a str (ADR-0055): the C++ side takes httpp::path, shaped like pathlib."""
+"""Every path argument takes a pathlib.Path as well as a str (ADR-0054): the C++ side takes httpp::path, shaped like pathlib."""
 
 import hashlib
 import json

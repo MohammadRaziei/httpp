@@ -8,7 +8,7 @@
 #include <string>
 #include <thread>
 
-// request::max_time: one limit for the whole request, redirects included (ADR-0084). timeout() still limits each step.
+// request::max_time: one limit for the whole request, redirects included (ADR-0077). timeout() still limits each step.
 
 namespace {
 double seconds_since(std::chrono::steady_clock::time_point start) {

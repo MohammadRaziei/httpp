@@ -290,7 +290,7 @@ def test_the_client_only_takes_a_server(client):
         TestClient(object())
 
 
-# ---- multipart files= (ADR-0042 addendum, ADR-0046) ----
+# ---- multipart files= (ADR-0042 addendum, ADR-0042) ----
 
 def upload_app():
     app = Server(openapi_url=None)

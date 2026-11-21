@@ -30,4 +30,4 @@ drains the queue, calls `create_task` for each request and calls `done(...)` dir
 
 ## Related
 
-ADR-0001, ADR-0009
+ADR-0001 and 0009

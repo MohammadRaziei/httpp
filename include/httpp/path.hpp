@@ -1,6 +1,6 @@
 #pragma once
 
-// A file system path, shaped like Python's pathlib.Path (ADR-0055). The Python layer takes a pathlib.Path (or a
+// A file system path, shaped like Python's pathlib.Path (ADR-0054). The Python layer takes a pathlib.Path (or a
 // str) wherever C++ takes an httpp::path, so the two sides read the same:
 //
 //   httpp::path dir = "downloads";
@@ -10,7 +10,7 @@
 // A path is a UTF-8 string with '/' as the separator (a '\' is turned into '/' on Windows). It is cleaned on
 // construction like pathlib does it: repeated and trailing separators go. Nothing here throws except
 // read_text/write_text, and nothing touches the disk except the members marked "disk".
-// It is also the file system of httpp (ADR-0054, merged into path by ADR-0058): httpp uses no std::filesystem, which the
+// It is also the file system of httpp (ADR-0054, merged into path by ADR-0054): httpp uses no std::filesystem, which the
 // macOS 10.13 wheels do not have. On Windows every call goes through the wide API, so a non-ASCII name works.
 // std::string and const char* convert to it implicitly, so a function that takes `const path&` still accepts
 // the strings it took before. Not covered: iterating the parts, relative_to, glob, permissions, copying, recursive operations, temporary names.

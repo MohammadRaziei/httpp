@@ -2,7 +2,7 @@
 
 - **Status:** proposed (end-to-end tested once on a one-CPU sandbox, smoke numbers only; waiting for a real run on the owner's machine)
 - **Decided by:** the project owner ("a benchmark page for the docs: a script runs on my machine, writes JSON files, Docusaurus reads them and draws them with Chart.js"; "compare with fastapi, uvicorn, drogon, requests, aiohttp and httpx on C++, 3.14 and 3.14t")
-- **Source:** `benchmarks/suite.py`, `benchmarks/client_worker.py`, `benchmarks/suite_aiohttp.py`, `docs/site/scripts/prepare.py`, `docs/site/src/components/Bench.tsx`, ADR-0030, ADR-0060
+- **Source:** `benchmarks/suite.py`, `benchmarks/client_worker.py`, `benchmarks/suite_aiohttp.py`, `docs/site/scripts/prepare.py`, `docs/site/src/components/Bench.tsx`, ADR-0030 and 0060
 
 ## Context
 
@@ -33,4 +33,4 @@
 
 ## Related
 
-ADR-0030, ADR-0060.
+ADR-0030 and 0060.

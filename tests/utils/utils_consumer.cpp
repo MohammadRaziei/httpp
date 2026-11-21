@@ -28,7 +28,7 @@ int main() {
     const httpp::path p = httpp::path("a") / "b";
     if (p.str().empty()) return 2;
 
-    // The library's own log is the logger "httpp" (ADR-0091): set_log_level and set_level are the same thing, children follow.
+    // The library's own log is the logger "httpp" (ADR-0011): set_log_level and set_level are the same thing, children follow.
     auto& lib = lg::get_logger("httpp");
     auto& lib_child = lg::get_logger("httpp.child");
     httpp::set_log_level(lg::level::debug);

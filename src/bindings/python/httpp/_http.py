@@ -2,7 +2,7 @@
 
 It is a thin layer; every capability here exists in the C++ API too (httpp::async_client). There are no
 module-level one-call helpers (httpp.get(...)): the name does not say whether it is a client or a server route,
-and Request(url, method="GET", timeout=10).run() is as short (ADR-0103).
+and Request(url, method="GET", timeout=10).run() is as short (ADR-0092).
 """
 
 from .httpp_python import _AsyncClientCore

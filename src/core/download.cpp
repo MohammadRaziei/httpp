@@ -83,7 +83,7 @@ private:
     detail::body_sink::verdict on_head(const response& head) {
         status_ = head.status;
         if (!accepts(status_)) return detail::body_sink::verdict::skip; // an error page, or a redirect we do not follow
-        // Where the bytes go is what the server says, not what we asked for (ADR-0104): a retry sends the same Range again after
+        // Where the bytes go is what the server says, not what we asked for (ADR-0097): a retry sends the same Range again after
         // some bytes were appended, and a server that ignored the Range sends 200 from byte 0.
         offset_ = 0;
         if (status_ == 206) {
@@ -125,7 +125,7 @@ private:
     long long offset_;
     long long total_hint_;
     bool progress_;
-    detail::file_writer out_; // the mechanics are shared with request::save_to() (ADR-0102); the messages stay this class's own
+    detail::file_writer out_; // the mechanics are shared with request::save_to() (ADR-0097); the messages stay this class's own
     std::unique_ptr<progress::bar> bar_;
     std::size_t received_ = 0;
     int status_ = 0;

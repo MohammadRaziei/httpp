@@ -24,4 +24,4 @@ uploaded first and then deleted. Nothing ordered them.
 - **Not verified:** nothing was run, the sandbox has no docker and no GitHub Actions. The first push is the first real run.
 
 ## Related
-ADR-0026, ADR-0027.
+ADR-0026.

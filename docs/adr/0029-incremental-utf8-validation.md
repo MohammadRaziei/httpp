@@ -27,4 +27,4 @@ checked (`utf8_done_ == size`), otherwise a cut-off character closes with 1007. 
   echoing an earlier valid message. That is allowed by the RFC and was left as it is.
 
 ## Related
-ADR-0026, ADR-0027.
+ADR-0026.

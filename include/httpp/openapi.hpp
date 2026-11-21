@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-// A writer for OpenAPI 3.1 documents (ADR-0087). It does one thing: you describe an API with C++ calls and `to_json()` gives
+// A writer for OpenAPI 3.1 documents (ADR-0007). It does one thing: you describe an API with C++ calls and `to_json()` gives
 // you correct JSON text, with every string escaped, the paths grouped, and every security scheme name checked against the
 // declared ones. Nothing here reads JSON, so there is no parser, and nothing looks at your routes: the document is described
 // apart from the handlers, so it can drift from them (Python builds its document from the routes themselves, ADR-0007).

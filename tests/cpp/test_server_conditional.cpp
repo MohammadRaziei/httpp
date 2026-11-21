@@ -197,7 +197,7 @@ UTEST(httpp_server_conditional, the_etag_of_a_download_active_mount_depends_on_h
     ASSERT_EQ(200, get(srv, "/plain/a.txt").status);
 }
 
-// ---- download_active: the validator follows how the file is sent (ADR-0070)
+// ---- download_active: the validator follows how the file is sent (ADR-0032)
 
 UTEST(httpp_server_conditional, the_etag_follows_how_a_download_active_file_is_sent_so_a_mode_change_is_not_answered_with_a_304) {
     site s;

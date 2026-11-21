@@ -83,11 +83,11 @@ UTEST(httpp_logging_tests, test_level_names_and_numbers_are_pythons) {
     ASSERT_SAME(lg::level_name(lg::level::warning), "WARNING");
     ASSERT_SAME(lg::level_name(lg::level::critical), "CRITICAL");
     ASSERT_SAME(lg::level_name(lg::level(25)), "Level 25");
-    ASSERT_EQ(int(lg::level::off), 60);  // above critical, a threshold only (ADR-0085)
+    ASSERT_EQ(int(lg::level::off), 60);  // above critical, a threshold only (ADR-0011)
     ASSERT_SAME(lg::level_name(lg::level::off), "OFF");
 }
 
-// `off` on a logger lets nothing through, not even a critical line (ADR-0085: one level type, in the tree and in set_log_level).
+// `off` on a logger lets nothing through, not even a critical line (ADR-0011: one level type, in the tree and in set_log_level).
 UTEST(httpp_logging_tests, test_a_logger_at_off_drops_everything) {
     auto& log = lg::get_logger("off_level_probe");
     log.set_propagate(false);

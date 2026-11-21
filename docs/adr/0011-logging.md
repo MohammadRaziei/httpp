@@ -1,24 +1,22 @@
 # ADR-0011: Logging: one public module, one level type, one logger for the library, a bridge to Python
 
 - **Status:** accepted (merged ADR; each part keeps its own status line)
-- **Merged on:** 2026-11-20, at the request of the project owner (the ADRs of one subject were spread over many numbers). The text of every part is kept; the old numbers still name the parts below.
-- **Merges:** ADR-0011, ADR-0018, ADR-0050, ADR-0056, ADR-0057, ADR-0075, ADR-0080, ADR-0085, ADR-0090, ADR-0091
+- **Merged on:** 2026-11-21, at the request of the project owner: the decisions of one subject were spread over 10 ADRs. The text of every part is kept, as a section below, in the order it was decided.
 
 ## Current state
 
-Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history, in the order they were decided.
+Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history. Where a part and this summary disagree, this summary wins.
 
-- **One module:** `httpp::logging` is public (`httpp/logging.hpp`, one header, one source `logging.cpp`): loggers, handlers (file, stream, callback, and the five operating system handlers), formatter, levels. It was ported from libstb and replaced AixLog (0050), made public (0057), and folded into one header and one source together with the old `httpp/log.hpp` and the OS handlers (0075, 0056).
-- **One level type:** `httpp::logging::level`, with `off = 60`. The old `log_level` enum is gone (0085, supersedes the enum of 0075).
-- **The library's own log is the logger `"httpp"`.** Its level is that logger's level (default `warning`), `set_log_level`, `set_log_file`, `set_log_system` and `set_log_callback` are thin helpers on it, and the internal macro `HTTPP_LIB_LOG` is only an alias of the public one (0091, 0075).
-- **Cheap disabled lines:** `HTTPP_LOG(log, level) << ...` (streams) and `HTTPP_LOGF(log, level, fmt, ...)` (printf) skip their arguments when the level is off; `logger::enabled()` is an inline cached check (0090).
-- **What is logged by default:** one `info` line per response and `listening on http://host:port` after a successful bind. `run` and the commands `httpp server` / `httpp browse` default to `info`; `listen()` and the C++ API stay at `warning` (0011).
-- **Python:** the module has no binding (Python's `logging` is its counterpart, an intentional exception to the dual-API rule). The `"httpp"` logger is bridged into `logging.getLogger("httpp")` and the Python logger decides the C++ level (0018). `httpp.bridge_logger(name)` does the same for any other C++ logger tree, for example libspeech (0080).
-- **Superseded inside this group:** the AixLog back end named in the first part (replaced in 0050); the `log_level` enum (0085); "the OS handlers stay internal" in 0056 and 0057 (public since 0075); the parallel internal log back end and the internal `HTTPP_LOG(level)` macro (0091).
+- **One module:** `httpp::logging` is public (`httpp/logging.hpp`, one header, one source `logging.cpp`): loggers, handlers (file, stream, callback, and the five operating system handlers), formatter, levels. It was ported from libstb, replaced AixLog, was made public, and was folded into one header and one source together with the old `httpp/log.hpp` and the OS handlers.
+- **One level type:** `httpp::logging::level`, with `off = 60`. The old `log_level` enum is gone.
+- **The library's own log is the logger `"httpp"`.** Its level is that logger's level (default `warning`); `set_log_level`, `set_log_file`, `set_log_system` and `set_log_callback` are thin helpers on it, and the internal macro `HTTPP_LIB_LOG` is only an alias of the public one.
+- **Cheap disabled lines:** `HTTPP_LOG(log, level) << ...` (streams) and `HTTPP_LOGF(log, level, fmt, ...)` (printf) skip their arguments when the level is off; `logger::enabled()` is an inline cached check.
+- **What is logged by default:** one `info` line per response and `listening on http://host:port` after a successful bind. `run` and the commands `httpp server` / `httpp browse` default to `info`; `listen()` and the C++ API stay at `warning`.
+- **Python:** the module has no binding (Python's `logging` is its counterpart, an intentional exception to the dual-API rule). The `"httpp"` logger is bridged into `logging.getLogger("httpp")` and the Python logger decides the C++ level. `httpp.bridge_logger(name)` does the same for any other C++ logger tree, for example libspeech.
+- **Superseded inside this group:** the AixLog back end named in the first part; the `log_level` enum; "the OS handlers stay internal"; the parallel internal log back end and the internal `HTTPP_LOG(level)` macro.
 
 ## Parts
-
-### ADR-0011: Logging: AixLog behind `HTTPP_LOG`; request and bind-address logs in C++; defaults
+### Logging: AixLog behind `HTTPP_LOG`; request and bind-address logs in C++; defaults
 
 - **Status:** accepted (the defaults were decided in this session; the owner left the method to me and accepted `run`)
 - **Date:** 2026-10-18
@@ -58,9 +56,9 @@ the `starting on` message that `run` printed came before the bind and also showe
 
 #### Related
 
-ADR-0003, ADR-0012
+ADR-0003 and 0012
 
-### ADR-0018: The C++ log goes through Python's `logging` by default, and the logger controls the C++ level
+### The C++ log goes through Python's `logging` by default, and the logger controls the C++ level
 
 - **Status:** accepted
 - **Date:** 2026-10-19
@@ -69,12 +67,12 @@ ADR-0003, ADR-0012
 
 #### Context
 
-The C++ log (AixLog behind `HTTPP_LOG`, [ADR-0011](0011-logging.md)) had its own level, file and callback. A Python application
+The C++ log (AixLog behind `HTTPP_LOG`, the part "Logging: AixLog behind `HTTPP_LOG`; request and bind-address logs in C++; defaults") had its own level, file and callback. A Python application
 already configures logging with `logging`, and bridging the two needed a hand-written callback. The owner wanted this automatic.
 
 #### Decision
 
-- Importing `httpp` installs a callback that sends every C++ line to `logging.getLogger("httpp")` (Python-only code, ADR-0017 rule 4).
+- Importing `httpp` installs a callback that sends every C++ line to `logging.getLogger("httpp")` (Python-only code, ADR-0016 rule 4).
 - **The logger decides the C++ level.** The C++ level follows `logger.getEffectiveLevel()` (`trace` below DEBUG, `debug`, `info`, `warning`,
   `error`, and `off` for CRITICAL and above). C++ builds a line only when its level lets it through, and a line that is sent costs a GIL
   acquisition, so the C++ level must not stay at `trace` just to let Python filter.
@@ -109,11 +107,11 @@ already configures logging with `logging`, and bridging the two needed a hand-wr
 
 #### Related
 
-ADR-0011, ADR-0017
+ADR-0016 and the part "Logging: AixLog behind `HTTPP_LOG`; request and bind-address logs in C++; defaults"
 
-### ADR-0050: An internal logging module, ported from libstb, replaces AixLog
+### An internal logging module, ported from libstb, replaces AixLog
 
-- **Status:** accepted (supersedes the logging back end chosen in ADR-0003); the module was made public by ADR-0057
+- **Status:** accepted (supersedes the logging back end chosen in ADR-0003); the module was made public by the part "The logging module is public: `httpp/logging.hpp`"
 - **Source:** `src/core/internal/logging.hpp`, `src/core/logging.cpp`, `src/core/log.cpp`, `tests/cpp/test_log.cpp`
 
 #### Context
@@ -132,7 +130,7 @@ patch and its include path are gone. Nothing of the module is public, so the dua
 
 #### Amendment 2026-11-10
 
-`file_handler` takes a UTF-8 `std::string` (opened through `httpp::path::native`, ADR-0054, 0058), not `std::filesystem::path`: the macOS wheels target 10.13 and the macOS CI build failed on it. libstb's core logging files have not changed since the port
+`file_handler` takes a UTF-8 `std::string` (opened through `httpp::path::native`, ADR-0054), not `std::filesystem::path`: the macOS wheels target 10.13 and the macOS CI build failed on it. libstb's core logging files have not changed since the port
 (2026-11-05); what libstb added since is the operating-system handlers (`logging_os`) and the Python bridge hardening, of which httpp took the shutdown part.
 
 #### Consequences
@@ -140,7 +138,7 @@ patch and its include path are gone. Nothing of the module is public, so the dua
 About 800 lines of our own code replace a 3000-line vendored header and a patch to carry on every upgrade. The default line changes to `time [LEVEL] httpp (function): message`.
 The two libraries now hold copies of the same module; if it is ever extracted into a shared package, both switch to it.
 
-### ADR-0056: The operating system log handlers of libstb, behind `set_log_system`
+### The operating system log handlers of libstb, behind `set_log_system`
 
 - **Status:** accepted
 - **Decided by:** the project owner ("yes, port them"), after the comparison with libstb's git log
@@ -148,7 +146,7 @@ The two libraries now hold copies of the same module; if it is ever extracted in
 
 #### Context
 
-ADR-0050 ported libstb's logging module but left out its handlers for the log of the operating system (libstb added them later). A server run as a service wants its lines in journalctl, logcat, Console.app or Event Viewer.
+the part "An internal logging module, ported from libstb, replaces AixLog" ported libstb's logging module but left out its handlers for the log of the operating system (libstb added them later). A server run as a service wants its lines in journalctl, logcat, Console.app or Event Viewer.
 
 #### Decision
 
@@ -166,25 +164,25 @@ ADR-0050 ported libstb's logging module but left out its handlers for the log of
 
 #### Related
 
-ADR-0050, ADR-0054
+ADR-0054 and the part "An internal logging module, ported from libstb, replaces AixLog"
 
-### ADR-0057: The logging module is public: `httpp/logging.hpp`
+### The logging module is public: `httpp/logging.hpp`
 
-- **Status:** accepted; amends ADR-0050 (which kept the module internal)
+- **Status:** accepted; amends the part "An internal logging module, ported from libstb, replaces AixLog" (which kept the module internal)
 - **Decided by:** the project owner ("ADRs can be wrong; yes, export it")
 - **Source:** `include/httpp/logging.hpp`, `src/core/logging.cpp`, `tests/cpp/test_logging_module.cpp` (ported from libstb's tests)
 
 #### Context
 
-ADR-0050 ported libstb's logging module as an internal header, on three grounds: the dual-API rule (a public C++ type needs a Python counterpart), the cost of an ABI for derivable classes, and the four setters being enough. The owner disagreed: a C++ program that uses httpp should be able to log through the same module (its own loggers, a file and syslog at once, its own handler class), as it can with libstb.
+the part "An internal logging module, ported from libstb, replaces AixLog" ported libstb's logging module as an internal header, on three grounds: the dual-API rule (a public C++ type needs a Python counterpart), the cost of an ABI for derivable classes, and the four setters being enough. The owner disagreed: a C++ program that uses httpp should be able to log through the same module (its own loggers, a file and syslog at once, its own handler class), as it can with libstb.
 
 #### Decision
 
 - `src/core/internal/logging.hpp` moved to the installed header `include/httpp/logging.hpp`. Exported: `level_name`, `level_from_string`, `formatter`, `handler` (derivable: your own class overrides `emit()`), `null_handler`, `stream_handler`, `file_handler`, `callback_handler`, `logger`, `get_logger`, `basic_config`; `sformat` and friends are inline.
 - The classes are marked `HTTPP_API` as a whole, not member by member (the convention of `export.hpp` for everything else): a class that callers derive from needs its vtable and type information exported, or the link fails on Linux. The header silences MSVC's C4251 for them (the private pimpl members are never touched by a caller).
-- `file_handler` takes an `httpp::path` (ADR-0055), so a `std::string` still works, and opens its stream with `path::open`. No pimpl for the handlers: they hold their `std::fstream` / `std::function` directly, like the rest of the public API holds `std::string`s.
+- `file_handler` takes an `httpp::path` (ADR-0054), so a `std::string` still works, and opens its stream with `path::open`. No pimpl for the handlers: they hold their `std::fstream` / `std::function` directly, like the rest of the public API holds `std::string`s.
 - The logger httpp itself logs to stays the non-propagating "httpp" logger, driven by `set_log_level`, `set_log_file`, `set_log_system` and `set_log_callback`: a program can add handlers to it, `get_logger("httpp").add_handler(...)`, like to any other.
-- The operating system handlers of ADR-0056 stay internal (reached through `set_log_system`); making them public is a one-line move when someone asks.
+- The operating system handlers of the part "The operating system log handlers of libstb, behind `set_log_system`" stay internal (reached through `set_log_system`); making them public is a one-line move when someone asks.
 - Python: no binding. Python's own `logging` is the module this one imitates, so the parity test maps `logging.hpp` to `None`. The "httpp" logger is already bridged into `logging.getLogger("httpp")` (`httpp/_log.py`). This is a deliberate exception to the dual-API rule, not a gap.
 
 #### Consequences
@@ -195,48 +193,48 @@ ADR-0050 ported libstb's logging module as an internal header, on three grounds:
 
 #### Related
 
-ADR-0050, ADR-0054, ADR-0055, ADR-0056
+ADR-0054, the part "An internal logging module, ported from libstb, replaces AixLog" and the part "The operating system log handlers of libstb, behind `set_log_system`"
 
-### ADR-0075: one logging header and one logging source
+### one logging header and one logging source
 
-- **Status:** accepted; its `log_level` enum is superseded by ADR-0085 (`httpp::logging::level` is the one level type)
+- **Status:** accepted; its `log_level` enum is superseded by the part "one log level type, `httpp::logging::level`" (`httpp::logging::level` is the one level type)
 - **Decided by:** the project owner (several files named log*; "logging.hpp and .cpp at most", logging as the standard name); the choice to keep `set_log_*` is mine
 - **Source:** `include/httpp/logging.hpp`, `src/core/logging.cpp`, `src/core/internal/logging.hpp`, `tests/cpp/test_logging_module.cpp`
 
 #### Context
 
-The logging code lived in `log.hpp`/`log.cpp` (the library's own log: `set_log_level`, `set_log_file`, `set_log_system`, `set_log_callback`, a thin face over the `"httpp"` logger) beside `logging.hpp`/`logging.cpp` (the module, ADR-0050/0057), an internal `log.hpp` with the `HTTPP_LOG` macro, and `test_log.cpp` beside `test_logging_module.cpp`. Two names for one subject.
+The logging code lived in `log.hpp`/`log.cpp` (the library's own log: `set_log_level`, `set_log_file`, `set_log_system`, `set_log_callback`, a thin face over the `"httpp"` logger) beside `logging.hpp`/`logging.cpp` (the module, the part "An internal logging module, ported from libstb, replaces AixLog" and the part "The logging module is public: `httpp/logging.hpp`"), an internal `log.hpp` with the `HTTPP_LOG` macro, and `test_log.cpp` beside `test_logging_module.cpp`. Two names for one subject.
 
 #### Decision
 
 - `httpp/log.hpp` is removed; its declarations are at the end of `httpp/logging.hpp` (same names, same `httpp` namespace). `log.cpp` is now the last part of `logging.cpp`; `src/core/internal/log.hpp` became `internal/logging.hpp`; `test_log.cpp` is part of `test_logging_module.cpp`.
-- The `set_log_*` functions are kept, not retired: Python's `httpp.set_log_level` and friends, the CLI and about 180 uses depend on them, and a C++ program would otherwise repeat the handler setup behind each of them (and the OS handlers are internal, ADR-0056).
-- The operating system handlers of ADR-0056 (`syslog_handler`, `android_handler`, `unified_log_handler`, `debug_string_handler`, `event_log_handler`) are public and live in `logging.hpp`/`logging.cpp` too (`internal/logging_os.hpp` and `logging_os.cpp` are gone), so the whole of logging is one header and one source. The system headers and their macros stay inside `logging.cpp`, which is one translation unit: the `HTTPP_LOG_HAS_*` platform macros are plain `#if`s in the header, and on Windows the source defines `WIN32_LEAN_AND_MEAN`, `NOMINMAX` and `NOGDI` before `<windows.h>` and `#undef`s `ERROR`, `min` and `max` after it. (The first draft of this ADR kept them apart for the macros; that reason only held for a header.)
+- The `set_log_*` functions are kept, not retired: Python's `httpp.set_log_level` and friends, the CLI and about 180 uses depend on them, and a C++ program would otherwise repeat the handler setup behind each of them (and the OS handlers are internal, the part "The operating system log handlers of libstb, behind `set_log_system`").
+- The operating system handlers of the part "The operating system log handlers of libstb, behind `set_log_system`" (`syslog_handler`, `android_handler`, `unified_log_handler`, `debug_string_handler`, `event_log_handler`) are public and live in `logging.hpp`/`logging.cpp` too (`internal/logging_os.hpp` and `logging_os.cpp` are gone), so the whole of logging is one header and one source. The system headers and their macros stay inside `logging.cpp`, which is one translation unit: the `HTTPP_LOG_HAS_*` platform macros are plain `#if`s in the header, and on Windows the source defines `WIN32_LEAN_AND_MEAN`, `NOMINMAX` and `NOGDI` before `<windows.h>` and `#undef`s `ERROR`, `min` and `max` after it. (The first draft of this ADR kept them apart for the macros; that reason only held for a header.)
 - Parity test: `logging.hpp` now maps to `httpp`; the four module functions are listed in `NOT_EXPOSED` (Python's own `logging` is their counterpart).
 
 #### Consequences
 
 - **Breaking for C++ code (major is 0):** `#include "httpp/log.hpp"` no longer exists; include `httpp/logging.hpp`. Nothing else changes.
-- Fewer files; `logging.cpp` is about 1000 lines. The handler classes are `HTTPP_API`, so they can be derived from or used by C++ programs (ADR-0057 said this was a one-line move).
-- Python is unchanged: the "httpp" logger is bridged both ways with the standard `logging` module (`httpp/_log.py`, ADR-0018): C++ lines reach Python handlers, and `logging.getLogger("httpp").setLevel(...)`, `dictConfig` or `caplog.set_level` set the C++ level.
+- Fewer files; `logging.cpp` is about 1000 lines. The handler classes are `HTTPP_API`, so they can be derived from or used by C++ programs (the part "The logging module is public: `httpp/logging.hpp`" said this was a one-line move).
+- Python is unchanged: the "httpp" logger is bridged both ways with the standard `logging` module (`httpp/_log.py`, the part "The C++ log goes through Python's `logging` by default, and the logger controls the C++ level"): C++ lines reach Python handlers, and `logging.getLogger("httpp").setLevel(...)`, `dictConfig` or `caplog.set_level` set the C++ level.
 
 #### Related
 
-ADR-0050, ADR-0056, ADR-0057
+the part "An internal logging module, ported from libstb, replaces AixLog", the part "The operating system log handlers of libstb, behind `set_log_system`" and the part "The logging module is public: `httpp/logging.hpp`"
 
-### ADR-0080: `httpp.bridge_logger(name)` sends any C++ logger tree into Python's `logging`
+### `httpp.bridge_logger(name)` sends any C++ logger tree into Python's `logging`
 
 - **Status:** accepted
 - **Date:** 2026-11-17
 - **Decided by:** the project owner (libspeech should not keep a Python log bridge of its own; "pass everything to httpp"); the design is mine
 - **Source:** `src/bindings/python/cy/support.pxi` (`_bridge_logger`, `_unbridge_logger`, `_set_logger_level`, `_log_from_cpp`), `src/bindings/python/httpp/_log.py` (`bridge_logger`), `tests/python/test_log_bridge_any_logger.py`
-- **Builds on:** ADR-0018 (the `"httpp"` bridge), ADR-0057 (the public `httpp::logging` module), ADR-0074 (`callback_handler` without the lock)
+- **Builds on:** the part "The C++ log goes through Python's `logging` by default, and the logger controls the C++ level" (the `"httpp"` bridge), the part "The logging module is public: `httpp/logging.hpp`" (the public `httpp::logging` module), ADR-0074 (`callback_handler` without the lock)
 
 #### Context
 
-`httpp::logging` (ADR-0057) is a public, Python-like logger tree, and libspeech is the first program that uses it with loggers of its own
+`httpp::logging` (the part "The logging module is public: `httpp/logging.hpp`") is a public, Python-like logger tree, and libspeech is the first program that uses it with loggers of its own
 (`libspeech.dsp.stft`, `libspeech.models.files`, ...). Its Python side needs those lines in `logging`, with the same names and with the
-Python levels deciding what C++ produces. The bridge that exists (ADR-0018) cannot do it:
+Python levels deciding what C++ produces. The bridge that exists (the part "The C++ log goes through Python's `logging` by default, and the logger controls the C++ level") cannot do it:
 
 - `httpp::set_log_callback`, `set_log_level` and `set_log_file` work on the one logger named `"httpp"` (`propagate = false`, its own handlers);
   records of a logger outside that tree reach no handler.
@@ -252,37 +250,37 @@ Without a general bridge each consumer copies `_log.py` and the Cython callback 
   `LogRecord` for `logging.getLogger(logger_name)` with `where` as `funcName` and hands it to that logger's handlers.
 - **Levels are mirrored per logger.** A C++ logger below the root gets the `level` of its Python logger (0 inherits, as in Python). The bridged root
   gets its **effective** level, so `logging.basicConfig(level=DEBUG)` on the application's root logger counts when the bridged logger only inherits.
-- **`logging.Logger.setLevel` is wrapped once, for every logger** (not only one instance as in ADR-0018), the first time a bridge is made. That is what makes `getLogger("libspeech.dsp").setLevel(...)`,
+- **`logging.Logger.setLevel` is wrapped once, for every logger** (not only one instance as in the part "The C++ log goes through Python's `logging` by default, and the logger controls the C++ level"), the first time a bridge is made. That is what makes `getLogger("libspeech.dsp").setLevel(...)`,
   `dictConfig` and `basicConfig` work for loggers nobody knows in advance. After the original `setLevel` runs, the C++ levels of the affected bridged
   names are synchronized. Levels that were already set when the bridge is made are copied then.
 - Refused with `ValueError`: an empty name or `"root"`, `"httpp"` and the names below it (bridged by httpp itself), and a name that contains or is
   inside one already bridged (a record would be delivered twice). Calling it again for the same name is fine.
-- An `atexit` hook unbridges every name (the handlers go away), and the trampoline returns at once when `Py_IsInitialized()` is false: the same two rules as ADR-0018's `_unhook` / `_log_trampoline`.
+- An `atexit` hook unbridges every name (the handlers go away), and the trampoline returns at once when `Py_IsInitialized()` is false: the same two rules as the part "The C++ log goes through Python's `logging` by default, and the logger controls the C++ level"'s `_unhook` / `_log_trampoline`.
 - `_log_from_cpp(name, level, where, message, count, threads)` is a **test seam** (underscore, not exported): it logs from the calling thread with the GIL held, and from library threads, so the
   deadlock case of ADR-0074 is tested through a real Python binding.
 
 #### Rejected alternatives
 
-- **Generalize the `"httpp"` bridge (`set_log_callback`) to a tree.** It is a one-sink facade by design (ADR-0018, ADR-0050); changing what `set_log_callback(None)` or `set_log_file` mean for the `"httpp"` logger is a different decision.
+- **Generalize the `"httpp"` bridge (`set_log_callback`) to a tree.** It is a one-sink facade by design (the part "The C++ log goes through Python's `logging` by default, and the logger controls the C++ level" and the part "An internal logging module, ported from libstb, replaces AixLog"); changing what `set_log_callback(None)` or `set_log_file` mean for the `"httpp"` logger is a different decision.
 - **Wrap `setLevel` of every logger below the root only (instance by instance).** Loggers are created by `getLogger` at any time; no hook sees them.
-- **C++ level fixed at `debug`, Python filters.** Every line would be built and would take the GIL even when nobody wants it (the argument of ADR-0018).
+- **C++ level fixed at `debug`, Python filters.** Every line would be built and would take the GIL even when nobody wants it (the argument of the part "The C++ log goes through Python's `logging` by default, and the logger controls the C++ level").
 - **Each consumer keeps its own `_log.py`.** The code is the same everywhere and the deadlock rule is easy to get wrong.
 
 #### Consequences
 
 - A C++ library that logs through `httpp::logging` needs one line in its `__init__.py`: `httpp.bridge_logger("libspeech")`. It needs no Python callback, no `set_log_*` and no `_log.py` of its own.
 - `logging.Logger.setLevel` is replaced (by a function that calls the original) in every process that makes a bridge. A level set while no bridge exists is picked up when the bridge is made.
-- **Not verified:** Windows and macOS; Python 3.13 and free-threaded builds. A library thread that logs in the middle of interpreter finalization can still reach `PyGILState_Ensure` between the `Py_IsInitialized()` check and the call (the window is the same as ADR-0018's); in an experiment a thread that was still logging when the interpreter exited aborted the process, so a library that owns such threads should stop them in its own `atexit` hook.
+- **Not verified:** Windows and macOS; Python 3.13 and free-threaded builds. A library thread that logs in the middle of interpreter finalization can still reach `PyGILState_Ensure` between the `Py_IsInitialized()` check and the call (the window is the same as the part "The C++ log goes through Python's `logging` by default, and the logger controls the C++ level"'s); in an experiment a thread that was still logging when the interpreter exited aborted the process, so a library that owns such threads should stop them in its own `atexit` hook.
 
-### ADR-0085: one log level type, `httpp::logging::level`
+### one log level type, `httpp::logging::level`
 
-- **Status:** accepted; supersedes the `log_level` enum of ADR-0075
+- **Status:** accepted; supersedes the `log_level` enum of the part "one logging header and one logging source"
 - **Decided by:** the project owner ("`httpp::logging::level` is good")
 - **Source:** `include/httpp/logging.hpp`, `src/core/logging.cpp`, `src/core/internal/logging.hpp`, `src/bindings/python/cy/support.pxi`, `tests/cpp/test_logging_module.cpp`, `tests/cpp/test_server_lifecycle.cpp`
 
 #### Context
 
-The header had two enums for the same idea. `httpp::logging::level` (Python's numbers: notset, trace 5, debug 10, info 20, warning 30, error 40, critical 50) was the level of a record and of a logger in the logger tree, with `level_from_string`. `httpp::log_level` (trace, debug, info, warning, error, off) was the level of the library's own log, with `set_log_level`. They did not convert into each other, did not match (`critical` and `notset` on one, `off` on the other) and had two tables of names; ADR-0078 added `set_log_level(name)` with a second table instead of joining them.
+The header had two enums for the same idea. `httpp::logging::level` (Python's numbers: notset, trace 5, debug 10, info 20, warning 30, error 40, critical 50) was the level of a record and of a logger in the logger tree, with `level_from_string`. `httpp::log_level` (trace, debug, info, warning, error, off) was the level of the library's own log, with `set_log_level`. They did not convert into each other, did not match (`critical` and `notset` on one, `off` on the other) and had two tables of names; ADR-0041 added `set_log_level(name)` with a second table instead of joining them.
 
 #### Decision
 
@@ -306,9 +304,9 @@ The header had two enums for the same idea. `httpp::logging::level` (Python's nu
 
 #### Related
 
-ADR-0075 (one logging header), ADR-0078 (the commands call the library), ADR-0011 (logging).
+the part "one logging header and one logging source" (one logging header), ADR-0041 (the commands call the library), the part "Logging: AixLog behind `HTTPP_LOG`; request and bind-address logs in C++; defaults" (logging).
 
-### ADR-0090: stream-style logging and an inline level check (`HTTPP_LOG`, `HTTPP_LOGF`, `logger::enabled`)
+### stream-style logging and an inline level check (`HTTPP_LOG`, `HTTPP_LOGF`, `logger::enabled`)
 
 - **Status:** accepted
 - **Decided by:** the project owner (both styles side by side, `sformat` stays, Python unchanged); the macro names, the cache design and the ABI bump are mine
@@ -327,7 +325,7 @@ ADR-0075 (one logging header), ADR-0078 (the commands call the library), ADR-001
 - **`logger::enabled(level)` is inline.** Each logger holds a cached effective level next to a process-wide epoch (`detail::level_epoch`, exported, constant-initialized). `set_level()` on any logger bumps the epoch. `enabled()` reads the cache and the epoch (two relaxed loads, one compare); when the epoch moved it calls `enabled_slow()`, which recomputes the effective level (the walk up the tree) and stores it. The epoch is read before the level, so a concurrent `set_level()` can only make the cache look stale, never fresh. A line may be logged or skipped once more after another thread changed a level, as with the relaxed atomics before.
 - **Stream buffer.** The text goes to a `std::ostringstream` reused per thread (flags, width and fill are reset for every line); a line started while another of the same thread is being built (an `operator<<` that logs) gets its own stream. The proxy never throws; a failing `operator<<` loses that line. Only the finished text crosses into the library (`logger::log_from`).
 - **ABI.** The `logger` object grew by one atomic, so `HTTPP_UTILS_ABI_VERSION` is 2 (ADR-0086's check catches a mismatch at load).
-- **Python.** Unchanged. `logging.Logger.info("x=%s", x)` and f-strings are Python's own; the bridge (ADR-0080) receives the finished text.
+- **Python.** Unchanged. `logging.Logger.info("x=%s", x)` and f-strings are Python's own; the bridge (the part "`httpp.bridge_logger(name)` sends any C++ logger tree into Python's `logging`") receives the finished text.
 
 #### Rejected alternatives
 
@@ -342,7 +340,7 @@ ADR-0075 (one logging header), ADR-0078 (the commands call the library), ADR-001
 - The macros need a C++17 compiler (`if` with an initializer).
 - Not measured: no benchmark was run; the cost above is from the code, not from a timing.
 
-### ADR-0091: the library's own log is the logger `"httpp"`; no second level, no second macro system
+### the library's own log is the logger `"httpp"`; no second level, no second macro system
 
 - **Status:** accepted
 - **Decided by:** the project owner (asked for the principled form: the internal macro looked like a leftover); the design is mine
@@ -350,7 +348,7 @@ ADR-0075 (one logging header), ADR-0078 (the commands call the library), ADR-001
 
 #### Context
 
-The library's own log (`httpp::set_log_level`, `set_log_file`, `set_log_callback`, `set_log_system`) was a thin face over the logger `"httpp"`, but it kept a parallel back end: an internal macro `HTTPP_LOG(level)` (born in the AixLog days to keep AixLog's global macros out of every file, ADR-0011), its own line buffer (`log_line`), its own threshold (`detail::own_log_level`, an atomic) and its own writer (`detail::log_write`). The logger `"httpp"` itself sat at `trace` and let the threshold decide. So the library's log level was not the level of the logger: `get_logger("httpp").set_level(...)` did nothing, and a child such as `"httpp.x"` would have inherited `trace`. Since ADR-0090 the public `HTTPP_LOG` and `HTTPP_LOGF` do what the internal macro did.
+The library's own log (`httpp::set_log_level`, `set_log_file`, `set_log_callback`, `set_log_system`) was a thin face over the logger `"httpp"`, but it kept a parallel back end: an internal macro `HTTPP_LOG(level)` (born in the AixLog days to keep AixLog's global macros out of every file, the part "Logging: AixLog behind `HTTPP_LOG`; request and bind-address logs in C++; defaults"), its own line buffer (`log_line`), its own threshold (`detail::own_log_level`, an atomic) and its own writer (`detail::log_write`). The logger `"httpp"` itself sat at `trace` and let the threshold decide. So the library's log level was not the level of the logger: `get_logger("httpp").set_level(...)` did nothing, and a child such as `"httpp.x"` would have inherited `trace`. Since the part "stream-style logging and an inline level check (`HTTPP_LOG`, `HTTPP_LOGF`, `logger::enabled`)" the public `HTTPP_LOG` and `HTTPP_LOGF` do what the internal macro did.
 
 #### Decision
 

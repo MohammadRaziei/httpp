@@ -1,5 +1,5 @@
 """The library's C++ log goes through Python's `logging` by default (logger "httpp"), and that logger's level
-decides what C++ produces (ADR-0018)."""
+decides what C++ produces (ADR-0011)."""
 
 import logging
 import logging.config

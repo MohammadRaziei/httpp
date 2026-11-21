@@ -11,7 +11,7 @@
 
 namespace httpp {
 
-// httpp's URL type is liburlparser's (ADR-0072): one parser, one type, no wrapper. `httpp::url` and `urlparser::url` are the
+// httpp's URL type is liburlparser's (ADR-0067): one parser, one type, no wrapper. `httpp::url` and `urlparser::url` are the
 // same class, so every function that needs a URL takes `const httpp::url&` and a string or a string literal converts to it
 // implicitly (ADR-0067): `client::fetch("http://example.com/x")`, `httpp::request(text)`, `httpp::download("https://...")`.
 //

@@ -1,4 +1,4 @@
-"""httpp.FileLock: a lock between processes on a file (ADR-0055)."""
+"""httpp.FileLock: a lock between processes on a file (ADR-0054)."""
 import subprocess
 import sys
 import threading

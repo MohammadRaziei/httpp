@@ -1,12 +1,12 @@
 # ADR-0074: `callback_handler` can call its function without the handler's lock
 
-- **Status:** accepted; amends ADR-0057 (the handler's locking rule has one exception)
+- **Status:** accepted; amends ADR-0011 (the handler's locking rule has one exception)
 - **Decided by:** the project owner (asked for the fix after the experiment below)
 - **Source:** `include/httpp/logging.hpp` (`callback_handler`, `handler::set_serialized`), `src/core/logging.cpp` (`handler::handle`), `tests/cpp/test_logging_module.cpp`
 
 ## Context
 
-`handler::handle` takes the handler's mutex and calls `emit()` with it held (ADR-0050, ADR-0057), so a handler never needs locking of its own. That is wrong for a callback that has to wait for something another logging thread is holding. The case that matters is the Python GIL: the callback takes the GIL (`with gil` in Cython, `PyGILState_Ensure`, ctypes), and a library thread that logs holds the handler's lock while it waits for the GIL. A Python thread that holds the GIL and calls C++ **without releasing it** (a binding that does not use `nogil`) logs through the same handler and waits for the lock. Neither can go on.
+`handler::handle` takes the handler's mutex and calls `emit()` with it held (ADR-0011), so a handler never needs locking of its own. That is wrong for a callback that has to wait for something another logging thread is holding. The case that matters is the Python GIL: the callback takes the GIL (`with gil` in Cython, `PyGILState_Ensure`, ctypes), and a library thread that logs holds the handler's lock while it waits for the GIL. A Python thread that holds the GIL and calls C++ **without releasing it** (a binding that does not use `nogil`) logs through the same handler and waits for the lock. Neither can go on.
 
 An experiment (a small shared library over `httpp::logging`, Python threads through ctypes, C++ threads logging at the same time) showed it on Linux:
 
@@ -37,4 +37,4 @@ httpp's own Python bridge is safe only because of a rule: every call from Cython
 
 ## Related
 
-ADR-0050, ADR-0057
+ADR-0011

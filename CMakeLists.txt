@@ -59,7 +59,7 @@ embed_files(
 )
 
 # liburlparser (git submodule, built from source - no system package) does the real URL parsing
-# (scheme/host/port/path, IPv4/IPv6). Its url type IS httpp::url (ADR-0072), so <httpp/url.hpp>
+# (scheme/host/port/path, IPv4/IPv6). Its url type IS httpp::url (ADR-0067), so <httpp/url.hpp>
 # includes <urlparser.h> and the library is linked PUBLIC. It is built SHARED on purpose: the Public
 # Suffix List is process-wide state (urlparser::psl::instance()), and a static copy inside libhttpp
 # plus another in the application would be two lists, so httpp::fetch_public_suffix_list() would load into
@@ -176,7 +176,7 @@ target_include_directories(httpp_utils
 # indicators (progress.cpp) is vendored and header-only: no library comes with it.
 target_include_directories(httpp_utils SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party)
 if(WIN32)
-    target_link_libraries(httpp_utils PRIVATE advapi32)  # the Event Log (ADR-0056)
+    target_link_libraries(httpp_utils PRIVATE advapi32)  # the Event Log (ADR-0011)
 elseif(ANDROID)
     target_link_libraries(httpp_utils PRIVATE log)       # logcat
 endif()
@@ -209,7 +209,7 @@ set_target_properties(httpp_core PROPERTIES
     MACOSX_RPATH ON
     INSTALL_NAME_DIR "@rpath"
 )
-# libhttpp needs liburlparser (ADR-0072) and libhttpp_utils (ADR-0086), which is installed in the same folder (httpp/sdk/lib in the wheel, <prefix>/lib in
+# libhttpp needs liburlparser (ADR-0067) and libhttpp_utils (ADR-0086), which is installed in the same folder (httpp/sdk/lib in the wheel, <prefix>/lib in
 # an install). Its own RPATH must name that folder: delocate (macOS wheel repair) and auditwheel resolve a library's dependencies
 # through that library's RPATH, not through the module that loads it ("@rpath/liburlparser.2.dylib not found").
 if(APPLE)
@@ -289,7 +289,7 @@ if(WIN32)
     target_compile_definitions(httpp_core PRIVATE _WIN32_WINNT=0x0A00)
     target_link_libraries(httpp_core PRIVATE ws2_32 mswsock crypt32)
 endif()
-# The operating system log handlers (src/utils/logging.cpp, ADR-0056) link in httpp_utils (advapi32, liblog).
+# The operating system log handlers (src/utils/logging.cpp, ADR-0011) link in httpp_utils (advapi32, liblog).
 if(MSVC)
     # Asio's templates produce very large object files.
     set_source_files_properties(${PROJECT_SOURCE_DIR}/src/core/async_http.cpp ${PROJECT_SOURCE_DIR}/src/core/async_server.cpp PROPERTIES COMPILE_OPTIONS "/bigobj")

@@ -3,7 +3,7 @@
 - **Status:** proposed; not implemented (what the type is, and how Python spells it, are not decided)
 - **Decided by:** nobody yet for the type; the owner asked for a named value instead of a number and floated a `std::optional`-like type
 - **Source:** `include/httpp/client.hpp`, `src/core/client.cpp` (`redirect_hops`), `src/core/internal/http_exchange.hpp`, `src/bindings/python/cy/client.pxi` (`_apply_client_options`), `src/bindings/python/cy/support.pxi`
-- **Follows:** ADR-0089, ADR-0092, ADR-0094
+- **Follows:** ADR-0079, 0092 and 0093
 
 ## Context
 
@@ -11,7 +11,7 @@ Three settings have a "no limit", and each spells it differently:
 
 | Setting | No limit | Other special values |
 |---|---|---|
-| `max_redirects(int)` | `-1` | `0` follows none; any other negative number throws `std::invalid_argument` (ADR-0089) |
+| `max_redirects(int)` | `-1` | `0` follows none; any other negative number throws `std::invalid_argument` (ADR-0079) |
 | `max_time(long)` | `0` | a negative number throws |
 | `max_response_size(size_t)` (on `request`) | `0` | none |
 
@@ -26,7 +26,7 @@ A bare number is easy to misuse, and a shared constant such as `-1` would be wro
    limit<int> r = c.max_redirects();       // reads back without a magic number
    ```
 2. The encodings inside `session_settings` and the engine do not change (`-1` and `0` stay as they are); the conversion happens at the API boundary.
-3. `max_redirects(-1)` keeps working, because ADR-0089 documents it.
+3. `max_redirects(-1)` keeps working, because ADR-0079 documents it.
 4. Settings that have a "default" meaning (`timeout`, `connect_timeout`) do not take it; they stay plain numbers.
 
 ## Still open: what the type is
@@ -47,9 +47,9 @@ The maintainer's note in discussion was that (b) is simpler and easier to bind; 
 
 ## Consequences
 
-- A small public vocabulary type, and about three more declarations in the mixin of ADR-0094 (written once for all classes).
+- A small public vocabulary type, and about three more declarations in the mixin of ADR-0093 (written once for all classes).
 - The Cython declarations list the new type; with (a) they declare the parameter as the plain number and let the C++ compiler do the implicit conversion, plus an overload for the tag. Not tried.
-- Independent of ADR-0094: it can be done before or after the mixin.
+- Independent of ADR-0093: it can be done before or after the mixin.
 
 ## Not verified
 
@@ -57,4 +57,4 @@ Nothing was compiled. The Cython declaration trick above is an expectation, not 
 
 ## Related
 
-ADR-0089, ADR-0092, ADR-0094
+ADR-0079, 0092 and 0093

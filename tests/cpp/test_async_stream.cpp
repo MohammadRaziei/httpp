@@ -1,4 +1,4 @@
-// The streaming body sink of the client engine (ADR-0052): a response body goes to a callback chunk by chunk
+// The streaming body sink of the client engine (ADR-0051): a response body goes to a callback chunk by chunk
 // instead of into response::body.
 #include "utest/utest.h"
 #include "local_server.hpp"

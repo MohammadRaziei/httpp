@@ -34,7 +34,7 @@ endpoint parse_base(const url& u, const char* who) {
 
 } // namespace
 
-// --- settings_ref: each setting and its rule, once, for client, async_client and request (ADR-0094) ---
+// --- settings_ref: each setting and its rule, once, for client, async_client and request (ADR-0093) ---
 
 void detail::settings_ref::timeout(long seconds) const { g_->update([&](session_settings& s) { s.set_timeout(seconds); }); }
 long detail::settings_ref::timeout() const { return g_->read([](const session_settings& s) { return s.timeout; }); }
@@ -156,10 +156,10 @@ struct request::impl {
     header_list headers;      // repeatable, in the order given
     header_list params, cookies;
     guarded_settings settings; // timeout, redirects, auth, proxy, TLS, size limit
-    std::function<bool(std::string_view)> on_piece; // on_body(): streams the final body (ADR-0084)
+    std::function<bool(std::string_view)> on_piece; // on_body(): streams the final body (ADR-0077)
     std::function<bool(const response&)> on_head_fn;
-    std::function<void(const response&, int, long)> on_retry_fn; // on_retry() (ADR-0099)
-    // save_to() / save_in() (ADR-0102)
+    std::function<void(const response&, int, long)> on_retry_fn; // on_retry() (ADR-0097)
+    // save_to() / save_in() (ADR-0097)
     std::optional<path> save_file;   // save_to(): this file
     std::optional<path> save_folder; // save_in(): the folder, the name comes from the answer
     bool make_dirs = false;
@@ -186,7 +186,7 @@ struct request::impl {
             }
             call.emplace_back("Cookie", std::move(joined));
         }
-        // Streamed bytes are passed on as the server sent them: ask for no coding, as downloads do (ADR-0052).
+        // Streamed bytes are passed on as the server sent them: ask for no coding, as downloads do (ADR-0051).
         const bool saving_body = save_file || save_folder;
         if ((on_piece || saving_body) && !detail::has_header(call, "Accept-Encoding")) call.emplace_back("Accept-Encoding", "identity");
         if (!settings.make_spec_for_url(url, params.empty() ? std::string() : httpp::build_query(params), method, call, body,

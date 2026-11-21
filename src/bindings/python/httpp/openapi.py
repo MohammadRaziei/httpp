@@ -1,4 +1,4 @@
-"""OpenAPI 3.1 documents written by C++ (httpp/openapi.hpp, ADR-0087).
+"""OpenAPI 3.1 documents written by C++ (httpp/openapi.hpp, ADR-0007).
 
     doc = httpp.openapi.Document("My API", "1.0.0")
     doc.security_scheme("jwt", httpp.security.bearer("JWT"))

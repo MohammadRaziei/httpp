@@ -1,22 +1,133 @@
-# ADR-0022: Dual C++/Python rule and the decisions the owner delegated
+# ADR-0016: The dual C++/Python API: the parity goal, the binding policy and the delegated decisions
 
-## Status
+- **Status:** accepted (merged ADR; each part keeps its own status line)
+- **Merged on:** 2026-11-21, at the request of the project owner: the decisions of one subject were spread over 3 ADRs. The text of every part is kept, as a section below, in the order it was decided.
+
+## Current state
+
+Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history. Where a part and this summary disagree, this summary wins.
+
+- **Parity is the goal for the network and server core** (`server`, `client`, `async_client`, `download`, `url`, `progress`, `sha256`), enforced by `tests/python/test_cpp_python_parity.py`, which compares the `HTTPP_API` declarations with the Python objects. Intentional differences are listed with a reason (`ALIASES`, `CTOR_ARGS`, `KNOWN_GAPS`, `NOT_EXPOSED`).
+- **Binding policy:** speed decides where logic lives (measure when unclear); Python binds only what `include/` exports and never reaches into `src/core/internal/`; a public C++ name is bound only if necessary, otherwise it is listed in `NOT_EXPOSED` with the reason.
+- **New features are written in the C++ core with a public API;** Python is a thin binding with the same names. The existing Python-only layer (OpenAPI, models, `Depends`, `run()`) stays as debt in `checklist.md`.
+- **FastAPI compatibility is FastAPI-like, natively:** the same names and shapes (decorators, `Query/Path/Header/Cookie/Body/Depends`, `HTTPException`, response classes, `response_model`, OpenAPI and `/docs`, `APIRouter`, `BackgroundTasks`), but not drop-in: no ASGI, our own Pydantic-shaped models, no Starlette middleware stack.
+- The delegation recorded in the last part covers only the items it lists; it is not a standing permission for other critical decisions.
+
+## Parts
+### Hybrid API parity: C++ and Python expose equivalent public APIs
+
+- **Status:** partly superseded by the part "Python binding policy: speed decides, only public headers, only what is necessary": the goal "parity everywhere" is replaced by the rule "bind only what is necessary"; the inventory below stays valid. The list of intentional name differences below is narrowed by [ADR-0092](0092-settings-names.md)
+- **Date:** 2026-10-18
+- **Source:** comparison of `include/httpp/*.hpp` with `dir(httpp)` and `src/bindings/python/httpp_cy.pyx` (names and signatures, not behavior)
+
+#### Context
+
+httpp is a hybrid library. The same capability should be reachable from C++ and from Python under the same name and with the same
+options, so a user can move between the two without surprises. The question "are the two APIs equivalent today?" had no recorded answer.
+
+#### Decision
+
+- **Parity is the goal** for the network and server core: `server`, `client`, `async_client`, `download`, `url`, `log`, `progress`, `sha256`.
+- The FastAPI-like layer (parameter declarations, models, OpenAPI, `httpp run`) is **Python by design**. It is not required to exist in C++,
+  but any gap there is written down instead of left implicit.
+- A new public C++ method lands together with its Python binding, or with an entry in an explicit allow-list of intentional differences.
+- `tests/python/test_cpp_python_parity.py` enforces this: it parses the `HTTPP_API` declarations in `include/httpp/*.hpp` and compares names with the Python objects.
+  Intentional differences are listed with a reason: `ALIASES` (`del` is `delete`, `send` is `request`, `is_finished` is the property `finished`, ...),
+  `CTOR_ARGS` (C++ setters of `client`/`async_client` that are constructor arguments in Python, and the test constructs them) and `KNOWN_GAPS`
+  (open gaps; an entry that stops being a gap fails the test). A new C++ class without a `TARGETS` entry fails it too.
+
+#### Current state
+
+Equivalent: `server` (routes, `route_async`, `serve_directory`, bind/listen/stop, hooks, all settings, `mount_swagger_ui`), `client` and `async_client`
+(HTTP methods, `fetch`; the setters are constructor arguments in Python), `download` (including `sha256`, `sha256_url`, `set_timeout`,
+`set_max_wait` taking seconds, and `DownloadResult.sha256`), `httpp.utils.sha256_hex`, `httpp.utils.sha256_file`, `httpp.utils.parse_sha256_checksum`, `url`, `log`, `progress::bar`.
+The first run of the parity test found one more gap that nobody had listed: `Client(keep_alive=...)`; it was added.
+
+Still missing in Python (`KNOWN_GAPS`):
+
+- public access to `route_io` and `route_shared` (only the internal `add_loop_route` and `add_route` exist)
+- `find_swagger_ui_asset`, a C++ lookup helper that is probably not meant for users
+
+`httpp::curl::request` is covered by name through `httpp.Request`, which has the same builder methods; it is not the same class.
+
+Missing in C++ (by design the FastAPI-like layer): OpenAPI generation, `Query/Path/Header/Cookie/Body/Depends`, models/validation,
+`on_startup`/`on_shutdown`, `run()` and the `httpp run` CLI.
+
+#### Consequences
+
+- The comparison is by name only (and constructor keywords for the setters); it says nothing about behavior or signatures. Behavior is covered by ordinary tests.
+- The header parser is regex based (`ponytail:`); a declaration written in an unusual way could be missed. Upgrade path: libclang.
+- The test runs in the wheel CI only when the C++ headers are next to the tests (they are, in the repository checkout); otherwise it is skipped.
+- The open gaps are tracked in `checklist.md`, section "Hybrid API parity".
+
+#### Related
+
+ADR-0001, 0007 and 0014
+
+### Python binding policy: speed decides, only public headers, only what is necessary
+
+- **Status:** accepted
+- **Date:** 2026-10-19
+- **Decided by:** the project owner
+- **Source:** `docs/adr/0016-dual-api.md`, `src/bindings/python/httpp_cy.pyx`, `tests/python/test_cpp_python_parity.py`
+
+#### Context
+
+the part "Hybrid API parity: C++ and Python expose equivalent public APIs" set "C++ and Python expose equivalent public APIs" as the goal. Looking at duplicated logic between the two languages
+(path templates, MIME types, query encoding, two client engines) raised the question of one rule for "which layer owns the logic".
+The owner's answer: there is no single rule, because it depends on the case.
+
+#### Decision
+
+1. **Speed decides where logic lives.** For each piece of logic the choice is whichever of C++ or Python gives the fastest result in that
+   case. When it is not obvious, measure. There is no blanket "everything in C++" or "everything in Python" rule.
+2. **Python binds only what `include/` exports.** The Cython binding may use only the public headers (`include/httpp/*.hpp`, the
+   `HTTPP_API` declarations). It must not reach into `src/core/internal/` or any other private header. The C++ glue embedded in the
+   `.pyx` files (inbox, trampolines) is Python-specific code and also uses public headers only.
+3. **A public C++ function gets a Python binding only if it is necessary.** If it is not necessary, Python simply does not carry it
+   (Python's standard library or Python code may already cover it, or Python users never need it). Every public C++ name is therefore
+   either bound, or listed in `NOT_EXPOSED` in `tests/python/test_cpp_python_parity.py` with the reason. Adding a C++ name forces
+   that decision to be made and written down.
+4. **Python may do work that C++ does not.** Some logic exists only because of Python (the GIL, the asyncio loop bridge, hooks run through an
+   executor, type-hint based validation). It does not have to exist in C++.
+
+#### Consequences
+
+- the part "Hybrid API parity: C++ and Python expose equivalent public APIs"'s goal "parity is the goal" is **replaced** by rules 2 and 3. Its comparison and its list of differences stay as an inventory.
+- `tests/python/test_cpp_python_parity.py` keeps its job as a forcing function, but its list is now `NOT_EXPOSED` (decisions), not `KNOWN_GAPS`,
+  and a new test checks rule 2 (the `.pyx` files include only `httpp/*.hpp` headers).
+- Duplicated logic is judged by rule 1, not removed by default. First applications: path templates now have one parser (registration time, so
+  no speed question); query encoding in `Client` moved to the public C++ `url::build_query` (4x faster, identical output); the duplicated
+  client option block was merged. Still open: MIME lookup in `file()` (Python `mimetypes` and the C++ table disagree for some extensions; the C++
+  lookup is not public) and the sync versus async client engines (a separate decision).
+- Decided by the owner for the bindings added before this ADR: `sha256_hex`, `sha256_file` and `parse_sha256_checksum` **stay**, because
+  binding them lets Python check the C++ code against `hashlib` (a benefit of having a binding), and the C++ code is as fast as `hashlib`
+  anyway. They live in **`httpp.utils`**, not in the main `httpp` namespace. `Client(keep_alive=...)` is still waiting for a decision (see `checklist.md`).
+- Free functions that Python carries go into a submodule (`httpp.utils`, like `httpp.progress`), not into the main namespace.
+
+#### Related
+
+ADR-0001 and 0002 and the part "Hybrid API parity: C++ and Python expose equivalent public APIs"
+
+### Dual C++/Python rule and the decisions the owner delegated
+
+#### Status
 Accepted. On 2026-10-24 the owner delegated every open decision ("decide yourself") and set one architecture constraint.
 This delegation covers the items listed below only; it is not a standing permission for other critical decisions.
 
-## Context
+#### Context
 Hand-off #6 listed open work that needed an owner decision: `response: Response` injection, `background=`, a full `Request`,
 `APIRouter`, `BackgroundTasks`, middleware, forms and uploads, GZip, a total deadline for a slowly dripped body, `--workers N` as threads.
-ADR-0016/0017 said the FastAPI-like layer is "Python by design" and that Python binds only what is necessary.
+the part "Hybrid API parity: C++ and Python expose equivalent public APIs" and the part "Python binding policy: speed decides, only public headers, only what is necessary" said the FastAPI-like layer is "Python by design" and that Python binds only what is necessary.
 
-## The constraint (owner)
+#### The constraint (owner)
 1. **Dual API.** A feature exists in C++ and in Python, written the same way. Python may differ only where the GIL forces it
    (the asyncio bridge, how handlers are scheduled). Everything else is identical, as far as possible.
 2. **Fastest implementation, no bottleneck.** Logic lives in the C++ core; Python binds it. Nothing new may add a per-request cost to a
    route that does not use the feature.
 3. **Clean OOP.** One class per concept, small public surface, no feature flags scattered over the engine.
 
-## Decision
+#### Decision
 - **Where logic lives.** New features are written in the C++ core with a public C++ API; the Python API is a thin binding with the same names.
   This replaces "Python by design" for *new* work. The existing Python-only layer (OpenAPI, models, `Depends`, `run()` and the CLI) is not
   rewritten now; it stays listed as debt in `checklist.md`.
@@ -42,11 +153,11 @@ ADR-0016/0017 said the FastAPI-like layer is "Python by design" and that Python 
 - **`--workers N` as threads: not done.** Free-threaded Python already runs handlers on the pool in one process (hand-off #6 stress: 74k to 77k req/s
   on 3.14t against 51k on 3.13). A second thread model would duplicate the pool without a measured gain. Reopen with a measurement on more than 2 cores.
 
-## Order of work
+#### Order of work
 1. body deadline (done) 2. GZip (done) 3. router (done) 4. `response` injection and `after_send` (done) 5. forms and uploads (done) 6. `ServerRequest` parity (done).
 Each step: tests first, C++ and Python together, ADR note if the design changes, zip.
 
-## Notes from finished steps
+#### Notes from finished steps
 - **GZip.** `httpp::detail::response_compression` (one class, `src/core/response_compression.cpp`), called once in the server's sender after
   the hooks. Cost when off: one inline check. Measured with the vendored stb deflate (one run, 2 cores, 20 KB of repetitive JSON-like text):
   level 1 takes 135 us and gives 937 bytes, level 6 takes 173 us and gives 866 bytes, so level 1 is the default. That is a few
@@ -94,16 +205,16 @@ Each step: tests first, C++ and Python together, ADR note if the design changes,
   cancellation right; best case about 2 us, 9 percent); batching answers (ADR-0021, about 2 us). Both stay open if `async def` throughput becomes the limit.
   `async def` is still 1.3 to 1.9 times uvicorn on the same box.
 
-## Rejected alternatives
+#### Rejected alternatives
 - Middleware stack as in Starlette: flexible, but a per-request cost on every route and a different C++ and Python model.
 - Python-only implementation of the new features: faster to write, breaks the dual rule, and puts the cost on the GIL.
 
-## Not verified
+#### Not verified
 Nothing here is measured yet except what each step reports. Windows and macOS runtime stay as in hand-off #6.
 
-## Related
-ADR-0016, ADR-0017, ADR-0020, ADR-0021
+#### Related
+ADR-0020 and 0021, the part "Hybrid API parity: C++ and Python expose equivalent public APIs" and the part "Python binding policy: speed decides, only public headers, only what is necessary"
 
-## Answer batching (2026-10-26)
+#### Answer batching (2026-10-26)
 
 The owner said the `async def` gap is an architecture problem, not tuning. A pure C++ floor (no Python) agrees in part: answering from the I/O thread gave about 72k req/s, handing the answer to one other thread about 61k, so the thread hop alone costs around 15 percent. Answers now go through a batched poster in `async_server.cpp`: only the push that finds the queue empty posts a drain task to Asio. Measured with interleaved runs: C++ pool path +10 percent, `async def` +4 percent, `def` +4 percent (the last two are close to the noise). It helps both APIs because it lives in the core. The bigger step, running the `async def` handler without a hop, is still open.

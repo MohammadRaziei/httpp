@@ -170,7 +170,7 @@ ctypedef fused _cpp_http_client:
 
 
 cdef bytes _fs(object p):
-    """A path argument (str, bytes or any os.PathLike such as pathlib.Path) as the bytes C++ httpp::path takes (ADR-0055)."""
+    """A path argument (str, bytes or any os.PathLike such as pathlib.Path) as the bytes C++ httpp::path takes (ADR-0054)."""
     return os.fsencode(p)
 
 

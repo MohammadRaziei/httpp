@@ -318,7 +318,7 @@ def test_async_client_clone_and_make_request():
 
 
 def test_send_is_the_name_of_the_send_call_in_python_and_in_cpp():
-    """ADR-0100: the name is the same as in C++ (httpp::client::send); there is no `request` method on the sessions."""
+    """ADR-0092: the name is the same as in C++ (httpp::client::send); there is no `request` method on the sessions."""
     with running(echo_app()) as url:
         c = Client(url)
         assert c.send("POST", "/echo", json={"a": 1}).json()["method"] == "POST"

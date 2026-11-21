@@ -23,7 +23,7 @@
 
 namespace httpp::detail {
 
-// How the proxy of a job is spoken to (ADR-0067, ADR-0068).
+// How the proxy of a job is spoken to (ADR-0067 and 0068).
 enum class proxy_kind {
     http,    // plain http goes in absolute form, https through CONNECT; credentials are a Proxy-Authorization header
     socks5,  // SOCKS5 (RFC 1928), the target name is resolved here and its address sent
@@ -91,7 +91,7 @@ public:
     void submit(async_job job, done_fn done);
 
     // Thread-safe. Runs `fn` on the loop thread once `delay` has passed: a timer, not a sleep, so the loop goes on with other
-    // exchanges meanwhile (the wait between two tries of a retried request, ADR-0099). Like `done` it must not block. A
+    // exchanges meanwhile (the wait between two tries of a retried request, ADR-0097). Like `done` it must not block. A
     // timer still pending when the engine is destroyed never fires; the two engines of the process are never destroyed.
     void post_after(std::chrono::milliseconds delay, std::function<void()> fn);
 

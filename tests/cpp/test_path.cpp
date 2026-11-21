@@ -1,4 +1,4 @@
-// httpp::path (ADR-0055): the pathlib-shaped path the public API takes.
+// httpp::path (ADR-0054): the pathlib-shaped path the public API takes.
 #include "utest/utest.h"
 #include "httpp/path.hpp"
 #include "httpp/sha256.hpp"
@@ -134,7 +134,7 @@ UTEST(path, a_path_is_what_a_route_serves_as_a_file) {
     f.unlink();
 }
 
-// ---- the file system half (formerly the internal httpp::fs, ADR-0054; merged into path by ADR-0058) ----
+// ---- the file system half (formerly the internal httpp::fs, ADR-0054; merged into path by ADR-0054) ----
 
 #include <algorithm>
 #include <vector>

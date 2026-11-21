@@ -1,6 +1,6 @@
 #pragma once
 
-// The logging module (ADR-0050, made public by ADR-0057), modelled on Python's `logging`: a tree of dotted logger
+// The logging module (ADR-0011, made public by ADR-0011), modelled on Python's `logging`: a tree of dotted logger
 // names, handlers (stream, file, callback, null, or your own class), a formatter with %(field)s patterns, levels
 // with the same numbers as Python (plus trace = 5). Ported from libstb; it replaces the vendored AixLog.
 // Python has the original: there it is the standard `logging` module, and the library's own "httpp" logger is
@@ -46,7 +46,7 @@
 #pragma warning(disable : 4251) // the std members of the exported classes are private and never touched by a caller
 #endif
 
-// ---- Handlers for the log of the operating system (ADR-0056, public since ADR-0075) ----
+// ---- Handlers for the log of the operating system (ADR-0011, public since ADR-0011) ----
 //
 // So a program's records show up where its platform's own tools look: journalctl, `adb logcat`, the Console app,
 // Visual Studio's output window and DebugView, Event Viewer. A class exists only on the platform that has its facility,
@@ -93,7 +93,7 @@
 // or progress.hpp changes in a way old binaries cannot follow. A consumer built apart from the library can call
 // httpp::utils_abi_compatible() at start; a missing or renamed symbol is refused by the linker and the loader without it, the
 // number is for what they cannot see (a changed layout).
-#define HTTPP_UTILS_ABI_VERSION 4  // 2: logger::enabled() reads a cache inside the object (ADR-0090); 3, 4: the library log back end is gone (ADR-0091)
+#define HTTPP_UTILS_ABI_VERSION 4  // 2: logger::enabled() reads a cache inside the object (ADR-0011); 3, 4: the library log back end is gone (ADR-0011)
 namespace httpp {
 HTTPP_UTILS_API int utils_abi_version() noexcept;  // the value the loaded library was built with
 inline bool utils_abi_compatible() noexcept { return utils_abi_version() == HTTPP_UTILS_ABI_VERSION; }
@@ -116,7 +116,7 @@ namespace httpp::logging {
 
 // ----------------------------------------------------------------------------------------- levels
 
-// The one level type of the library (ADR-0085): the level of a record, of a logger, and of the library's own log (set_log_level).
+// The one level type of the library (ADR-0011): the level of a record, of a logger, and of the library's own log (set_log_level).
 // The numbers are Python's, plus `trace` below debug and `off` above critical. `off` is a threshold only: set on a logger or on
 // set_log_level it lets nothing through, and no record is ever made at it. `notset` on a logger means "ask the parent".
 enum class level : int { notset = 0, trace = 5, debug = 10, info = 20, warning = 30, error = 40, critical = 50, off = 60 };
@@ -230,7 +230,7 @@ private:
 };
 
 // One line per record appended to a file (append = false truncates it first), flushed after every record.
-// Throws std::runtime_error when the file cannot be opened. (httpp::path, not std::filesystem::path: ADR-0054, 0055.)
+// Throws std::runtime_error when the file cannot be opened. (httpp::path, not std::filesystem::path: ADR-0054.)
 class HTTPP_UTILS_API file_handler : public handler {
 public:
     explicit file_handler(const httpp::path& file, bool append = true);
@@ -267,7 +267,7 @@ private:
 
 namespace detail {
 struct manager;
-// Counts every set_level() of any logger. A logger's cached effective level is valid while its epoch is this one (ADR-0090). Defined in
+// Counts every set_level() of any logger. A logger's cached effective level is valid while its epoch is this one (ADR-0011). Defined in
 // logging.cpp, never inline: a copy per module would be a second counter. Starts at 1; a fresh cache holds 0, which never matches.
 HTTPP_UTILS_API extern std::atomic<std::uint32_t> level_epoch;
 }  // namespace detail
@@ -287,7 +287,7 @@ public:
     level effective_level() const noexcept;  // the first level that is not notset, going up the tree
     bool is_enabled_for(level lv) const noexcept;
     // The same answer as is_enabled_for, read inline: two relaxed loads and a compare, no call into libhttpp_utils, no walk up the tree.
-    // This is what HTTPP_LOG / HTTPP_LOGF test, so a disabled line costs that and nothing else (ADR-0090).
+    // This is what HTTPP_LOG / HTTPP_LOGF test, so a disabled line costs that and nothing else (ADR-0011).
     bool enabled(level lv) const noexcept {
         const std::uint64_t c = cache_.load(std::memory_order_relaxed);
         if (static_cast<std::uint32_t>(c >> 32) == detail::level_epoch.load(std::memory_order_relaxed))
@@ -349,7 +349,7 @@ private:
 // is warning.
 HTTPP_UTILS_API logger& get_logger(std::string_view name = {});
 
-// ------------------------------------------------------------------------------- stream style and lazy macros (ADR-0090)
+// ------------------------------------------------------------------------------- stream style and lazy macros (ADR-0011)
 //
 //   HTTPP_LOG(log, info) << "x=" << x << " in " << path;     // C++ streams; the whole right side is skipped when disabled
 //   HTTPP_LOGF(log, info, "x=%d in %s", x, name);            // printf style, checked by the compiler, also skipped when disabled
@@ -646,7 +646,7 @@ private:
 
 }  // namespace httpp::logging
 
-// ---- The library's own log (formerly httpp/log.hpp, ADR-0075) ----
+// ---- The library's own log (formerly httpp/log.hpp, ADR-0011) ----
 
 namespace httpp {
 

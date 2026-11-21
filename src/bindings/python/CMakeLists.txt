@@ -103,7 +103,7 @@ if(DEFINED SKBUILD)
     #   target_link_libraries(app PRIVATE httpp::httpp)
     #
     # (see examples/find_httpp_via_python/ for a full working example.)
-    # httpp::url is urlparser::url (ADR-0072), so the SDK carries liburlparser's shared library and its one header: the
+    # httpp::url is urlparser::url (ADR-0067), so the SDK carries liburlparser's shared library and its one header: the
     # exported httpp_core links it PUBLIC. Both land in the same export set as httpp_core, and so does httpp_utils (ADR-0086:
     # logging, path, progress), which httpp_core links PUBLIC too. find_package(httpp) gives httpp::httpp_utils, httpp::httpp_core.
     # liburlparser names its own install include dir ("include", or "liburlparser/include" in its wheel), which is not where

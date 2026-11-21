@@ -147,7 +147,7 @@ def test_defaults_follow_the_machine(monkeypatch):
 
 
 def test_the_default_pool_starts_small_and_may_still_grow_large(monkeypatch):
-    """ADR-0059: one thread under a GIL, two without one; the ceiling stays what the C++ default would have been."""
+    """ADR-0024: one thread under a GIL, two without one; the ceiling stays what the C++ default would have been."""
     calls = []
     real = Server.thread_pool
     monkeypatch.setattr(Server, "thread_pool", lambda self, *a, **k: (calls.append((a, k)), real(self, *a, **k))[1])

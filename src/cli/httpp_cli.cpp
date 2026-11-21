@@ -12,7 +12,7 @@
 // Everything after `py` is handed to `<python> -m httpp py` untouched, so the options of the Python commands are defined
 // in one place only (src/bindings/python/httpp/__main__.py).
 //
-// macOS 10.13 limits apply here too: no std::filesystem, the file system goes through httpp::path (ADR-0054, 0058).
+// macOS 10.13 limits apply here too: no std::filesystem, the file system goes through httpp::path (ADR-0054).
 
 #include "CLI11.hpp"
 
@@ -459,7 +459,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         if (a.has_user) req.basic_auth(plan.user_name, plan.user_password);
         if (a.insecure) req.verify(false);
         else if (!a.cacert.empty()) req.ca_file(httpp::path(a.cacert));
-        if (a.retry > 0) { // the library sends the request again (ADR-0099); the warning is only what curl prints before it waits
+        if (a.retry > 0) { // the library sends the request again (ADR-0097); the warning is only what curl prints before it waits
             req.retry(a.retry).retry_delay(a.retry_delay).retry_connrefused(a.retry_connrefused);
             if (!a.silent) {
                 req.on_retry([&a](const httpp::response&, int number, long delay) {
@@ -514,10 +514,10 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
             std::cerr << ">" << std::endl;
         }
 
-        // The answer is written as it arrives (ADR-0084): an endless one shows up at once, a big one never sits in
+        // The answer is written as it arrives (ADR-0077): an endless one shows up at once, a big one never sits in
         // memory, and a closed pipe stops the transfer. The file is opened when the final head is accepted, so a
         // transfer that never happens leaves no file behind.
-        // A file is written by the library (save_to / save_in, ADR-0102); only standard output is written here.
+        // A file is written by the library (save_to / save_in, ADR-0097); only standard output is written here.
         const bool to_file = !target.empty() || name_from_answer;
         bool write_failed = false;
         std::string write_error;

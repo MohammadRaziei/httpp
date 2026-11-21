@@ -1,4 +1,4 @@
-// The inline fast path and the lazy macros of httpp/logging.hpp (ADR-0090). Links only httpp::utils.
+// The inline fast path and the lazy macros of httpp/logging.hpp (ADR-0011). Links only httpp::utils.
 #include <httpp/logging.hpp>
 
 #include <cstdio>

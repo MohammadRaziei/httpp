@@ -177,7 +177,7 @@ public:
     HTTPP_API server& operator=(const server&) noexcept;
     HTTPP_API server& operator=(server&&) noexcept;
 
-    // A new, independent server with a copy of this one's configuration (ADR-0105): routes, mounts, hooks, middleware, error and
+    // A new, independent server with a copy of this one's configuration (ADR-0093): routes, mounts, hooks, middleware, error and
     // exception handlers, TLS, compression and every setting (including io_threads), but never sockets or threads: the clone is not
     // bound, so give it its own port. Later changes to either do not reach the other (a copy made with `=` is the same server).
     // Handlers are copied as std::function values, so what they captured stays shared, and a handler that captured stopper()
@@ -370,7 +370,7 @@ private:
 #pragma warning(disable : 4251) // the std members of the exported classes are private and never touched by a caller
 #endif
 
-// What `directory`, `file_browser` and `swagger` have in common (ADR-0088): a piece of a site that is put on a server under a base path.
+// What `directory`, `file_browser` and `swagger` have in common (ADR-0007): a piece of a site that is put on a server under a base path.
 // Each is still a plain value you configure with its own set_*() calls and then mount; this only lets code hold any of them as one
 // thing:
 //

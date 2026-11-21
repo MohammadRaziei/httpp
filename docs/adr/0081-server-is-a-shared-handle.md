@@ -1,6 +1,6 @@
 # ADR-0081: `server` is a shared handle; `mount` takes and returns it by value
 
-- **Status:** accepted; supersedes the first decision of ADR-0078 ("`mount` returns the server it was given")
+- **Status:** accepted; supersedes the first decision of ADR-0041 ("`mount` returns the server it was given")
 - **Decided by:** the project owner, with two conditions: `server::stopper()` must exist to break reference cycles, and "the last handle closes the server" must be documented
 - **Source:** `include/httpp/server.hpp` (`server`, `server_stopper`, `directory::mount`), `include/httpp/file_browser.hpp`, `include/httpp/swagger.hpp`, `src/core/server.cpp`, `tests/cpp/test_server_lifecycle.cpp`
 
@@ -28,7 +28,7 @@ With `server` move-only and `mount(server&)` it failed twice: a temporary cannot
 ## Rejected alternatives
 
 - **Keeping `unique_ptr` with `&`/`&&` overloads that return `server&&`.** `auto&& r = ...` dangles, and every chain member would still need two forms.
-- **`directory::make_server()`.** A second name for the same result (as in ADR-0078).
+- **`directory::make_server()`.** A second name for the same result (as in ADR-0041).
 - **Only documenting the dangling form.** The `&&` overloads cost one line each and make it a compile error.
 
 ## Consequences
@@ -41,4 +41,4 @@ With `server` move-only and `mount(server&)` it failed twice: a temporary cannot
 
 ## Related
 
-ADR-0078 (the commands call the library), ADR-0066 (builders), ADR-0038 (`shutdown`), ADR-0017 (`NOT_EXPOSED`).
+ADR-0041 (the commands call the library), ADR-0066 (builders), ADR-0038 (`shutdown`), ADR-0016 (`NOT_EXPOSED`).

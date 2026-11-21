@@ -200,7 +200,7 @@ def test_bad_base_and_root_raise_value_error_when_mounting(tree):
 
 
 def test_mount_file_browser_is_gone_from_server():
-    assert not hasattr(Server, "mount_file_browser")  # one way to do it, as in C++ (ADR-0065)
+    assert not hasattr(Server, "mount_file_browser")  # one way to do it, as in C++ (ADR-0032)
 
 
 def test_write_methods_are_refused(tree):

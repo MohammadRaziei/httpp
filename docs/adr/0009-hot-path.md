@@ -26,4 +26,4 @@
 
 ## Related
 
-ADR-0002, ADR-0005
+ADR-0002 and 0005

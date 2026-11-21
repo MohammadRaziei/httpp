@@ -416,7 +416,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         });
         if (closed) return;
         // A drain that began while the upgrade answer was still on its way to this loop did not see this connection as a tunnel:
-        // tell the tunnel now, or it would stay open until the grace period cuts it (ADR-0043).
+        // tell the tunnel now, or it would stay open until the grace period cuts it (ADR-0026).
         if (srv.draining) {
             t->on_drain(tio);
             if (closed) return;

@@ -592,7 +592,7 @@ def test_curl_a_refused_connection_exits_7_and_says_why(httpp_exe, tmp_path):
     assert not out.exists()  # a transfer that never happened leaves no file behind
 
 
-# --- curl and proxies (ADR-0067, ADR-0084) -----------------------------------------------------------------------
+# --- curl and proxies (ADR-0067 and 0077) -----------------------------------------------------------------------
 
 # An empty variable counts as unset, so these shield the tests from the proxy variables of the machine they run on.
 NO_PROXY_VARIABLES = {name: "" for name in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY")}
@@ -885,7 +885,7 @@ def test_curl_A_and_e_set_the_user_agent_and_the_referer(httpp_exe, echo_app):
     assert (json.loads(r.stdout)["ua"], json.loads(r.stdout)["ref"]) == ("probe/1", "http://from.example/")
     assert (json.loads(long_form.stdout)["ua"], json.loads(long_form.stdout)["ref"]) == ("probe/2", "http://x/")
     assert json.loads(own.stdout)["ua"] == "mine"  # an explicit -H wins over -A
-    assert re.fullmatch(r"curl/\d+\.\d+\.\d+", json.loads(default.stdout)["ua"])  # the command presents itself as curl (ADR-0084)
+    assert re.fullmatch(r"curl/\d+\.\d+\.\d+", json.loads(default.stdout)["ua"])  # the command presents itself as curl (ADR-0077)
 
 
 def test_curl_max_redirs_bounds_the_hops_with_47(httpp_exe, echo_app):

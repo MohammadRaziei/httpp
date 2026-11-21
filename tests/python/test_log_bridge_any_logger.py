@@ -1,4 +1,4 @@
-"""`httpp.bridge_logger(name)` sends a C++ logger tree into Python's `logging`, under the same names (ADR-0080).
+"""`httpp.bridge_logger(name)` sends a C++ logger tree into Python's `logging`, under the same names (ADR-0011).
 
 The C++ records here come from `_log_from_cpp`, which logs on any C++ logger from the calling thread (with the GIL held,
 as a binding without `nogil` does) and from library threads."""

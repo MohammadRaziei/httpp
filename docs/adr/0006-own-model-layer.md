@@ -29,4 +29,4 @@ FastAPI-style code (request bodies, response models, 422 errors) must work witho
 
 ## Related
 
-ADR-0007, ADR-0013
+ADR-0007 and 0013

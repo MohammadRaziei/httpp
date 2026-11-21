@@ -33,4 +33,4 @@ idle connections (a reviewer asked) and no other C++ framework to compare with. 
   that Drogon builds with other compilers or on macOS; the fairness of the `websockets` library row (its default is a pure asyncio server).
 
 ## Related
-ADR-0026, ADR-0027, ADR-0028.
+ADR-0026 and 0028.

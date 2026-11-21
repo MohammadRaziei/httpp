@@ -5,7 +5,7 @@
 
 ## Context
 
-`embed_files` (ADR-0008) writes every byte of a data file into a generated header. The Swagger UI bundle is 1.5 MB, and the planned
+`embed_files` (ADR-0007) writes every byte of a data file into a generated header. The Swagger UI bundle is 1.5 MB, and the planned
 file browser UI will be embedded the same way. Text assets compress to about a quarter of their size (measured with `gzip -9`:
 `swagger-ui-bundle.js` 1587262 to 430288 bytes, `swagger-ui.css` 186154 to 26542, `swagger-api-icon.svg` 2742 to 1336), and a
 browser can use the gzip bytes as they are, so a server could send them with no work per request.
@@ -47,4 +47,4 @@ browser can use the gzip bytes as they are, so a server could send them with no 
 
 ## Related
 
-ADR-0008, ADR-0019
+ADR-0007 and 0019

@@ -28,7 +28,7 @@ struct download_result {
 
 // Fluent builder - the way to download a URL to a file in httpp, with the file semantics a download needs (the .part file, resume,
 // SHA-256, a lock, progress; only a good status is written). To write the answer of one request as it is, an error page included,
-// as curl -o does, use request::save_to() (ADR-0102):
+// as curl -o does, use request::save_to() (ADR-0097):
 //
 //   httpp::download("http://x.com/f.zip", "f.zip").run();
 //
@@ -41,7 +41,7 @@ struct download_result {
 //   download_result res = fut.get();
 //
 // The network settings (timeout, connect_timeout, max_time, max_redirects, basic_auth, bearer, proxy, verify, ca_file) are the
-// ones of client and request, from configurable (ADR-0094, ADR-0101), under the same names. Where a download differs:
+// ones of client and request, from configurable (ADR-0093), under the same names. Where a download differs:
 //   - max_redirects is 20 by default, not 0: redirects are followed here unlike in request. The common case (GitHub release
 //     assets, CDN links, shortened URLs) answers 302 before serving anything, and a plain "download this URL" is expected to
 //     land the real file. 0 follows none (a 3xx is the final response), -1 has no limit.
@@ -49,8 +49,8 @@ struct download_result {
 //     no sign of life: see "Locking". 0 or less keeps the default (300 s for the network, 15 s for the lock).
 //   - auto_compression is deleted (a call does not compile): a download always asks for identity coding, because the bytes
 //     on disk are what the server sent and a checksum is over those.
-//   - retry, retry_delay and retry_connrefused work as on request (ADR-0099), each try with its own timeout and max_time.
-//     A try that is cut off in the middle of the body does not leave the file wrong (ADR-0104): a 206 is written where its
+//   - retry, retry_delay and retry_connrefused work as on request (ADR-0097), each try with its own timeout and max_time.
+//     A try that is cut off in the middle of the body does not leave the file wrong (ADR-0097): a 206 is written where its
 //     Content-Range says it starts, over what an earlier try already appended, and a 200 starts the file again. A 206 with no
 //     usable Content-Range, or one that starts after the end of the file, is an error, not a guess. With resume() the Range
 //     is still the one asked for at the start, so a retry takes again the bytes the failed try already wrote.
@@ -75,7 +75,7 @@ public:
     download& auto_compression(bool) = delete;
     bool auto_compression() const = delete;
 
-    // A header sent with every step of the job: the size probe, the file and the checksum file (ADR-0105). Like the header() of a
+    // A header sent with every step of the job: the size probe, the file and the checksum file (ADR-0093). Like the header() of a
     // client session, a second call with the same name (any case) replaces the first. The credentials rule holds for it: a
     // header is sent to the checksum file only when that is on the same host and port as the URL. A redirect that is followed
     // keeps it, as request does (only Authorization, Proxy-Authorization and Cookie are dropped for another origin). Range and

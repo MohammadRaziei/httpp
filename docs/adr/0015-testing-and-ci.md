@@ -49,4 +49,4 @@ those branches are only compiled there.
 
 ## Related
 
-ADR-0006, ADR-0010, ADR-0011, ADR-0012, ADR-0013
+ADR-0006, 0010, 0011, 0012 and 0013

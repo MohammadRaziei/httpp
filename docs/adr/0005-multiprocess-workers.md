@@ -28,4 +28,4 @@ capped by the cgroup v1/v2 quota, rounded down, at least 1).
 
 ## Related
 
-ADR-0001, ADR-0012
+ADR-0001 and 0012

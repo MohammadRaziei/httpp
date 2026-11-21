@@ -34,7 +34,7 @@ One line in `languages.json` and one folder in `snippets/`.
 
 ## Publishing
 
-`.github/workflows/pages.yml` deploys the site to https://mohammadraziei.github.io/httpp/ (ADR-0064) on a push to master that touches `docs/site/` or the benchmark JSON.
+`.github/workflows/pages.yml` deploys the site to https://mohammadraziei.github.io/httpp/ (ADR-0060) on a push to master that touches `docs/site/` or the benchmark JSON.
 Set Settings, Pages, Source: "GitHub Actions" once, or the address keeps answering 404. Locally the site is at http://localhost:3000/httpp/.
 
 ## The Benchmarks page

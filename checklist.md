@@ -12,14 +12,14 @@
 - [x] Own async server engine (Asio + llhttp): keep-alive, pipelining, chunked, limits (413/414/431); connections balanced over I/O threads ([ADR-0034](docs/adr/0034-balanced-connections-between-io-threads.md))
 - [x] Server on top of it: router, static files with HEAD/Range, hooks, `route_async` with a 504 backstop, `route_io`/`route_shared`
 - [x] Retire cpp-httplib, step 1: blocking client on the async engine and the shared policy layer (ADR-0051)
-- [x] Retire cpp-httplib, step 2: downloads on a streaming body sink (ADR-0052); step 3: the vendored copy is deleted (ADR-0053)
+- [x] Retire cpp-httplib, step 2: downloads on a streaming body sink (ADR-0051); step 3: the vendored copy is deleted (ADR-0051)
 - [x] Async client engine (TLS with mbedTLS, keep-alive pool, proxy, redirects, cookies/auth); the blocking client and downloads run on it too
-- [x] FastAPI-like layer: `Query/Path/Header/Cookie/Body/Depends`, forms and uploads, OpenAPI 3.1 + compiled-in Swagger UI, response classes, `HTTPException`, `BackgroundTasks`, `APIRouter`, startup/shutdown hooks ([ADR-0007](docs/adr/0007-openapi-from-one-plan.md), [0008](docs/adr/0008-swagger-ui-compiled-in.md), [0020](docs/adr/0020-httpexception-and-response-classes.md))
+- [x] FastAPI-like layer: `Query/Path/Header/Cookie/Body/Depends`, forms and uploads, OpenAPI 3.1 + compiled-in Swagger UI, response classes, `HTTPException`, `BackgroundTasks`, `APIRouter`, startup/shutdown hooks ([ADR-0007](docs/adr/0007-openapi-and-swagger.md), [0008](docs/adr/0007-openapi-and-swagger.md), [0020](docs/adr/0020-http-exception-and-response-classes.md))
 - [x] Own Pydantic-v2-shaped models with Cython validators ([ADR-0006](docs/adr/0006-own-model-layer.md))
-- [x] `httpp run main:app`, `app.run()`, `--workers N` (Linux), `io_threads`, lanes, inline async, free-threaded builds ([ADR-0012](docs/adr/0012-run-wins-over-listen.md), [0023](docs/adr/0023-inline-async.md), [0024](docs/adr/0024-io-threads-and-lanes.md), [0025](docs/adr/0025-measured-defaults-and-the-crash.md))
-- [x] WebSocket: C++ engine tunnel and RFC 6455 session, Python `@app.websocket`; Autobahn 589 OK, no FAILED ([ADR-0026](docs/adr/0026-websocket-engine.md), [0027](docs/adr/0027-websocket-handshake-and-python.md), [0029](docs/adr/0029-utf8-checked-per-fragment.md))
+- [x] `httpp run main:app`, `app.run()`, `--workers N` (Linux), `io_threads`, lanes, inline async, free-threaded builds ([ADR-0012](docs/adr/0012-run-wins-over-listen.md), [0023](docs/adr/0023-inline-async-handlers.md), [0024](docs/adr/0024-io-threads-and-defaults.md), [0025](docs/adr/0024-io-threads-and-defaults.md))
+- [x] WebSocket: C++ engine tunnel and RFC 6455 session, Python `@app.websocket`; Autobahn 589 OK, no FAILED ([ADR-0026](docs/adr/0026-websocket.md), [0027](docs/adr/0026-websocket.md), [0029](docs/adr/0029-incremental-utf8-validation.md))
 - [x] Logging bridge, compiled and compressed embedded files ([ADR-0031](docs/adr/0031-compressed-embedded-files.md)), vendored gzip/deflate in the clients ([ADR-0019](docs/adr/0019-vendored-deflate-inflate.md))
-- [x] Read-only file browser: C++ `httpp::file_browser(root)...mount(server, base)` ([ADR-0065](docs/adr/0065-file-browser-builder.md)), Python `httpp.FileBrowser`, `httpp browse` ([ADR-0032](docs/adr/0032-read-only-file-browser.md))
+- [x] Read-only file browser: C++ `httpp::file_browser(root)...mount(server, base)` ([ADR-0032](docs/adr/0032-file-browser.md)), Python `httpp.FileBrowser`, `httpp browse` ([ADR-0032](docs/adr/0032-file-browser.md))
 - [x] Engine cost work: [ADR-0033](docs/adr/0033-engine-per-request-cost.md) (with the 2026-11-05 addendum), [0035](docs/adr/0035-hook-path-needs-no-server-pointer.md), [0036](docs/adr/0036-connection-read-buffer-not-zero-filled.md). Against Drogon on 4 I/O threads the two are now roughly equal (medians 652k against 618k req/s, ranges overlap; see `HANDOFF.md` section 5)
 - [x] Tests (2026-11-05): 407 C++ tests, clean under ASan and TSan; Python 665 passed / 4 skipped (3.14 GIL), 664 / 5 (3.14t), 665 / 4 (3.13)
 - [ ] CI green on Linux, macOS and Windows for the current tree (owner; earlier runs were green, nothing newer is confirmed)
@@ -28,7 +28,7 @@
 
 ## 1. Command line in C++ (done in the tree, ADR-0041; verification below)
 
-Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl` native, `httpp py run|path` Python, `HTTPP_PYTHON`.
+Design: `docs/adr/0041-command-line.md`. `httpp server|browse|download|curl` native, `httpp py run|path` Python, `HTTPP_PYTHON`.
 
 - [x] Tests: `tests/python/test_cli.py` (server, download, curl, `--help`, exit codes, `py` argv unchanged, `HTTPP_PYTHON`), `tests/python/conftest.py` (`httpp_exe`), `test_file_browser.py` uses the executable
 - [x] Vendor `CLI11.hpp` v2.5.0 in `src/third_party/CLI11/`, listed in `src/third_party/README.md`
@@ -45,11 +45,11 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 ## 2. Features
 
 ### Server and framework
-- [x] A test client in Python (`httpp.testclient.TestClient`, ADR-0042), Starlette-shaped: a real server on a loopback port of its own. `files=` and `websocket_connect` came with ADR-0046. Open: an in-memory mode
-- [x] Middleware set (ADR-0037, ADR-0040): CORS, TrustedHost, GZip and HTTPS redirect (C++ and Python)
+- [x] A test client in Python (`httpp.testclient.TestClient`, ADR-0042), Starlette-shaped: a real server on a loopback port of its own. `files=` and `websocket_connect` came with ADR-0042. Open: an in-memory mode
+- [x] Middleware set (ADR-0037 and 0040): CORS, TrustedHost, GZip and HTTPS redirect (C++ and Python)
 - [x] TLS for the server (`https`, `wss`) (ADR-0040); not yet: certificate reload without restart, session tickets, client certificates, ALPN
 - [x] `--reload` for development (ADR-0039)
-- [x] Graceful shutdown with connection drain and a timeout (ADR-0038); open WebSockets get a close 1001 and are waited for (ADR-0043)
+- [x] Graceful shutdown with connection drain and a timeout (ADR-0038); open WebSockets get a close 1001 and are waited for (ADR-0026)
 - [x] `--workers` respawn of crashed workers with a back-off, give-up after a crash loop, and workers that end with their supervisor (ADR-0044); open: a restart budget over a long time, jitter
 - [ ] Dependencies with `yield` (cleanup after the response) and `response_model` filtering: check what the FastAPI layer lacks against FastAPI's docs
 - [x] ETag, `Last-Modified`, 304, 412 and `If-Range` for mounted files and the file browser raw route (ADR-0045)
@@ -59,7 +59,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 - [ ] The 504 deadline of an unanswered async request starts when the handler returns (document or change)
 
 ### WebSocket
-- [x] `APIRouter.websocket` and `router::route_ws`, dependencies on WebSocket routes (ADR-0048); WebSocket routes stay out of OpenAPI by design
+- [x] `APIRouter.websocket` and `router::route_ws`, dependencies on WebSocket routes (ADR-0026); WebSocket routes stay out of OpenAPI by design
 - [ ] `on_close` earlier than the lingering close (considered, kept), permessage-deflate (not planned)
 - [ ] The WebSocket benchmark and idle-connection memory (`BENCH_ONLY=ws,idle`) were written (ADR-0030) but never run on the owner's machine; httpp is about 20 KiB per idle connection against Drogon about 9 KiB in the sandbox (unchecked): look for per-connection buffers
 
@@ -84,7 +84,7 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 - [ ] Official interleaved bench on the current tree (needs the owner's `uv` to reach PyPI; try a proxy or VPN, `UV_HTTP_TIMEOUT=600`)
 - [ ] A ten-round A/B script (medians, min, max) for httpp against Drogon, and the `performance` governor
 - [ ] Fewer `shared_ptr` copies per request (about 14 releases; ceiling about 2 percent; needs ASan, TSan and the outlive tests)
-- [x] 3.14t `def` pool starts at 2 (ADR-0059: starts at 2, grows after 2 ms; +20 percent and half the p99 at 1 I/O thread). Still open: `def JSON` plateau on 3.14t, non-monotone inline on 3.14t
+- [x] 3.14t `def` pool starts at 2 (ADR-0024: starts at 2, grows after 2 ms; +20 percent and half the p99 at 1 I/O thread). Still open: `def JSON` plateau on 3.14t, non-monotone inline on 3.14t
 - [ ] Competitors: uWebSockets, libhv, Crow, oat++, RESTinio, Boost.Beast, granian, Robyn (Drogon and uvicorn are done)
 - [ ] Optional: take conntrack out of the loopback path for fair benchmarking (about 5 percent of cycles for both servers)
 
@@ -98,5 +98,5 @@ Design: `docs/adr/0041-native-cli-and-py.md`. `httpp server|browse|download|curl
 - [x] 0.8.1 committed, tagged and released by the owner (2026-11-11)
 - [ ] 0.9.0 committed, tagged and released by the owner
 
-## 5. Binding policy (ADR-0017), unchanged
+## 5. Binding policy (ADR-0016), unchanged
 Python binds only what `include/` exports; a public C++ function is bound only when necessary; `tests/python/test_cpp_python_parity.py` forces every public C++ name to be bound or listed in `NOT_EXPOSED` with a reason. Not exposed on purpose: `route_io`, `route_shared`, `route_ws`, `find_swagger_ui_asset`. The new `mount_file_browser` is bound (as `Server.mount_file_browser`).

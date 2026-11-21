@@ -9,7 +9,7 @@ import httpp
 _threads = int(os.environ.get("BENCH_THREADS", "0")) or None
 app = httpp.Server(openapi_url=None, inline_async=os.environ.get("BENCH_INLINE") == "1", threads=_threads,
                    max_threads=_threads * 4 if _threads else None)
-# BENCH_MAX=m and BENCH_GROW_MS=ms (with BENCH_THREADS) set the ceiling and the growth wait of the pool too (ADR-0059).
+# BENCH_MAX=m and BENCH_GROW_MS=ms (with BENCH_THREADS) set the ceiling and the growth wait of the pool too (ADR-0024).
 if os.environ.get("BENCH_GROW_MS"):
     app.thread_pool(_threads, int(os.environ["BENCH_MAX"]), grow_after_ms=float(os.environ["BENCH_GROW_MS"]))
 

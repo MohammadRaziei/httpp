@@ -1,25 +1,23 @@
 # ADR-0054: Paths and the file system: no `std::filesystem`, one public `httpp::path`
 
 - **Status:** accepted (merged ADR; each part keeps its own status line)
-- **Merged on:** 2026-11-20, at the request of the project owner (the ADRs of one subject were spread over many numbers). The text of every part is kept; the old numbers still name the parts below.
-- **Merges:** ADR-0054, ADR-0055, ADR-0058
+- **Merged on:** 2026-11-21, at the request of the project owner: the decisions of one subject were spread over 3 ADRs. The text of every part is kept, as a section below, in the order it was decided.
 
 ## Current state
 
-Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history, in the order they were decided.
+Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history. Where a part and this summary disagree, this summary wins.
 
-- **No `std::filesystem` anywhere** (the macOS wheels target 10.13, where it is unavailable); a test fails the build when it appears in `src/` or `include/` (0054).
-- **One public type, `httpp::path`** (`httpp/path.hpp`): a pathlib-shaped UTF-8 path with `/` as separator that also holds the disk operations (`stat`, `lstat`, `resolve`, `is_relative_to`, `iterdir`, `mkdir`, `rmdir`, `unlink`, `rename`, `open`, `read_text`, `write_text`, ...). The internal `httpp::fs` module of 0054 no longer exists (0058); its names map as `real` to `resolve`, `list` to `iterdir`, `make_dir` to `mkdir`, `replace` to `rename`, `join` to `operator/`, `filename` to `name`.
-- **Every public function that names a file takes `const path&`;** a `std::string` converts implicitly. Python takes `str`, `bytes` or any `os.PathLike` and has no path class of its own (0055).
-- **Concurrent access:** `write_text_atomic` (write beside the target, then rename) for files that others may read; `file_lock` (`httpp/file_lock.hpp`, Python `httpp.FileLock`) is a separate class for mutual exclusion (0055).
-- **`mkdir()` is true only when this call created the directory** (0058).
-- The Windows half of this code was written without a Windows machine (stated in 0054 and 0058).
+- **No `std::filesystem` anywhere** (the macOS wheels target 10.13, where it is unavailable); a test fails the build when it appears in `src/` or `include/`.
+- **One public type, `httpp::path`** (`httpp/path.hpp`): a pathlib-shaped UTF-8 path with `/` as separator that also holds the disk operations (`stat`, `lstat`, `resolve`, `is_relative_to`, `iterdir`, `mkdir`, `rmdir`, `unlink`, `rename`, `open`, `read_text`, `write_text`, ...). The internal `httpp::fs` module no longer exists; its names map as `real` to `resolve`, `list` to `iterdir`, `make_dir` to `mkdir`, `replace` to `rename`, `join` to `operator/`, `filename` to `name`.
+- **Every public function that names a file takes `const path&`;** a `std::string` converts implicitly. Python takes `str`, `bytes` or any `os.PathLike` and has no path class of its own.
+- **Concurrent access:** `write_text_atomic` (write beside the target, then rename) for files that others may read; `file_lock` (`httpp/file_lock.hpp`, Python `httpp.FileLock`) is a separate class for mutual exclusion.
+- **`mkdir()` is true only when this call created the directory.**
+- The Windows half of this code was written without a Windows machine.
 
 ## Parts
+### An own file system module, `httpp::fs`, replaces std::filesystem
 
-### ADR-0054: An own file system module, `httpp::fs`, replaces std::filesystem
-
-- **Status:** accepted; the module was merged into `httpp::path` by ADR-0058 (the design below holds, the names changed: `fs::stat(p)` is `path(p).stat()`, `make_dir` is `mkdir`, `list` is `iterdir`, `real` is `resolve`, `replace` is `rename`)
+- **Status:** accepted; the module was merged into `httpp::path` by the part "The file system module is merged into `httpp::path`" (the design below holds, the names changed: `fs::stat(p)` is `path(p).stat()`, `make_dir` is `mkdir`, `list` is `iterdir`, `real` is `resolve`, `replace` is `rename`)
 - **Decided by:** the project owner ("do not use filesystem; write our own")
 - **Source:** `src/core/internal/fs.hpp`, `src/core/fs.cpp`, `tests/cpp/test_fs.cpp`, `tests/python/test_portability_sources.py`
 
@@ -53,9 +51,9 @@ All library and CLI code goes through it. `fs.cpp` is also compiled into the CLI
 
 #### Related
 
-ADR-0050 (the amendment), ADR-0051 to ADR-0053
+ADR-0011 (the amendment), ADR-0051 to ADR-0051
 
-### ADR-0055: `httpp::path`, a pathlib-shaped public path type
+### `httpp::path`, a pathlib-shaped public path type
 
 - **Status:** accepted
 - **Decided by:** the project owner (the Python side should read like the C++ side: pathlib.Path there, an own path here)
@@ -63,13 +61,13 @@ ADR-0050 (the amendment), ADR-0051 to ADR-0053
 
 #### Context
 
-ADR-0054 gave the library an internal file system module on UTF-8 strings. Every public function that takes a path still took a `std::string`, while Python users hold a `pathlib.Path`. The two sides should look alike, and a C++ user outside the project needs a path type that does not drag in `<filesystem>` (macOS 10.13).
+the part "An own file system module, `httpp::fs`, replaces std::filesystem" gave the library an internal file system module on UTF-8 strings. Every public function that takes a path still took a `std::string`, while Python users hold a `pathlib.Path`. The two sides should look alike, and a C++ user outside the project needs a path type that does not drag in `<filesystem>` (macOS 10.13).
 
 #### Decision
 
 - `httpp::path` is a public, installed header (`httpp/path.hpp`, exported). It is a UTF-8 string with '/' as separator, cleaned on construction like pathlib (repeated and trailing separators go). `std::string` and `const char*` convert to it implicitly, so every call that passed a string still compiles.
 - pathlib-shaped members: `name`, `stem`, `suffix`, `parent`, `with_name`, `with_suffix`, `is_absolute`, `operator/`, `as_posix`, `as_uri`, `path::cwd()`, `absolute`, `exists`, `is_file`, `is_dir`, `size`, `mkdir`, `unlink`, `rename`, and `open(mode)` (a `std::fstream`, opened through the wide API on Windows), plus `read_text` / `write_text`. Not covered: iterating the parts, `relative_to`, `glob`, `resolve`.
-- The disk members call `httpp::fs` (ADR-0054), which stays the internal low-level layer: no second implementation. (Superseded by ADR-0058: `fs` was merged into `path`.)
+- The disk members call `httpp::fs` (the part "An own file system module, `httpp::fs`, replaces std::filesystem"), which stays the internal low-level layer: no second implementation. (Superseded by the part "The file system module is merged into `httpp::path`": `fs` was merged into `path`.)
 - Public API that names a file takes `const path&`: `download` (constructor and `output`), `sha256_file`, `set_log_file`, `set_ca_file` (client, async_client, `request::ca_file`), `server::set_tls`, `mount_file_browser` (root), and `response::file`, so a route serves a file with `res.file = dir / "page.html"`.
 - Concurrent access (added with the atomic write): `path` has no lock inside, since a process-wide mutex does not protect against other processes, serializes all file I/O and does not survive a crash. `write_text()` / `read_text()` stay as they are (like pathlib) and are not thread safe. `write_text_atomic(data)` is the protocol for a file others may read meanwhile: write `<name>.tmp.<random>.<n>` beside the target, then `rename()` over it (atomic on POSIX and Windows), so readers see the whole old text or the whole new one and a failure leaves the old file untouched and no temporary file behind; two writers at once do not corrupt it (the last rename wins). It is not read-modify-write (take a lock for that: download's `<dest>.lock` directory, which stays private to `download.cpp`) and it does not `fsync`. `read_text(start, end)` (a byte range of the file, cut at its end; the whole file without arguments) moved here from `download.cpp`, which uses it (download reads its checksum line and a lock's heartbeat with `read_text(0, n)` and treats a missing file as empty).
 - Mutual exclusion is a separate class, `httpp::file_lock` (`httpp/file_lock.hpp`, Python `httpp.FileLock`), not a member of `path`: Python's path is `pathlib`, which cannot gain one. `file_lock(target, stale_after = 15 s)` takes the atomic `mkdir` of `<target>.lock` and waits while another holder lives. The holder rewrites `alive` (`pid n`) every second; a waiter judges liveness by that content changing on its own clock (not by mtimes), and after `stale_after` without change removes the dead lock and takes it. If the lock directory cannot be made at all (read-only parent), the code goes on unlocked (`owned()` is false) instead of blocking. A lock held for a long time needs the heartbeat because a dead owner leaves the directory forever; `write_text_atomic` holds nothing, so it needs none. OS locks (`flock`, `LockFileEx`) were not used: they are unreliable on NFS. `download` uses it for its destination.
@@ -78,24 +76,24 @@ ADR-0054 gave the library an internal file system module on UTF-8 strings. Every
 #### Consequences
 
 - `response::file` changed type from `std::string` to `path`: assigning a string still works; code that read it as a string uses `.str()`.
-- The Windows half (`path::native`, `open`) shares ADR-0054's caveat: written without a Windows machine.
+- The Windows half (`path::native`, `open`) shares the part "An own file system module, `httpp::fs`, replaces std::filesystem"'s caveat: written without a Windows machine.
 - The parity test maps `path.hpp` to `None` (pathlib.Path is the Python counterpart), so the two new members need no Python side.
 - `file_lock` is not verified on Windows or macOS; two waiters that both judge the same lock stale in the same instant can both take it (the header says so).
 - `write_text_atomic` is not verified on Windows (the rename-replace is the one download already uses) and does not `fsync`.
 
 #### Related
 
-ADR-0054
+the part "An own file system module, `httpp::fs`, replaces std::filesystem"
 
-### ADR-0058: The file system module is merged into `httpp::path`
+### The file system module is merged into `httpp::path`
 
-- **Status:** accepted; amends ADR-0054 and ADR-0055
+- **Status:** accepted; amends the part "An own file system module, `httpp::fs`, replaces std::filesystem" and the part "`httpp::path`, a pathlib-shaped public path type"
 - **Decided by:** the project owner ("why is fs.hpp still there? merge it with path")
 - **Source:** `include/httpp/path.hpp`, `src/core/path.cpp`, `tests/cpp/test_path.cpp`
 
 #### Context
 
-ADR-0054 added an internal `httpp::fs` (free functions on `std::string`), ADR-0055 a public `httpp::path` on top of it. That left two surfaces for one job: `path` forwarded to `fs`, and the library code still spoke `fs` with strings. The internal one was a layer nobody outside needed, and the CLI and the test program each compiled `fs.cpp` again because it was hidden.
+the part "An own file system module, `httpp::fs`, replaces std::filesystem" added an internal `httpp::fs` (free functions on `std::string`), the part "`httpp::path`, a pathlib-shaped public path type" a public `httpp::path` on top of it. That left two surfaces for one job: `path` forwarded to `fs`, and the library code still spoke `fs` with strings. The internal one was a layer nobody outside needed, and the CLI and the test program each compiled `fs.cpp` again because it was hidden.
 
 #### Decision
 
@@ -107,8 +105,8 @@ ADR-0054 added an internal `httpp::fs` (free functions on `std::string`), ADR-00
 #### Consequences
 
 - The file system surface is public (it was internal): `status`, `kind` and the operations are API now.
-- Windows half still written without Windows; same caveat as ADR-0054.
+- Windows half still written without Windows; same caveat as the part "An own file system module, `httpp::fs`, replaces std::filesystem".
 
 #### Related
 
-ADR-0054, ADR-0055
+the part "An own file system module, `httpp::fs`, replaces std::filesystem" and the part "`httpp::path`, a pathlib-shaped public path type"

@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-// request::on_head and request::on_body: the body goes to a callback as it arrives (ADR-0084).
+// request::on_head and request::on_body: the body goes to a callback as it arrives (ADR-0077).
 
 UTEST(httpp_client_request_stream, the_body_goes_to_the_callback_and_not_to_the_response) {
     testutil::local_server ls([](httpp::server& s) {

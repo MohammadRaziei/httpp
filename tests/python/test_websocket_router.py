@@ -1,4 +1,4 @@
-"""WebSocket routes on an APIRouter, and dependencies (`Depends`) on WebSocket routes (ADR-0048)."""
+"""WebSocket routes on an APIRouter, and dependencies (`Depends`) on WebSocket routes (ADR-0026)."""
 import time
 
 import pytest

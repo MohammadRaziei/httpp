@@ -7,7 +7,7 @@
 #include <string>
 #include <type_traits>
 
-// httpp::url is urlparser::url (ADR-0072); what httpp accepts is decided by the url_* functions.
+// httpp::url is urlparser::url (ADR-0067); what httpp accepts is decided by the url_* functions.
 
 UTEST(httpp_url, is_the_liburlparser_type) {
     ASSERT_TRUE((std::is_same<httpp::url, urlparser::url>::value));

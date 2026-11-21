@@ -1,10 +1,76 @@
-# ADR-0025: defaults after the first many-core measurement (i7-13620H, 16 threads)
+# ADR-0024: I/O threads, lanes, and the measured thread defaults
 
-## Status
+- **Status:** accepted (merged ADR; each part keeps its own status line)
+- **Merged on:** 2026-11-21, at the request of the project owner: the decisions of one subject were spread over 3 ADRs. The text of every part is kept, as a section below, in the order it was decided.
+
+## Current state
+
+Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history. Where a part and this summary disagree, this summary wins.
+
+- **One engine per I/O thread** on one port (`SO_REUSEPORT`): a connection stays on its engine for good, so `route_io` still needs no lock. Where `SO_REUSEPORT` is missing (Windows) or a bind fails, the server keeps one thread and logs a warning.
+- **Python lanes:** one I/O thread plus one asyncio loop thread, with its own inbox and wake socket; a free-threaded Python runs one loop per I/O thread, a GIL build runs one loop.
+- **Defaults after the first many-core measurement:** Python `io_threads` is `min(4, CPUs // 4)` with a GIL and 1 on a free-threaded Python and on Windows; the C++ default stays 1; Python `inline_async` is on with 2 CPUs or fewer and off otherwise.
+- **The worker pool** starts at one thread and grows under a GIL; on a free-threaded Python it starts at two threads, with the ceiling of the C++ default and growth after a 2 ms wait.
+
+## Parts
+### several I/O threads, and one asyncio loop per I/O thread on a free-threaded Python
+
+#### Status
+Accepted (2026-10-27). The owner asked for the optimizations that remove the speed ceiling of one I/O thread and one loop thread,
+and delegated the design. Measurements on the target machine (16 threads) are still to come from `benchmarks/Makefile`
+(see "Not verified"); the default stays at one I/O thread until they exist.
+
+#### Context
+One engine runs on one I/O thread: it accepts, reads, parses and answers every connection. On a machine with many cores this is the
+ceiling for anything cheap (the C++ `route_io` hello answer costs about 15 us of CPU, so one thread tops out near 60k req/s).
+Python adds a second ceiling: all `async def` handlers run on one asyncio loop thread. With a GIL a second loop buys nothing,
+because only one thread runs Python at a time. On a free-threaded Python a second loop does run in parallel.
+
+#### Decision
+1. **C++: `server::set_io_threads(n)`.** One `async_server` engine per I/O thread, each with its own acceptor on the same port
+   (`SO_REUSEPORT`; the kernel spreads new connections). A connection stays on its engine for good, so the requests of one connection
+   never overlap and `route_io` still never needs a lock. Every setter is replayed on every engine (`configure`), `set_max_connections`
+   is a total shared out evenly. Engine 0 runs on the thread that calls `listen`; the others run on threads the server starts and
+   joins. Where `SO_REUSEPORT` is missing (Windows) or a bind fails, the server keeps one thread and logs a warning.
+   A `thread_local` flag marks the I/O threads (it replaces the single `io_thread` id).
+2. **Python: lanes.** A lane is one I/O thread plus one asyncio loop thread, with its own inbox, gate, wake socket and deadline table
+   (ADR-0023 per lane). An I/O thread is given a lane the first time it dispatches a request. `Server(io_threads=N)`,
+   `Server.set_io_threads(N)` and `httpp run --io-threads N` set the count.
+3. **Lanes follow the I/O threads only without a GIL.** With a GIL there is one lane, whatever `io_threads` is: the extra I/O threads
+   still parse and answer in parallel (they do not need the GIL), and all Python runs on the one loop. Without a GIL there are
+   `io_threads` lanes. There the "no `def` handler is running" half of the gate (the `busy` counter of ADR-0023) is skipped,
+   because Python code no longer excludes other Python code; the gate of the lane stays, so asyncio's atomicity rule still holds
+   inside a lane. Code that shares state between lanes is shared-state code like any other threaded code.
+4. The default is 1 (nothing changes unless asked).
+
+#### Rejected
+- **One loop shared by all I/O threads**: the loop thread stays the ceiling, which is the thing being removed.
+- **Several loops with a GIL**: they only fight for the GIL (measured earlier: no gain, more switches).
+- **Loop and I/O on one thread** (like uvicorn): loses isolation (a slow handler stalls parsing) and is a different design per platform.
+- **Spreading one connection over lanes**: breaks per-connection ordering for no gain.
+- **A default above 1**: not decided without numbers from a machine with enough cores.
+
+#### Consequences
+- `route_io` handlers must be safe to run on several threads at once when `io_threads > 1` (they already had to be safe against
+  the worker pool).
+- Memory and file descriptors grow with the count (one acceptor, one timer set per engine).
+- Lane state of the process (`_lanes`) is shared by every `Server` in the process.
+
+#### Not verified
+- Scaling on many cores. The sandbox has 2 cores shared with the load generator. Use `benchmarks/Makefile` (`make bench`).
+- Windows and macOS (macOS has `SO_REUSEPORT` but does not spread connections like Linux; not run).
+- The best default for `io_threads`.
+
+#### Related
+ADR-0009 (hot path), ADR-0016 and 0023 (inline `async def`).
+
+### defaults after the first many-core measurement (i7-13620H, 16 threads)
+
+#### Status
 Accepted (2026-10-28). Amends ADR-0023 (inline `async def` is no longer the default on machines with more than 2 CPUs) and
-ADR-0024 (the Python default for `io_threads` is no longer always 1).
+the part "several I/O threads, and one asyncio loop per I/O thread on a free-threaded Python" (the Python default for `io_threads` is no longer always 1).
 
-## Measurements
+#### Measurements
 `benchmarks/suite.py`, Ubuntu, kernel 7.0, powersave governor, server on CPUs 0-8, `oha` on 9-11, 64 connections, 3 x 5 s, medians.
 
 | hello, req/s | 3.13 (GIL) | 3.14t (no GIL) | C++ |
@@ -22,7 +88,7 @@ CPU-bound handler (about 60 us of Python), req/s:
 | httpp `def`, 1 / 4 I/O threads | 7.5k / 7.6k | 63k / 70k |
 | httpp `async def`, 1 / 2 / 4 | 15k / 16k / 16k | 17k / 33k / 63k |
 
-## What this says
+#### What this says
 1. **I/O threads scale.** Two I/O threads give 1.8x, four 2.0x; beyond that the load generator (3 CPUs) is the limit: C++ stops at about 395k
    with 4 or 8 threads, and Python `def` reaches 87 to 97 percent of C++. Python is not what limits the server here.
 2. **Inline `async def` loses at saturation when cores are free.** It costs less CPU (7.9 us) but does parse, handler and answer on one
@@ -34,17 +100,17 @@ CPU-bound handler (about 60 us of Python), req/s:
 4. **Free-threaded Python pays where it can:** CPU-bound `def` 63k to 70k (7x the GIL build), CPU-bound `async def` scales with the lanes
    (17k, 33k, 63k for 1, 2, 4).
 
-## Decision
+#### Decision
 - Python `io_threads` default: `min(4, CPUs // 4)` with a GIL (the extra threads parse and answer without the GIL, and there is still one
   loop, so asyncio's atomicity rule is unchanged); 1 on a free-threaded Python (a loop per I/O thread changes what shared state in async handlers must
   withstand, so it is asked for) and on Windows.
 - C++ `io_threads` default stays 1: `route_io` handlers would otherwise have to be thread-safe by surprise. The documentation recommends 2 to 4.
 - Python `inline_async` default: on with 2 CPUs or fewer, off otherwise.
 
-## Not verified
+#### Not verified
 Whether the load generator hides gains above 4 threads (it had 3 CPUs). Behaviour on battery or with the performance governor.
 
-## Addendum: the worker pool under a GIL (2026-10-28, 2-core sandbox, Python 3.13)
+#### Addendum: the worker pool under a GIL (2026-10-28, 2-core sandbox, Python 3.13)
 Fixed worker pool of 1, 2, 4 and 16 on the CPU-bound `def` route: the same req/s (10.0k to 11.6k), p99 9, 11, 15 and 33 ms.
 So many workers cost tail latency here; the throughput loss seen on 16 threads (7.5k against 15k) could not be reproduced on 2 cores.
 Blocking handlers lose almost nothing with a small starting pool (24 handlers of 0.2 s: 0.22 to 0.24 s with a base of 2, 4 or 16), because the
@@ -53,7 +119,7 @@ grows under CPU load (queued jobs wait more than 0.5 ms), so this is a small hel
 sandbox. A real fix needs the pool to know whether a handler computes or blocks, which it cannot. Free-threaded Python does not have the problem
 (63k to 70k req/s). Rerun `make bench ONLY=cpu` on the 16-thread machine to see what the change did there.
 
-## Addendum 2: the pool size on 16 threads (2026-10-28, Python 3.14 with a GIL, CPU-bound `def`, 64 connections)
+#### Addendum 2: the pool size on 16 threads (2026-10-28, Python 3.14 with a GIL, CPU-bound `def`, 64 connections)
 | pool (max 4 x base) | req/s | us/req | p99 ms |
 |---|---|---|---|
 | 1 | 16.7k | 81 | 8 |
@@ -68,12 +134,12 @@ Decision: with a GIL the pool starts with one thread and grows only when a job h
 queued, so a burst of 64 blocking handlers gets its threads in 3 steps. The C++ default wait stays 500 us. Not yet measured on 16 threads: `make bench` has a `default` row
 next to the fixed pools.
 
-## Addendum 3: result of the pool change on 16 threads (2026-10-28, Python 3.14 with a GIL)
+#### Addendum 3: result of the pool change on 16 threads (2026-10-28, Python 3.14 with a GIL)
 CPU-bound `def`: 19.9k req/s, p99 3.8 ms with the new default (it was 10.9k and 26 ms), the same as `async def` (19.3k) and 1.27x uvicorn (15.6k).
 It beat a fixed pool of 1 (15.8k). On the free-threaded build the doubling growth step of the first version of this change cost
 CPU-bound `def` about a fifth at one I/O thread (46k against 60k), so growth is back to one thread per 500 us of waiting (the step above).
 
-## Addendum 4: the first full `make bench` on 16 threads (2026-10-28, i7-13620H, powersave, Python 3.14.4 GIL and 3.14.7t)
+#### Addendum 4: the first full `make bench` on 16 threads (2026-10-28, i7-13620H, powersave, Python 3.14.4 GIL and 3.14.7t)
 Settings: server CPUs 0-8, `oha` on CPUs 9-11, 64 connections, 3 x 5 s, medians. Only the `hello` and `cpu` groups were in this file: the JSON,
 FastAPI, one-connection and fixed-rate groups were not run, so the p99.9 question is still open.
 
@@ -101,11 +167,11 @@ What it does not confirm:
 Benchmark fix: the automatic CPU split gave the server 0-8 and the load generator 9-11, which cuts the hyper-thread pair 8/9 in half. The split is now made of whole
 cores (here server 0-7, load generator 8-15 with the efficiency cores).
 
-## Next measurement
+#### Next measurement
 `make bench` again with the governor on `performance`, with the new split and with ONLY=hello,json,cpu,latency (the default). Read: free-threaded `def`
 CPU-bound at 1 I/O thread (about 60k expected from the current tree), its fixed-pool rows, the fixed-rate p99.9 table, FastAPI and JSON rows.
 
-## Addendum 5: the second full `make bench` (2026-10-28 evening, same machine, core-aligned split: server CPUs 0-7, `oha` on 8-15)
+#### Addendum 5: the second full `make bench` (2026-10-28 evening, same machine, core-aligned split: server CPUs 0-7, `oha` on 8-15)
 Tree hash f08eea4db0 (not the hash of the copy this was written from: the owner's working tree has other files; `worker_pool.hpp` matches).
 This run replaces addendum 4 where they disagree.
 
@@ -136,13 +202,13 @@ Build hygiene found while reading the log: `-Wreorder` in `worker_pool` (member 
 Makefile now sets `UV_LINK_MODE=copy`), CMake finding the conda Python (only used by the `liburlparser` configure, never for the measurement; the Makefile now passes the venv Python, which then needs `jsonschema` and `jinja2` for the mbedtls code generator: they are installed next to cmake and ninja, so the configure no longer depends on whatever Python the machine has), mbedtls deprecation notes (third party, silenced for the bench build).
 Not touched: the configure step of `liburlparser` downloads the public suffix list and rewrites the tracked `src/third_party/liburlparser/src/public_suffix_list.dat`.
 
-## Addendum 6: a crash found by the second bench (2026-10-29)
+#### Addendum 6: a crash found by the second bench (2026-10-29)
 The full run (tree 9c83b41592) had two rounds that lost the server: Python `def` with a GIL at 8 I/O threads (131k req/s and 606,771 errors in the round: the server
 died about 1.5 s into it) and C++ `route` (worker pool) at 4 I/O threads (a round with 0 answers and 2,528,812 errors). About 150 server starts, so rare, and only with several I/O threads.
 The suite did not keep the exit code or the server's stderr, so the first look was blind. It now prints the exit code, the error kinds and the stderr tail when a run has errors.
 
 Cause, found with a ThreadSanitizer build of the core under `oha` load (4 and 8 I/O threads, `route` and `route_io`): `http_date()` in `async_server.cpp` kept its per-second cache
-(`cached`, `text`) in function-level statics, documented as "loop thread only". Since ADR-0024 there is one loop thread per I/O thread, so they all wrote and read the same
+(`cached`, `text`) in function-level statics, documented as "loop thread only". Since the part "several I/O threads, and one asyncio loop per I/O thread on a free-threaded Python" there is one loop thread per I/O thread, so they all wrote and read the same
 `std::string`. Torn reads were harmless in practice, but the first answers of a fresh server can run the fill on two threads at once (`text.empty()` is true for both): two
 assignments to one heap string are a double free. TSan: 5 warnings per run before, 0 after, in three runs at 4 threads and one each (pool and inline route) at 8.
 Fix: the cache is `thread_local`. Regression test: `the_date_header_is_well_formed_when_every_io_thread_answers_at_once` (20 fresh servers, 16 clients each). It can only fail
@@ -153,3 +219,52 @@ but no core file was kept. The next `make bench` decides: the rows with errors m
 
 Other reading of the run, same as addendum 5 unless stated: GIL pool rows are flat (22.4k to 23.2k) at 1 and 4 I/O threads, only p99 differs. On 3.14t a pool that starts at 2 threads is +17 percent at 1 I/O threads (76.7k against
 65.3k; the default for a free-threaded Python is 1 I/O thread, so this is the default configuration) and equal at 4 (69.8k against 68.0k). Half-load p99.9 is 0.8 to 1.3 ms for Python and 0.8 ms for C++ at 396k req/s.
+
+### The worker pool of a free-threaded Python starts at two threads
+
+- **Status:** accepted (measured in the final configuration, with caveats under Verification); amends the part "defaults after the first many-core measurement (i7-13620H, 16 threads)"
+- **Decided by:** Claude, on the owner's "continue" (performance and architecture are delegated)
+- **Source:** `src/bindings/python/httpp/server.py` (`Server.__init__`), `tests/python/test_io_threads.py`, `benchmarks/suite.py`
+
+#### Context
+
+Under a GIL the default pool starts at one thread and grows (the part "defaults after the first many-core measurement (i7-13620H, 16 threads)"). Without a GIL it kept the C++ default: `max(8, CPUs)` threads from the start (16 on the owner's machine), ceiling four times that.
+the part "defaults after the first many-core measurement (i7-13620H, 16 threads)" addendum 4 saw a pool starting at 2 beat it at one I/O thread (76.4k against 65.0k req/s) but called it one row and did not adopt it.
+
+#### Measurement (owner's machine, i7-13620H, `performance` governor, Release, Python 3.14.7t, CPU-bound `def` route, 64 connections, 3 rounds, median and range)
+
+| I/O threads | default (16 threads) | pool 2 (ceiling 8) | pool 4 | pool 8 |
+|---|---|---|---|---|
+| 1 | 58.2k (55.4 to 58.6) | 68.2k (68.0 to 68.3) | 57.5k | 57.6k |
+| 4 | 64.0k (61.7 to 65.4) | 66.1k (65.8 to 67.0) | 61.7k | 64.1k |
+
+Pools of 4 and 8 equal the default; only the small start wins. Two I/O threads was not measured for pool 2 (the suite runs the fixed pools at the first and at four I/O threads only).
+
+#### Second measurement: the ceiling and the growth wait (same machine, Release, 3.14.7t, 3 rounds, a download was running, so sd is up to 5 percent)
+
+The first default (pool 2, ceiling 64, grow after 0.5 ms) gave no gain at all (59.5k and 65.4k req/s): under load the pool grew to many threads again. The rows of the part "defaults after the first many-core measurement (i7-13620H, 16 threads)" had a ceiling of 8. Grid:
+
+| pool 2 with | 1 I/O thread | 4 I/O threads | p99 ms (1 / 4) |
+|---|---|---|---|
+| old default (16 threads from the start) | 57.4k | 62.4k | 2.49 / 3.33 |
+| ceiling 8, grow 0.5 ms | 66.2k | 62.6k | 2.12 / 3.53 |
+| ceiling 16, grow 0.5 ms | 56.0k | 60.2k | 2.54 / 3.25 |
+| ceiling 64, grow 10 ms | 26.4k | 25.7k | 3.30 / 3.34 |
+| **ceiling 64, grow 2 ms** | **68.8k** (63.9 to 69.7) | **63.2k** (60.7 to 68.3) | **1.33 / 1.44** |
+
+A growth wait of 10 ms is rejected: the pool stays at two threads and CPU-bound `def` falls to the level of `async def`. A wait of 0.5 ms with any ceiling above 8 grows the pool back to the slow size.
+
+#### Decision
+
+On a free-threaded Python the default pool is `set_thread_pool(2, max(8, CPUs) * 4, grow_after_ms=2)`: two threads at the start, the C++ default's ceiling, growth after a 2 ms wait. `threads=` given by the caller is unchanged. Builds with a GIL are unchanged.
+
+#### Consequences
+
+- A handler that blocks (sleep, I/O) on a free-threaded build now waits up to 2 ms before the pool adds threads (four per step of the wait, the part "defaults after the first many-core measurement (i7-13620H, 16 threads)") instead of finding them idle. Test `test_blocking_handlers_still_run_together_with_the_small_default_pool` (24 handlers of 0.2 s in under 0.6 s) now runs on free-threaded builds too and passes.
+- Server CPU per request fell as well (80 against 96 us at four I/O threads, one round pair) and p99 halved; the cause is not investigated (hypothesis: fewer threads compete for the same queue).
+
+#### Verification
+
+Python suite on 3.14t in the sandbox (2 cores). Third run on the owner's machine, with the default itself (background load not controlled; sd 1.5 to 3.8 percent for the default rows): one I/O thread 69.3k req/s (67.5 to 69.9), p99 1.27 ms; four I/O threads 65.8k (61.9 to 67.9), p99 1.45 ms; against 57.4k to 58.2k and 62.4k to 64.0k with p99 2.4 and 3.3 ms before. Growth after 10 ms measured again at 24.5k to 26.2k (rejected); ceiling 16 with 0.5 ms at 53.7k and 61.4k (no gain).
+A sandbox run on two cores (server and load generator on one core each) could not tell the pool configurations apart (12.2k to 12.8k, within noise), so it neither confirms nor contradicts the choice; the effect needs cores to spare.
+Not verified: two and eight I/O threads, blocking handlers on the owner's machine (only the sandbox test passes), Python 3.13t and 3.15t.

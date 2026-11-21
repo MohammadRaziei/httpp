@@ -1,4 +1,4 @@
-# The OpenAPI document writer (include/httpp/openapi.hpp, ADR-0087): the Python face of httpp::openapi::document.
+# The OpenAPI document writer (include/httpp/openapi.hpp, ADR-0007): the Python face of httpp::openapi::document.
 # Python's own document (httpp/_schema.py) is assembled and written through it, so the rules for the paths, the security names and
 # the JSON text live once, in C++.
 

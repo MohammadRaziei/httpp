@@ -11,7 +11,7 @@
 #include <thread>
 
 // retry(), retry_delay(), retry_connrefused() and on_retry(): a request that failed for a reason that may pass is sent again
-// by the library, not by its caller (ADR-0099). Only a timeout, a 408, 429, 500, 502, 503 or 504 and, if asked, a failed
+// by the library, not by its caller (ADR-0097). Only a timeout, a 408, 429, 500, 502, 503 or 504 and, if asked, a failed
 // connection count, as in curl. The delay is in whole seconds, so every test that waits waits at least one.
 
 namespace {

@@ -1,5 +1,5 @@
 """The library's C++ log goes through Python's `logging` (logger "httpp"), and that logger's level decides what C++
-produces (ADR-0018):
+produces (ADR-0011):
 
     logging.getLogger("httpp").setLevel(logging.INFO)    # C++ now also emits the access log and "listening on ..."
     httpp.set_log_level("info")                           # the same thing
@@ -88,7 +88,7 @@ def ensure_handler():
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# Any C++ logger tree (ADR-0080): httpp.bridge_logger("libspeech")
+# Any C++ logger tree (ADR-0011): httpp.bridge_logger("libspeech")
 # ---------------------------------------------------------------------------------------------------------------
 
 _BRIDGED = set()

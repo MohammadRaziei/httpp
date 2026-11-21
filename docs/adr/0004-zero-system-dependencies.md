@@ -19,4 +19,4 @@ The wheel has no runtime dependencies.
 
 ## Related
 
-ADR-0003, ADR-0013
+ADR-0003 and 0013

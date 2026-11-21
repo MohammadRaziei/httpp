@@ -39,4 +39,4 @@ burst (a second burst a moment later would pay the handshake again, which is wha
 
 ## Related
 
-ADR-0051 (the blocking client on the async engine), ADR-0059.
+ADR-0051 (the blocking client on the async engine), ADR-0024.

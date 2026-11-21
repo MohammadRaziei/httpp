@@ -32,4 +32,4 @@ After the import the flag is turned off and `run` listens with its own `--host/-
 
 ## Related
 
-ADR-0005, ADR-0011
+ADR-0005 and 0011

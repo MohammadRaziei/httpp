@@ -6,7 +6,7 @@ const config: Config = {
   title: 'httpp',
   tagline: 'HTTP client and server for Python and C++',
   favicon: 'img/favicon.svg',
-  // GitHub Pages of the repository (.github/workflows/pages.yml, ADR-0064).
+  // GitHub Pages of the repository (.github/workflows/pages.yml, ADR-0060).
   url: 'https://mohammadraziei.github.io',
   baseUrl: '/httpp/',
   organizationName: 'mohammadraziei',

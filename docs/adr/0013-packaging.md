@@ -22,4 +22,4 @@
 
 ## Related
 
-ADR-0004, ADR-0006
+ADR-0004 and 0006

@@ -1,4 +1,4 @@
-// show_dates(false) on httpp::directory and httpp::file_browser: no file time is sent or shown anywhere (ADR-0073).
+// show_dates(false) on httpp::directory and httpp::file_browser: no file time is sent or shown anywhere (ADR-0032).
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/file_browser.hpp"

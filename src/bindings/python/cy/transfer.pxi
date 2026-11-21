@@ -453,7 +453,7 @@ cdef class Request:
             del self._req
 
     def clone(self):
-        """An independent copy of this request as it is now (ADR-0105): a change to either afterwards does not
+        """An independent copy of this request as it is now (ADR-0093): a change to either afterwards does not
         reach the other, so a prepared request is a template."""
         cdef Request other = Request.__new__(Request)
         other._req = py_clone_request(self._req[0])

@@ -97,7 +97,7 @@ bool is_hex_colour(const std::string& s) {
     return true;
 }
 
-// ---- the file system (httpp::path, ADR-0054, 0058) ----
+// ---- the file system (httpp::path, ADR-0054) ----
 // `root` is always a resolve() result: links resolved, no trailing '/' (except the file system root itself).
 
 bool resolve_dir(const std::string& root, const std::string& rel, std::string& full) { // full: the folder, links resolved; false when it is missing, not a folder or outside

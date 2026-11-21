@@ -46,7 +46,7 @@ from ._run import run
 from ._http import AsyncClient
 from .errors import Error, HTTPError, RequestError, Timeout, TLSError, TooManyRedirects, InvalidURL
 
-_log.install()  # the C++ log goes through `logging` (logger "httpp"); see httpp/_log.py and ADR-0018
+_log.install()  # the C++ log goes through `logging` (logger "httpp"); see httpp/_log.py and ADR-0011
 
 
 def get_include_dir():

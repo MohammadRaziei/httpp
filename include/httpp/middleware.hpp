@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-// Ready-made middleware (ADR-0037, ADR-0066). Each class installs a pair of hooks with server::use(), so any
+// Ready-made middleware (ADR-0037 and 0066). Each class installs a pair of hooks with server::use(), so any
 // number of them can be added, in any order, next to the single before/after hook of the application.
 // The Python names are the same (Server.add_middleware(CORSMiddleware, ...)), with the same options as keyword arguments.
 namespace httpp {

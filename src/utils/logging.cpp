@@ -606,7 +606,7 @@ manager& instance() {
     static manager* m = [] {
         auto* p = new manager;
         try {
-            // The library's own logger exists from the start, with its defaults (ADR-0091): `warning`, to stderr, never to the application's
+            // The library's own logger exists from the start, with its defaults (ADR-0011): `warning`, to stderr, never to the application's
             // root. Whoever asks for get_logger("httpp") first (the core, a program, a test) gets it already set up. Nothing in here may
             // call get_logger(): this initializer is still running.
             logger& lib = p->get("httpp");
@@ -635,7 +635,7 @@ void basic_config(level lv) {
 
 }  // namespace httpp::logging
 
-// ---- Handlers for the log of the operating system (ADR-0056) ----
+// ---- Handlers for the log of the operating system (ADR-0011) ----
 
 namespace httpp::logging {
 

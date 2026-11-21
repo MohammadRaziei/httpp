@@ -29,7 +29,7 @@ enum class error_kind {
     too_many_redirects,
     too_large,          // response body exceeded max_response_size (status is 413)
     canceled,
-    file,               // save_to() / save_in(): the file could not be named, made, opened or written (ADR-0102); see error_message
+    file,               // save_to() / save_in(): the file could not be named, made, opened or written (ADR-0097); see error_message
     other,
 };
 
@@ -56,7 +56,7 @@ struct response {
     // Client side only: the file save_to() or save_in() wrote the body to, as that call was given it (with save_in(), the
     // folder joined with the name chosen). "" when no file was opened: nothing was asked, the answer was refused by
     // on_head(), or the request failed before a final head. After a failure in the middle of the body it names the
-    // partly written file, as curl leaves it (ADR-0102).
+    // partly written file, as curl leaves it (ADR-0097).
     std::string saved_as;
 
     // --- Server side only (what a route handler fills in) ---
@@ -173,7 +173,7 @@ namespace detail {
 class guarded_settings; // src/core/internal/http_exchange.hpp
 struct session_settings;
 
-// What configurable<Self> calls: the one place where each setting and its rule is written (ADR-0094). It is a view of the
+// What configurable<Self> calls: the one place where each setting and its rule is written (ADR-0093). It is a view of the
 // settings of a client, an async_client or a request, not something to use directly.
 class settings_ref {
 public:
@@ -207,7 +207,7 @@ private:
 };
 } // namespace detail
 
-// The settings that client, async_client and request share, under the same names, declared once (ADR-0094). Derive as
+// The settings that client, async_client and request share, under the same names, declared once (ADR-0093). Derive as
 // `class client : public configurable<client>`; Self says what a setter returns, so a chain such as
 // request(url).timeout(30).json(body) keeps its type.
 //
@@ -242,7 +242,7 @@ public:
     Self max_time(long seconds) && { ref().max_time(seconds); return std::move(self()); }
     HTTPP_MEMBER long max_time() const { return ref().max_time(); }
 
-    // --retry (ADR-0099): how many more times to send the request after a try that may pass. Only a timeout and the statuses
+    // --retry (ADR-0097): how many more times to send the request after a try that may pass. Only a timeout and the statuses
     // 408, 429, 500, 502, 503 and 504 count (and a failed connection with retry_connrefused()); any other answer, a 404 or
     // a redirect included, is returned at once. Each try has its own timeout() and max_time(), and the response is that of
     // the last try (elapsed_ms and bytes_received too). 0 (the default) never sends again. With on_body() an answer that is
@@ -404,7 +404,7 @@ public:
     request(const request&) = delete;
     request& operator=(const request&) = delete;
 
-    // An independent copy of this builder as it is now (ADR-0105): the URL, method, body, headers, parameters, cookies, the
+    // An independent copy of this builder as it is now (ADR-0093): the URL, method, body, headers, parameters, cookies, the
     // settings and the streaming / saving options. A change to either afterwards does not reach the other, so a prepared request
     // is a template: `auto base = request(url).bearer(t).timeout(5); auto a = base.clone().param("page", "1");`. The callbacks
     // (on_body, on_head, on_retry) are copied as std::function values, so what they captured stays shared. A copy made with `=`
@@ -451,7 +451,7 @@ public:
     HTTPP_API request& max_response_size(std::size_t bytes) &;
     request max_response_size(std::size_t bytes) && { max_response_size(bytes); return std::move(*this); }
 
-    // Streaming (ADR-0084): with on_body() the body of the final response goes to `piece` as it arrives, in
+    // Streaming (ADR-0077): with on_body() the body of the final response goes to `piece` as it arrives, in
     // the order sent, instead of being collected: response::body stays empty and max_response_size does not
     // apply. Return false to stop the transfer (the response then has error_kind::canceled). The next piece
     // is read only after the callback returns, so a slow callback slows the download down, not the memory up.
@@ -467,13 +467,13 @@ public:
     // called, and run() still returns the response (an error status you do not want written, say).
     HTTPP_API request& on_head(std::function<bool(const response& head)> head) &;
     request on_head(std::function<bool(const response& head)> head) && { on_head(std::move(head)); return std::move(*this); }
-    // With retry() (ADR-0099): called before each new try, with the response of the try that failed, the number of the
+    // With retry() (ADR-0097): called before each new try, with the response of the try that failed, the number of the
     // retry about to start (1, 2, ...) and the seconds it waits first. Say "will retry" here; the wait has not begun. It
     // runs on the network thread, like the callbacks above: keep it short and do not call a blocking httpp request.
     HTTPP_API request& on_retry(std::function<void(const response& last, int retry_number, long delay_seconds)> notice) &;
     request on_retry(std::function<void(const response& last, int retry_number, long delay_seconds)> notice) && { on_retry(std::move(notice)); return std::move(*this); }
 
-    // Save the body of the final response to a file as it arrives, instead of into response::body (ADR-0102), like curl -o.
+    // Save the body of the final response to a file as it arrives, instead of into response::body (ADR-0097), like curl -o.
     // The file is opened when the final head is accepted, so a redirect, an answer that retry() sends again, an on_head()
     // that returns false and a request that never gets an answer leave nothing behind; a retry that follows a cut-off body
     // starts the file again. Every answer is written, an error page included (httpp::download writes only a good one; it

@@ -30,4 +30,4 @@ on httpp (with an `httpp.testclient.TestClient` on a real loopback server).
 
 ## Related
 
-ADR-0002, ADR-0005, ADR-0006, ADR-0007
+ADR-0002, 0005, 0006 and 0007

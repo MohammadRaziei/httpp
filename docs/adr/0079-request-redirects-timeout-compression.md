@@ -1,31 +1,29 @@
 # ADR-0079: `httpp::request`: `max_redirects` is the one redirect setting, plus `connect_timeout` and `auto_compression`
 
 - **Status:** accepted (merged ADR; each part keeps its own status line)
-- **Merged on:** 2026-11-20, at the request of the project owner (the ADRs of one subject were spread over many numbers). The text of every part is kept; the old numbers still name the parts below.
-- **Merges:** ADR-0079, ADR-0089
+- **Merged on:** 2026-11-21, at the request of the project owner: the decisions of one subject were spread over 2 ADRs. The text of every part is kept, as a section below, in the order it was decided.
 
 ## Current state
 
-Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history, in the order they were decided.
+Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history. Where a part and this summary disagree, this summary wins.
 
-- **`request::max_redirects(n)` is the only redirect setting.** `0` (the default) follows none and a 3xx is the answer; `n > 0` follows up to `n` hops and one more fails with `too_many_redirects`; `-1` follows without a limit; any other negative number throws `std::invalid_argument` (0089). `request::follow_redirects` is removed; the first part (0079) describes the earlier shape where it still existed.
-- **`request::connect_timeout(seconds)`** limits the connect step (0079). `timeout` and `-m` still limit each step, not the whole transfer.
-- **`request::auto_compression(bool)`** (default on) switches `Accept-Encoding` and decoding off when false (0089).
-- There is no `user_agent()` or `referer()` on purpose: `header()` covers them (0079).
+- **`request::max_redirects(n)` is the only redirect setting.** `0` (the default) follows none and a 3xx is the answer; `n > 0` follows up to `n` hops and one more fails with `too_many_redirects`; `-1` follows without a limit; any other negative number throws `std::invalid_argument`. `request::follow_redirects` is removed; the first part describes the earlier shape where it still existed.
+- **`request::connect_timeout(seconds)`** limits the connect step. `timeout` and `-m` still limit each step, not the whole transfer.
+- **`request::auto_compression(bool)`** (default on) switches `Accept-Encoding` and decoding off when false.
+- There is no `user_agent()` or `referer()` on purpose: `header()` covers them.
 - Later naming and getter changes of these settings are in ADR-0092.
 
 ## Parts
+### `httpp::request` gets `max_redirects` and `connect_timeout`
 
-### ADR-0079: `httpp::request` gets `max_redirects` and `connect_timeout`
-
-- **Status:** accepted; ADR-0089 made `max_redirects` the only redirect setting (0 follows none, `request::follow_redirects` is removed)
+- **Status:** accepted; the part "`request::max_redirects(n)` is the one redirect setting (0 = none); `auto_compression` on `httpp::request`" made `max_redirects` the only redirect setting (0 follows none, `request::follow_redirects` is removed)
 - **Decided by:** the project owner ("enrich `httpp::request`, not a second class", then "agreed" to the first candidates)
 - **Source:** `include/httpp/client.hpp`, `src/core/client.cpp`, `src/core/http_exchange.cpp`, `src/core/internal/http_exchange.hpp`, `src/core/internal/async_http.hpp`, `src/core/async_http.cpp`, `src/bindings/python/cy/{declarations,transfer}.pxi`, `src/bindings/python/httpp/_http.py`, `src/cli/httpp_cli.cpp`
-- **Follows:** ADR-0077, ADR-0083
+- **Follows:** ADR-0077
 
 #### Context
 
-ADR-0077 and ADR-0083 settled that curl-like needs are met by enriching `httpp::request`, not by a second API. Looking at what `httpp curl` still lacked against what the engine could do:
+ADR-0077 settled that curl-like needs are met by enriching `httpp::request`, not by a second API. Looking at what `httpp curl` still lacked against what the engine could do:
 
 - The redirect limit was a constant (`request_spec::redirect_limit`, 20); no caller could change it.
 - `timeout` is one number for every step the engine takes (resolve, connect, write, each read). There was no way to say "fail fast when the host is unreachable, but let a slow answer take its time".
@@ -47,18 +45,18 @@ ADR-0077 and ADR-0083 settled that curl-like needs are met by enriching `httpp::
 
 #### Related
 
-ADR-0053, ADR-0077, ADR-0083
+ADR-0051 and 0077
 
-### ADR-0089: `request::max_redirects(n)` is the one redirect setting (0 = none); `auto_compression` on `httpp::request`
+### `request::max_redirects(n)` is the one redirect setting (0 = none); `auto_compression` on `httpp::request`
 
 - **Status:** accepted
 - **Decided by:** the project owner ("two concepts, `follow_redirects` and `max_redirects`, is not wanted"; "for zero it means do not follow"; "an `auto_compression(true)` is easy to add")
 - **Source:** `include/httpp/client.hpp`, `src/core/client.cpp`, `src/core/http_exchange.cpp`, `src/core/internal/http_exchange.hpp`, `src/core/internal/async_http.hpp`, `src/core/async_http.cpp`, `src/core/url.cpp`, `src/bindings/python/cy/{declarations,transfer}.pxi`, `src/bindings/python/httpp/_http.py`, `src/cli/httpp_cli.cpp`
-- **Follows:** ADR-0079, ADR-0084
+- **Follows:** ADR-0077 and the part "`httpp::request` gets `max_redirects` and `connect_timeout`"
 
 #### Context
 
-- `httpp::request` had `follow_redirects(bool)` and (ADR-0079) `max_redirects(n)`: two settings for one idea. A limit without `follow_redirects()` did nothing, and `follow_redirects().max_redirects(0)` meant "fail on the first redirect", which is a third behaviour nobody asked for.
+- `httpp::request` had `follow_redirects(bool)` and (the part "`httpp::request` gets `max_redirects` and `connect_timeout`") `max_redirects(n)`: two settings for one idea. A limit without `follow_redirects()` did nothing, and `follow_redirects().max_redirects(0)` meant "fail on the first redirect", which is a third behaviour nobody asked for.
 - The client always sent `Accept-Encoding: gzip, deflate` and always decoded the body; there was no way to get the coded bytes.
 
 #### Decision
@@ -78,4 +76,4 @@ ADR-0053, ADR-0077, ADR-0083
 
 #### Related
 
-ADR-0079, ADR-0084
+ADR-0077 and the part "`httpp::request` gets `max_redirects` and `connect_timeout`"

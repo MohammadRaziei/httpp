@@ -1,23 +1,21 @@
 # ADR-0077: `httpp curl`: a curl-compatible command that only calls `httpp::request`
 
 - **Status:** accepted (merged ADR; each part keeps its own status line)
-- **Merged on:** 2026-11-20, at the request of the project owner (the ADRs of one subject were spread over many numbers). The text of every part is kept; the old numbers still name the parts below.
-- **Merges:** ADR-0077, ADR-0083, ADR-0084, ADR-0098
+- **Merged on:** 2026-11-21, at the request of the project owner: the decisions of one subject were spread over 4 ADRs. The text of every part is kept, as a section below, in the order it was decided.
 
 ## Current state
 
-Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history, in the order they were decided.
+Read this first. It says what holds today; the parts below give the reasons, the rejected alternatives and the history. Where a part and this summary disagree, this summary wins.
 
-- **The command is a thin face on the library.** Where `httpp::request` lacks something an everyday request needs, it is added to `httpp::request` (and so to Python's `Request`), never to a second class or to the CLI (0077, 0098; the same rule continues in ADR-0097, 0099 and 0102 for elapsed time, retry and saving to a file).
-- **Retired:** `httpp/curl.hpp` and `httpp::curl::request` (0077), `httpp/curl_compat.h` and every `curl_easy_*` name (0083). Use `httpp::request` (Python `httpp.Request`).
-- **Errors behave like curl** (0083): any HTTP status exits 0 and prints its body; `-f` turns 400 and above into exit 22; a transfer with no answer exits with curl's code (3 invalid url, 7 connection, 28 timeout, 35 tls, 47 too many redirects, 63 too large, 1 otherwise).
-- **Output is byte for byte**, with no added newline after the body (0077).
-- **Flags were added in four steps:** `-i -I -v -L -m -u` (0077); the errors above, `-f`, repeated `-d` (0083); `-s -S -w -O -T -D -d @file --compressed --retry`, several URLs, proxies and the curl version in the User-Agent (0084); `-k --cacert -J --output-dir --create-dirs --json --fail-with-body` (0098). The parts hold the exact semantics.
-- Where an early part says a flag is "still missing", the later parts of this ADR are the update (for example 0077's "non-2xx exits 1" is replaced by 0083).
+- **The command is a thin face on the library.** Where `httpp::request` lacks something an everyday request needs, it is added to `httpp::request` (and so to Python's `Request`), never to a second class or to the CLI. Elapsed time, retry and saving to a file followed this rule (see ADR-0097).
+- **Retired:** `httpp/curl.hpp` and `httpp::curl::request`, then `httpp/curl_compat.h` and every `curl_easy_*` name. Use `httpp::request` (Python `httpp.Request`).
+- **Errors behave like curl:** any HTTP status exits 0 and prints its body; `-f` turns 400 and above into exit 22; a transfer with no answer exits with curl's code (3 invalid url, 7 connection, 28 timeout, 35 tls, 47 too many redirects, 63 too large, 1 otherwise).
+- **Output is byte for byte**, with no added newline after the body.
+- **Flags were added in four steps:** `-i -I -v -L -m -u`; the errors above, `-f`, repeated `-d`; `-s -S -w -O -T -D -d @file --compressed --retry`, several URLs, proxies and the curl version in the User-Agent; `-k --cacert -J --output-dir --create-dirs --json --fail-with-body`. The parts hold the exact semantics.
+- Where an early part says a flag is "still missing" or that a non-2xx status exits 1, the later parts are the update.
 
 ## Parts
-
-### ADR-0077: `httpp curl` gets the everyday flags, and `httpp/curl.hpp` is retired
+### `httpp curl` gets the everyday flags, and `httpp/curl.hpp` is retired
 
 - **Status:** accepted
 - **Decided by:** the project owner ("add the cheap flags first", "enrich `httpp::request`, not `httpp::curl::request`", "retire `httpp::curl::request` and all of `include/httpp/curl.hpp`", "our API is very good as it is")
@@ -25,7 +23,7 @@ Read this first. It says what holds today; the parts below give the reasons, the
 
 #### Context
 
-`httpp::curl::request` was a curl-flavoured builder with six methods (`method`, `header`, `data`, `content_type`, `timeout`, `follow_redirects`), a thin face on `httpp::request` (ADR-0053). `httpp::request` has all of them and more (auth, cookies, proxy, TLS options, JSON and form bodies, async). Nothing used the curl class: the `httpp curl` command already built an `httpp::request`, and the parity test only mapped it to `httpp.Request`. It was a second, weaker name for the same thing.
+`httpp::curl::request` was a curl-flavoured builder with six methods (`method`, `header`, `data`, `content_type`, `timeout`, `follow_redirects`), a thin face on `httpp::request` (ADR-0051). `httpp::request` has all of them and more (auth, cookies, proxy, TLS options, JSON and form bodies, async). Nothing used the curl class: the `httpp curl` command already built an `httpp::request`, and the parity test only mapped it to `httpp.Request`. It was a second, weaker name for the same thing.
 
 The `httpp curl` command took only `-X`, `-H`, `-d`, `-o`. It could not show the status or the headers of an answer, could not follow a redirect or set a timeout although `httpp::request` can, and it added a `\n` after every body, which corrupts binary output.
 
@@ -46,18 +44,18 @@ The `httpp curl` command took only `-X`, `-H`, `-d`, `-o`. It could not show the
 
 #### Related
 
-ADR-0041, ADR-0051, ADR-0053, ADR-0062, ADR-0067
+ADR-0041, 0051, 0062 and 0067
 
-### ADR-0083: `httpp curl` behaves like curl on errors, and `httpp/curl_compat.h` is retired
+### `httpp curl` behaves like curl on errors, and `httpp/curl_compat.h` is retired
 
 - **Status:** accepted
 - **Decided by:** the project owner ("those gaps must be fixed", "retire `curl_compat` too", "keep presenting httpp as the modern replacement for curl, as for aiohttp, httpx and requests")
 - **Source:** `src/cli/httpp_cli.cpp`, `tests/python/test_cli.py`; removed: `include/httpp/curl_compat.h`, `src/core/curl_compat.cpp`, `tests/cpp/test_curl_compat.cpp`; edited: `include/httpp.h`, `README.md`, `tests/cmake/consumer_project/main.cpp`
-- **Follows:** ADR-0077 (its sentence that `curl_compat.h` stays is replaced by this ADR)
+- **Follows:** the part "`httpp curl` gets the everyday flags, and `httpp/curl.hpp` is retired" (its sentence that `curl_compat.h` stays is replaced by this ADR)
 
 #### Context
 
-After ADR-0077 `httpp curl` could show heads and follow redirects, but it still differed from curl where scripts notice it: every non-2xx answer exited with 1, a failed transfer said only `status 0` and exited 1 whatever the cause, it left an empty `-o` file behind, and only one `-d` was accepted.
+After the part "`httpp curl` gets the everyday flags, and `httpp/curl.hpp` is retired" `httpp curl` could show heads and follow redirects, but it still differed from curl where scripts notice it: every non-2xx answer exited with 1, a failed transfer said only `status 0` and exited 1 whatever the cause, it left an empty `-o` file behind, and only one `-d` was accepted.
 
 `httpp/curl_compat.h` was a 15-option `curl_easy_*` subset with its own error numbers. Nothing in the project used it besides its test and the installed-package smoke test, and it could not deliver "change the header, keep the code" (no auth, proxy, TLS options, cookies, `multi`), so it promised more than it kept and had to follow every change of `httpp::request`.
 
@@ -77,18 +75,18 @@ After ADR-0077 `httpp curl` could show heads and follow redirects, but it still 
 
 #### Related
 
-ADR-0041, ADR-0053, ADR-0062, ADR-0067, ADR-0077
+ADR-0041, 0051, 0062 and 0067 and the part "`httpp curl` gets the everyday flags, and `httpp/curl.hpp` is retired"
 
-### ADR-0084: `httpp curl` gets the rest of the everyday flags and several URLs
+### `httpp curl` gets the rest of the everyday flags and several URLs
 
 - **Status:** accepted
 - **Decided by:** the project owner ("close the missing flags, `-s -S -w -O -T -D -d @file --compressed --retry` and several URLs, and the documentation")
 - **Source:** `src/cli/httpp_cli.cpp`, `tests/python/test_cli.py`, `docs/site/docs/client/curl-command.mdx`, the examples of `docs/site/docs/server/*.mdx`
-- **Follows:** ADR-0077, ADR-0079, ADR-0083
+- **Follows:** ADR-0079, the part "`httpp curl` gets the everyday flags, and `httpp/curl.hpp` is retired" and the part "`httpp curl` behaves like curl on errors, and `httpp/curl_compat.h` is retired"
 
 #### Context
 
-After ADR-0083 `httpp curl` behaved like curl on errors, but a script still could not stay quiet, name its output file, show only the status code, upload a file, keep the headers, read a body from a file, retry, or fetch more than one URL. The documentation used the real `curl` in its examples, and could not use `httpp curl` because it printed no head.
+After the part "`httpp curl` behaves like curl on errors, and `httpp/curl_compat.h` is retired" `httpp curl` behaved like curl on errors, but a script still could not stay quiet, name its output file, show only the status code, upload a file, keep the headers, read a body from a file, retry, or fetch more than one URL. The documentation used the real `curl` in its examples, and could not use `httpp curl` because it printed no head.
 
 #### Decision
 
@@ -105,7 +103,7 @@ After ADR-0083 `httpp curl` behaved like curl on errors, but a script still coul
 - Default `User-Agent` of `httpp curl` is `curl/8.18.0`, the curl release whose behavior the command follows (`k_curl_compat_version`); `-A` and `-H` win. `httpp curl --version` and `-V` print `httpp curl <version> compatible with curl <curl version>`. `httpp::request` keeps its own User-Agent: only the command presents itself as curl, because it is meant to replace it in scripts (parrot.live, for one, streams only to `curl/...` and redirects every other agent).
 - A missing URL is reported as curl does and exits with 2: bare `httpp curl` prints `httpp curl: try 'httpp curl --help' for more information`, and with other options it first prints `httpp curl: no URL specified`. The `url` argument is not `required()` in CLI11 for this reason (its own message was `url is required`).
 - **Proxies.** `-x`/`--proxy URL` and `--noproxy LIST` are added, and without `-x` the proxy comes from the environment (`http_proxy`, `https_proxy`, `all_proxy`, `no_proxy`), all through `httpp::resolve_proxy` (ADR-0067). `-x ""` turns the proxy off even when the environment sets one, `--noproxy` replaces `no_proxy` and also applies to `-x`. An unusable proxy is exit code 5 (curl's "could not resolve proxy"). `-v` prints `* Uses proxy scheme://host:port` (never the login). Found when `httpp curl parrot.live` hung on a machine where `http_proxy` was set: curl went through the proxy and httpp connected directly. ponytail: the proxy is chosen for the first URL; a redirect to another host keeps it.
-- **The body is streamed.** `httpp::request` has `on_body(fn(std::string_view) -> bool)` and `on_head(fn(const response&) -> bool)`, built on the engine's `body_sink` (ADR-0052) and not a new class. With `on_body` the final body goes to the callback as it arrives, `response::body` stays empty, `max_response_size` does not apply, a `false` stops the transfer (`error_kind::canceled`), and a `false` from `on_head` skips the body but still returns the response. A followed redirect is never offered to them. The request asks for `Accept-Encoding: identity` (the engine delivers streamed bytes as sent and has no incremental decoder); a header of the caller wins. The callbacks run on the second engine (`download_async_http()`), so a blocking write never stalls plain requests.
+- **The body is streamed.** `httpp::request` has `on_body(fn(std::string_view) -> bool)` and `on_head(fn(const response&) -> bool)`, built on the engine's `body_sink` (ADR-0051) and not a new class. With `on_body` the final body goes to the callback as it arrives, `response::body` stays empty, `max_response_size` does not apply, a `false` stops the transfer (`error_kind::canceled`), and a `false` from `on_head` skips the body but still returns the response. A followed redirect is never offered to them. The request asks for `Accept-Encoding: identity` (the engine delivers streamed bytes as sent and has no incremental decoder); a header of the caller wins. The callbacks run on the second engine (`download_async_http()`), so a blocking write never stalls plain requests.
 - `httpp curl` uses it: stdout or the `-o`/`-O` file is written piece by piece and flushed, so `httpp curl parrot.live` shows the animation and a big answer never sits in memory. The file is opened when the final head is accepted (an error status with `-f`, a refused connection, or an answer that will be retried leaves no file). `-i`, `-I`, `-D` and `-v` print the head before the first piece. A failed write, including a closed pipe (`httpp curl ... | head`), stops the transfer with exit code 23, as curl does: the command ignores SIGPIPE for that. A transient status that will be retried is skipped and not printed. `%{size_download}` counts the body bytes written. `--compressed` stays accepted and still changes nothing visible: the answer arrives uncoded.
 - **`-m` limits the whole transfer.** `httpp::request::max_time(seconds)` (Python `Request.max_time`, `httpp.request(..., max_time=N)`) is a new limit for the whole request, redirects and a streamed body included: the first hop sets one deadline (`request_spec::deadline`) that every redirect hop inherits, and each exchange in the engine arms one `steady_timer` for it. When it runs out the exchange fails with `error_kind::timeout` even while bytes still arrive. `timeout()` keeps its meaning (each step, default 300 s) and is not changed, because turning it into a total would cut off every large download that uses it today. `httpp curl -m` now calls `max_time`, so `httpp curl -m 10 parrot.live` ends after ten seconds with exit code 28. `0` is no limit, a negative number is `std::invalid_argument` / `ValueError`. ponytail: `client` and `async_client` have no `max_time` setter yet (they keep `timeout`), the same gap as `max_redirects` in ADR-0079.
 - Rejected: reading the engine's internal `body_sink` from the CLI (a shortcut around the public API, which has to stay dual in C++ and Python); a new streaming class (the settings of `request` would be repeated in it); a streaming gzip decoder (not needed for curl, which writes the bytes it gets).
@@ -120,14 +118,14 @@ After ADR-0083 `httpp curl` behaved like curl on errors, but a script still coul
 
 #### Related
 
-ADR-0077, ADR-0079, ADR-0083
+ADR-0079, the part "`httpp curl` gets the everyday flags, and `httpp/curl.hpp` is retired" and the part "`httpp curl` behaves like curl on errors, and `httpp/curl_compat.h` is retired"
 
-### ADR-0098: `httpp curl` gets `-k`, `--cacert`, `-J`, `--output-dir`, `--create-dirs`, `--json` and `--fail-with-body`; the pieces live in the library
+### `httpp curl` gets `-k`, `--cacert`, `-J`, `--output-dir`, `--create-dirs`, `--json` and `--fail-with-body`; the pieces live in the library
 
 - **Status:** accepted
 - **Decided by:** the project owner ("implement the high-priority ones", and "add the capabilities to `httpp::request` as far as possible, not to the CLI")
 - **Source:** `include/httpp/path.hpp`, `include/httpp/url.hpp`, `include/httpp/client.hpp`, `src/cli/httpp_cli.cpp`, `docs/site/docs/client/curl-command.mdx`
-- **Follows:** ADR-0084, ADR-0097
+- **Follows:** ADR-0097 and the part "`httpp curl` gets the rest of the everyday flags and several URLs"
 
 #### Context
 
@@ -155,4 +153,4 @@ The CLI is kept to flags and exit codes; what a flag does is a library capabilit
 
 #### Related
 
-ADR-0084, ADR-0097
+ADR-0097 and the part "`httpp curl` gets the rest of the everyday flags and several URLs"

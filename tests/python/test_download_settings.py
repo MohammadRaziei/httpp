@@ -1,4 +1,4 @@
-"""Download takes the network settings of Client and Request (ADR-0101): credentials, proxy, TLS, connect_timeout, max_time."""
+"""Download takes the network settings of Client and Request (ADR-0093): credentials, proxy, TLS, connect_timeout, max_time."""
 
 import threading
 import time

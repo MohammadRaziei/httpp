@@ -1,4 +1,4 @@
-// ADR-0093 and ADR-0094: client and async_client are handles with clone(), the shared settings come from one mixin, and
+// ADR-0093: client and async_client are handles with clone(), the shared settings come from one mixin, and
 // client::make_request(path) starts a request from a session.
 #include "utest/utest.h"
 #include "httpp/client.hpp"

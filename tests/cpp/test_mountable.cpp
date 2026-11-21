@@ -1,4 +1,4 @@
-// httpp::mountable (ADR-0088): directory, file_browser and swagger put on a server through one base class.
+// httpp::mountable (ADR-0007): directory, file_browser and swagger put on a server through one base class.
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/file_browser.hpp"

@@ -1,4 +1,4 @@
-"""WebSocket for `async def` routes (RFC 6455, see ADR-0026 and ADR-0027). The handler runs as an asyncio task on the loop
+"""WebSocket for `async def` routes (RFC 6455, see ADR-0026). The handler runs as an asyncio task on the loop
 thread of its lane; the I/O thread fills a per-connection mailbox in C++ without ever taking the GIL, and wakes the loop only
 when the handler is waiting. Receiving is bounded: past `max_queued` bytes the socket is not read until the handler catches up,
 and a send into a full queue waits (it never drops and never buffers without limit)."""
