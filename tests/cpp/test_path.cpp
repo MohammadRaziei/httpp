@@ -147,11 +147,21 @@ namespace {
 
 const path area = "fs_test_area";
 
+// Empties a directory, every level of it (a test may have made "a/b/c"); a link is removed, never followed.
+void wipe(const path& dir) {
+    std::vector<path> entries;
+    if (!dir.iterdir(entries)) return;
+    for (const auto& e : entries) {
+        const path::status st = e.lstat();
+        if (st.type == path::kind::directory && !st.link) wipe(e);
+        e.unlink();
+        e.rmdir();
+    }
+}
+
 // a fresh empty directory
 void fresh() {
-    std::vector<path> entries;
-    if (area.iterdir(entries))
-        for (const auto& e : entries) { e.unlink(); e.rmdir(); }
+    wipe(area);
     area.mkdir();
 }
 

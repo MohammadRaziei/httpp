@@ -14,14 +14,12 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-
-import pytest
+from pathlib import Path
 
 import httpp
-from httpp import Server
-
 import httpp_cli
-from pathlib import Path
+import pytest
+from httpp import Server
 from test_tls import certs  # noqa: F401  (fixture: a self-signed certificate, its key, and a key that does not belong to it)
 
 posix_only = pytest.mark.skipif(os.name == "nt", reason="uses a script as the interpreter")
@@ -37,7 +35,7 @@ def run(exe, *args, env=None, timeout=60, input=None, cwd=None):
     full_env = dict(os.environ)
     full_env.setdefault("HTTPP_PYTHON", sys.executable)  # what the launcher sets for the executable (which sits in site-packages, with no Python next to it)
     full_env.update(env or {})
-    return subprocess.run([*exe, *args], capture_output=True, text=True, timeout=timeout, env=full_env, input=input, cwd=cwd)
+    return subprocess.run([*exe, *args], capture_output=True, text=True, timeout=timeout, env=full_env, input=input, cwd=cwd, check=False)
 
 
 def free_port():
@@ -410,8 +408,13 @@ def test_the_banner_is_for_a_terminal_only(httpp_exe, tmp_path, command, stop_pr
     assert art not in started(["--log-level", "off"], tty=True)
 
 
+# Windows cannot deliver SIGINT or SIGTERM to another process: Popen.send_signal() refuses SIGINT there and turns SIGTERM into
+# TerminateProcess (exit code 1, no graceful stop). On top of that, httpp.exe and `python -m httpp` start the native executable
+# as a child, so a kill of the launcher leaves the server holding the pipes and communicate() never returns. The graceful stop
+# is covered by the C++ tests (listen_until_signal) and here on POSIX.
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no way to send SIGINT or SIGTERM to a process")
 @pytest.mark.parametrize("command", ["server", "browse"])
-def test_ctrl_c_and_sigterm_stop_the_server_cleanly(httpp_exe, tmp_path, command):
+def test_ctrl_c_and_sigterm_stop_the_server_cleanly(httpp_exe, tmp_path, command, stop_process):
     import signal
 
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -423,8 +426,9 @@ def test_ctrl_c_and_sigterm_stop_the_server_cleanly(httpp_exe, tmp_path, command
             assert proc.wait(timeout=20) == 0
         finally:
             if proc.poll() is None:
-                proc.kill()
-            proc.communicate()
+                stop_process(proc, timeout=10)  # kills the whole tree on Windows, so the pipes close
+            else:
+                proc.communicate()
 
 
 # --- download ----------------------------------------------------------------------------------
@@ -1113,6 +1117,7 @@ def test_curl_fetches_several_urls_in_turn(httpp_exe, echo_app, tmp_path):
         counted = run(httpp_exe, "curl", f"{url}/text", f"{url}/text", "-w", "[%{http_code}]")
     assert both.stdout.startswith("plain body{") and json.loads(both.stdout[len("plain body"):])["x"] == "shared"
     assert files.returncode == 0 and files.stdout == ""
+    assert named.returncode == 0
     assert (tmp_path / "first.out").read_text() == "plain body" and (tmp_path / "second.out").read_text() == "report body"
     assert (tmp_path / "report.txt").read_text() == "report body" and (tmp_path / "text").read_text() == "plain body"
     assert failing.returncode == 7 and failing.stdout == "plain body"  # the first failure is the exit code, the rest still run
@@ -1214,7 +1219,7 @@ def test_without_a_python_the_error_says_what_to_do(httpp_bin, tmp_path):
     empty.mkdir()
     env = dict(os.environ, PATH=str(empty))
     env.pop("HTTPP_PYTHON", None)
-    r = subprocess.run([httpp_bin, "py", "path"], capture_output=True, text=True, timeout=30, env=env)
+    r = subprocess.run([httpp_bin, "py", "path"], capture_output=True, text=True, timeout=30, env=env, check=False)
     assert r.returncode == 1 and "need a Python" in r.stderr, (r.returncode, r.stdout, r.stderr)
 
 
@@ -1245,7 +1250,7 @@ def test_importing_the_launcher_does_not_import_the_package():
     """Why httpp_cli.py is next to the package and not in it: starting a native command must not load the compiled extension."""
     where = str(Path(httpp_cli.__file__).resolve().parent)  # -I ignores PYTHONPATH and the current directory, so the path is given here
     code = f"import sys; sys.path.insert(0, {where!r}); import httpp_cli; sys.exit(1 if 'httpp' in sys.modules else 0)"
-    assert subprocess.run([sys.executable, "-I", "-c", code], timeout=60).returncode == 0
+    assert subprocess.run([sys.executable, "-I", "-c", code], timeout=60, check=False).returncode == 0
 
 
 def test_the_launcher_answers_run_and_path_without_py(capsys):
@@ -1299,12 +1304,12 @@ def test_the_launcher_says_when_it_cannot_make_it_executable(monkeypatch, tmp_pa
 
 @pytest.mark.parametrize("native", ["server", "browse", "download", "curl"])
 def test_python_dash_m_httpp_runs_the_native_commands_too(native):
-    r = subprocess.run([sys.executable, "-m", "httpp", native, "--help"], capture_output=True, text=True, timeout=60)
+    r = subprocess.run([sys.executable, "-m", "httpp", native, "--help"], capture_output=True, text=True, timeout=60, check=False)
     assert r.returncode == 0 and native in r.stdout
 
 
 def python_m(*args):
-    return subprocess.run([sys.executable, "-m", "httpp", *args], capture_output=True, text=True, timeout=60)
+    return subprocess.run([sys.executable, "-m", "httpp", *args], capture_output=True, text=True, timeout=60, check=False)
 
 
 def test_python_dash_m_httpp_is_the_httpp_command():

@@ -96,6 +96,8 @@ such changes are listed under **Changed**).
 
 - **`Request(max_response_size=...)` in Python was accepted and ignored;** the constructor now calls the setter.
 - **Percent-encoded file names on macOS (Content-Disposition, `file://` URIs, URL escaping).** The encoders asked `std::isalnum` about bytes of 0x80 and above, which on macOS (a UTF-8 locale) says yes for some of them, so a UTF-8 file name such as the Persian `.zip` name of a file browser download came out with raw lead bytes instead of `%D9%81...`. Only ASCII letters and digits are left unescaped now, whatever the locale.
+- **A URL's trailing slash reaches the request line.** `http://host/dir/` was sent as `GET /dir` (liburlparser's `abspath()` dropped the `/`), so a server that tells `/dir` from `/dir/` answered the wrong resource; `url_filename("http://h/dir/")` named `dir`. Fixed in liburlparser 2.3.1 (`abspath()` keeps the trailing `/`, RFC 3986 section 5.2.4); httpp needs that version or later. New test `httpp_client.fetch_keeps_the_trailing_slash_of_the_path`.
+- **The C++ tests `path.iterdir_leaves_out_dot_and_dotdot`, `path.a_utf8_name_works` and `path.zz_cleanup` failed on Linux.** `fresh()` emptied one level only, so the `a/b/c` of an earlier test stayed; it now removes every level. The Python test `test_ctrl_c_and_sigterm_stop_the_server_cleanly` hung the Windows wheel job: Windows cannot send SIGINT or SIGTERM to a process, and a kill of the `httpp.exe` launcher left the server holding the pipes. It is skipped on Windows, and its clean-up kills the whole tree.
 
 ## [0.9.0] - 2026-11-14
 

@@ -56,6 +56,31 @@ UTEST(httpp_client, returns_404_for_unknown_path) {
     ASSERT_EQ(404, res.status);
 }
 
+UTEST(httpp_client, fetch_keeps_the_trailing_slash_of_the_path) {
+    // "/dir" and "/dir/" are two resources: the request line must say what the URL says (the parser used to drop the '/').
+    httpp::server srv;
+    srv.get("/dir", [](const httpp::server_request&, httpp::response& res) { res.body = "plain"; });
+    srv.get("/dir/", [](const httpp::server_request&, httpp::response& res) { res.body = "slash"; });
+    const int port = srv.bind_to_any_port("127.0.0.1");
+    std::thread th([&srv] { srv.listen_after_bind(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    const std::string base = "http://127.0.0.1:" + std::to_string(port);
+    httpp::response with_slash = httpp::client::fetch(base + "/dir/");
+    httpp::response without = httpp::client::fetch(base + "/dir");
+    httpp::response dotted = httpp::client::fetch(base + "/x/../dir/");
+
+    srv.stop();
+    th.join();
+
+    ASSERT_TRUE(with_slash.ok());
+    ASSERT_STREQ("slash", with_slash.body.c_str());
+    ASSERT_TRUE(without.ok());
+    ASSERT_STREQ("plain", without.body.c_str());
+    ASSERT_TRUE(dotted.ok());
+    ASSERT_STREQ("slash", dotted.body.c_str());
+}
+
 UTEST(httpp_client, fetch_parses_a_full_url_and_gets_it) {
     TestServer server;
     std::string full_url = "http://127.0.0.1:" + std::to_string(server.port) + "/hello";
