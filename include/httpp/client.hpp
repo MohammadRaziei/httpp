@@ -285,7 +285,7 @@ public:
 
     // Send requests through an HTTP proxy: "http://[user[:pass]@]host[:port]" (user and pass percent-decoded, sent as
     // Proxy-Authorization: Basic). http:// targets go to the proxy in absolute form, https:// targets through a CONNECT
-    // tunnel. "" = no proxy. Anything that is not an http:// URL with a host ("host:port", "https://...", "socks5://...")
+    // tunnel. "" and direct:// (any case) = no proxy (ADR-0106). Anything that is not an http:// URL with a host ("host:port", "https://...", "socks5://...")
     // throws std::invalid_argument and changes nothing.
     HTTPP_MEMBER Self& proxy(const url& proxy_url) & { ref().proxy(proxy_url); return self(); }
     Self proxy(const url& proxy_url) && { ref().proxy(proxy_url); return std::move(self()); }

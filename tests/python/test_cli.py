@@ -673,6 +673,26 @@ def test_curl_x_replaces_the_environment_and_empty_x_turns_the_proxy_off(httpp_e
     assert len(seen) == 2  # the two -x runs only
 
 
+def test_curl_x_direct_is_the_same_as_an_empty_x(httpp_exe, echo_app):
+    # ADR-0106: direct:// turns the proxy off, whatever the environment says; --noproxy '*' still works too
+    with recording_proxy() as (proxy, seen), running(echo_app) as url:
+        env = curl_env(http_proxy=f"http://{proxy}")
+        direct = run(httpp_exe, "curl", "-x", "direct://", f"{url}/text", env=env)
+        upper = run(httpp_exe, "curl", "--proxy", "DIRECT://", f"{url}/text", env=env)
+        star = run(httpp_exe, "curl", "--noproxy", "*", f"{url}/text", env=env)
+    assert [(r.returncode, r.stdout) for r in (direct, upper, star)] == [(0, "plain body")] * 3
+    assert len(seen) == 0  # none of the three went through the proxy
+
+
+def test_curl_x_direct_with_a_host_or_a_bare_word_is_not_no_proxy(httpp_exe, echo_app):
+    # direct://host is an error; the bare word direct is a host called direct (it cannot be resolved here)
+    with running(echo_app) as url:
+        bad = run(httpp_exe, "curl", "-x", "direct://somehost", f"{url}/text", env=curl_env())
+        host = run(httpp_exe, "curl", "-m", "3", "-x", "direct", f"{url}/text", env=curl_env())
+    assert bad.returncode != 0 and "direct" in bad.stderr
+    assert host.returncode != 0 and host.stdout == ""
+
+
 def test_curl_no_proxy_lists_keep_hosts_direct_and_noproxy_replaces_the_variable(httpp_exe, echo_app):
     with recording_proxy() as (proxy, seen), running(echo_app) as url:
         via = curl_env(http_proxy=f"http://{proxy}")

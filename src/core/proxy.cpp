@@ -103,6 +103,9 @@ url proxy_url(const std::string& raw) {
     const std::string text(trimmed(raw));
     url u = parse_url(text.find("://") == std::string::npos ? "http://" + text : text);
     if (u.str().empty()) throw std::invalid_argument("proxy: '" + text + "' is not an http://, socks5:// or socks5h:// URL with a host");
+    // Only an explicit value can mean "no proxy" (ADR-0106): from the environment it is an error, as any unknown scheme is, so that the
+    // proxy found here is always a real one.
+    if (detail::is_proxy_direct_url(u)) throw std::invalid_argument("proxy: '" + text + "' (direct://) turns the proxy off only as an explicit value, not in an environment variable");
     detail::parse_proxy_url(u); // throws, naming the text, for https:// and any other scheme, or for a SOCKS5 login that is too long
     return u;
 }
@@ -118,7 +121,8 @@ std::optional<url> resolve_proxy(const url& target, const std::optional<std::str
     } else {
         text = environment_value({"http_proxy", "all_proxy", "ALL_PROXY"}); // not HTTP_PROXY: see the header
     }
-    if (trimmed(text).empty()) return std::nullopt;
+    // "" and, given explicitly, direct:// (ADR-0106) mean no proxy at all. In the environment direct:// is not accepted (see proxy_url).
+    if (trimmed(text).empty() || (proxy && detail::is_proxy_direct_url(parse_url(trimmed(text))))) return std::nullopt;
     url found = proxy_url(text);
     if (no_proxy_matches(target, no_proxy ? *no_proxy : environment_value({"no_proxy", "NO_PROXY"}))) return std::nullopt;
     return found;

@@ -686,3 +686,40 @@ UTEST(client_socks5, set_proxy_takes_a_socks_url_and_refuses_what_it_cannot_spea
     try { httpp::client::fetch("socks5://127.0.0.1:1080/"); } catch (const std::invalid_argument&) { target_refused = true; }
     ASSERT_TRUE(target_refused);
 }
+
+// proxy("direct://") is proxy("") (ADR-0106): on a client, a request and an async_client.
+UTEST(client_proxy_url, direct_turns_the_proxy_off_like_an_empty_string) {
+    proxy_test_server proxy;
+    const std::string via = "http://127.0.0.1:" + std::to_string(proxy.port());
+    httpp::client c("http://origin.invalid:8080");
+    for (const char* word : {"direct://", "DIRECT://", ""}) {
+        c.proxy(via);
+        ASSERT_EQ(200, c.get("/ok").status);
+        c.proxy(word); // no proxy: origin.invalid cannot be reached directly
+        ASSERT_TRUE(c.get("/ok").status != 200);
+    }
+    auto r = httpp::request("http://origin.invalid:8080/x").proxy(via).proxy("direct://").run();
+    ASSERT_TRUE(r.status != 200);
+    httpp::async_client ac("http://origin.invalid:8080");
+    ac.proxy(via);
+    ac.proxy("direct://");
+    ASSERT_TRUE(ac.get("/x").get().status != 200);
+}
+
+// Anything after the scheme, and the bare word, are not "no proxy": the proxy is refused and the old one stays.
+UTEST(client_proxy_url, direct_with_a_host_or_without_a_scheme_is_refused_and_changes_nothing) {
+    proxy_test_server proxy;
+    const std::string via = "http://127.0.0.1:" + std::to_string(proxy.port());
+    httpp::client c("http://origin.invalid:8080");
+    c.proxy(via);
+    for (const char* bad : {"direct://host", "direct://:3128", "direct", "off"}) {
+        bool threw = false;
+        try {
+            c.proxy(bad);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        ASSERT_TRUE(threw);
+    }
+    ASSERT_EQ(200, c.get("/ok").status); // still through the proxy
+}

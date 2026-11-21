@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <cstddef>
 #include <functional>
+#include <string_view>
 #include <memory>
 #include <chrono>
 #include <string>
@@ -36,8 +37,14 @@ struct proxy_setting {
     std::string authorization;  // http proxy: "Basic ..." for the Proxy-Authorization header, or empty
     std::string user, password; // SOCKS5 proxy: RFC 1929 credentials, or empty
 };
-// An empty url (url("")) means no proxy. Accepts http://, socks5:// and socks5h:// with an optional user[:pass]@ and port. Throws
-// std::invalid_argument for anything else ("host:port", "https://...", socks4) and for a SOCKS user or password over 255 bytes.
+// direct:// (ADR-0106): an explicit proxy that means "no proxy at all", like "". A scheme and nothing else: no host, port, user,
+// path (but "/"), query or fragment, so "direct://host" and "direct://:3128" are errors, not a proxy. The parser reads
+// "direct:", "direct:/" and "direct://" the same, and so do we. It is judged on the parsed url, never on str(): that is
+// normalized ("direct://" gives "direct:/"). A bare "direct" or "off" has no scheme and is a host, as in "http://direct".
+bool is_proxy_direct_url(const url& u);
+// An empty url (url("")) or url("direct") means no proxy. Accepts http://, socks5:// and socks5h:// with an optional user[:pass]@ and
+// port. Throws std::invalid_argument for anything else ("host:port", "https://...", socks4) and for a SOCKS user or password over
+// 255 bytes.
 proxy_setting parse_proxy_url(const url& proxy);
 
 using header_list = std::vector<std::pair<std::string, std::string>>;

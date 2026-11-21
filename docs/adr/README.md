@@ -69,6 +69,7 @@ texts kept, in order, as its parts. Numbers are not renumbered, so there are gap
 | [0093](0093-client-handles-and-settings-mixin.md) | Client classes: shared handles with `clone()`, one settings mixin (`configurable`), `download` on the mixin, and `request` / `server` clones | implemented (the points marked "Taken by default" in the parts are for the owner to confirm) |
 | [0095](0095-limit-and-unlimited-for-no-limit-settings.md) | a named "no limit" (`httpp::unlimited`) for `max_redirects`, `max_time` and `max_response_size`; the type and the Python spelling are open | proposed |
 | [0097](0097-library-elapsed-retry-and-save.md) | The library does what `httpp curl` used to do itself: elapsed time, retry, and saving to a file | implemented in C++ (built and tested on Linux); each part says whether Python is bound (merged) |
+| [0106](0106-direct-scheme-is-no-proxy.md) | `direct://` (any case, nothing after the scheme) means no proxy at all, like `""`, when a proxy is given explicitly: `proxy("direct://")`, `-x direct://`, `resolve_proxy(..., "direct://")`; an error in the environment; bare `direct` and `off` stay hosts | implemented (C++) |
 
 ## Not decided yet
 
@@ -78,7 +79,7 @@ removing the hop for `async def` handlers that await (see ADR-0023), WebSocket b
 
 ## Writing a new ADR
 
-File name `NNNN-short-english-title.md`; the next free number is **0106** (raise it when you use it). Sections: status, context, decision, rejected alternatives,
+File name `NNNN-short-english-title.md`; the next free number is **0107** (raise it when you use it). Sections: status, context, decision, rejected alternatives,
 consequences (including what is **not** verified), related. Add the row to the table above in number order.
 Do not edit an accepted ADR; when a decision changes, write a new ADR and mark the old one "superseded by ADR-NNNN", or, when the subject already has a merged ADR, see below.
 

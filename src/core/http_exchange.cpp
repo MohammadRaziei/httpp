@@ -82,9 +82,17 @@ std::string base64(const std::string& in) {
 
 } // namespace
 
+bool is_proxy_direct_url(const url& u) {
+    return u.protocol() == "direct" && u.host_text().empty() && u.port() == 0 && u.username().empty() && u.password().empty() &&
+           u.query().empty() && u.fragment().empty() && (u.path().empty() || u.path() == "/");
+}
+
 proxy_setting parse_proxy_url(const url& u) {
     proxy_setting out;
-    if (u.str().empty()) return out;
+    if (u.str().empty() || is_proxy_direct_url(u)) return out;
+    // not str(): for direct:// it is normalized into something the user never wrote ("direct:somehost/")
+    if (u.protocol() == "direct")
+        throw std::invalid_argument("proxy: direct:// turns the proxy off and takes nothing after the scheme (no host, port, user, path, query or fragment)");
     if (!url_valid(u) || u.protocol() == "https")
         throw std::invalid_argument("proxy: '" + u.str() + "' is not an http://, socks5:// or socks5h:// URL with a host");
     const std::string user = url_username(u), pass = url_password(u);

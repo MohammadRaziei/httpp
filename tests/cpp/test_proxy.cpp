@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <optional>
 #include <stdexcept>
+#include <cctype>
 #include <string>
 
 // httpp::proxy_from_environment and httpp::resolve_proxy: the proxy variables and no_proxy list as curl reads them (ADR-0067).
@@ -177,4 +178,69 @@ UTEST(httpp_proxy, resolve_proxy_with_an_explicit_no_proxy_replaces_the_variable
     ASSERT_TRUE(httpp::resolve_proxy(target, std::nullopt, std::string("")).has_value()); // curl --noproxy "": nothing is excluded
     ASSERT_FALSE(httpp::resolve_proxy(target, std::string("http://127.0.0.1:2222"), std::string("example.com")).has_value());
     ASSERT_TRUE(httpp::resolve_proxy(target, std::string("http://127.0.0.1:2222"), std::string("other.test")).has_value());
+}
+
+// direct:// is another way to say "no proxy at all" when it is given explicitly, as "" is (ADR-0106). A scheme and nothing else:
+// the bare words "direct" and "off" have no scheme and are hosts, and an environment variable never turns the proxy off this way.
+
+UTEST(httpp_proxy, an_explicit_direct_scheme_means_no_proxy_at_all_like_an_empty_string) {
+    clean_environment env;
+    set_env("http_proxy", "http://127.0.0.1:1111");
+    set_env("all_proxy", "http://127.0.0.1:3333");
+    httpp::url target("http://example.com/");
+    // the parser reads "direct:", "direct:/" and "direct://" the same, in any case, and trims the text
+    for (const char* text : {"direct://", "DIRECT://", "Direct://", "  direct://  ", "direct:///", "direct:/", "direct:"}) {
+        ASSERT_FALSE(httpp::resolve_proxy(target, std::string(text), std::nullopt).has_value());
+    }
+    ASSERT_FALSE(httpp::resolve_proxy(httpp::url("https://example.com/"), std::string("direct://"), std::nullopt).has_value());
+}
+
+UTEST(httpp_proxy, direct_with_anything_after_the_scheme_is_an_error_not_a_proxy) {
+    clean_environment env;
+    httpp::url target("http://example.com/");
+    // a host, a port, a user, a path, a query or a fragment: the text is not "no proxy", and direct is no proxy scheme
+    for (const char* text : {"direct://host", "direct://:3128", "direct://host:3128", "direct://u@", "direct://u:p@", "direct:///x",
+                             "direct://?a=1", "direct://#f", "direct://[::1]"}) {
+        bool threw = false;
+        try {
+            httpp::resolve_proxy(target, std::string(text), std::nullopt);
+        } catch (const std::invalid_argument& e) {
+            threw = true;
+            ASSERT_NE(std::string::npos, std::string(e.what()).find("direct://")); // says what is wrong, not the parser's rewrite of the text
+        }
+        ASSERT_TRUE(threw);
+    }
+}
+
+UTEST(httpp_proxy, the_bare_words_direct_and_off_are_hosts_like_any_other) {
+    clean_environment env;
+    httpp::url target("http://example.com/");
+    // (the parser writes a host name in lower case, so "DIRECT" comes back as "direct")
+    for (const char* word : {"direct", "off", "DIRECT"}) {
+        auto p = httpp::resolve_proxy(target, std::string(word), std::nullopt);
+        ASSERT_TRUE(p.has_value());
+        std::string expected(word);
+        for (auto& ch : expected) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        ASSERT_STREQ(expected.c_str(), httpp::url_host(*p).c_str());
+    }
+    auto with_scheme = httpp::resolve_proxy(target, std::string("http://direct"), std::nullopt);
+    ASSERT_TRUE(with_scheme.has_value());
+    ASSERT_STREQ("direct", httpp::url_host(*with_scheme).c_str());
+    auto with_port = httpp::resolve_proxy(target, std::string("direct:3128"), std::nullopt);
+    ASSERT_TRUE(with_port.has_value());
+    ASSERT_STREQ("direct", httpp::url_host(*with_port).c_str());
+    ASSERT_EQ(3128, static_cast<int>(httpp::url_port(*with_port)));
+}
+
+UTEST(httpp_proxy, direct_in_the_environment_is_an_error_it_only_works_when_it_is_given_explicitly) {
+    clean_environment env;
+    set_env("http_proxy", "direct://");
+    bool threw = false;
+    try {
+        httpp::proxy_from_environment(httpp::url("http://example.com/"));
+    } catch (const std::invalid_argument& e) {
+        threw = true;
+        ASSERT_NE(std::string::npos, std::string(e.what()).find("direct://"));
+    }
+    ASSERT_TRUE(threw);
 }

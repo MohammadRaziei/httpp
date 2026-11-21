@@ -27,7 +27,7 @@ namespace httpp {
 // Returns std::nullopt for a direct connection.
 HTTPP_API std::optional<url> proxy_from_environment(const url& target);
 
-// The same rules with values you give: `proxy` replaces the proxy variables (curl -x; "" means no proxy at all) and `no_proxy`
+// The same rules with values you give: `proxy` replaces the proxy variables (curl -x; "" and direct:// in any case, with nothing after the scheme, mean no proxy at all, ADR-0106; a bare "direct" or "off" is a host, and in an environment variable direct:// is an error, not "no proxy") and `no_proxy`
 // replaces NO_PROXY (curl --noproxy; "" excludes nothing). std::nullopt reads the environment for that part. The no_proxy list
 // applies to an explicit proxy too.
 HTTPP_API std::optional<url> resolve_proxy(const url& target, const std::optional<std::string>& proxy,

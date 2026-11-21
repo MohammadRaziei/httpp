@@ -78,7 +78,7 @@ Nothing is pushed by me; the owner commits and tags. The version is in `include/
 - Decision of the owner: this is good enough, roughly equal; stop the Drogon chase and go to features.
 
 ### Not verified (keep stating)
-Windows and macOS runtime (the Windows branch of `file_browser.cpp` was never compiled), the official interleaved bench on the current tree (network), a `performance` governor, more than one machine, sanitizers on the Python extension, the WebSocket benchmark and idle memory per connection (httpp about 20 KiB against Drogon about 9 KiB in the sandbox, unchecked on his machine), whether the old Date race caused the lost servers, behaviour behind a TLS proxy (`wss`), Python 3.15t locally, the free-threaded Python glue under a long stress.
+Windows and macOS runtime (the Windows branch of `file_browser.cpp` was never compiled), the official interleaved bench on the current tree (network), a `performance` governor, more than one machine, sanitizers on the Python extension, the WebSocket benchmark and idle memory per connection (httpp about 20 KiB against Drogon about 9 KiB in the sandbox, unchecked on his machine), whether the old Date race caused the lost servers, behaviour behind a TLS proxy (`wss`), Python 3.15t locally, the free-threaded Python glue under a long stress. The Python tests for ADR-0106 (`test_proxy.py` and `test_cli.py::test_curl_x_direct_is_the_same_as_an_empty_x`) were written but not run (no Cython in the sandbox).
 
 ### Known small findings
 - ASan leak report at exit (about 18 KB in 7 allocations, all in `async_http::impl` exchange objects alive at exit): not from the file browser, not investigated.

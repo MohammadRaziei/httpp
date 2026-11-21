@@ -67,3 +67,13 @@ def test_resolve_proxy_replaces_the_variables_with_what_it_is_given(monkeypatch)
     assert httpp.resolve_proxy(url, proxy="proxy.local:3128", no_proxy="other.test") == "http://proxy.local:3128"
     assert httpp.resolve_proxy(url, proxy="proxy.local:3128") is None  # the no_proxy variable still applies
     assert httpp.resolve_proxy("http://other.test/", proxy="") is None  # '' means no proxy at all
+
+
+def test_resolve_proxy_direct_scheme_is_no_proxy_like_an_empty_string():
+    # ADR-0106: direct:// (any case) and nothing else after the scheme; the bare word is a host called direct
+    assert httpp.resolve_proxy("http://other.test/", proxy="direct://") is None
+    assert httpp.resolve_proxy("http://other.test/", proxy="DIRECT://") is None
+    assert "direct" in str(httpp.resolve_proxy("http://other.test/", proxy="direct"))
+    assert "direct" in str(httpp.resolve_proxy("http://other.test/", proxy="http://direct"))
+    with pytest.raises(ValueError):
+        httpp.resolve_proxy("http://other.test/", proxy="direct://somehost")

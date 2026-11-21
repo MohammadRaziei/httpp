@@ -936,7 +936,7 @@ int main(int argc, char** argv) {
     c_curl->add_option("--user-agent,-A", ca.user_agent, "Send this User-Agent (an explicit -H wins)")->type_name("NAME");
     c_curl->add_option("--referer,-e", ca.referer, "Send this Referer (an explicit -H wins)")->type_name("URL");
     auto* curl_user_opt = c_curl->add_option("--user,-u", ca.user, "Basic authentication as 'user:password'")->type_name("USER:PASSWORD");
-    auto* curl_proxy_opt = c_curl->add_option("--proxy,-x", ca.proxy, "Use this proxy: [http://][user:password@]host[:port], socks5://... or socks5h://... ('' = no proxy). Without it the variables http_proxy, https_proxy and all_proxy are read, as curl does")->type_name("URL");
+    auto* curl_proxy_opt = c_curl->add_option("--proxy,-x", ca.proxy, "Use this proxy: [http://][user:password@]host[:port], socks5://... or socks5h://... ('' or 'direct://' = no proxy at all). Without it the variables http_proxy, https_proxy and all_proxy are read, as curl does")->type_name("URL");
     auto* curl_noproxy_opt = c_curl->add_option("--noproxy", ca.noproxy, "Hosts that go direct, comma separated: names (with their subdomains), IPv4 addresses and a.b.c.d/n ranges, '*' for all. Replaces no_proxy")->type_name("LIST");
 
     // `py` exists for --help only: the real work is done before parsing.
