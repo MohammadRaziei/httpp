@@ -4,9 +4,23 @@ title: Document your API with Swagger UI
 sidebar_label: API docs (Swagger)
 ---
 
+import Only from '@site/src/components/Only';
+
+<Only lang="python">
+
 A Python `Server` describes its own routes and serves a page where you can read them and try them out. The page is Swagger UI, and it is built into httpp, so it loads without internet and there is nothing to install. The routes, their parameters and their models come from your type hints; there is no second file to keep up to date.
 
+</Only>
+
+<Only lang="cpp">
+
+httpp serves the Swagger UI page in C++ too. It is built into the library, so it loads without internet and there is nothing to install. What C++ cannot do is read your handlers, so you describe the API next to them and `httpp::openapi::document` turns that description into the OpenAPI document the page reads. Python builds the same document from the routes themselves; switch to Python in the top bar to see that.
+
+</Only>
+
 ## A small API
+
+<Only lang="python">
 
 This is the API in every picture on this page.
 
@@ -90,92 +104,9 @@ if __name__ == "__main__":
 
 Run it and open `http://127.0.0.1:8200/docs`. The same server answers `/openapi.json`, the OpenAPI 3.1 document the page reads.
 
-## The page
+</Only>
 
-![Swagger UI showing the Library API, with its routes grouped by tag](./swagger/01-overview.png)
-
-The title, version and description at the top are the arguments of `Server`. Routes are grouped by `tags`, and each line shows the method, the path and the `summary`. A route marked `deprecated=True` is struck through, as the by-author route is here, and it still works. A route with `include_in_schema=False` is left out, and so are `/docs` and `/openapi.json` themselves.
-
-## What an operation shows
-
-A click on a line opens it. The text under the line is the docstring of the function.
-
-![The parameters of Read one book: a required integer in the path](./swagger/02-parameters.png)
-
-Parameters come from the arguments of the function. A name that is in the path is a path parameter, the other simple arguments are query parameters, and one that has a default or is `Optional` is not marked as required. `Query(..., description=...)` adds the text next to a parameter.
-
-A model argument becomes the request body, and its example is built from the `examples` of the fields.
-
-![The request body of Add a book, with an example made from the field examples](./swagger/03-request-body.png)
-
-The documented answers are the success status, which is `status_code` (200 if you give none) with the schema of `response_model`, and `422`, the answer for a request that does not fit its parameters or its body.
-
-## Try it out
-
-**Try it out** turns the parameters into fields, **Execute** sends a real request from your browser to your server, and the page shows what came back, with the `curl` command that does the same.
-
-![Try it out on List books with q=software and limit=2, answered 200](./swagger/04-try-it-200.png)
-
-A 404 that your function raises with `HTTPException` works as well. Swagger UI labels it _Undocumented_, because only the success status and `422` are described for you.
-
-![Read one book with book_id=99, answered 404 with the detail "no such book"](./swagger/05-try-it-404.png)
-
-The page also checks the limits of a parameter by itself. With `limit=500` it shows _Value must be less than or equal to 100_ and sends nothing, so to see the server's own `422`, send a body that breaks a rule of the model. Here the title is empty and the year is before 1450:
-
-![Add a book with an invalid body, answered 422 with one error for title and one for year](./swagger/06-try-it-422.png)
-
-Each error says the `type`, where it is (`loc`), a `msg`, the `input` that was refused and the limit that it broke (`ctx`). This is the shape that `HTTPValidationError` describes in the document.
-
-## Authorize
-
-Declare how the API is protected and Swagger UI shows an **Authorize** button and a lock on the operations that need it, so **Try it out** can send the credentials:
-
-```python
-from httpp import Server, security
-
-app = Server(security_schemes={"basic": security.basic(), "jwt": security.bearer("JWT")}, security=["jwt"])
-
-@app.get("/admin", security=["basic"])   # needs Basic credentials
-def admin(): ...
-
-@app.get("/health", security=[])         # public, although the default asks for a JWT
-def health(): ...
-```
-
-`security.basic()`, `security.bearer()` and `security.api_key(name, "header" | "query" | "cookie")` write the scheme objects. `Server(security=...)` is the requirement of every route, a route's `security=` replaces it (`[]` makes it public), and `APIRouter(security=...)` is the default of that router's routes. A list means any one of them; a dict `{"basic": [], "key": []}` means both together. A name that was not declared raises `ValueError` where the route is written.
-
-This only describes the API. Nothing is checked because of it: add `BasicAuthMiddleware`, or read `request.basic_auth()` or the `Authorization` header in a dependency, and verify a token with a library of your choice. A document that says a route is open while a middleware refuses it is a lie you can test for: call the route without credentials and expect `401`.
-
-## The models
-
-The **Schemas** section lists the models, and the rules of the fields show up in it: the length of `title`, the range of `year`, the descriptions and the examples.
-
-![The Schemas section with BookIn opened: title 1 to 120 characters, year 1450 to 2100](./swagger/07-schemas.png)
-
-## On a phone
-
-<div style={{maxWidth: 300}}>
-
-![Swagger UI on a phone-sized screen](./swagger/08-mobile.png)
-
-</div>
-
-## Settings
-
-| Where | Option | Meaning |
-|---|---|---|
-| `Server(...)` | `title`, `version`, `description` | the header of the page and of the document (`"httpp"`, `"0.1.0"` and none by default) |
-| `Server(...)` | `docs_url` | where the page is (`"/docs"`); `None` removes the page and keeps the document |
-| `Server(...)` | `openapi_url` | where the document is (`"/openapi.json"`); `None` removes both |
-| a route | `summary`, `description`, `tags` | the line, the text and the group (the description is the docstring if you give none) |
-| a route | `deprecated`, `include_in_schema` | strike the route through, or leave it out |
-| a route | `status_code`, `response_model` | the documented success answer, and the model that the returned value is checked against |
-
-`app.openapi()` returns the document as a dict. It is built the first time it is asked for and built again when a route is added after that.
-
-To move the page, give both addresses: `Server(docs_url="/api/docs", openapi_url="/api/openapi.json")`. The page then reads its document from the new address.
-
-## In C++
+<Only lang="cpp">
 
 C++ has the page and a writer for the document, but it does not make the document from your routes. `httpp::swagger` serves the same Swagger UI from files compiled into the library, and `httpp::openapi::document` turns what you describe into correct JSON text: every string escaped, the paths grouped, every security name checked. Nothing in it reads JSON, so there is no parser. The headers are not part of `httpp.h`.
 
@@ -212,14 +143,227 @@ int main() {
 
 You describe the API apart from the handlers, so the document can drift from them: add a route and forget the line in `doc`, and the page does not show it. Python builds its document from the routes themselves and cannot drift; C++ has no way to read a handler's arguments, so it does not try. Like in Python, security here is only documentation for the **Authorize** button: nothing is checked because of it.
 
-`scheme` objects come from `basic()`, `bearer(format)`, `api_key(name, "header" | "query" | "cookie")` and `raw_scheme(json)` (OAuth2 and the rest). A requirement is a list: `any_of({"basic", "jwt"})` means any one of them, and a `requirement` with several names in it means all of them together. A name that was not declared throws `std::invalid_argument` from `to_json()`, and the message names the operation.
+</Only>
+
+
+## The page
+
+<Only lang="python">
+
+![Swagger UI showing the Library API, with its routes grouped by tag](./swagger/01-overview.png)
+
+The title, version and description at the top are the arguments of `Server`. Routes are grouped by `tags`, and each line shows the method, the path and the `summary`. A route marked `deprecated=True` is struck through, as the by-author route is here, and it still works. A route with `include_in_schema=False` is left out, and so are `/docs` and `/openapi.json` themselves.
+
+</Only>
+
+<Only lang="cpp">
+
+The page is the same Swagger UI that Python serves. `mount` puts it at the base you give and answers there; the document it reads is the one you serve at the address you gave to `httpp::swagger`.
+
+</Only>
+
+
+## What an operation shows
+
+<Only lang="python">
+
+A click on a line opens it. The text under the line is the docstring of the function.
+
+![The parameters of Read one book: a required integer in the path](./swagger/02-parameters.png)
+
+Parameters come from the arguments of the function. A name that is in the path is a path parameter, the other simple arguments are query parameters, and one that has a default or is `Optional` is not marked as required. `Query(..., description=...)` adds the text next to a parameter.
+
+A model argument becomes the request body, and its example is built from the `examples` of the fields.
+
+![The request body of Add a book, with an example made from the field examples](./swagger/03-request-body.png)
+
+The documented answers are the success status, which is `status_code` (200 if you give none) with the schema of `response_model`, and `422`, the answer for a request that does not fit its parameters or its body.
+
+</Only>
+
+<Only lang="cpp">
+
+Each `doc.get(path)` (or `post`, `put`, `delete`) is one operation. Its `summary`, `parameter(name, in, required)` and `response(status, description)` are what the page shows for it, and the order of the calls is the order of the lines.
 
 Where a schema or a body is more than a few fields, give it as JSON text: `parameter(name, in, required, schema_json)`, `request_body(json)`, `response(status, description, content_json)`, `component_schema(name, json)` and `raw(key, json)` for any other key. The text is put in as it is. It is not parsed, so it being valid JSON is your promise; only text that is blank or not UTF-8 is refused.
 
+</Only>
+
+
+## Try it out
+
+<Only lang="python">
+
+**Try it out** turns the parameters into fields, **Execute** sends a real request from your browser to your server, and the page shows what came back, with the `curl` command that does the same.
+
+![Try it out on List books with q=software and limit=2, answered 200](./swagger/04-try-it-200.png)
+
+A 404 that your function raises with `HTTPException` works as well. Swagger UI labels it _Undocumented_, because only the success status and `422` are described for you.
+
+![Read one book with book_id=99, answered 404 with the detail "no such book"](./swagger/05-try-it-404.png)
+
+The page also checks the limits of a parameter by itself. With `limit=500` it shows _Value must be less than or equal to 100_ and sends nothing, so to see the server's own `422`, send a body that breaks a rule of the model. Here the title is empty and the year is before 1450:
+
+![Add a book with an invalid body, answered 422 with one error for title and one for year](./swagger/06-try-it-422.png)
+
+Each error says the `type`, where it is (`loc`), a `msg`, the `input` that was refused and the limit that it broke (`ctx`). This is the shape that `HTTPValidationError` describes in the document.
+
+</Only>
+
+<Only lang="cpp">
+
+**Try it out** works as it does for a Python server: the page turns the parameters you described into fields and sends a real request to your server. A route that you did not describe is not on the page, so there is nothing to try.
+
+</Only>
+
+
+## Authorize
+
+<Only lang="python">
+
+Declare how the API is protected and Swagger UI shows an **Authorize** button and a lock on the operations that need it, so **Try it out** can send the credentials:
+
+```python
+from httpp import Server, security
+
+app = Server(security_schemes={"basic": security.basic(), "jwt": security.bearer("JWT")}, security=["jwt"])
+
+@app.get("/admin", security=["basic"])   # needs Basic credentials
+def admin(): ...
+
+@app.get("/health", security=[])         # public, although the default asks for a JWT
+def health(): ...
+```
+
+`security.basic()`, `security.bearer()` and `security.api_key(name, "header" | "query" | "cookie")` write the scheme objects. `Server(security=...)` is the requirement of every route, a route's `security=` replaces it (`[]` makes it public), and `APIRouter(security=...)` is the default of that router's routes. A list means any one of them; a dict `{"basic": [], "key": []}` means both together. A name that was not declared raises `ValueError` where the route is written.
+
+This only describes the API. Nothing is checked because of it: add `BasicAuthMiddleware`, or read `request.basic_auth()` or the `Authorization` header in a dependency, and verify a token with a library of your choice. A document that says a route is open while a middleware refuses it is a lie you can test for: call the route without credentials and expect `401`.
+
+</Only>
+
+<Only lang="cpp">
+
+`scheme` objects come from `basic()`, `bearer(format)`, `api_key(name, "header" | "query" | "cookie")` and `raw_scheme(json)` (OAuth2 and the rest). A requirement is a list: `any_of({"basic", "jwt"})` means any one of them, and a `requirement` with several names in it means all of them together. A name that was not declared throws `std::invalid_argument` from `to_json()`, and the message names the operation.
+
+</Only>
+
+
+## The models
+
+<Only lang="python">
+
+The **Schemas** section lists the models, and the rules of the fields show up in it: the length of `title`, the range of `year`, the descriptions and the examples.
+
+![The Schemas section with BookIn opened: title 1 to 120 characters, year 1450 to 2100](./swagger/07-schemas.png)
+
+</Only>
+
+<Only lang="cpp">
+
+`component_schema(name, json)` adds a model to the **Schemas** section. The JSON text is put in as it is, so the rules of its fields show up there only if you wrote them.
+
+</Only>
+
+
+## On a phone
+
+<div style={{maxWidth: 300}}>
+
+![Swagger UI on a phone-sized screen](./swagger/08-mobile.png)
+
+</div>
+
+
+## Settings
+
+<Only lang="python">
+
+| Where | Option | Meaning |
+|---|---|---|
+| `Server(...)` | `title`, `version`, `description` | the header of the page and of the document (`"httpp"`, `"0.1.0"` and none by default) |
+| `Server(...)` | `docs_url` | where the page is (`"/docs"`); `None` removes the page and keeps the document |
+| `Server(...)` | `openapi_url` | where the document is (`"/openapi.json"`); `None` removes both |
+| a route | `summary`, `description`, `tags` | the line, the text and the group (the description is the docstring if you give none) |
+| a route | `deprecated`, `include_in_schema` | strike the route through, or leave it out |
+| a route | `status_code`, `response_model` | the documented success answer, and the model that the returned value is checked against |
+
+`app.openapi()` returns the document as a dict. It is built the first time it is asked for and built again when a route is added after that.
+
+To move the page, give both addresses: `Server(docs_url="/api/docs", openapi_url="/api/openapi.json")`. The page then reads its document from the new address.
+
+</Only>
+
+<Only lang="cpp">
+
 `httpp::swagger` takes the address of the OpenAPI document in its constructor. It is required, because the library does not serve that document: you do, on that address. The address is used as it is, so when you mount the page under another base, give the whole address. `mount(app, base)` puts the page at `base` and its three files under it; `base` defaults to `"/docs"`, must start with `/` and name more than the root, or `mount` throws `std::invalid_argument`. One `swagger` object can be mounted more than once.
 
-Python has the same writer: `httpp.openapi.Document("Hello API", "1.0.0")`, with the same calls (`security_scheme`, `security`, `add(method, path, ...)`, `to_json()`). `Server.openapi()` is written through it. The Python class `httpp.Swagger` does the page for a document of your own: `httpp.Swagger("/openapi.json", title="Mine").mount(app, "/docs")`.
+</Only>
+
+
+## Describe the API by hand
+
+<Only lang="python">
+
+`Server` writes the document from its routes. When you want to describe an API by hand, for example one that another program serves, `httpp.openapi.Document` is the writer that `Server.openapi()` uses, and `httpp.Swagger` serves the page for a document of your own. This is the Hello API of the C++ example under **A small API**, in Python:
+
+```python
+import json
+
+import httpp
+from httpp import openapi, security
+
+app = httpp.Server(docs_url=None, openapi_url=None)   # no page and no document of its own
+
+
+@app.get("/hello/{name}")
+def hello(name: str):
+    return {"hello": name}
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
+doc = openapi.Document("Hello API", "1.0.0")
+doc.security_scheme("jwt", security.bearer("JWT"))
+doc.security(["jwt"])                                  # the default of every operation
+doc.add("get", "/hello/{name}", summary="Say hello",
+        parameters=[{"name": "name", "in": "path", "required": True, "schema": {"type": "string"}}],
+        responses={200: {"description": "A greeting"}})
+doc.add("get", "/health", security=[], responses={200: {"description": "OK"}})   # public although the default asks for a JWT
+
+
+@app.get("/openapi.json")
+def spec():
+    return json.loads(doc.to_json())
+
+
+httpp.Swagger("/openapi.json", title="Hello API").mount(app, "/docs")
+app.listen("127.0.0.1", 8201)
+```
+
+`doc.add(method, path, ...)` takes `summary`, `description`, `parameters`, `request_body`, `responses`, `security` and `extra` for any other key of the operation object. `security=None` leaves the default of the document, a list sets this operation's requirements, and `[]` makes it public. As in C++, the document is only what you wrote: add a route and forget its line in `doc`, and the page does not show it.
+
+</Only>
+
+<Only lang="cpp">
+
+In C++ this is the only way to make a document, and the example under **A small API** is the whole of it: describe each operation with `doc.get(...)`, serve `doc.to_json()` and mount the page.
+
+</Only>
+
 
 ## Before you publish it
 
+<Only lang="python">
+
 `/docs` and `/openapi.json` have no login, and they list every route that is not left out with `include_in_schema=False`. Anyone who can reach your server can read them, and can use **Try it out** on any route that does not ask for a key itself. For a server that is open to the internet, turn the page off with `docs_url=None`, or the document too with `openapi_url=None`.
+
+</Only>
+
+<Only lang="cpp">
+
+`/docs` and `/openapi.json` have no login, and they list every operation that you described. Anyone who can reach your server can read them, and can use **Try it out** on any route that does not ask for a key itself. For a server that is open to the internet, do not mount the page: leave out the `httpp::swagger(...).mount(...)` line, and the route that serves the document too.
+
+</Only>

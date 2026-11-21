@@ -13,7 +13,8 @@ import Only from '@site/src/components/Only';
 With no app to write, one command hands out a folder, as `python -m http.server` does:
 
 ```bash
-httpp server public
+httpp server <path>
+httpp server public     # for example: the folder `public` next to you
 # Serving '/home/you/public' at http://0.0.0.0:8000/
 ```
 
@@ -21,7 +22,7 @@ The folder defaults to the current one, and `Ctrl+C` stops it. Each request is l
 
 | | `python -m http.server` | `httpp server` |
 |---|---|---|
-| The folder | `--directory public` | `public` |
+| The folder | `--directory <path>` | `<path>` |
 | The port | `8000` | `-p 8000` (default `8000`) |
 | The address | `--bind 127.0.0.1` | `--host 127.0.0.1` (default `0.0.0.0`) |
 | A folder without `index.html` | lists its files | answers 404 |
@@ -42,7 +43,7 @@ To let people see what is in a folder instead of asking for a file by name, run 
 `--ssl-certfile` and `--ssl-keyfile` (both PEM, give both) make `httpp server` serve `https` instead of `http`:
 
 ```sh
-httpp server ./site --ssl-certfile cert.pem --ssl-keyfile key.pem
+httpp server <path> --ssl-certfile cert.pem --ssl-keyfile key.pem
 ```
 
 The printed address starts with `https://`, and one port serves TLS or plain HTTP, never both. For an encrypted key add `--ssl-keyfile-password`, or set `HTTPP_SSL_KEYFILE_PASSWORD` to keep the password out of the process list. [`httpp browse`](browse-command.mdx#https) takes the same options, which are also the ones `httpp run` has. In C++ the same thing is `tls(cert, key)` on the server.
