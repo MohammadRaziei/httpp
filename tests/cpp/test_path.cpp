@@ -147,21 +147,9 @@ namespace {
 
 const path area = "fs_test_area";
 
-// Empties a directory, every level of it (a test may have made "a/b/c"); a link is removed, never followed.
-void wipe(const path& dir) {
-    std::vector<path> entries;
-    if (!dir.iterdir(entries)) return;
-    for (const auto& e : entries) {
-        const path::status st = e.lstat();
-        if (st.type == path::kind::directory && !st.link) wipe(e);
-        e.unlink();
-        e.rmdir();
-    }
-}
-
 // a fresh empty directory
 void fresh() {
-    wipe(area);
+    area.rmtree();
     area.mkdir();
 }
 
@@ -283,6 +271,42 @@ UTEST(path, is_executable_needs_the_permission) {
     ASSERT_EQ(0, ::chmod(p.c_str(), 0755));
     ASSERT_TRUE(p.is_executable());
     ASSERT_FALSE(area.is_executable()); // a directory is not a program
+}
+#endif
+
+UTEST(path, rmtree_removes_a_file_a_tree_and_what_is_not_there) {
+    fresh();
+    ASSERT_TRUE((area / "nothing").rmtree()); // never there is fine
+    (area / "one").write_text("x");
+    ASSERT_TRUE((area / "one").rmtree());
+    ASSERT_FALSE((area / "one").exists());
+
+    ASSERT_TRUE((area / "a" / "b" / "c").mkdirs());
+    (area / "a" / "top.txt").write_text("1");
+    (area / "a" / "b" / "mid.txt").write_text("2");
+    (area / "a" / "b" / "c" / "deep.txt").write_text("3");
+    ASSERT_TRUE((area / "a").rmtree());
+    ASSERT_FALSE((area / "a").exists());
+    ASSERT_TRUE(area.is_dir()); // the parent stays
+}
+
+#ifndef _WIN32
+UTEST(path, rmtree_removes_a_link_and_never_follows_it) {
+    fresh();
+    ASSERT_TRUE((area / "outside").mkdirs());
+    (area / "outside" / "keep.txt").write_text("keep");
+    ASSERT_TRUE((area / "tree").mkdirs());
+    ASSERT_EQ(0, ::symlink("../outside", (area / "tree" / "to_dir").c_str()));
+    ASSERT_EQ(0, ::symlink("missing", (area / "tree" / "dangling").c_str()));
+
+    ASSERT_TRUE((area / "tree").rmtree());
+    ASSERT_FALSE((area / "tree").exists());
+    ASSERT_TRUE((area / "outside" / "keep.txt").is_file()); // what the link pointed to is untouched
+
+    ASSERT_EQ(0, ::symlink("outside", (area / "link").c_str()));
+    ASSERT_TRUE((area / "link").rmtree()); // the link itself, not the directory behind it
+    ASSERT_FALSE((area / "link").lstat().link);
+    ASSERT_TRUE((area / "outside" / "keep.txt").is_file());
 }
 #endif
 

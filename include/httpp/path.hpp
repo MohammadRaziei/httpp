@@ -133,6 +133,11 @@ public:
     }
     HTTPP_UTILS_API bool rmdir() const;                // an empty directory
     HTTPP_UTILS_API bool unlink() const;               // a file
+    // shutil.rmtree, and it takes a file too: a file, a link, or a directory with everything in it, every level. A symbolic
+    // link is removed and never followed, so nothing outside this path is touched (Windows: a directory link or junction is
+    // removed as a link, and a read-only attribute is cleared first). True when this is gone afterwards, also when it was
+    // never there.
+    HTTPP_UTILS_API bool rmtree() const;
     // Moves this over `to`, replacing it. std::rename does that on POSIX only (on Windows it fails when `to` exists);
     // this is atomic on both.
     HTTPP_UTILS_API bool rename(const path& to) const;

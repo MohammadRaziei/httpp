@@ -98,7 +98,7 @@ the part "An own file system module, `httpp::fs`, replaces std::filesystem" adde
 #### Decision
 
 - `src/core/internal/fs.hpp`, `src/core/fs.cpp` and `tests/cpp/test_fs.cpp` are gone; their code lives in `path.cpp` (POSIX and Windows halves unchanged) and their tests in `test_path.cpp`.
-- The operations became pathlib-named members of `path`: `stat()` / `lstat()` (with `path::status` and `path::kind`), `resolve()` (was `real`), `is_relative_to(root)` (was `is_inside`), `is_root()`, `iterdir(entries)` (was `list`), `mkdir()`, `rmdir()`, `unlink()`, `rename(to)` (was `replace`), `is_executable()`, `name()` (was `filename`), `operator/` (was `join`), `native()`. `cwd()` and `absolute()` were already there.
+- The operations became pathlib-named members of `path`: `stat()` / `lstat()` (with `path::status` and `path::kind`), `resolve()` (was `real`), `is_relative_to(root)` (was `is_inside`), `is_root()`, `iterdir(entries)` (was `list`), `mkdir()`, `rmdir()`, `unlink()`, `rmtree()` (shutil's rmtree; a file, a link or a whole directory tree, links never followed), `rename(to)` (was `replace`), `is_executable()`, `name()` (was `filename`), `operator/` (was `join`), `native()`. `cwd()` and `absolute()` were already there.
 - The library, the server, the file browser, downloads, TLS loading, `sha256_file` and the CLI use `httpp::path`. The CLI and the tests link `httpp_core`: no file is compiled twice.
 - One behaviour change: `mkdir()` is true only when this call created the directory (it was "is there afterwards"). The download lock tells "there already" from "cannot be made" with `is_dir()`, which also means a plain file where the lock directory should be now runs without a lock instead of waiting on it.
 

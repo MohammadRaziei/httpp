@@ -128,6 +128,26 @@ bool path::mkdir() const { return CreateDirectoryW(native().c_str(), nullptr) !=
 bool path::rmdir() const { return RemoveDirectoryW(native().c_str()) != 0; }
 bool path::unlink() const { return DeleteFileW(native().c_str()) != 0; }
 
+bool path::rmtree() const {
+    const std::wstring wide = native();
+    const DWORD attrs = GetFileAttributesW(wide.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        const DWORD err = GetLastError();
+        return err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND; // never there
+    }
+    if (attrs & FILE_ATTRIBUTE_READONLY) SetFileAttributesW(wide.c_str(), attrs & ~static_cast<DWORD>(FILE_ATTRIBUTE_READONLY)); // both removals refuse it
+    if (attrs & FILE_ATTRIBUTE_DIRECTORY) {
+        // A directory link or junction is a reparse point: RemoveDirectoryW removes the link and leaves what it points to alone.
+        if (!(attrs & FILE_ATTRIBUTE_REPARSE_POINT)) {
+            std::vector<path> entries;
+            if (iterdir(entries))
+                for (const path& e : entries) e.rmtree();
+        }
+        return RemoveDirectoryW(wide.c_str()) != 0;
+    }
+    return DeleteFileW(wide.c_str()) != 0;
+}
+
 bool path::rename(const path& to) const {
     return MoveFileExW(native().c_str(), to.native().c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
 }
@@ -203,6 +223,18 @@ bool path::iterdir(std::vector<path>& entries) const {
 bool path::mkdir() const { return ::mkdir(text_.c_str(), 0777) == 0; }
 bool path::rmdir() const { return ::rmdir(text_.c_str()) == 0; }
 bool path::unlink() const { return ::unlink(text_.c_str()) == 0; }
+
+bool path::rmtree() const {
+    const status st = lstat();
+    if (st.type == kind::missing) return true; // never there (a link, even a dangling one, is kind::other)
+    if (st.type == kind::directory) {          // a link to a directory is kind::other, so it is never entered
+        std::vector<path> entries;
+        if (iterdir(entries))
+            for (const path& e : entries) e.rmtree();
+        return rmdir() || lstat().type == kind::missing; // another process may have removed it meanwhile
+    }
+    return unlink() || lstat().type == kind::missing;
+}
 bool path::rename(const path& to) const { return ::rename(text_.c_str(), to.text_.c_str()) == 0; }
 
 bool path::is_executable() const { return stat().type == kind::file && ::access(text_.c_str(), X_OK) == 0; }
