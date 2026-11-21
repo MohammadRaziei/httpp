@@ -29,13 +29,13 @@ def cpp_api():
     for path in sorted(INCLUDE.glob("*.hpp")):
         text = _strip_comments(path.read_text(encoding="utf-8"))
         spans = []
-        for m in re.finditer(r"\b(?:struct|class)\s+(?:HTTPP_API\s+)?(\w+)\s*(?:final\s*)?(?::[^{;]*)?\{", text):
+        for m in re.finditer(r"\b(?:struct|class)\s+(?:HTTPP_API\s+|HTTPP_UTILS_API\s+)?(\w+)\s*(?:final\s*)?(?::[^{;]*)?\{", text):
             depth, j = 1, m.end()
             while depth and j < len(text):
                 depth += (text[j] == "{") - (text[j] == "}")
                 j += 1
             spans.append((m.start(), j, m.group(1)))
-        for m in re.finditer(r"(?:HTTPP_API|HTTPP_MEMBER)\s+([^;{]*?)\b(operator\s*\S+|~?\w+)\s*\(", text):
+        for m in re.finditer(r"(?:HTTPP_API|HTTPP_UTILS_API|HTTPP_MEMBER)\s+([^;{]*?)\b(operator\s*\S+|~?\w+)\s*\(", text):
             name = m.group(2)
             owner = ""
             for a, b, n in spans:
@@ -177,6 +177,7 @@ NOT_EXPOSED = {
     ("router", "route_ws"): "Python registers WebSocket routes with the APIRouter.websocket decorator (ADR-0048)",
     ("router", "route_io"): "same as server::route_io",
     ("router", "route_shared"): "same as server::route_shared",
+    ("", "utils_abi_version"): "internal: the C++ side checks that the loaded libhttpp_utils matches its headers; a Python user never links against it",
     ("", "raw_scheme"): "not necessary: a Python scheme is already a dict (or JSON text) that Document.security_scheme takes as it is (ADR-0087)",
     ("", "find_swagger_ui_asset"): "internal lookup behind swagger::mount, not meant for users",
     ("", "level_name"): "the logging module imitates Python's own `logging`, which is the Python side (ADR-0057)",
@@ -237,10 +238,13 @@ def test_not_exposed_names_are_still_unbound():
     api = {}
     for (header, owner), names in cpp_api().items():
         api.setdefault(owner, set()).update(names)
+    for user, _ in CONFIGURABLE_USERS:  # the names of configurable<Self> belong to each class that derives from it
+        api.setdefault(user, set()).update(api.get("configurable", set()))
     for (owner, name), reason in NOT_EXPOSED.items():
         assert name in api.get(owner, set()), f"{owner}::{name} is no longer in the C++ headers: drop it from NOT_EXPOSED"
         target = {"server": httpp.Server, "router": httpp.APIRouter, "request": httpp.Request, "client": httpp.Client,
-                  "async_client": httpp.AsyncClient, "": httpp, "document": httpp.openapi.Document}[owner]
+                  "async_client": httpp.AsyncClient, "download": httpp.Download, "": httpp,
+                  "document": httpp.openapi.Document}[owner]
         assert name not in _py_names(target), f"{owner}::{name} now exists in Python ({reason}): drop it from NOT_EXPOSED"
 
 

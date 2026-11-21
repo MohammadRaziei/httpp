@@ -85,6 +85,10 @@ def echo_app():
     def report():
         return "report body"
 
+    @app.get("/missing")
+    def missing():
+        return httpp.PlainTextResponse("no such page", status_code=404)  # an error status that has a body
+
     @app.get("/dl")
     def dl(response):
         response.add_header("Content-Disposition", 'attachment; filename="../evil/name.txt"')  # only the name is used
@@ -944,12 +948,12 @@ def test_curl_capital_o_names_the_file_after_the_url(httpp_exe, echo_app, tmp_pa
 def test_curl_fail_with_body_exits_22_but_still_shows_and_saves_the_body(httpp_exe, echo_app, tmp_path):
     out = tmp_path / "error-page.txt"
     with running(echo_app) as url:
-        shown = run(httpp_exe, "curl", f"{url}/nothing-here", "--fail-with-body")
-        saved = run(httpp_exe, "curl", f"{url}/nothing-here", "--fail-with-body", "-o", str(out))
+        shown = run(httpp_exe, "curl", f"{url}/missing", "--fail-with-body")
+        saved = run(httpp_exe, "curl", f"{url}/missing", "--fail-with-body", "-o", str(out))
         ok = run(httpp_exe, "curl", f"{url}/text", "--fail-with-body")
         both = run(httpp_exe, "curl", f"{url}/text", "-f", "--fail-with-body")
-    assert shown.returncode == 22 and shown.stdout != "" and "404" in shown.stderr
-    assert saved.returncode == 22 and out.read_text() != ""
+    assert shown.returncode == 22 and shown.stdout == "no such page" and "404" in shown.stderr
+    assert saved.returncode == 22 and out.read_text() == "no such page"
     assert ok.returncode == 0 and ok.stdout == "plain body"
     assert both.returncode == 2  # -f and --fail-with-body exclude each other
 
