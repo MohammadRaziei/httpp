@@ -47,6 +47,12 @@ find_package(httpp CONFIG REQUIRED)
 foreach(name IN ITEMS @NAMES@)
     add_executable(${name} ${name}.cpp)
     target_link_libraries(${name} PRIVATE httpp::httpp_core)
+    if(WIN32 AND NOT CMAKE_VERSION VERSION_LESS 3.21)
+        # Windows finds a DLL next to the program or on PATH, and the DLLs of httpp sit in the installed package, which is on neither
+        add_custom_command(TARGET ${name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:${name}> $<TARGET_FILE_DIR:${name}>
+            COMMAND_EXPAND_LISTS)
+    endif()
 endforeach()
 """
 
@@ -282,6 +288,18 @@ def target(unit):
     return unit.replace("/", "__")
 
 
+def cpp_program(work, unit):
+    """The built example. A single-configuration generator puts it in build/, Visual Studio in build/<config>/, and Windows adds .exe."""
+    build = work / "cpp" / "build"
+    suffixes = ("", ".exe") if sys.platform == "win32" else ("",)
+    tried = [build / folder / f"{target(unit)}{suffix}" for folder in ("", "Release") for suffix in suffixes]
+    for candidate in tried:
+        if candidate.is_file():
+            return str(candidate)
+    found = sorted(str(p.relative_to(build)) for p in build.rglob(f"{target(unit)}*") if p.is_file())
+    pytest.fail(f"{target(unit)} was built nowhere I looked: {[str(p.relative_to(build)) for p in tried]}; files with that name: {found}")
+
+
 def units_in_the_folder():
     """{unit: [languages]} found in examples/."""
     found = {}
@@ -326,7 +344,7 @@ def run_client(lang, unit, port, check, work):
         patched("python", unit, port, dest)
         command = [sys.executable, str(dest)]
     else:  # the C++ ones were patched before the build
-        command = [str(work / "cpp" / "build" / target(unit))]
+        command = [cpp_program(work, unit)]
     cwd = work / lang / f"{target(unit)}.cwd"  # a program that saves a file saves it here
     cwd.mkdir(exist_ok=True)
     r = subprocess.run(command, capture_output=True, text=True, timeout=60, cwd=cwd)
@@ -369,7 +387,7 @@ def cpp_build(work, ports):
     (folder / "CMakeLists.txt").write_text(CMAKE.replace("@NAMES@", " ".join(names)), encoding="utf-8")
     for step in (
         ["cmake", "-S", str(folder), "-B", str(folder / "build"), f"-DPython3_EXECUTABLE={sys.executable}", "-DCMAKE_BUILD_TYPE=Release"],
-        ["cmake", "--build", str(folder / "build"), "--parallel"],
+        ["cmake", "--build", str(folder / "build"), "--parallel", "--config", "Release"],  # the config is for Visual Studio, which ignores CMAKE_BUILD_TYPE
     ):
         r = subprocess.run(step, capture_output=True, text=True, timeout=900)
         if r.returncode != 0:
@@ -384,7 +402,7 @@ def test_server_example_does_what_its_page_says(lang, unit, work, ports, request
     """Start the example, run the check that talks to it and the clients that belong to it, stop it."""
     if lang == "cpp":
         request.getfixturevalue("cpp_build")
-        command = [str(work / "cpp" / "build" / target(unit))]
+        command = [cpp_program(work, unit)]
     else:
         dest = work / "python" / f"{target(unit)}.py"
         dest.parent.mkdir(exist_ok=True)
@@ -396,7 +414,7 @@ def test_server_example_does_what_its_page_says(lang, unit, work, ports, request
     home.mkdir(parents=True, exist_ok=True)
     for rel, text in FIXTURES.get(unit, {}).items():
         (home / rel).parent.mkdir(parents=True, exist_ok=True)
-        (home / rel).write_text(text, encoding="utf-8")
+        (home / rel).write_bytes(text.encode("utf-8"))  # bytes: write_text would turn each \n into \r\n on Windows and the body would differ
     if unit in HTTPS:
         make_certificate(home)
     scheme = "https" if unit in HTTPS else "http"
