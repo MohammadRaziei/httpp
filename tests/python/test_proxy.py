@@ -1,5 +1,7 @@
 """httpp.proxy_from_environment and httpp.resolve_proxy: the same rules as the C++ functions (tests/cpp/test_proxy.cpp, ADR-0067)."""
 
+import os
+
 import pytest
 
 import httpp
@@ -28,6 +30,7 @@ def test_each_scheme_reads_its_own_variable_and_all_proxy_is_the_fallback(monkey
     assert httpp.proxy_from_environment("http://example.com/") == "socks5h://127.0.0.1:9050"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows has one variable for HTTP_PROXY and http_proxy: there is no uppercase spelling to ignore")
 def test_uppercase_HTTP_PROXY_is_ignored(monkeypatch):
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1111")
     assert httpp.proxy_from_environment("http://example.com/") is None
