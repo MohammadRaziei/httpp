@@ -213,6 +213,29 @@ def check_server_handle_stop(base):
     expect(status == 200 and body == "bye", f"/quit gave {status} {body!r}")
 
 
+def check_errors(base):
+    status, _, body = http("GET", base + "/users/1")
+    expect(status == 200 and json.loads(body) == {"id": 1, "name": "ada"}, f"/users/1 gave {status} {body!r}")
+    status, _, body = http("GET", base + "/users/9")
+    expect(status == 404 and json.loads(body) == {"error": "no such user"}, f"/users/9 gave {status} {body!r}")
+    status, _, body = http("GET", base + "/parse")
+    expect(status == 422 and json.loads(body) == {"error": "not a number"}, f"/parse gave {status} {body!r}")
+    status, _, body = http("GET", base + "/boom")
+    expect(status == 500 and "secret internals" not in body, f"/boom gave {status} {body!r}")  # the message stays in the server
+    status, h, body = http("GET", base + "/nope")
+    expect(status == 404 and json.loads(body) == {"error": "not found"}, f"/nope gave {status} {body!r}")
+    expect((h.get("Content-Type") or "").startswith("application/json"), f"Content-Type {h.get('Content-Type')!r}")
+
+
+def check_errors_http_exception(base):
+    status, _, body = http("GET", base + "/users/1")
+    expect(status == 200 and json.loads(body) == {"id": 1, "name": "ada"}, f"/users/1 gave {status} {body!r}")
+    status, _, body = http("GET", base + "/users/9")
+    expect(status == 404 and json.loads(body) == {"detail": "no such user"}, f"/users/9 gave {status} {body!r}")
+    status, h, body = http("GET", base + "/admin")
+    expect(status == 401 and h.get("WWW-Authenticate") == "Bearer", f"/admin gave {status} {h.get('WWW-Authenticate')!r}")
+
+
 # files a server example expects in its working folder (the key is the unit)
 FIXTURES = {
     "send_file": {"report.txt": "quarterly numbers\n"},
@@ -228,6 +251,8 @@ SERVERS = {
     "get_route": check_get_route,
     "request_data": check_request_data,
     "responses": check_responses,
+    "errors": check_errors,
+    "errors/http_exception": check_errors_http_exception,
     "hooks": check_hooks,
     "send_file": check_send_file,
     "serve_directory": check_serve_directory,

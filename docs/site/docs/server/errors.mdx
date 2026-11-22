@@ -1,0 +1,79 @@
+---
+id: errors
+title: Handle errors
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+A request can go wrong in four ways, and each one has its own place to shape the answer. The example below has all four: an answer you send yourself, an exception that you turn into an answer, an exception that nobody handles, and the server's own `404`.
+
+<Lang name="errors" />
+
+```bash
+httpp curl -i http://127.0.0.1:8000/users/9     # 404, your own answer
+httpp curl -i http://127.0.0.1:8000/parse       # 422, from the exception handler
+httpp curl -i http://127.0.0.1:8000/boom        # 500, a plain answer
+httpp curl -i http://127.0.0.1:8000/nope        # 404, from the error handler
+```
+
+## What the code does
+
+**Your own answer.** An unknown user is a normal case, not an error of the server: set the status yourself and send a body. Nothing is added to it.
+
+**An exception that you handle.** A handler that raises (Python) or throws (C++) ends in the exception handler. It builds the answer, here a `422` with the message.
+
+<Only lang="python">
+
+`@app.exception_handler(ValueError)` is for that exception type and the ones that derive from it, and it returns the answer like a route does: a value, or `(value, status)`. A handler without a status answers `500`. The handler may be `async def` too.
+
+</Only>
+
+<Only lang="cpp">
+
+`app.exception_handler(fn)` is one function for every exception that a handler throws. It gets the request, the response (which starts as a `500`) and the `std::exception_ptr`, so you rethrow it to find the type, as the example does. An exception that you leave alone keeps the `500`.
+
+</Only>
+
+**An exception that nobody handles.** `/boom` raises something that no handler is registered for. The client gets a plain `500` and never sees the message, so internals do not leak.
+
+<Only lang="python">
+
+The traceback is printed in the server's own output, which is where you read it.
+
+</Only>
+
+**The server's own errors.** A path that no route has, or a method that a path does not allow, is answered by the server itself with `404` or `405`. An error handler dresses that answer, and only that: the `404` that your own route sends is left as it is.
+
+<Only lang="python">
+
+`@app.error_handler(404)` is for one status code, and you register one function for each code you want to shape.
+
+</Only>
+
+<Only lang="cpp">
+
+`app.error_handler(fn)` is one function for every `4xx` and `5xx` that the server produced. It gets the response with its status already set, so you look at `res.status` to see which one it is.
+
+</Only>
+
+<Only lang="python">
+
+## Raise `HTTPException`
+
+Python has a shorter way to leave a handler with a status: raise `HTTPException(status, detail)`. The client gets `{"detail": detail}` and that status, and `headers=` adds headers to the answer (a `401` needs `WWW-Authenticate`).
+
+<Lang name="errors" file="http_exception" />
+
+An `exception_handler(HTTPException)` replaces the default answer, if you want another shape. C++ has no such class: it sets the status on the response, as the first example does.
+
+</Only>
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Leave a handler with a status | `return body, 404` or `raise HTTPException(404, "...")` | set `res.status`, fill the body, `return` |
+| Handle an exception | `@app.exception_handler(ValueError)`, one per type | `app.exception_handler(fn)`, one for all, rethrow to find the type |
+| Shape the server's own `404` and `405` | `@app.error_handler(404)`, one per status | `app.error_handler(fn)`, one for all, look at `res.status` |
+| An exception nobody handles | plain `500`, traceback in the server's output | plain `500` |
