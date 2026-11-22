@@ -174,8 +174,9 @@ cdef extern from "httpp/proxy.hpp" namespace "httpp":
 
 
 cdef str _proxy_text(const cpp_url& proxy):
-    # scheme://[login@]host:port, put together from the parts: url.str() normalizes the text (a trailing "/", and a SOCKS5 address
-    # loses its "//"), which the proxy argument of a request could not read back.
+    # scheme://[login@]host:port, put together from the parts: url.str() adds a trailing "/" and always writes the credentials as
+    # stored, and the proxy argument of a request is given back exactly as this text. (Before liburlparser 37f4d1d str() also dropped
+    # the "//" of a SOCKS5 address; that part is fixed in the parser, the rest is why this is not just str().)
     cdef string user = cpp_url_username(proxy)
     cdef string password = cpp_url_password(proxy)
     text = cpp_url_scheme(proxy).decode("ascii") + "://"
