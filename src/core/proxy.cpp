@@ -1,5 +1,6 @@
 #include "httpp/proxy.hpp"
 
+#include "httpp/env.hpp"
 #include "internal/http_exchange.hpp"
 
 #include <algorithm>
@@ -22,15 +23,6 @@ std::string_view trimmed(std::string_view s) {
     while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.remove_prefix(1);
     while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.remove_suffix(1);
     return s;
-}
-
-// The first of these variables that is set and not empty.
-std::string environment_value(std::initializer_list<const char*> names) {
-    for (const char* name : names) {
-        const char* value = std::getenv(name);
-        if (value && *value) return value;
-    }
-    return std::string();
 }
 
 // "a.b.c.d" as a number; false for anything else (names, IPv6).
@@ -117,14 +109,14 @@ std::optional<url> resolve_proxy(const url& target, const std::optional<std::str
     if (proxy) {
         text = *proxy;
     } else if (target.protocol() == "https") {
-        text = environment_value({"https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"});
+        text = env::first({"https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"});
     } else {
-        text = environment_value({"http_proxy", "all_proxy", "ALL_PROXY"}); // not HTTP_PROXY: see the header
+        text = env::first({"http_proxy", "all_proxy", "ALL_PROXY"}); // not HTTP_PROXY: see the header
     }
     // "" and, given explicitly, direct:// (ADR-0106) mean no proxy at all. In the environment direct:// is not accepted (see proxy_url).
     if (trimmed(text).empty() || (proxy && detail::is_proxy_direct_url(parse_url(trimmed(text))))) return std::nullopt;
     url found = proxy_url(text);
-    if (no_proxy_matches(target, no_proxy ? *no_proxy : environment_value({"no_proxy", "NO_PROXY"}))) return std::nullopt;
+    if (no_proxy_matches(target, no_proxy ? *no_proxy : env::first({"no_proxy", "NO_PROXY"}))) return std::nullopt;
     return found;
 }
 

@@ -19,6 +19,7 @@
 #include "httpp.h"
 #include "httpp/client.hpp"
 #include "httpp/download.hpp"
+#include "httpp/env.hpp"
 #include "httpp/file_browser.hpp"
 #include "httpp/logging.hpp"
 #include "httpp/proxy.hpp"
@@ -774,8 +775,8 @@ std::string quote_windows_arg(const std::string& arg) {
 // next to this executable (an SDK install has none), else python3 or python on PATH.
 int run_python(const char* argv0, const std::vector<std::string>& args) {
     std::vector<std::string> candidates;
-    const char* env = std::getenv("HTTPP_PYTHON");
-    if (env && *env) candidates.push_back(env);
+    const std::string from_environment = httpp::env::first({"HTTPP_PYTHON"});
+    if (!from_environment.empty()) candidates.push_back(from_environment);
     const std::string dir = exe_dir(argv0);
     if (!dir.empty()) {
 #ifdef _WIN32
@@ -790,7 +791,7 @@ int run_python(const char* argv0, const std::vector<std::string>& args) {
     for (const std::string& py : candidates) {
         const bool bare = py.find_first_of("/\\") == std::string::npos;  // a bare name is looked up on PATH
         if (!bare && !is_executable_file(py)) {
-            if (env && *env && py == env) return fail("HTTPP_PYTHON is set to '" + py + "', which is not an executable file");
+            if (!from_environment.empty() && py == from_environment) return fail("HTTPP_PYTHON is set to '" + py + "', which is not an executable file");
             continue;
         }
         std::vector<std::string> argv_store{py, "-m", "httpp", "py"};

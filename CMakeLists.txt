@@ -143,7 +143,7 @@ target_compile_options(httpp_llhttp PRIVATE
     $<IF:$<C_COMPILER_ID:MSVC>,/w,-w>)
 
 # --- httpp_utils: the base library (ADR-0086) ---
-# logging (httpp/logging.hpp, with sformat), path (httpp/path.hpp) and progress (httpp/progress.hpp). Rule of membership: a source goes
+# logging (httpp/logging.hpp, with sformat), path (httpp/path.hpp), env (httpp/env.hpp) and progress (httpp/progress.hpp). Rule of membership: a source goes
 # here only if it needs nothing but the standard library, the operating system and header-only code: no httpp_core, TLS, asio, urlparser
 # or curl. A program that only wants to log links this and ships a few hundred KB, not the HTTP stack.
 # SHARED on purpose, never static: the logger registry (get_logger("libspeech.dsp")) must exist once per process. With two copies, a

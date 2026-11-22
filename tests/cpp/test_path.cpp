@@ -1,5 +1,6 @@
 // httpp::path (ADR-0054): the pathlib-shaped path the public API takes.
 #include "utest/utest.h"
+#include "httpp/env.hpp"
 #include "httpp/path.hpp"
 #include "httpp/sha256.hpp"
 #include "local_server.hpp"
@@ -301,6 +302,34 @@ UTEST(path, rmtree_removes_a_link_and_never_follows_it) {
 #endif
 
 // ---- temp_path ----
+
+#ifndef _WIN32
+UTEST(path, temp_dir_reads_tmpdir_then_tmp_then_temp_and_skips_what_is_empty_or_not_a_folder) {
+    namespace env = httpp::env;
+    temp_path first("httpp_td_first_");
+    temp_path second("httpp_td_second_");
+    env::scope tmpdir("TMPDIR"); // each starts unset, and the old values come back at the end
+    env::scope tmp("TMP");
+    env::scope temp("TEMP");
+
+    ASSERT_TRUE(path::temp_dir() == path("/tmp")); // nothing set: the fallback
+
+    env::set("TEMP", first->str());
+    ASSERT_TRUE(path::temp_dir() == first.get());
+    env::set("TMP", second->str()); // TMP comes before TEMP
+    ASSERT_TRUE(path::temp_dir() == second.get());
+    env::set("TMPDIR", first->str()); // and TMPDIR before both
+    ASSERT_TRUE(path::temp_dir() == first.get());
+
+    env::set("TMPDIR", ""); // empty: skipped
+    ASSERT_TRUE(path::temp_dir() == second.get());
+    env::set("TMPDIR", (first / "missing").str()); // not a folder: skipped
+    ASSERT_TRUE(path::temp_dir() == second.get());
+    env::set("TMP", (first / "missing").str());
+    env::set("TEMP", (first / "missing").str());
+    ASSERT_TRUE(path::temp_dir() == path("/tmp"));
+}
+#endif
 
 UTEST(temp_path, makes_a_folder_in_the_temp_directory_and_removes_it_with_the_object) {
     path where;

@@ -1,4 +1,5 @@
 #include "httpp/logging.hpp"
+#include "httpp/env.hpp"
 #include "internal/logging.hpp"
 
 
@@ -331,8 +332,7 @@ bool wants_color(std::FILE* file, color_mode mode) {
 #ifdef _WIN32
     return false;
 #else
-    const char* no_color = std::getenv("NO_COLOR");
-    if (no_color && *no_color) return false;
+    if (!env::first({"NO_COLOR"}).empty()) return false; // https://no-color.org: set and not empty
     return ::isatty(::fileno(file)) != 0;
 #endif
 }

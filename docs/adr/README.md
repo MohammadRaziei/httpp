@@ -70,6 +70,7 @@ texts kept, in order, as its parts. Numbers are not renumbered, so there are gap
 | [0095](0095-limit-and-unlimited-for-no-limit-settings.md) | a named "no limit" (`httpp::unlimited`) for `max_redirects`, `max_time` and `max_response_size`; the type and the Python spelling are open | proposed |
 | [0097](0097-library-elapsed-retry-and-save.md) | The library does what `httpp curl` used to do itself: elapsed time, retry, and saving to a file | implemented in C++ (built and tested on Linux); each part says whether Python is bound (merged) |
 | [0106](0106-direct-scheme-is-no-proxy.md) | `direct://` (any case, nothing after the scheme) means no proxy at all, like `""`, when a proxy is given explicitly: `proxy("direct://")`, `-x direct://`, `resolve_proxy(..., "direct://")`; an error in the environment; bare `direct` and `off` stay hosts | implemented (C++) |
+| [0107](0107-environment-variables.md) | `httpp::env` in `httpp_utils`: `get`, `first`, `set`, `unset` on UTF-8 text (wide API on Windows) with one lock, and `env::scope`, which puts the old value back; the four `getenv` readers and the proxy test helper move onto it | implemented in C++ (built and tested on Linux); Windows branch not run |
 
 ## Not decided yet
 

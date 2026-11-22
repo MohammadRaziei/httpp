@@ -1,5 +1,7 @@
 #include "httpp/path.hpp"
 
+#include "httpp/env.hpp"
+
 #include <cctype>
 #include <cerrno>
 #include <atomic>
@@ -10,15 +12,9 @@
 #include <random>
 #include <stdexcept>
 
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#else
+#include "internal/windows_text.hpp" // windows.h, widen() and narrow()
+
+#ifndef _WIN32
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -46,21 +42,8 @@ std::string path::clean(std::string text) {
 
 namespace {
 
-std::wstring widen(const std::string& utf8) {
-    if (utf8.empty()) return std::wstring();
-    const int n = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
-    std::wstring wide(static_cast<std::size_t>(n > 0 ? n : 0), L'\0');
-    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), &wide[0], n);
-    return wide;
-}
-
-std::string narrow(const std::wstring& wide) {
-    if (wide.empty()) return std::string();
-    const int n = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
-    std::string out(static_cast<std::size_t>(n > 0 ? n : 0), '\0');
-    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), &out[0], n, nullptr, nullptr);
-    return out;
-}
+using detail::narrow;
+using detail::widen;
 
 long long unix_seconds(const FILETIME& ft, long& nsec) {
     const unsigned long long ticks = (static_cast<unsigned long long>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime; // 100 ns since 1601
@@ -204,8 +187,7 @@ path::status path::lstat() const {
 
 path path::temp_dir() {
     for (const char* name : {"TMPDIR", "TMP", "TEMP"})
-        if (const char* value = std::getenv(name))
-            if (*value != '\0' && path(value).is_dir()) return path(value);
+        if (const auto value = env::get(name); value && !value->empty() && path(*value).is_dir()) return path(*value);
     return path("/tmp");
 }
 

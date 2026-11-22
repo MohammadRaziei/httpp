@@ -1,33 +1,29 @@
 #include "utest/utest.h"
+#include "httpp/env.hpp"
 #include "httpp/proxy.hpp"
 
-#include <cstdlib>
+#include <cctype>
 #include <optional>
 #include <stdexcept>
-#include <cctype>
 #include <string>
+#include <vector>
 
 // httpp::proxy_from_environment and httpp::resolve_proxy: the proxy variables and no_proxy list as curl reads them (ADR-0067).
 
 namespace {
 
 void set_env(const char* name, const char* value) {
-#if defined(_WIN32)
-    _putenv_s(name, value ? value : ""); // an empty value removes the variable
-#else
-    if (value) setenv(name, value, 1);
-    else unsetenv(name);
-#endif
+    if (value) httpp::env::set(name, value);
+    else httpp::env::unset(name);
 }
 
-// Starts every test with none of the proxy variables set, and puts them back (unset) at the end.
+// Starts every test with none of the proxy variables set, and puts each back as it was found (set or not) at the end.
 struct clean_environment {
-    static void clear() {
+    std::vector<httpp::env::scope> scopes;
+    clean_environment() {
         for (const char* name : {"http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY"})
-            set_env(name, nullptr);
+            scopes.emplace_back(name);
     }
-    clean_environment() { clear(); }
-    ~clean_environment() { clear(); }
 };
 
 // "scheme://host:port" of a proxy, or "(direct)": url::str() normalizes the text (a trailing "/"), so it is not compared.
