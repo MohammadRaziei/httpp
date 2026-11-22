@@ -131,7 +131,8 @@ UTEST(logging_os, a_debug_string_handler_takes_every_level_with_nobody_listening
     log.set_level(lg::level::debug);
     lg::debug_string_handler& h = log.add_handler(lg::debug_string_handler());
     log_every_level(log);
-    log.info("httpp test: UTF-8 \u0633\u0644\u0627\u0645");  // converted to UTF-16 on the way
+    // The bytes are written out: "\u0633" in a narrow literal is turned into the code page (cp1252) by MSVC, which cannot hold it (C4566), and then it is not UTF-8.
+    log.info("httpp test: UTF-8 \xd8\xb3\xd9\x84\xd8\xa7\xd9\x85");  // U+0633 U+0644 U+0627 U+0645 in UTF-8; converted to UTF-16 on the way
     log.remove_handler(h);
     ASSERT_EQ(std::size_t(0), log.handler_count());
 }

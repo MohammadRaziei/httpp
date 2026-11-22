@@ -142,8 +142,8 @@ UTEST(httpp_env, a_moved_scope_hands_over_the_restore) {
 }
 
 UTEST(httpp_env, threads_that_set_and_read_their_own_variables_do_not_disturb_each_other) {
-    constexpr int threads = 8;
-    constexpr int rounds = 300;
+    static constexpr int threads = 8;
+    static constexpr int rounds = 300;  // static: MSVC refuses a local constexpr in the lambda below without a capture (C3493)
     std::vector<int> wrong(threads, 0);
     std::vector<std::thread> pool;
     for (int t = 0; t < threads; ++t)
