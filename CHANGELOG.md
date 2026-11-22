@@ -9,6 +9,8 @@ such changes are listed under **Changed**).
 
 ### Added
 
+- **`httpp download --retry`, `--retry-delay`, `--retry-connrefused` and `download::on_retry` (ADR-0109; the Python binding of `on_retry` is not done yet).** The flags are those of `httpp curl`, with the same warning before each wait (`-q` hides it); they work with `-o` (a real `httpp::download`, ADR-0104) and without it (the body goes to standard output, now through `httpp::request` instead of `client::fetch`). A transfer that fails for a transport reason on that path says why instead of `status 0`. `download` gained a public member: rebuild consumers.
+
 - **`httpp::http_exception(status, detail, headers)` (ADR-0020), the C++ twin of Python's `HTTPException`.** Throw it from a handler (sync, `get_async` or a websocket `on_handshake`) and the client gets `{"detail": detail}` with that status and headers; `detail` defaults to the reason phrase, a status outside 100 to 599 throws `std::invalid_argument`. A C++ `exception_handler` runs after the answer is made and may change it. The reason phrases moved to `src/core/internal/http_reason.hpp`, and the three places that answered an exception now share one function.
 
 - **Python: `retry`, `retry_delay`, `retry_connrefused` (`Request`, `Client`, `AsyncClient`, `Download`), `Request.on_body`, `on_head`, `on_retry`, `save_to`, `save_in`, `create_dirs`, `overwrite`, `include_head`, and `Response.elapsed_ms`, `bytes_received`, `saved_as`.** Each is a method on `Request` (and `Download` for retry) and a keyword of the constructors, as in ADR-0100. A callback runs on a network thread with the GIL; an exception in it stops the transfer and is raised by `run()` or by the await of `run_async()`.

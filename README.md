@@ -408,7 +408,7 @@ touched by several threads at once.
 httpp server ./site --port 8000          # serve a directory (dot names answer 404 unless --hidden; --no-dates sends no file times)
 httpp browse ~/Downloads                 # read-only file browser (see below)
 httpp server ./site --ssl-certfile cert.pem --ssl-keyfile key.pem   # https; browse takes the same options
-httpp download https://example.com/f.zip -o f.zip
+httpp download https://example.com/f.zip -o f.zip --retry 3   # also after a timeout or a 5xx, with the same flags as curl
 httpp curl https://example.com/api -X POST -H "X-Key: 1" -d "a=1"
 httpp curl https://example.com -L -i -m 10   # follow redirects, print status and headers, give up after 10 s (also -I, -v, -f, -u user:password)
 httpp curl https://example.com/a.zip -L -O --retry 3   # save as a.zip, try again up to 3 times after a timeout or a 5xx

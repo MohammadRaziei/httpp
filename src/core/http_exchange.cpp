@@ -195,6 +195,7 @@ bool session_settings::make_spec(const endpoint& where, const std::string& metho
     out.retries = retries;
     out.retry_delay = retry_delay;
     out.retry_connrefused = retry_connrefused;
+    out.on_retry = on_retry;
     out.redirects_left = max_redirects;
     out.follow = follow;
     out.auto_compression = auto_compression;

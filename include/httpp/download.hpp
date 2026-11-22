@@ -83,6 +83,13 @@ public:
     HTTPP_API download& header(std::string name, std::string value) &;
     download header(std::string name, std::string value) && { header(std::move(name), std::move(value)); return std::move(*this); }
 
+    // With retry() (ADR-0099): called before each new try, with the response of the try that failed, the number of the retry about to
+    // start (1, 2, ...) and the seconds it waits first, so that a front end can say "will retry" before the wait begins (ADR-0109).
+    // Every step of the job is announced the same way: the size probe, the file and the checksum file. It runs on the network
+    // thread, like request::on_retry: keep it short and do not call a blocking httpp request.
+    HTTPP_API download& on_retry(std::function<void(const response& last, int retry_number, long delay_seconds)> notice) &;
+    download on_retry(std::function<void(const response& last, int retry_number, long delay_seconds)> notice) && { on_retry(std::move(notice)); return std::move(*this); }
+
     HTTPP_API download& output(const path& dest_path) &;
     download output(const path& dest_path) && { output(dest_path); return std::move(*this); }
     HTTPP_API download& enable_progress(bool enable = true) &;

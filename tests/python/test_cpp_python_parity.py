@@ -148,6 +148,7 @@ NOT_EXPOSED = {
     ("server", "clone"): "ADR-0093: the Python Server keeps its routes, validators and OpenAPI state in Python, which a C++ clone would drop; a Python-level clone is a separate step",
     ("download", "auto_compression"): "deleted on a download (ADR-0093): it always asks for identity coding",
     ("download", "settings_"): "internal hook of configurable (ADR-0093), not meant for users",
+    ("download", "on_retry"): "temporary (ADR-0109): the Python binding of download.on_retry is the next step; remove this line and bind it then (see Request.on_retry)",
     ("client", "settings_"): "internal hook of configurable (ADR-0093), not meant for users",
     ("async_client", "settings_"): "same as client::settings_",
     ("request", "settings_"): "same as client::settings_",

@@ -388,6 +388,7 @@ struct download::impl {
     std::string sha256, sha256_url;
     bool use_sha256_url = false;
     std::chrono::milliseconds max_wait{2000};
+    std::function<void(const response&, int, long)> on_retry_fn; // on_retry() (ADR-0109)
 
     static detail::session_settings defaults() {
         detail::session_settings s; // redirects are followed (20), unlike request; identity coding, see make_transfer_spec
@@ -399,7 +400,9 @@ struct download::impl {
 
     // Everything run() and run_async() need, copied out of the builder so run_async() can outlive it.
     job to_job() const {
-        return job{url, dest, show_progress, settings.snapshot(), resume, force, sha256, sha256_url, use_sha256_url, max_wait};
+        job j{url, dest, show_progress, settings.snapshot(), resume, force, sha256, sha256_url, use_sha256_url, max_wait};
+        j.net.on_retry = on_retry_fn; // every step of the job copies these settings, so every step announces its retries
+        return j;
     }
 };
 
@@ -415,6 +418,11 @@ download& download::header(std::string name, std::string value) & {
     if (detail::has_header(one, "Range") || detail::has_header(one, "Accept-Encoding"))
         throw std::invalid_argument("httpp::download::header: " + name + " is set by the download itself");
     impl_->settings.update([&](detail::session_settings& s) { s.set_default_header(std::move(name), std::move(value)); });
+    return *this;
+}
+
+download& download::on_retry(std::function<void(const response& last, int retry_number, long delay_seconds)> notice) & {
+    impl_->on_retry_fn = std::move(notice);
     return *this;
 }
 

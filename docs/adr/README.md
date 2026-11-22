@@ -72,6 +72,7 @@ texts kept, in order, as its parts. Numbers are not renumbered, so there are gap
 | [0106](0106-direct-scheme-is-no-proxy.md) | `direct://` (any case, nothing after the scheme) means no proxy at all, like `""`, when a proxy is given explicitly: `proxy("direct://")`, `-x direct://`, `resolve_proxy(..., "direct://")`; an error in the environment; bare `direct` and `off` stay hosts | implemented (C++) |
 | [0107](0107-environment-variables.md) | `httpp::env` in `httpp_utils`: `get`, `first`, `set`, `unset` on UTF-8 text (wide API on Windows) with one lock, and `env::scope`, which puts the old value back; the four `getenv` readers and the proxy test helper move onto it | implemented in C++ (built and tested on Linux); Windows branch not run |
 | [0108](0108-resource-limits-and-request-checks.md) | Limits and request checks from the 0.9.0 security review: 1024 pairs and a 1 MiB form body, 10000 connections, one `Host`, loopback `Host` allowlist in the CLI, same-origin zip POST, no control or direction characters in multipart names, TLS needs a SAN, client body 256 MiB and head 64 KiB | implemented (C++, Python) |
+| [0109](0109-download-on-retry-and-the-download-retry-flags.md) | `download::on_retry` and `httpp download --retry/--retry-delay/--retry-connrefused` (also without `-o`); one shared warning function with `curl`; `-q` hides it | implemented (C++) |
 
 ## Not decided yet
 
@@ -81,7 +82,7 @@ removing the hop for `async def` handlers that await (see ADR-0023), WebSocket b
 
 ## Writing a new ADR
 
-File name `NNNN-short-english-title.md`; the next free number is **0109** (raise it when you use it). Sections: status, context, decision, rejected alternatives,
+File name `NNNN-short-english-title.md`; the next free number is **0110** (raise it when you use it). Sections: status, context, decision, rejected alternatives,
 consequences (including what is **not** verified), related. Add the row to the table above in number order.
 Do not edit an accepted ADR; when a decision changes, write a new ADR and mark the old one "superseded by ADR-NNNN", or, when the subject already has a merged ADR, see below.
 

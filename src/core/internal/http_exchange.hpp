@@ -121,6 +121,7 @@ struct session_settings {
     int retries = 0;
     long retry_delay = 0;
     bool retry_connrefused = false;
+    std::function<void(const response&, int, long)> on_retry; // only a download's job sets this (download::on_retry, ADR-0109); a request sets its own on the spec
     int max_redirects = request_spec::redirect_limit;
     bool follow = false;
     bool auto_compression = true;

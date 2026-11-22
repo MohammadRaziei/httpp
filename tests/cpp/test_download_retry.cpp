@@ -167,3 +167,55 @@ UTEST(download_retry, a_content_range_that_starts_past_the_end_of_the_file_is_an
     ASSERT_FALSE(exists(path));
     forget(path);
 }
+
+// on_retry() (ADR-0109): told before each new try, as on request, so that a front end can say "will retry" before it waits.
+
+UTEST(download_retry, on_retry_is_told_the_last_answer_the_number_and_the_wait_before_it_starts) {
+    std::atomic<int> hits{0};
+    testutil::local_server srv([&](httpp::server& s) {
+        s.get("/flaky", [&hits](const httpp::server_request&, httpp::response& r) {
+            if (hits++ == 0) {
+                r.status = 503;
+                r.body = "busy";
+            } else {
+                r.status = 200;
+                r.body = kPayload;
+            }
+        });
+    });
+    const auto path = temp_path("onretry");
+    forget(path);
+    int calls = 0, status = 0, number = 0;
+    long delay = 0;
+    auto res = httpp::download(httpp::url(srv.url("/flaky")), path)
+                   .disable_progress()
+                   .retry(2)
+                   .on_retry([&](const httpp::response& last, int n, long wait) { // no retry_delay(): 1, 2, 4, ... seconds
+                       ++calls;
+                       status = last.status;
+                       number = n;
+                       delay = wait;
+                   })
+                   .run();
+    ASSERT_TRUE(res.ok);
+    ASSERT_STREQ(kPayload.c_str(), read_file(path).c_str());
+    ASSERT_EQ(1, calls);
+    ASSERT_EQ(503, status);
+    ASSERT_EQ(1, number);
+    ASSERT_EQ(1, delay);
+    forget(path);
+}
+
+UTEST(download_retry, a_download_without_on_retry_retries_silently_as_before) {
+    std::atomic<int> hits{0};
+    testutil::local_server srv([&](httpp::server& s) {
+        s.get("/flaky", [&hits](const httpp::server_request&, httpp::response& r) {
+            r.status = hits++ == 0 ? 503 : 200;
+            r.body = kPayload;
+        });
+    });
+    const auto path = temp_path("silent");
+    forget(path);
+    ASSERT_TRUE(httpp::download(httpp::url(srv.url("/flaky")), path).disable_progress().retry(1).retry_delay(1).run().ok);
+    forget(path);
+}

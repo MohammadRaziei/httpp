@@ -530,6 +530,44 @@ def test_download_needs_a_url(httpp_exe):
     assert run(httpp_exe, "download").returncode == 2
 
 
+def test_download_retry_to_stdout_tries_again_and_says_so(httpp_exe, echo_app):
+    # ADR-0109: the same flags and the same warning as curl; the retrying is done by the library
+    with running(echo_app) as url:
+        started = time.monotonic()
+        r = run(httpp_exe, "download", f"{url}/flaky", "--retry", "2", "--retry-delay", "1")
+        elapsed = time.monotonic() - started
+    assert r.returncode == 0 and r.stdout == "ok"
+    assert r.stderr.count("will retry") == 2 and "(1 of 2)" in r.stderr and "(2 of 2)" in r.stderr
+    assert elapsed >= 2
+
+
+def test_download_retry_to_a_file_tries_again_and_leaves_only_the_good_answer(httpp_exe, echo_app, tmp_path):
+    out = tmp_path / "flaky.txt"
+    with running(echo_app) as url:
+        r = run(httpp_exe, "download", f"{url}/flaky", "-o", str(out), "--retry", "2", "--retry-delay", "1")
+    assert r.returncode == 0, r.stderr
+    assert out.read_text() == "ok" and "will retry" in r.stderr
+    assert not (tmp_path / "flaky.txt.part").exists()
+
+
+def test_download_retry_gives_up_after_the_given_number_and_q_hides_the_warning(httpp_exe, echo_app):
+    with running(echo_app) as url:
+        r = run(httpp_exe, "download", f"{url}/flaky", "--retry", "1", "--retry-delay", "1", "-q")
+    assert r.returncode == 1 and "503" in r.stderr and "will retry" not in r.stderr  # -q hides the warning, the error stays
+
+
+def test_download_retry_does_not_retry_a_refused_connection_unless_asked(httpp_exe):
+    dead = f"http://127.0.0.1:{free_port()}/"
+    started = time.monotonic()
+    first = run(httpp_exe, "download", dead, "--retry", "1", "--retry-delay", "1", "-q")
+    fast = time.monotonic() - started
+    started = time.monotonic()
+    second = run(httpp_exe, "download", dead, "--retry", "1", "--retry-delay", "1", "--retry-connrefused", "-q")
+    slow = time.monotonic() - started
+    assert first.returncode == 1 and fast < 1
+    assert second.returncode == 1 and slow >= 1
+
+
 # --- curl --------------------------------------------------------------------------------------
 
 @contextmanager

@@ -204,15 +204,33 @@ void stdout_binary() {
 #endif
 }
 
-int cmd_download(const std::string& url, const std::string& output, bool quiet) {
+// What curl prints before it waits for the next try: the library sends the request again (ADR-0099, ADR-0109), this is only the notice.
+void print_retry_warning(int number, long delay_seconds, int total) {
+    std::cerr << "Warning: transient problem, will retry in " << delay_seconds << " seconds (" << number << " of " << total << ")" << std::endl;
+}
+
+struct download_args {
+    std::string url, output;
+    bool quiet = false;
+    int retry = 0;                // --retry
+    long retry_delay = 0;         // --retry-delay, in seconds; 0 = 1, 2, 4, ... up to 10 minutes
+    bool retry_connrefused = false;
+};
+
+int cmd_download(const download_args& a) {
+    // -q hides the retry warning too, as curl's -s does; the library sends the request again, the CLI only passes the flags on
+    const auto notice = [&a](const httpp::response&, int number, long delay) { print_retry_warning(number, delay, a.retry); };
     // The constructors below throw for a URL they cannot take (a port that is not a number); parse_url does not, and says valid or not.
-    if (!httpp::url_is_http(httpp::parse_url(url))) {
-        std::cerr << "error: not a usable http(s) URL: " << url << std::endl;
+    if (!httpp::url_is_http(httpp::parse_url(a.url))) {
+        std::cerr << "error: not a usable http(s) URL: " << a.url << std::endl;
         return 1;
     }
-    if (!output.empty()) {
+    if (!a.output.empty()) {
         // A real download to a file, with a terminal progress bar: all of it is httpp::download.
-        httpp::download_result result = httpp::download(url, output).enable_progress(!quiet).run();
+        httpp::download job(a.url, a.output);
+        job.enable_progress(!a.quiet).retry(a.retry).retry_delay(a.retry_delay).retry_connrefused(a.retry_connrefused);
+        if (a.retry > 0 && !a.quiet) job.on_retry(notice);
+        httpp::download_result result = job.run();
         if (!result.ok) {
             std::cerr << "error: " << result.error << std::endl;
             return 1;
@@ -220,7 +238,14 @@ int cmd_download(const std::string& url, const std::string& output, bool quiet) 
         return 0;
     }
     // No destination: like `curl URL`, the body goes to stdout.
-    httpp::response res = httpp::client::fetch(url);
+    httpp::request req(a.url);
+    req.retry(a.retry).retry_delay(a.retry_delay).retry_connrefused(a.retry_connrefused);
+    if (a.retry > 0 && !a.quiet) req.on_retry(notice);
+    httpp::response res = req.run();
+    if (res.failed()) { // a timeout or a failed connection: say why, not "status 0"
+        std::cerr << "error: request failed (" << res.error_name() << "): " << res.error_message << std::endl;
+        return 1;
+    }
     if (!res.ok()) {
         std::cerr << "error: request failed with status " << res.status << std::endl;
         return 1;
@@ -482,9 +507,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         if (a.retry > 0) { // the library sends the request again (ADR-0097); the warning is only what curl prints before it waits
             req.retry(a.retry).retry_delay(a.retry_delay).retry_connrefused(a.retry_connrefused);
             if (!a.silent) {
-                req.on_retry([&a](const httpp::response&, int number, long delay) {
-                    std::cerr << "Warning: transient problem, will retry in " << delay << " seconds (" << number << " of " << a.retry << ")" << std::endl;
-                });
+                req.on_retry([&a](const httpp::response&, int number, long delay) { print_retry_warning(number, delay, a.retry); });
             }
         }
     };
@@ -911,12 +934,14 @@ int main(int argc, char** argv) {
         ->check(CLI::NonNegativeNumber)->capture_default_str()->type_name("SECONDS");
 
     // download
-    std::string dl_url, dl_output;
-    bool dl_quiet = false;
+    download_args dl;
     auto* c_download = app.add_subcommand("download", "Download a URL (to stdout, or a file with -o).");
-    c_download->add_option("url", dl_url)->required();
-    c_download->add_option("--output,-o", dl_output, "Save to this file (shows a progress bar) instead of printing to stdout");
-    c_download->add_flag("--quiet,-q", dl_quiet, "With -o, suppress the progress bar");
+    c_download->add_option("url", dl.url)->required();
+    c_download->add_option("--output,-o", dl.output, "Save to this file (shows a progress bar) instead of printing to stdout");
+    c_download->add_flag("--quiet,-q", dl.quiet, "Suppress the progress bar (with -o) and the retry warnings");
+    c_download->add_option("--retry", dl.retry, "Try again up to NUM times after a timeout or a 408, 429, 500, 502, 503 or 504")->check(CLI::Range(0, 1000000))->type_name("NUM");
+    c_download->add_option("--retry-delay", dl.retry_delay, "Seconds between retries (default 1, 2, 4, ... up to 600)")->check(CLI::Range(0L, 86400L))->type_name("SECONDS");
+    c_download->add_flag("--retry-connrefused", dl.retry_connrefused, "Also retry when the connection fails (a refused connection, a failed lookup)");
 
     // curl
     curl_args ca;
@@ -973,7 +998,7 @@ int main(int argc, char** argv) {
 
     if (c_server->parsed()) return cmd_server(sv);
     if (c_browse->parsed()) return cmd_browse(b);
-    if (c_download->parsed()) return cmd_download(dl_url, dl_output, dl_quiet);
+    if (c_download->parsed()) return cmd_download(dl);
     if (c_curl->parsed()) {
         if (ca.urls.empty()) { // curl: bare `curl` only points at --help, with other options it also says what is missing
             if (argc > 2) std::cerr << "httpp curl: no URL specified\n";
