@@ -158,6 +158,27 @@ using io_handler = std::function<void(std::shared_ptr<const server_request>, res
 // `httpp server` command, analogous to `python -m http.server`, is a thin
 // wrapper around this class). It runs on our own Asio + llhttp engine (see
 // src/core/server.cpp); that engine never appears in this public header.
+// Throw it from a handler to leave it with a status: the C++ twin of Python's HTTPException (ADR-0020). The client gets
+// `{"detail": detail}` as application/json with `status`, and `headers` are added to the answer. `detail` defaults to the reason
+// phrase of the status ("" when the status has none). A status outside 100 to 599 throws std::invalid_argument. It works in sync
+// and async handlers; an exception handler (server::exception_handler) runs after the answer is made, sees this exception and may
+// change the answer, and one that ignores it leaves the answer as it is.
+class http_exception : public std::runtime_error {
+public:
+    using header_list = std::vector<std::pair<std::string, std::string>>;
+
+    HTTPP_API explicit http_exception(int status, std::string detail = {}, header_list headers = {});
+
+    int status() const noexcept { return status_; }
+    const std::string& detail() const noexcept { return detail_; }
+    const header_list& headers() const noexcept { return headers_; }
+
+private:
+    int status_;
+    std::string detail_;
+    header_list headers_;
+};
+
 class directory;
 class forwarded_headers;
 class server_stopper;
@@ -257,7 +278,7 @@ public:
     // after: may change the response's status and headers on the way out (the body is not passed
     //   and changes to it are ignored). It also runs for async responses, when they are sent.
     // error handler: fill in the body for a 4xx/5xx the server produced itself (404, 405, ...).
-    // exception handler: called when a route handler throws; the response starts as a 500.
+    // exception handler: called when a route handler throws; the response starts as a 500, or as the answer of an http_exception.
     using before_hook = std::function<bool(const server_request&, response&)>;
     using after_hook = std::function<void(const server_request&, response&)>;
     using error_hook = std::function<void(const server_request&, response&)>;

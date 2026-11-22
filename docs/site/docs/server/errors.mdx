@@ -57,15 +57,21 @@ The traceback is printed in the server's own output, which is where you read it.
 
 </Only>
 
-<Only lang="python">
+## Leave a handler with a status
 
-## Raise `HTTPException`
-
-Python has a shorter way to leave a handler with a status: raise `HTTPException(status, detail)`. The client gets `{"detail": detail}` and that status, and `headers=` adds headers to the answer (a `401` needs `WWW-Authenticate`).
+Setting the status on the response, as the first example does, is one way. The other is to leave the handler with an exception that carries the status: `HTTPException` in Python, `http_exception` in C++. The client gets `{"detail": detail}` as JSON and that status, and `detail` is the reason phrase of the status when you give none (`Not Found` for `404`). A header can be added to the answer, and a `401` needs one: `WWW-Authenticate`.
 
 <Lang name="errors" file="http_exception" />
 
-An `exception_handler(HTTPException)` replaces the default answer, if you want another shape. C++ has no such class: it sets the status on the response, as the first example does.
+<Only lang="python">
+
+`HTTPException(status_code, detail=None, headers=None)` raises `ValueError` for a status outside 100 to 599. It works in `async def` handlers, in dependencies and in `before_request` hooks too. An `exception_handler(HTTPException)` replaces the default answer, if you want another shape.
+
+</Only>
+
+<Only lang="cpp">
+
+`http_exception(status, detail = {}, headers = {})` throws `std::invalid_argument` for a status outside 100 to 599. It works in handlers added with `get_async`, and in a websocket `on_handshake`, where it refuses the upgrade with that status. The exception handler, if you have one, runs after the answer is made: it sees the exception, may change the answer, and one that ignores it leaves the answer as it is.
 
 </Only>
 
@@ -73,7 +79,7 @@ An `exception_handler(HTTPException)` replaces the default answer, if you want a
 
 | | Python | C++ |
 |---|---|---|
-| Leave a handler with a status | `return body, 404` or `raise HTTPException(404, "...")` | set `res.status`, fill the body, `return` |
+| Leave a handler with a status | `return body, 404` or `raise HTTPException(404, "...")` | set `res.status` and fill the body, or `throw http_exception(404, "...")` |
 | Handle an exception | `@app.exception_handler(ValueError)`, one per type | `app.exception_handler(fn)`, one for all, rethrow to find the type |
 | Shape the server's own `404` and `405` | `@app.error_handler(404)`, one per status | `app.error_handler(fn)`, one for all, look at `res.status` |
 | An exception nobody handles | plain `500`, traceback in the server's output | plain `500` |

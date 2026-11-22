@@ -1,4 +1,5 @@
 #include "internal/async_server.hpp"
+#include "internal/http_reason.hpp"
 #include "internal/logging.hpp"
 
 #ifdef _WIN32
@@ -39,44 +40,9 @@ constexpr std::size_t no_limit = static_cast<std::size_t>(-1) / 2;  // keep_aliv
 constexpr int linger_seconds = 2;               // how long to drain a request we refused
 
 const char* reason(int status) {
-    switch (status) {
-        case 100: return "Continue";
-        case 101: return "Switching Protocols";
-        case 200: return "OK";
-        case 201: return "Created";
-        case 202: return "Accepted";
-        case 204: return "No Content";
-        case 206: return "Partial Content";
-        case 301: return "Moved Permanently";
-        case 302: return "Found";
-        case 303: return "See Other";
-        case 304: return "Not Modified";
-        case 307: return "Temporary Redirect";
-        case 308: return "Permanent Redirect";
-        case 400: return "Bad Request";
-        case 401: return "Unauthorized";
-        case 403: return "Forbidden";
-        case 404: return "Not Found";
-        case 405: return "Method Not Allowed";
-        case 408: return "Request Timeout";
-        case 409: return "Conflict";
-        case 410: return "Gone";
-        case 411: return "Length Required";
-        case 413: return "Payload Too Large";
-        case 414: return "URI Too Long";
-        case 415: return "Unsupported Media Type";
-        case 416: return "Range Not Satisfiable";
-        case 422: return "Unprocessable Entity";
-        case 429: return "Too Many Requests";
-        case 431: return "Request Header Fields Too Large";
-        case 500: return "Internal Server Error";
-        case 501: return "Not Implemented";
-        case 502: return "Bad Gateway";
-        case 503: return "Service Unavailable";
-        case 504: return "Gateway Timeout";
-        default: return status >= 200 && status < 300 ? "OK" : status >= 400 && status < 500 ? "Client Error"
-                       : status >= 500 ? "Server Error" : "Unknown";
-    }
+    if (const char* known = known_reason(status); *known) return known;
+    return status >= 200 && status < 300 ? "OK" : status >= 400 && status < 500 ? "Client Error"
+           : status >= 500 ? "Server Error" : "Unknown";
 }
 
 inline unsigned char ascii_lower(unsigned char c) { return (c >= 'A' && c <= 'Z') ? static_cast<unsigned char>(c + 32) : c; }

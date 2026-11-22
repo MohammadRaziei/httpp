@@ -659,6 +659,17 @@ UTEST(httpp_server_ws, a_handler_that_throws_in_on_handshake_gets_a_500) {
     ASSERT_EQ(500, head_status(c.read_head()));
 }
 
+UTEST(httpp_server_ws, an_http_exception_thrown_in_on_handshake_refuses_the_upgrade_with_its_status) {
+    local_server srv([](httpp::server& s) {
+        auto h = echo();
+        h.on_handshake = [](std::shared_ptr<const httpp::server_request>, httpp::ws_acceptor) { throw httpp::http_exception(401, "no token"); };
+        s.route_ws("/ws", h);
+    });
+    ws_client c(srv.port);
+    c.send_raw(ws_client::upgrade_request("/ws"));
+    ASSERT_EQ(401, head_status(c.read_head()));
+}
+
 UTEST(httpp_server_ws, the_user_pointer_given_to_accept_reaches_every_callback) {
     std::mutex mu;
     std::string seen;

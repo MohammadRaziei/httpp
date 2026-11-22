@@ -23,6 +23,6 @@ curl -i http://127.0.0.1:8000/nope        # 404, from the error handler
 
 ## More files
 
-- `http_exception` (Python): `raise httpp.HTTPException(404, "no such user")` answers `{"detail": "no such user"}` with that status; C++ has no twin, it sets the status on the response.
+- `http_exception` (Python and C++): leave a handler with a status by raising `httpp.HTTPException(404, "no such user")` or throwing `httpp::http_exception(404, "no such user")`; the client gets `{"detail": "no such user"}` with that status. A header can be added too (`401` with `WWW-Authenticate`).
 
 The tests in `tests/python/test_examples.py` run every file here and check what it does.

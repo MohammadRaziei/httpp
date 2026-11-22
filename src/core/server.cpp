@@ -5,6 +5,7 @@
 // static files, hooks and response building live here; the engine only moves bytes.
 
 #include "internal/async_server.hpp"
+#include "internal/http_reason.hpp"
 #include "internal/logging.hpp"
 #include "internal/response_compression.hpp"
 #include "internal/urlencoded.hpp"
@@ -715,24 +716,64 @@ struct server::impl {
         answer(std::move(w));
     }
 
-    void on_exception(const std::shared_ptr<server_request>& req, const send_fn& send, std::exception_ptr ep) {
+    // An http_exception is an answer, not a failure: fill `out` from it. True when it was one.
+    static bool answer_http_exception(response& out, std::exception_ptr ep) {
+        try {
+            std::rethrow_exception(ep);
+        } catch (const http_exception& e) {
+            std::string body = "{\"detail\":\"";
+            for (const unsigned char c : e.detail()) {
+                switch (c) {
+                    case '"': body += "\\\""; break;
+                    case '\\': body += "\\\\"; break;
+                    case '\n': body += "\\n"; break;
+                    case '\r': body += "\\r"; break;
+                    case '\t': body += "\\t"; break;
+                    default:
+                        if (c < 0x20) {
+                            char u[8];
+                            std::snprintf(u, sizeof u, "\\u%04x", c);
+                            body += u;
+                        } else {
+                            body += static_cast<char>(c); // UTF-8 passes through
+                        }
+                }
+            }
+            body += "\"}";
+            out.status = e.status();
+            out.json(std::move(body));
+            for (const auto& h : e.headers()) out.headers.emplace_back(h.first, h.second);
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    // The answer to an exception that left a handler: a 500, or the answer of an http_exception, then the exception handler's say.
+    // `what` names the handler for the log ("handler", "async handler", "websocket on_handshake").
+    response exception_response(const server_request& req, std::exception_ptr ep, const char* what) {
         response out;
         out.status = 500;
         out.body = "Internal Server Error";
+        const bool deliberate = answer_http_exception(out, ep);
         if (cfg->exception) {
-            HTTPP_LIB_LOG(debug) << "handler for " << req->method << ' ' << req->path << " threw (" << describe(ep) << "); exception handler runs";
+            HTTPP_LIB_LOG(debug) << what << " for " << req.method << ' ' << req.path << " threw (" << describe(ep) << "); exception handler runs";
             try {
-                cfg->exception(*req, out, ep);
+                cfg->exception(req, out, ep);
             } catch (...) {
                 HTTPP_LIB_LOG(warning) << "exception handler threw (" << describe(std::current_exception()) << "): answering 500";
                 out = response{};
                 out.status = 500;
                 out.body = "Internal Server Error";
             }
-        } else {
-            HTTPP_LIB_LOG(warning) << "handler for " << req->method << ' ' << req->path << " threw: " << describe(ep);
+        } else if (!deliberate) {
+            HTTPP_LIB_LOG(warning) << what << " for " << req.method << ' ' << req.path << " threw: " << describe(ep);
         }
-        send(std::move(out), 0, -1);
+        return out;
+    }
+
+    void on_exception(const std::shared_ptr<server_request>& req, const send_fn& send, std::exception_ptr ep) {
+        send(exception_response(*req, ep, "handler"), 0, -1);
     }
 
     // ---- routing ----
@@ -1143,23 +1184,7 @@ struct server::impl {
             if (r->ih) r->ih(req, rsp);
             else r->ah(*req, rsp);
         } catch (...) {
-            response err;
-            err.status = 500;
-            err.body = "Internal Server Error";
-            const std::exception_ptr ep = std::current_exception();
-            if (cfg->exception) {
-                try {
-                    cfg->exception(*req, err, ep);
-                } catch (...) {
-                    HTTPP_LIB_LOG(warning) << "exception handler threw (" << describe(std::current_exception()) << "): answering 500";
-                    err = response{};
-                    err.status = 500;
-                    err.body = "Internal Server Error";
-                }
-            } else {
-                HTTPP_LIB_LOG(warning) << "async handler for " << req->method << ' ' << req->path << " threw: " << describe(ep);
-            }
-            rsp.send(std::move(err)); // no-op if the handler had already answered
+            rsp.send(exception_response(*req, std::current_exception(), "async handler")); // no-op if the handler had already answered
         }
 
         // If nobody answers in time, answer 504 ourselves (see `waiting`). ponytail: only a request that is still unanswered when its
@@ -1213,22 +1238,7 @@ struct server::impl {
         try {
             h->on_handshake(req, ws_acceptor(up));
         } catch (...) {
-            const std::exception_ptr ep = std::current_exception();
-            response err;
-            err.status = 500;
-            err.body = "Internal Server Error";
-            if (cfg->exception) {
-                try {
-                    cfg->exception(*req, err, ep);
-                } catch (...) {
-                    err = response{};
-                    err.status = 500;
-                    err.body = "Internal Server Error";
-                }
-            } else {
-                HTTPP_LIB_LOG(warning) << "websocket on_handshake for " << req->path << " threw: " << describe(ep);
-            }
-            up->reject(std::move(err));  // no-op if it had answered already
+            up->reject(exception_response(*req, std::current_exception(), "websocket on_handshake"));  // no-op if it had answered already
         }
     }
 
@@ -1372,6 +1382,19 @@ server& server::use(before_hook before, after_hook after) & {
 }
 void server::request_rewrite(std::function<void(server_request&)> rewrite) { impl_->cfg->rewrite = std::move(rewrite); }
 server& server::error_handler(error_hook hook) & { impl_->cfg->error = std::move(hook); return *this; }
+namespace {
+// The detail of an http_exception: what was given, else the reason phrase of the status. Refuses a status that is not an HTTP one.
+std::string exception_detail(int status, std::string given) {
+    if (status < 100 || status > 599) throw std::invalid_argument("status must be from 100 to 599");
+    if (given.empty()) given = detail::known_reason(status);
+    return given;
+}
+} // namespace
+
+http_exception::http_exception(int status, std::string given, header_list headers)
+    : std::runtime_error(std::to_string(status) + ": " + exception_detail(status, given)), // same text as Python's str(HTTPException)
+      status_(status), detail_(exception_detail(status, std::move(given))), headers_(std::move(headers)) {}
+
 server& server::exception_handler(exception_hook hook) & { impl_->cfg->exception = std::move(hook); return *this; }
 
 server& server::thread_pool(std::size_t base, std::size_t max, std::chrono::microseconds grow_after) & {
