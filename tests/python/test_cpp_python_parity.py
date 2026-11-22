@@ -66,6 +66,8 @@ TARGETS = {
     ("logging.hpp", ""): httpp,  # set_log_* live in httpp; the module functions (level_name, get_logger, ...) imitate Python's own `logging` (ADR-0011), see NOT_EXPOSED
     ("path.hpp", "path"): None,  # pathlib.Path is the Python side of httpp::path: every path argument takes one (ADR-0054)
     ("cookie.hpp", "cookie"): None,  # httpp.set_cookie() builds a Set-Cookie header and request.cookies reads the Cookie header; both call this class, so the rules live once
+    ("env.hpp", ""): None,  # os.environ and os.getenv are the Python side of httpp::env (ADR-0107): a Python program reads its environment with them
+    ("env.hpp", "scope"): None,  # a C++ guard that puts a variable back; Python has unittest.mock.patch.dict(os.environ, ...) for it
     ("sha256.hpp", ""): httpp.utils,  # the free functions live in httpp.utils, not in the main namespace
     ("server.hpp", ""): httpp.utils,  # mime_type_for, the same way
     ("swagger.hpp", ""): httpp,  # find_swagger_ui_asset only (NOT_EXPOSED)

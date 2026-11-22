@@ -35,7 +35,8 @@ POSIX says nothing about `getenv` running while another thread calls `setenv`: t
 - Nothing that worked changes meaning; the proxy tests, the logging test and the CLI behave as before. A machine that had proxy variables set keeps them after the proxy tests (they were lost before).
 - The lock does not make the C library safe: set variables before starting threads (or in a test), and read them through `get`. `env.hpp` says so.
 - On Windows an empty value cannot be kept (`set(name, "")` removes the variable, so `get` says `nullopt` where POSIX says `""`). `first` treats empty as not set everywhere, so nothing in httpp depends on the difference.
-- Not run here: Windows and macOS, and the Python suite.
+- Python: not exposed. `os.environ` and `os.getenv` are its side of this, so `tests/python/test_cpp_python_parity.py` maps `env.hpp` (the functions and `scope`) to `None` with that reason.
+- Not run here: Windows and macOS.
 
 ## Taken by default (for the owner to confirm)
 
