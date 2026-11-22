@@ -1110,7 +1110,7 @@ def test_curl_fail_with_body_exits_22_but_still_shows_and_saves_the_body(httpp_e
 
 
 def test_curl_json_sends_the_body_with_both_json_headers(httpp_exe, echo_app, tmp_path):
-    (tmp_path / "doc.json").write_text('{\n"a": 1\n}\n')
+    (tmp_path / "doc.json").write_bytes(b'{\n"a": 1\n}\n')  # bytes: write_text would turn each \n into \r\n on Windows
     with running(echo_app) as url:
         one = run(httpp_exe, "curl", f"{url}/json-echo", "--json", '{"a":1}')
         joined = run(httpp_exe, "curl", f"{url}/json-echo", "--json", '{"a":', "--json", "1}")
@@ -1243,15 +1243,16 @@ def test_curl_retry_gives_up_after_the_given_number(httpp_exe, echo_app, tmp_pat
 
 
 def test_curl_retry_does_not_retry_a_refused_connection_unless_asked(httpp_exe):
+    # Whether it retried is read from the warning, not from the time it took: on Windows a refused connection to a closed port takes
+    # more than a second by itself (the stack sends the SYN again before it gives up), so "fast" cannot be told from "retried".
     dead = f"http://127.0.0.1:{free_port()}/"
+    first = run(httpp_exe, "curl", dead, "--retry", "1", "--retry-delay", "1")
     started = time.monotonic()
-    first = run(httpp_exe, "curl", dead, "--retry", "1", "--retry-delay", "1", "-s")
-    fast = time.monotonic() - started
-    started = time.monotonic()
-    second = run(httpp_exe, "curl", dead, "--retry", "1", "--retry-delay", "1", "--retry-connrefused", "-s")
+    second = run(httpp_exe, "curl", dead, "--retry", "1", "--retry-delay", "1", "--retry-connrefused")
     slow = time.monotonic() - started
-    assert first.returncode == 7 and fast < 1
-    assert second.returncode == 7 and slow >= 1
+    assert first.returncode == 7 and "will retry" not in first.stderr
+    assert second.returncode == 7 and "will retry" in second.stderr and "(1 of 1)" in second.stderr
+    assert slow >= 1  # the delay between the two tries
 
 
 def test_curl_fetches_several_urls_in_turn(httpp_exe, echo_app, tmp_path):
