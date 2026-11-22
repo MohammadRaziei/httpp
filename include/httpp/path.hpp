@@ -13,7 +13,7 @@
 // It is also the file system of httpp (ADR-0054, merged into path by ADR-0054): httpp uses no std::filesystem, which the
 // macOS 10.13 wheels do not have. On Windows every call goes through the wide API, so a non-ASCII name works.
 // std::string and const char* convert to it implicitly, so a function that takes `const path&` still accepts
-// the strings it took before. Not covered: iterating the parts, relative_to, glob, permissions, copying, recursive operations, temporary names.
+// the strings it took before. Not covered: iterating the parts, relative_to, glob, permissions, copying.
 
 #include "httpp/export.hpp"
 
@@ -84,6 +84,7 @@ public:
 
     // --- needs the current directory ---
     HTTPP_UTILS_API static path cwd();                // pathlib: Path.cwd()
+    HTTPP_UTILS_API static path temp_dir();           // tempfile.gettempdir(): TMPDIR, TMP, TEMP (the first that is a folder), else /tmp; on Windows GetTempPathW
     HTTPP_UTILS_API path absolute() const;            // cwd() / this, unless it is absolute already
     // "file:///dir/f.txt", percent-encoded, made absolute first (pathlib: as_uri, which refuses a relative path).
     HTTPP_UTILS_API std::string as_uri() const;
@@ -155,7 +156,7 @@ public:
     HTTPP_UTILS_API std::string read_text(std::size_t start = 0, std::size_t end = npos) const;
     HTTPP_UTILS_API void write_text(const std::string& data) const;
     // write_text() as a protocol other readers and writers can rely on: the data goes to a file of its own beside this one
-    // ("<name>.tmp.<random>.<n>", on the same disk), and rename() then puts it in place, so at every moment the path holds
+    // ("<name>.tmp.<random>_<n>", on the same disk), and rename() then puts it in place, so at every moment the path holds
     // the whole old text or the whole new one, for another thread and for another process alike; a crash or a full disk
     // leaves the old file as it was. Throws std::runtime_error (and leaves no temporary file) when it cannot. Two of
     // these at once do not corrupt anything: the last rename wins. It does not make read-modify-write safe (take a lock
@@ -170,6 +171,61 @@ private:
     path parent_for_join() const { return text_.find('/') == std::string::npos ? path() : parent(); }
     static HTTPP_UTILS_API std::string clean(std::string text);
     std::string text_;
+};
+
+// A folder of its own: made when the object is, removed with everything in it when the object goes away (Python's
+// tempfile.TemporaryDirectory). The name is <prefix><random>_<n> (a number drawn once per process and a counter), and it is made with mkdir(), which is true only for
+// the call that made the folder, so two objects (or two processes, or two runs at the same time) never share one.
+//
+//     temp_path t;                              // a new empty folder in path::temp_dir()
+//     temp_path t("fs_test_");                  // the same, named fs_test_<random>
+//     temp_path t(HTTPP_PATH_CWD, "fs_test_");  // the same, inside another folder (it must exist)
+//     (t / "a" / "b.txt").write_text("x");      // it is a path: /, ->, and anywhere a `const path&` is taken
+//     t->is_dir();   t.get();
+//     t.done();      // remove it now; true when it is gone (rmtree), so a caller can tell it worked
+//     t.release();   // keep the folder (to look at what a failed test left) and stop owning it
+//
+// The destructor does what done() does but can only try: a folder that cannot be removed then (a file still open on Windows)
+// stays, and nothing is thrown. Call done() and look at its result where that matters. A crash or a kill runs no destructor, so
+// the prefix is what lets a stray folder be told apart. Not copyable; a move hands the folder over.
+class temp_path {
+public:
+    // The constructor throws std::runtime_error when the folder cannot be made (the parent is missing or not writable).
+    explicit temp_path(const std::string& prefix = "httpp_") : temp_path(path::temp_dir(), prefix) {}
+    HTTPP_UTILS_API temp_path(const path& parent, const std::string& prefix);
+
+    temp_path(const temp_path&) = delete;
+    temp_path(temp_path&& other) noexcept : path_(std::move(other.path_)), owned_(std::exchange(other.owned_, false)) {}
+    temp_path& operator=(temp_path other) noexcept { // by value: the old folder goes away with `other`
+        swap(other);
+        return *this;
+    }
+    ~temp_path() { done(); }
+
+    void swap(temp_path& other) noexcept {
+        using std::swap;
+        swap(path_, other.path_);
+        swap(owned_, other.owned_);
+    }
+
+    const path& get() const noexcept { return path_; }
+    operator const path&() const noexcept { return path_; }
+    const path* operator->() const noexcept { return &path_; }
+    path operator/(const path& other) const { return path_ / other; }
+
+    bool gone() const { return !path_.exists(); }
+    bool done() { // true when the folder is gone afterwards; a folder that stays is tried again by the destructor
+        if (owned_ && path_.rmtree()) owned_ = false;
+        return gone();
+    }
+    path release() { // the folder stays, and nothing removes it any more
+        owned_ = false;
+        return path_;
+    }
+
+private:
+    path path_;
+    bool owned_ = false;
 };
 
 } // namespace httpp

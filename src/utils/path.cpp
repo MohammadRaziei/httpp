@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cerrno>
 #include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
@@ -83,6 +84,16 @@ path::status path::stat() const {
 }
 
 path::status path::lstat() const { return stat(); }
+
+path path::temp_dir() {
+    const DWORD n = GetTempPathW(0, nullptr);
+    if (n == 0) return cwd(); // no temp directory to name: the working directory is the least surprising place left
+    std::wstring wide(n, L'\0');
+    const DWORD got = GetTempPathW(n, &wide[0]);
+    if (got == 0 || got >= n) return cwd();
+    wide.resize(got);
+    return path(narrow(wide)); // ends in '\\'; the constructor cleans that
+}
 
 path path::cwd() {
     const DWORD n = GetCurrentDirectoryW(0, nullptr);
@@ -191,6 +202,13 @@ path::status path::lstat() const {
     return out;
 }
 
+path path::temp_dir() {
+    for (const char* name : {"TMPDIR", "TMP", "TEMP"})
+        if (const char* value = std::getenv(name))
+            if (*value != '\0' && path(value).is_dir()) return path(value);
+    return path("/tmp");
+}
+
 path path::cwd() {
     std::string buf(4096, '\0');
     while (!::getcwd(&buf[0], buf.size())) {
@@ -243,6 +261,17 @@ bool path::is_executable() const { return stat().type == kind::file && ::access(
 
 // ---- the same everywhere ---------------------------------------------------------------------------------------
 
+namespace {
+
+// A name part that does not repeat between threads (the counter) or between processes (a random number per process, drawn once).
+std::string unique_token() {
+    static const unsigned long long process_id = (static_cast<unsigned long long>(std::random_device{}()) << 32) ^ std::random_device{}();
+    static std::atomic<unsigned long long> counter{0};
+    return std::to_string(process_id) + "_" + std::to_string(++counter);
+}
+
+} // namespace
+
 path path::absolute() const { return is_absolute() ? *this : cwd() / *this; }
 
 std::string path::as_uri() const {
@@ -293,11 +322,7 @@ void path::write_text(const std::string& data) const {
 }
 
 void path::write_text_atomic(const std::string& data) const {
-    // The name must not repeat between threads (the counter) or between processes (a random number per process, drawn
-    // once), or two writers would share a file.
-    static const unsigned long long process_id = (static_cast<unsigned long long>(std::random_device{}()) << 32) ^ std::random_device{}();
-    static std::atomic<unsigned long long> counter{0};
-    const path tmp(text_ + ".tmp." + std::to_string(process_id) + "." + std::to_string(++counter));
+    const path tmp(text_ + ".tmp." + unique_token()); // a name that repeats would make two writers share a file
     try {
         tmp.write_text(data);
     } catch (...) {
@@ -308,6 +333,21 @@ void path::write_text_atomic(const std::string& data) const {
         tmp.unlink();
         throw std::runtime_error("cannot replace " + text_);
     }
+}
+
+temp_path::temp_path(const path& parent, const std::string& prefix) {
+    if (parent.is_dir()) {
+        // mkdir() is true only for the call that made the folder; a name taken in the meantime is bad luck, so try the next one
+        for (int attempt = 0; attempt < 100; ++attempt) {
+            path candidate = parent / (prefix + unique_token());
+            if (candidate.mkdir()) {
+                path_ = std::move(candidate);
+                owned_ = true;
+                return;
+            }
+        }
+    }
+    throw std::runtime_error("httpp::temp_path: cannot make a folder in '" + parent.str() + "'");
 }
 
 } // namespace httpp

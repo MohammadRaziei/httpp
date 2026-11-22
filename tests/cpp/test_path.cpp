@@ -6,7 +6,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <filesystem>
 #include <iterator>
 #include <stdexcept>
 #include <string>
@@ -14,6 +13,7 @@
 #include <vector>
 
 using httpp::path;
+using httpp::temp_path;
 
 namespace {
 std::string s(const path& p) { return p.str(); }
@@ -145,25 +145,6 @@ UTEST(path, a_path_is_what_a_route_serves_as_a_file) {
 #include <unistd.h>
 #endif
 
-namespace {
-
-// Scratch folder in the system temp directory, one per run: nothing is written into the source tree or the working directory,
-// and two runs at the same time (parallel ctest, two builds) do not meet in one folder.
-path make_area() {
-    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count() % 1000000007;
-    return path((std::filesystem::temp_directory_path() / ("httpp_path_test_" + std::to_string(stamp))).generic_string());
-}
-
-const path area = make_area();
-
-// a fresh empty directory
-void fresh() {
-    area.rmtree();
-    area.mkdir();
-}
-
-} // namespace
-
 UTEST(path, is_relative_to_is_a_path_test_not_a_prefix_test) {
     ASSERT_TRUE(path("/data").is_relative_to("/data"));
     ASSERT_TRUE(path("/data/x/y").is_relative_to("/data"));
@@ -177,18 +158,18 @@ UTEST(path, is_relative_to_is_a_path_test_not_a_prefix_test) {
 }
 
 UTEST(path, stat_tells_files_directories_and_nothing) {
-    fresh();
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
     (area / "a.txt").write_text("hello");
     const path::status f = (area / "a.txt").stat();
     ASSERT_TRUE(f.type == path::kind::file);
     ASSERT_EQ(5, f.size);
     ASSERT_TRUE(f.mtime > 1500000000);
-    ASSERT_TRUE(area.stat().type == path::kind::directory);
+    ASSERT_TRUE(area->stat().type == path::kind::directory);
     ASSERT_TRUE((area / "nope").stat().type == path::kind::missing);
 }
 
 UTEST(path, mkdir_is_true_only_for_the_call_that_created_it) {
-    fresh();
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
     const path d = area / "lock";
     ASSERT_TRUE(d.mkdir());
     ASSERT_FALSE(d.mkdir());      // there already
@@ -200,7 +181,7 @@ UTEST(path, mkdir_is_true_only_for_the_call_that_created_it) {
 }
 
 UTEST(path, mkdirs_makes_every_missing_level_and_is_true_when_the_folder_is_there) {
-    fresh();
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
     const path deep = area / "a/b/c";
     ASSERT_TRUE(deep.mkdirs());
     ASSERT_TRUE((area / "a/b").is_dir());
@@ -212,11 +193,11 @@ UTEST(path, mkdirs_makes_every_missing_level_and_is_true_when_the_folder_is_ther
 }
 
 UTEST(path, iterdir_leaves_out_dot_and_dotdot) {
-    fresh();
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
     (area / "one").write_text("1");
     (area / "two").mkdir();
     std::vector<path> entries;
-    ASSERT_TRUE(area.iterdir(entries));
+    ASSERT_TRUE(area->iterdir(entries));
     std::sort(entries.begin(), entries.end());
     ASSERT_EQ(2u, entries.size());
     ASSERT_TRUE(entries[0] == area / "one" && entries[1] == area / "two");
@@ -224,7 +205,7 @@ UTEST(path, iterdir_leaves_out_dot_and_dotdot) {
 }
 
 UTEST(path, rename_moves_over_an_existing_file) {
-    fresh();
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
     const path from = area / "from", to = area / "to";
     from.write_text("new");
     to.write_text("old contents, longer");
@@ -236,21 +217,21 @@ UTEST(path, rename_moves_over_an_existing_file) {
 }
 
 UTEST(path, a_utf8_name_works) {
-    fresh();
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
     const path p = area / "\xD9\x84\xD9\x88\xD8\xAC.txt"; // a Persian word
     p.write_text("x");
     ASSERT_TRUE(p.is_file());
     std::vector<path> entries;
-    ASSERT_TRUE(area.iterdir(entries));
+    ASSERT_TRUE(area->iterdir(entries));
     ASSERT_EQ(1u, entries.size());
     ASSERT_TRUE(entries[0].name().str() == "\xD9\x84\xD9\x88\xD8\xAC.txt");
 }
 
 UTEST(path, resolve_resolves_dots_and_is_empty_for_a_missing_path) {
-    fresh();
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
     (area / "sub").mkdir();
-    const path a = area.resolve();
-    const path b = path(area.str() + "/sub/..").resolve();
+    const path a = area->resolve();
+    const path b = path(area->str() + "/sub/..").resolve();
     ASSERT_FALSE(a.empty());
     ASSERT_TRUE(a == b);
     ASSERT_TRUE((area / "missing").resolve().empty());
@@ -260,7 +241,7 @@ UTEST(path, resolve_resolves_dots_and_is_empty_for_a_missing_path) {
 
 #ifndef _WIN32
 UTEST(path, a_link_is_seen_by_lstat_and_followed_by_stat) {
-    fresh();
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
     (area / "target").write_text("abc");
     ASSERT_EQ(0, ::symlink("target", (area / "link").c_str()));
     ASSERT_TRUE((area / "link").lstat().link);
@@ -272,19 +253,19 @@ UTEST(path, a_link_is_seen_by_lstat_and_followed_by_stat) {
 }
 
 UTEST(path, is_executable_needs_the_permission) {
-    fresh();
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
     const path p = area / "tool";
     p.write_text("#!/bin/sh\n");
     ASSERT_EQ(0, ::chmod(p.c_str(), 0644));
     ASSERT_FALSE(p.is_executable());
     ASSERT_EQ(0, ::chmod(p.c_str(), 0755));
     ASSERT_TRUE(p.is_executable());
-    ASSERT_FALSE(area.is_executable()); // a directory is not a program
+    ASSERT_FALSE(area->is_executable()); // a directory is not a program
 }
 #endif
 
 UTEST(path, rmtree_removes_a_file_a_tree_and_what_is_not_there) {
-    fresh();
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
     ASSERT_TRUE((area / "nothing").rmtree()); // never there is fine
     (area / "one").write_text("x");
     ASSERT_TRUE((area / "one").rmtree());
@@ -296,12 +277,12 @@ UTEST(path, rmtree_removes_a_file_a_tree_and_what_is_not_there) {
     (area / "a" / "b" / "c" / "deep.txt").write_text("3");
     ASSERT_TRUE((area / "a").rmtree());
     ASSERT_FALSE((area / "a").exists());
-    ASSERT_TRUE(area.is_dir()); // the parent stays
+    ASSERT_TRUE(area->is_dir()); // the parent stays
 }
 
 #ifndef _WIN32
 UTEST(path, rmtree_removes_a_link_and_never_follows_it) {
-    fresh();
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
     ASSERT_TRUE((area / "outside").mkdirs());
     (area / "outside" / "keep.txt").write_text("keep");
     ASSERT_TRUE((area / "tree").mkdirs());
@@ -319,10 +300,102 @@ UTEST(path, rmtree_removes_a_link_and_never_follows_it) {
 }
 #endif
 
-UTEST(path, zz_cleanup) {
-    fresh();
-    ASSERT_TRUE(area.rmtree());
-    ASSERT_FALSE(area.exists());
+// ---- temp_path ----
+
+UTEST(temp_path, makes_a_folder_in_the_temp_directory_and_removes_it_with_the_object) {
+    path where;
+    {
+        temp_path t;
+        where = t.get();
+        ASSERT_TRUE(where.is_dir());
+        ASSERT_TRUE(where.parent() == path::temp_dir());
+        ASSERT_TRUE((t / "a" / "b").mkdirs());
+        (t / "a" / "b" / "f.txt").write_text("x");
+        ASSERT_FALSE(t.gone());
+    }
+    ASSERT_FALSE(where.exists()); // the whole tree went with it
+}
+
+UTEST(temp_path, the_name_is_the_prefix_and_something_that_does_not_repeat) {
+    temp_path a("httpp_tp_");
+    temp_path b("httpp_tp_");
+    ASSERT_TRUE(a->name().str().rfind("httpp_tp_", 0) == 0);
+    ASSERT_TRUE(b->name().str().rfind("httpp_tp_", 0) == 0);
+    ASSERT_TRUE(a.get() != b.get());
+    temp_path d; // the default prefix
+    ASSERT_TRUE(d->name().str().rfind("httpp_", 0) == 0);
+}
+
+UTEST(temp_path, can_be_made_inside_another_folder) {
+    temp_path outer("httpp_tp_outer_");
+    temp_path inner(outer, "inner_");
+    ASSERT_TRUE(inner->parent() == outer.get());
+    ASSERT_TRUE(inner->is_dir());
+    path where = inner.get();
+    ASSERT_TRUE(inner.done());
+    ASSERT_FALSE(where.exists());
+    ASSERT_TRUE(outer->is_dir()); // only its own folder goes
+}
+
+UTEST(temp_path, a_parent_that_is_not_there_throws_and_makes_nothing) {
+    temp_path outer("httpp_tp_outer_");
+    bool threw = false;
+    try {
+        temp_path t(outer / "missing", "x_");
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    ASSERT_TRUE(threw);
+    ASSERT_FALSE((outer / "missing").exists());
+}
+
+UTEST(temp_path, done_removes_now_and_says_whether_it_worked) {
+    temp_path t;
+    (t / "f.txt").write_text("x");
+    ASSERT_FALSE(t.gone());
+    ASSERT_TRUE(t.done());
+    ASSERT_TRUE(t.gone());
+    ASSERT_TRUE(t.done()); // again: still gone, nothing to do
+}
+
+UTEST(temp_path, release_keeps_the_folder_and_nothing_removes_it_any_more) {
+    path kept;
+    {
+        temp_path t;
+        kept = t.release();
+        ASSERT_TRUE(kept == t.get());
+        ASSERT_FALSE(t.done()); // not ours to remove now, so it is still there
+    }
+    ASSERT_TRUE(kept.is_dir());
+    ASSERT_TRUE(kept.rmtree()); // the test cleans up what it released
+}
+
+UTEST(temp_path, a_move_hands_the_folder_over_and_the_old_one_goes_when_assigned_over) {
+    path first;
+    path second;
+    {
+        temp_path a;
+        first = a.get();
+        temp_path b(std::move(a)); // b owns it now, a owns nothing
+        ASSERT_TRUE(b.get() == first);
+        ASSERT_TRUE(first.is_dir());
+        temp_path c;
+        second = c.get();
+        c = std::move(b); // c's own folder is removed, and it takes b's
+        ASSERT_FALSE(second.exists());
+        ASSERT_TRUE(c.get() == first);
+        ASSERT_TRUE(first.is_dir());
+    }
+    ASSERT_FALSE(first.exists());
+}
+
+UTEST(temp_path, it_is_a_path_where_a_path_is_taken) {
+    temp_path t;
+    const auto make = [](const path& p) { return (p / "made").mkdir(); };
+    ASSERT_TRUE(make(t)); // converts to const path&
+    ASSERT_TRUE((t / "made").is_dir());
+    ASSERT_TRUE(t->is_dir());
+    ASSERT_TRUE(path::temp_dir().is_dir());
 }
 
 // ---- write_text_atomic and read_text ranges ----
