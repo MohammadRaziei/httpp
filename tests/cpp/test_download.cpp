@@ -1,6 +1,6 @@
 #include "utest/utest.h"
 #include "httpp/download.hpp"
-#include "httpp/sha256.hpp"
+#include "httpp/utils.hpp"
 #include "httpp/server.hpp"
 #include "internal/deflate.hpp"
 

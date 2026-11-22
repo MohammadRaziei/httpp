@@ -1,8 +1,7 @@
 // httpp::path (ADR-0054): the pathlib-shaped path the public API takes.
 #include "utest/utest.h"
-#include "httpp/env.hpp"
+#include "httpp/utils.hpp"
 #include "httpp/path.hpp"
-#include "httpp/sha256.hpp"
 #include "local_server.hpp"
 
 #include <atomic>

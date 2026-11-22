@@ -1,6 +1,6 @@
 #include "httpp/proxy.hpp"
 
-#include "httpp/env.hpp"
+#include "httpp/utils.hpp"
 #include "internal/http_exchange.hpp"
 
 #include <algorithm>

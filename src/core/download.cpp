@@ -2,7 +2,7 @@
 #include "httpp/file_lock.hpp"
 #include "httpp/url.hpp"
 #include "httpp/progress.hpp"
-#include "httpp/sha256.hpp"
+#include "httpp/utils.hpp"
 
 #include "internal/file_writer.hpp"
 #include "internal/http_exchange.hpp"

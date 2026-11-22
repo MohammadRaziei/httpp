@@ -1,7 +1,7 @@
 // What a download does on the wire (ADR-0051): redirects, Range resume, servers that ignore Range, error pages, big bodies.
 #include "utest/utest.h"
 #include "httpp/download.hpp"
-#include "httpp/sha256.hpp"
+#include "httpp/utils.hpp"
 #include "local_server.hpp"
 
 #include <atomic>

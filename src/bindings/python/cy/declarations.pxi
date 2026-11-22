@@ -338,7 +338,7 @@ cdef extern from "httpp/file_lock.hpp" namespace "httpp":
         cbool owned() noexcept
         cbool waited() noexcept
 
-cdef extern from "httpp/sha256.hpp" namespace "httpp":
+cdef extern from "httpp/utils.hpp" namespace "httpp":
     string cpp_sha256_hex "httpp::sha256_hex"(const void* data, size_t size) except + nogil
     string cpp_sha256_file "httpp::sha256_file"(string path) except + nogil
     string cpp_parse_sha256_checksum "httpp::parse_sha256_checksum"(string text, string file_name) except +

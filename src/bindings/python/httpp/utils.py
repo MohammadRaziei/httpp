@@ -1,4 +1,4 @@
-"""Helpers that mirror httpp's C++ free functions (httpp/sha256.hpp, and mime_type_for of httpp/server.hpp). They live here, not in the main
+"""Helpers that mirror httpp's C++ free functions (httpp/utils.hpp, and mime_type_for of httpp/server.hpp). They live here, not in the main
 `httpp` namespace:
 
     httpp.utils.sha256_hex(b"abc")            # 64 lowercase hex characters
@@ -9,6 +9,6 @@
 They are bound so Python can check the C++ code against `hashlib`; for ordinary hashing `hashlib` is fine too.
 """
 
-from .httpp_python import sha256_hex, sha256_file, parse_sha256_checksum, mime_type_for
+from .httpp_python import mime_type_for, parse_sha256_checksum, sha256_file, sha256_hex
 
-__all__ = ["sha256_hex", "sha256_file", "parse_sha256_checksum", "mime_type_for"]
+__all__ = ["mime_type_for", "parse_sha256_checksum", "sha256_file", "sha256_hex"]

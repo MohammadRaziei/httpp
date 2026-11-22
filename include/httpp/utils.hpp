@@ -1,5 +1,40 @@
 #pragma once
 
+// The small helpers of httpp_utils that need nothing but the standard library and the operating system (ADR-0086, ADR-0107): SHA-256
+// and environment variables. They share this header and src/utils/utils.cpp; the bigger parts of the library (logging, path,
+// progress) keep a header of their own.
+
+#include "httpp/export.hpp"
+#include "httpp/path.hpp"
+
+#include <cstddef>
+#include <initializer_list>
+#include <optional>
+#include <string>
+#include <utility>
+
+namespace httpp {
+
+// ---- SHA-256 -------------------------------------------------------------------------------------------------------------------
+
+// SHA-256 of `size` bytes, as 64 lowercase hex characters.
+// ponytail: portable code (no TLS library: httpp_utils links none, so a program that only hashes files does not carry the HTTP stack).
+// Upgrade path if hashing 100 MB+ files proves slow: the SHA-NI (x86) / ARMv8 crypto routines, picked at run time, ~4x faster.
+HTTPP_UTILS_API std::string sha256_hex(const void* data, std::size_t size);
+
+// Same, for a whole file, read in chunks (memory use does not depend on the file size).
+// Throws std::runtime_error if the file cannot be opened or read.
+HTTPP_UTILS_API std::string sha256_file(const path& file);
+
+// Parses the text of a checksum file: one line, `<64 hex digits>`, optionally followed by whitespace, an optional
+// `*` and the file name, as `sha256sum` writes it. If a name is there it must equal `file_name`. Returns the digest
+// in lowercase. Anything else (several lines, a short line, an HTML error page, ...) throws std::runtime_error.
+HTTPP_UTILS_API std::string parse_sha256_checksum(const std::string& text, const std::string& file_name);
+
+} // namespace httpp
+
+// ---- environment variables ------------------------------------------------------------------------------------------------------
+
 // Environment variables, the way Python's os.environ and os.getenv give them (ADR-0107). Names and values are UTF-8 on every platform:
 // on Windows each call goes through the wide API, so a value in a user's own script (a proxy with a non-Latin user name) is not turned
 // into the code page. A name that is empty or has an '=' in it is never a variable: it is not found, and set() and unset() say false.
@@ -15,13 +50,6 @@
 // through get() or first(). scope() is for tests and for a program's first lines; it is not a way to pass values between threads.
 //
 // Windows has no variable that is set and empty: set(name, "") removes it, so get() then says nullopt where POSIX says "".
-
-#include "httpp/export.hpp"
-
-#include <initializer_list>
-#include <optional>
-#include <string>
-#include <utility>
 
 namespace httpp::env {
 
