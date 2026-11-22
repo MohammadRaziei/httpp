@@ -30,11 +30,35 @@ def same(text):
     return os.path.normcase(text)
 
 
+def override_env(base, overrides):
+    """`base` with `overrides` on top: the environment of a command under test.
+
+    Windows has one variable for names that differ only by case (http_proxy and HTTP_PROXY), and os.environ there is upper-cased. A plain
+    update would give the child both spellings, and it would see whichever comes first, not the one the test meant (the Python launcher of
+    the `httpp` command keeps the last one instead, so the two ways of starting a command would not even agree). There an override replaces
+    every spelling of its name, and of overrides that differ only by case an empty one gives way to a non-empty one (an empty variable
+    counts as unset, see NO_PROXY_VARIABLES)."""
+    env = dict(base)
+    if os.name != "nt":
+        env.update(overrides)
+        return env
+    chosen = {}
+    for name, value in overrides.items():
+        key = name.upper()
+        if key not in chosen or value or not chosen[key][1]:
+            chosen[key] = (name, value)
+    for key, (name, value) in chosen.items():
+        for existing in [k for k in env if k.upper() == key]:
+            del env[existing]
+        env[name] = value
+    return env
+
+
 def run(exe, *args, env=None, timeout=60, input=None, cwd=None):
     exe = [exe] if isinstance(exe, str) else list(exe)
     full_env = dict(os.environ)
     full_env.setdefault("HTTPP_PYTHON", sys.executable)  # what the launcher sets for the executable (which sits in site-packages, with no Python next to it)
-    full_env.update(env or {})
+    full_env = override_env(full_env, env or {})
     return subprocess.run([*exe, *args], capture_output=True, text=True, timeout=timeout, env=full_env, input=input, cwd=cwd, check=False)
 
 
@@ -557,15 +581,16 @@ def test_download_retry_gives_up_after_the_given_number_and_q_hides_the_warning(
 
 
 def test_download_retry_does_not_retry_a_refused_connection_unless_asked(httpp_exe):
+    # Whether it retried is read from the warning, not from the time it took: on Windows a refused connection to a closed port takes
+    # more than a second by itself (the stack sends the SYN again before it gives up), so "fast" cannot be told from "retried".
     dead = f"http://127.0.0.1:{free_port()}/"
+    first = run(httpp_exe, "download", dead, "--retry", "1", "--retry-delay", "1")
     started = time.monotonic()
-    first = run(httpp_exe, "download", dead, "--retry", "1", "--retry-delay", "1", "-q")
-    fast = time.monotonic() - started
-    started = time.monotonic()
-    second = run(httpp_exe, "download", dead, "--retry", "1", "--retry-delay", "1", "--retry-connrefused", "-q")
+    second = run(httpp_exe, "download", dead, "--retry", "1", "--retry-delay", "1", "--retry-connrefused")
     slow = time.monotonic() - started
-    assert first.returncode == 1 and fast < 1
-    assert second.returncode == 1 and slow >= 1
+    assert first.returncode == 1 and "will retry" not in first.stderr
+    assert second.returncode == 1 and "will retry" in second.stderr and "(1 of 1)" in second.stderr
+    assert slow >= 1  # the delay between the two tries
 
 
 # --- curl --------------------------------------------------------------------------------------
@@ -755,6 +780,7 @@ def test_curl_reads_a_proxy_without_a_scheme_and_all_proxy_like_curl(httpp_exe):
     assert len(seen) == 2
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows has one variable for HTTP_PROXY and http_proxy: there is no uppercase spelling to ignore")
 def test_curl_ignores_uppercase_HTTP_PROXY_like_curl(httpp_exe, echo_app):
     with recording_proxy() as (proxy, seen), running(echo_app) as url:
         r = run(httpp_exe, "curl", f"{url}/text", env=curl_env(HTTP_PROXY=f"http://{proxy}"))
