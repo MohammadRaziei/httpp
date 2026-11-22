@@ -29,7 +29,7 @@ def cpp_api():
     for path in sorted(INCLUDE.glob("*.hpp")):
         text = _strip_comments(path.read_text(encoding="utf-8"))
         spans = []
-        for m in re.finditer(r"\b(?:struct|class)\s+(?:HTTPP_API\s+|HTTPP_UTILS_API\s+)?(\w+)\s*(?:final\s*)?(?::[^{;]*)?\{", text):
+        for m in re.finditer(r"\b(?:struct|class)\s+(?:HTTPP_API\s+|HTTPP_UTILS_API\s+|HTTPP_TYPE\s+)?(\w+)\s*(?:final\s*)?(?::[^{;]*)?\{", text):
             depth, j = 1, m.end()
             while depth and j < len(text):
                 depth += (text[j] == "{") - (text[j] == "}")

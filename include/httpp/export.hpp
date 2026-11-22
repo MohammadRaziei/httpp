@@ -37,6 +37,17 @@
 // Marks a public member of a class that is exported as a whole (see above). Expands to nothing.
 #define HTTPP_MEMBER
 
+// Marks a class whose type information must be one and the same in every module, without exporting its members: an exception that
+// the caller throws and libhttpp catches (httpp::http_exception). With hidden visibility each module gets its own type_info, and
+// libc++abi (macOS) compares those by address, so the catch does not match. The members that are defined in the library still
+// carry HTTPP_API one by one, as above.
+// Nothing is needed on Windows: MSVC matches exception types by name, and the class is not dllexport, so there is no C4251/C4275 to silence.
+#if defined(_WIN32)
+#  define HTTPP_TYPE
+#else
+#  define HTTPP_TYPE __attribute__((visibility("default")))
+#endif
+
 // The second export macro: httpp_utils (libhttpp_utils: logging, path, sformat, progress) is a shared library of its own, below
 // httpp_core. On Windows a symbol must be dllexport in the DLL that defines it and dllimport everywhere else, which one macro for two
 // DLLs cannot give: HTTPP_UTILS_API is dllexport only while httpp_utils's own sources are compiled (HTTPP_BUILDING_UTILS_DLL),

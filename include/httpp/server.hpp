@@ -163,7 +163,11 @@ using io_handler = std::function<void(std::shared_ptr<const server_request>, res
 // phrase of the status ("" when the status has none). A status outside 100 to 599 throws std::invalid_argument. It works in sync
 // and async handlers; an exception handler (server::exception_handler) runs after the answer is made, sees this exception and may
 // change the answer, and one that ignores it leaves the answer as it is.
-class http_exception : public std::runtime_error {
+//
+// Marked HTTPP_TYPE (see export.hpp): the caller throws it and libhttpp catches it, so both modules must see the same type
+// information. With the class hidden, each module has its own copy of the type_info, and on macOS (libc++abi compares such types by
+// address) the catch in libhttpp does not match: the client gets a plain 500 instead of the status and detail.
+class HTTPP_TYPE http_exception : public std::runtime_error {
 public:
     using header_list = std::vector<std::pair<std::string, std::string>>;
 
