@@ -394,10 +394,18 @@ def cpp_build(work, ports):
             pytest.fail(f"C++ examples did not build ({' '.join(step[:2])}):\n{r.stdout[-4000:]}\n{r.stderr[-4000:]}")
 
 
-CASES = [(lang, unit) for unit in SERVERS for lang in LANGS if source(lang, unit).is_file()]
+# The C++ examples are built against the SDK of the package, with CMake, in a staged tree: that is what the CMake target
+# httpp_test_python (after build_python) provides, and it runs them with `-m cpp`. A plain `pytest` (a pip-installed wheel,
+# cibuildwheel) skips them: see pytest_collection_modifyitems in conftest.py.
+CASES = [
+    pytest.param(lang, unit, marks=pytest.mark.cpp if lang == "cpp" else (), id=f"{lang}-{unit.replace('/', '-')}")
+    for unit in SERVERS
+    for lang in LANGS
+    if source(lang, unit).is_file()
+]
 
 
-@pytest.mark.parametrize("lang,unit", CASES, ids=[f"{lang}-{unit.replace('/', '-')}" for lang, unit in CASES])
+@pytest.mark.parametrize("lang,unit", CASES)
 def test_server_example_does_what_its_page_says(lang, unit, work, ports, request):
     """Start the example, run the check that talks to it and the clients that belong to it, stop it."""
     if lang == "cpp":
