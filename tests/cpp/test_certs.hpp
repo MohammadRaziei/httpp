@@ -2,6 +2,7 @@
 // Test-only certificates and keys (EC P-256, self-signed, valid for 100 years). Never use elsewhere.
 //  good_*: CN=localhost, SAN DNS:localhost + IP:127.0.0.1
 //  other_*: CN=other.example, SAN DNS:other.example only (host name mismatch when reached as 127.0.0.1)
+//  no_san_*: CN=127.0.0.1 and no subjectAltName at all (the name check must not fall back to the CN)
 namespace testcerts {
 inline const char* good_cert = R"PEM(-----BEGIN CERTIFICATE-----
 MIIBmzCCAUGgAwIBAgIURSQWAfEQzlPpbAKio/vtlc5MHyYwCgYIKoZIzj0EAwIw
@@ -37,6 +38,24 @@ inline const char* other_key = R"PEM(-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg7t88zNXUdPkbnc5H
 FttC0kyCqizvK5sEdZJHPKQ0nYmhRANCAARCwHiaWhYTYJZzzuWkOyB42/mTylKc
 2s69TK8tsmHv0w7Ogqcb5U5RzJEcEDT/FP+TywmvIGT3X8lFSyidp2Of
+-----END PRIVATE KEY-----
+)PEM";
+inline const char* no_san_cert = R"PEM(-----BEGIN CERTIFICATE-----
+MIIBfzCCASWgAwIBAgIUP7hMHIMSkYcImPJqoMUrXgkDn00wCgYIKoZIzj0EAwIw
+FDESMBAGA1UEAwwJMTI3LjAuMC4xMCAXDTI2MTEyMjAxMTM1NVoYDzIxMjYxMDI5
+MDExMzU1WjAUMRIwEAYDVQQDDAkxMjcuMC4wLjEwWTATBgcqhkjOPQIBBggqhkjO
+PQMBBwNCAAS1PkR81eeBvcvp8LutKSZjvf7QOtj2Ja/PTdfcGzOBltJs1OoovFxN
+dC8YSp9MmwilJuHcG7BFHia27gAyIwCoo1MwUTAdBgNVHQ4EFgQU4MgexYkIxT+q
+xsvRsLJao+5mCDIwHwYDVR0jBBgwFoAU4MgexYkIxT+qxsvRsLJao+5mCDIwDwYD
+VR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiBz3xPLy7HeY0kv8K2ijMYw
+dblE0M/0MN437pmnaym7BAIhAPhEUpBpw1m9FtzM38dpaskzxLOQOM3uTKjNJ/bG
+HSi0
+-----END CERTIFICATE-----
+)PEM";
+inline const char* no_san_key = R"PEM(-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPIcaz+G+d7tH8OcQ
+2e2+Jm5K6RYqvxC53m15wvMnoc2hRANCAAS1PkR81eeBvcvp8LutKSZjvf7QOtj2
+Ja/PTdfcGzOBltJs1OoovFxNdC8YSp9MmwilJuHcG7BFHia27gAyIwCo
 -----END PRIVATE KEY-----
 )PEM";
 } // namespace testcerts

@@ -79,6 +79,14 @@ bool load_system_roots(mbedtls_x509_crt& crt) {
 
 } // namespace
 
+// A server certificate must name its hosts in subjectAltName (RFC 6125, and the CA/Browser Forum since 2012): mbedtls falls back to the
+// subject's CN when a certificate has no such extension, which browsers, Go and curl (with OpenSSL 1.1+) no longer do. The check runs for the
+// end-entity certificate (depth 0) and fails the name check the same way a mismatch does.
+static int require_san(void*, mbedtls_x509_crt* crt, int depth, uint32_t* flags) {
+    if (depth == 0 && !mbedtls_x509_crt_has_ext_type(crt, MBEDTLS_X509_EXT_SUBJECT_ALT_NAME)) *flags |= MBEDTLS_X509_BADCERT_CN_MISMATCH;
+    return 0;
+}
+
 struct tls_context {
     mbedtls_ssl_config conf;
     mbedtls_x509_crt ca;
@@ -115,6 +123,7 @@ std::shared_ptr<const tls_context> make_tls_context(bool verify, const std::stri
         return c;
     }
     mbedtls_ssl_conf_authmode(&c->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    mbedtls_ssl_conf_verify(&c->conf, require_san, nullptr);
     if (!ca_file.empty()) {
         if ((r = mbedtls_x509_crt_parse_file(&c->ca, ca_file.c_str())) < 0) {
             error = "cannot read CA file '" + ca_file + "': " + mbed_error(r);

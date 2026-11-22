@@ -283,6 +283,81 @@ UTEST(async_server, oversized_chunked_body_gets_413) {
     ASSERT_EQ(0, f.requests.load());
 }
 
+UTEST(async_server, a_urlencoded_body_has_its_own_smaller_limit) {
+    async_server::options o;
+    o.max_body = 100000;
+    o.max_form_body = 1000;
+    fixture f([](const http_request&) { return text(200, "ok"); }, o);
+    const std::string head = "POST / HTTP/1.1\r\nHost: t\r\nContent-Length: 5000\r\n";
+    {
+        raw_client c(f.port); // declared too large for a form: refused before the body is read
+        c.send(head + "Content-Type: application/x-www-form-urlencoded\r\n\r\n" + std::string(3000, 'a'));
+        ASSERT_TRUE(c.has("413"));
+        ASSERT_EQ(0, f.requests.load());
+    }
+    {
+        raw_client c(f.port); // the type is read without regard to case or parameters
+        c.send(head + "content-type: Application/X-WWW-Form-Urlencoded; charset=utf-8\r\n\r\n" + std::string(3000, 'a'));
+        ASSERT_TRUE(c.has("413"));
+    }
+    {
+        raw_client c(f.port); // chunked: the size is only known as it arrives
+        c.send("POST / HTTP/1.1\r\nHost: t\r\nContent-Type: application/x-www-form-urlencoded\r\nTransfer-Encoding: chunked\r\n\r\n" +
+               std::string("1388\r\n") + std::string(5000, 'a') + "\r\n0\r\n\r\n");
+        ASSERT_TRUE(c.has("413"));
+    }
+    {
+        raw_client c(f.port); // any other type only has max_body
+        c.send(head + "Content-Type: application/octet-stream\r\n\r\n" + std::string(5000, 'a'));
+        ASSERT_TRUE(c.has("200 OK"));
+    }
+    {
+        raw_client c(f.port); // a small form is fine
+        c.send("POST / HTTP/1.1\r\nHost: t\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 7\r\n\r\na=1&b=2");
+        ASSERT_TRUE(c.has("200 OK"));
+    }
+}
+
+UTEST(async_server, max_form_body_zero_leaves_only_max_body) {
+    async_server::options o;
+    o.max_form_body = 0;
+    fixture f([](const http_request&) { return text(200, "ok"); }, o);
+    raw_client c(f.port);
+    c.send("POST / HTTP/1.1\r\nHost: t\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 5000\r\n\r\n" + std::string(5000, 'a'));
+    ASSERT_TRUE(c.has("200 OK"));
+}
+
+UTEST(async_server, http_11_needs_exactly_one_host_header) {
+    fixture f([](const http_request&) { return text(200, "ok"); });
+    {
+        raw_client c(f.port); // none
+        c.send("GET / HTTP/1.1\r\n\r\n");
+        ASSERT_TRUE(c.has("400"));
+        ASSERT_TRUE(c.wait_eof());
+    }
+    {
+        raw_client c(f.port); // two, whatever their values
+        c.send("GET / HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n");
+        ASSERT_TRUE(c.has("400"));
+    }
+    {
+        raw_client c(f.port); // two with the same value and another spelling of the name
+        c.send("GET / HTTP/1.1\r\nHost: a\r\nhost: a\r\n\r\n");
+        ASSERT_TRUE(c.has("400"));
+    }
+    ASSERT_EQ(0, f.requests.load());
+    {
+        raw_client c(f.port); // one is fine, an empty one too (RFC 9112 allows an empty authority)
+        c.send("GET / HTTP/1.1\r\nHost:\r\n\r\n");
+        ASSERT_TRUE(c.has("200 OK"));
+    }
+    {
+        raw_client c(f.port); // HTTP/1.0 has no Host requirement
+        c.send("GET / HTTP/1.0\r\n\r\n");
+        ASSERT_TRUE(c.has("200 OK"));
+    }
+}
+
 UTEST(async_server, long_uri_and_huge_header_are_refused) {
     fixture f([](const http_request&) { return text(200, "never"); });
     {

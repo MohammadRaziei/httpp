@@ -108,6 +108,20 @@ such changes are listed under **Changed**).
 - **A URL's trailing slash reaches the request line.** `http://host/dir/` was sent as `GET /dir` (liburlparser's `abspath()` dropped the `/`), so a server that tells `/dir` from `/dir/` answered the wrong resource; `url_filename("http://h/dir/")` named `dir`. Fixed in liburlparser 2.3.1 (`abspath()` keeps the trailing `/`, RFC 3986 section 5.2.4); httpp needs that version or later. New test `httpp_client.fetch_keeps_the_trailing_slash_of_the_path`.
 - **The C++ tests `path.iterdir_leaves_out_dot_and_dotdot`, `path.a_utf8_name_works` and `path.zz_cleanup` failed on Linux.** `fresh()` emptied one level only, so the `a/b/c` of an earlier test stayed; it now uses `path::rmtree()`, which removes every level. The Python test `test_ctrl_c_and_sigterm_stop_the_server_cleanly` hung the Windows wheel job: Windows cannot send SIGINT or SIGTERM to a process, and a kill of the `httpp.exe` launcher left the server holding the pipes. It is skipped on Windows, and its clean-up kills the whole tree.
 
+### Security
+
+From the stress and security review of 0.9.0 (ADR-0108). Breaking where a default changes; nobody uses httpp yet, so there is no alias.
+
+- **A query string or a urlencoded body with more than 1024 pairs is refused (400), and a urlencoded body has its own limit, `server::max_form_body` (default 1 MiB, Python `max_form_body`).** Parsing 20 MB of `x=1&` took about 1.2 GB; the pair count was the cost, so it is capped, and a form is far smaller than an upload. `request::form()` throws `std::invalid_argument` over the cap. `max_body` (100 MiB) stays the limit of every other type, multipart included.
+- **`server::max_connections` defaults to 10000 (was no limit).** One more connection gets a 503. `0` still means no limit.
+- **An HTTP/1.1 request with no `Host` header, or with two, is refused (400)** (RFC 9112 section 3.2). HTTP/1.0 is unchanged.
+- **`httpp server` and `httpp browse` bound to a loopback address (127.x.x.x, `localhost`, `::1`) answer only requests whose `Host` is `localhost`, `127.0.0.1`, `[::1]` or the bound address (400 otherwise).** This closes DNS rebinding. On any other address the names are not known and nothing is refused.
+- **`file_browser`: a POST to the zip route with an `Origin` that is not the `Host` (or `null`) is refused (403).** A request without `Origin` (curl, scripts) is served as before.
+- **A multipart part name or file name with a control character, NUL, or a Unicode direction mark (U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069) is refused.** `evil\u202Egpj.exe` no longer shows as `evilexe.jpg`.
+- **TLS client: a server certificate without a `subjectAltName` extension is refused, even when its CN matches.** mbedtls fell back to the CN; browsers, Go and curl do not.
+- **Client: `max_response_size` defaults to 256 MiB for a body collected by `run()` (was no limit), and a response head over 64 KiB is refused (`too_large`, status 413).** A server that never stops sending took the whole machine (OOM kill). `0` still means no limit; `on_body`, `save_to` and `download` stream and have no body limit.
+- **`httpp curl` and `httpp download` no longer abort on a URL they cannot take** (`http://a:b:c/`, a scheme other than http and https): they print an error and exit with a code.
+
 ## [0.9.0] - 2026-11-14
 
 ### Added

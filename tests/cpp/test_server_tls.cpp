@@ -126,7 +126,7 @@ UTEST(httpp_server_tls, keep_alive_and_a_body_of_many_records_round_trip) {
     std::string big(1500 * 1000, 'x');
     for (std::size_t i = 0; i < big.size(); i += 997) big[i] = static_cast<char>('a' + (i % 26));
     for (int i = 0; i < 3; ++i) { // the same session: one TLS connection, several requests
-        auto r = c.post("/echo", big);
+        auto r = c.post("/echo", big, "application/octet-stream"); // not the client's default urlencoded label: a form has a 1 MiB limit
         ASSERT_EQ(200, r.status);
         ASSERT_TRUE(r.body == big);
     }

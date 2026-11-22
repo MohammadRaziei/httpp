@@ -38,12 +38,13 @@ std::string percent_decode(const std::string& in, bool plus) {
     return out;
 }
 
-void parse_query(const std::string& q, std::vector<std::pair<std::string, std::string>>& out) {
-    std::size_t pos = 0;
+bool parse_query(const std::string& q, std::vector<std::pair<std::string, std::string>>& out, std::size_t max_items) {
+    std::size_t pos = 0, items = 0;
     while (pos <= q.size()) {
         std::size_t end = q.find('&', pos);
         if (end == std::string::npos) end = q.size();
         if (end > pos) {
+            if (max_items && ++items > max_items) return false;
             const std::string item = q.substr(pos, end - pos);
             const std::size_t eq = item.find('=');
             if (eq == std::string::npos) out.emplace_back(percent_decode(item, true), "");
@@ -51,13 +52,14 @@ void parse_query(const std::string& q, std::vector<std::pair<std::string, std::s
         }
         pos = end + 1;
     }
+    return true;
 }
 
 }  // namespace detail
 
 namespace {
 
-constexpr std::size_t max_parts = 1024;          // fields and files together
+constexpr std::size_t max_parts = detail::max_query_items; // fields and files together
 constexpr std::size_t max_part_header = 8 * 1024; // the header block of one part
 constexpr std::size_t max_boundary = 200;
 
@@ -118,6 +120,21 @@ std::string base_name(const std::string& name) {
     return cut == std::string::npos ? name : name.substr(cut + 1);
 }
 
+// A file name that is shown to people or written to disk by the handler must not hide anything: a control character (NUL, a line break, ESC)
+// or a Unicode direction mark (U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069: "evil\u202Egpj.exe" reads as "evilexe.jpg") is refused.
+bool hidden_in_name(const std::string& name) {
+    for (std::size_t i = 0; i < name.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(name[i]);
+        if (c < 0x20 || c == 0x7f) return true;
+        if (c == 0xE2 && i + 2 < name.size()) {
+            const unsigned char b = static_cast<unsigned char>(name[i + 1]), d = static_cast<unsigned char>(name[i + 2]);
+            if (b == 0x80 && (d == 0x8E || d == 0x8F || (d >= 0xAA && d <= 0xAE))) return true;
+            if (b == 0x81 && d >= 0xA6 && d <= 0xA9) return true;
+        }
+    }
+    return false;
+}
+
 [[noreturn]] void bad(const char* why) { throw std::invalid_argument(std::string("malformed multipart/form-data: ") + why); }
 
 form_data parse_multipart(const std::string& body, const std::string& boundary) {
@@ -166,6 +183,7 @@ form_data parse_multipart(const std::string& body, const std::string& boundary) 
         const std::string name = param(disposition, "name", has_name);
         const std::string filename = param(disposition, "filename", has_file);
         if (!has_name) bad("a part has no name");
+        if (hidden_in_name(name) || hidden_in_name(filename)) bad("a part name or file name has a control or direction character");
         if (out.fields.size() + out.files.size() >= max_parts) bad("too many parts");
 
         std::string data = body.substr(data_begin, data_end - data_begin);
@@ -190,7 +208,8 @@ form_data server_request::form() const {
     const std::string media = lower(trim(type.substr(0, type.find(';'))));
     if (media == "application/x-www-form-urlencoded") {
         form_data out;
-        detail::parse_query(body, out.fields);
+        if (!detail::parse_query(body, out.fields))
+            throw std::invalid_argument("malformed application/x-www-form-urlencoded: more than " + std::to_string(detail::max_query_items) + " fields");
         return out;
     }
     if (media == "multipart/form-data") {

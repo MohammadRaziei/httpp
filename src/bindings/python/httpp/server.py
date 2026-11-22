@@ -1034,12 +1034,14 @@ class Server(_Server):
     least 8; under load up to max_threads, default 4 x threads).  read_timeout / write_timeout /
     keep_alive_timeout: seconds (defaults 5).  keep_alive_max: requests per connection (1000, 0 = no limit).
     max_body: largest request body in bytes, refused above it with a 413 (a client still
-    sending a huge body may see the connection closed instead); 0 = no limit.  header_timeout: seconds the
+    sending a huge body may see the connection closed instead); 0 = no limit (default 100 MiB).  max_form_body: the
+    same for an application/x-www-form-urlencoded body, which is split into many small strings (default 1 MiB; 0 = only
+    max_body applies); more than 1024 pairs in a query string or form is refused with a 400.  header_timeout: seconds the
     whole request head may take to arrive, however slowly it is dripped (default 10, 0 = no limit).
     compression: gzip text answers (text, JSON, XML, JavaScript, SVG) of at least this many bytes for clients that
     send Accept-Encoding: gzip (default: off); compression_level 1 (fastest, default) to 9.
     body_timeout: the same for the request body, counted from the end of the head (default 120, 0 = no limit).
-    max_connections: open connections allowed, one more gets a 503 (default: no limit).  handler_timeout:
+    max_connections: open connections allowed, one more gets a 503 (default 10000, 0 = no limit).  handler_timeout:
     seconds an async handler may take before it is cancelled and answered with a 504 (default 60,
     None = never).  io_threads: I/O threads sharing the port (default: min(4, CPUs // 4) with a GIL, 1 on a free-threaded Python or Windows; needs SO_REUSEPORT). On a
     free-threaded Python each also gets its own asyncio loop thread, so `async def` handlers use several cores; with a
@@ -1049,7 +1051,7 @@ class Server(_Server):
     """
 
     def __init__(self, *, threads=None, max_threads=None, read_timeout=None, write_timeout=None,
-                 keep_alive_timeout=None, keep_alive_max=None, max_body=None, header_timeout=None,
+                 keep_alive_timeout=None, keep_alive_max=None, max_body=None, max_form_body=None, header_timeout=None,
                  body_timeout=None, compression=None, compression_level=1, max_connections=None, handler_timeout=60,
                  io_threads=None, inline_async=None, title="httpp", version="0.1.0", description=None, openapi_url="/openapi.json", docs_url="/docs",
                  security_schemes=None, security=None):
@@ -1101,6 +1103,7 @@ class Server(_Server):
                               (keep_alive_timeout, self.keep_alive_timeout),
                               (keep_alive_max, self.keep_alive_max),
                               (max_body, self.max_body),
+                              (max_form_body, self.max_form_body),
                               (header_timeout, self.header_timeout),
                               (body_timeout, self.body_timeout),
                               (max_connections, self.max_connections)):

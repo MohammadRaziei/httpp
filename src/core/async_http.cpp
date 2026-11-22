@@ -30,6 +30,10 @@
 namespace httpp::detail {
 namespace {
 
+// The status line and headers of a response, and the same for each 1xx before it (curl 100 KB, Go 1 MB, urllib3 64 KiB per line): the
+// size the server side allows for a request head too (async_server.cpp, max_header_total).
+constexpr std::size_t max_response_head = 64u * 1024;
+
 using asio::ip::tcp;
 
 // A new connection is opened only when no idle one is available, so the pool never holds more than the peak number of requests that were in
@@ -504,6 +508,7 @@ struct async_http::impl {
         llhttp_settings_t settings;
         response res;
         bool last_was_value = true;
+        std::size_t head_bytes = 0; // header bytes of the message being read (see max_response_head)
         bool finished = false;
         bool message_done = false;
         bool informational = false; // current message is a 1xx we skip
@@ -522,13 +527,13 @@ struct async_http::impl {
                 if (e->last_was_value) e->res.headers.emplace_back();
                 e->last_was_value = false;
                 e->res.headers.back().first.append(at, n);
-                return 0;
+                return e->head_too_big(n + 4);
             };
             settings.on_header_value = [](llhttp_t* p, const char* at, std::size_t n) -> int {
                 auto* e = static_cast<exchange*>(p->data);
                 e->last_was_value = true;
                 e->res.headers.back().second.append(at, n);
-                return 0;
+                return e->head_too_big(n);
             };
             settings.on_headers_complete = [](llhttp_t* p) -> int {
                 auto* e = static_cast<exchange*>(p->data);
@@ -573,6 +578,7 @@ struct async_http::impl {
                 if (e->informational) { // discard the 1xx head and keep waiting
                     e->informational = false;
                     e->res.headers.clear();
+                    e->head_bytes = 0;
                     e->last_was_value = true;
                     return 0;
                 }
@@ -584,6 +590,15 @@ struct async_http::impl {
         }
 
         void abort_now(error_kind k, const std::string& msg) { fail(k, msg); }
+
+        // Called with the size of each piece of a header: refuses a head over the limit (a server that sends headers for ever).
+        int head_too_big(std::size_t n) {
+            head_bytes += n;
+            if (head_bytes <= max_response_head) return 0;
+            res.status = 413;
+            fail(error_kind::too_large, "response head exceeds " + std::to_string(max_response_head) + " bytes");
+            return HPE_USER;
+        }
 
         // Ends the exchange (once) with an error. Never reuses the connection.
         void fail(error_kind k, const std::string& msg) {
@@ -681,6 +696,7 @@ struct async_http::impl {
             conn->close();
             llhttp_reset(&parser);
             res = response{};
+            head_bytes = 0;
             last_was_value = true;
             message_done = false;
             informational = false;

@@ -22,6 +22,7 @@
 #include "httpp/env.hpp"
 #include "httpp/file_browser.hpp"
 #include "httpp/logging.hpp"
+#include "httpp/middleware.hpp"
 #include "httpp/proxy.hpp"
 #include "httpp/server.hpp"
 #include "httpp/url.hpp"
@@ -86,8 +87,21 @@ const std::initializer_list<std::string> k_log_levels = {"trace", "debug", "info
 
 // What `server` and `browse` do once their server is built: set the log level, show the banner, bind (so the address is known), say where it is,
 // then serve until Ctrl+C or SIGTERM. All of it is calls into the library.
+// True for an address that only this computer can reach: "localhost", ::1 and 127.x.x.x.
+bool is_loopback_host(const std::string& host) {
+    return host == "localhost" || host == "::1" || host == "[::1]" || host.compare(0, 4, "127.") == 0;
+}
+
 int run_server(httpp::server& srv, const std::string& what, const std::string& host, int port, double grace, bool banner, const std::string& log_level) {
     httpp::set_log_level(log_level);  // the option values are checked by CLI11 against k_log_levels
+    // A server on the loopback address is meant for this computer only, yet any web page the user opens can reach it: with DNS rebinding the
+    // page's own name is made to point at 127.0.0.1 and its script then reads every answer as "same origin". The browser still sends that name as
+    // the Host header, so only the names of the loopback address itself are served (the port is not compared). On any other address the names
+    // are not known, so nothing is refused.
+    if (is_loopback_host(host)) {
+        std::string own = host == "::1" ? "[::1]" : host;
+        httpp::trusted_host({"localhost", "127.0.0.1", "[::1]", own}).www_redirect(false).install(srv);
+    }
     if (banner && log_level != "off") httpp::print_banner();  // a terminal only: a pipe, a log file and a CI run never see it
     if (!srv.bind(host, port)) return fail("cannot listen on " + host + ":" + std::to_string(port));
     std::cout << what << " at " << srv.url() << std::endl;
@@ -191,6 +205,11 @@ void stdout_binary() {
 }
 
 int cmd_download(const std::string& url, const std::string& output, bool quiet) {
+    // The constructors below throw for a URL they cannot take (a port that is not a number); parse_url does not, and says valid or not.
+    if (!httpp::url_is_http(httpp::parse_url(url))) {
+        std::cerr << "error: not a usable http(s) URL: " << url << std::endl;
+        return 1;
+    }
     if (!output.empty()) {
         // A real download to a file, with a terminal progress bar: all of it is httpp::download.
         httpp::download_result result = httpp::download(url, output).enable_progress(!quiet).run();
@@ -470,7 +489,9 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         }
     };
 
-    const bool malformed = url_has_unsafe_character(url);
+    // Not just an unsafe character: a text that httpp::request cannot take (a port that is not a number, a scheme other than http and https)
+    // makes its constructor throw, and nothing here would catch it (`httpp curl http://a:b:c/` aborted the process).
+    const bool malformed = url_has_unsafe_character(url) || !httpp::url_is_http(httpp::parse_url(url));
 
     int code = 0;
     std::string error_text;

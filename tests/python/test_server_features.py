@@ -673,6 +673,25 @@ def test_thread_pool_size_caps_how_many_sync_handlers_run_at_once():
     assert peak <= 2
 
 
+def test_a_form_has_a_smaller_limit_than_an_upload_and_at_most_1024_pairs():
+    app = Server(max_form_body=10_000)
+
+    @app.post("/up")
+    def up(request):
+        return str(len(request.body))
+
+    with running(app) as url:
+        small = Request(url + "/up").method("POST").data("a=1&b=2").run()
+        assert (small.status, small.body) == (200, "7")
+        form = Request(url + "/up").method("POST").data("a=" + "x" * 20_000).timeout(5).run()  # sent as a urlencoded form
+        assert form.status == 413 or form.failed
+        raw = Request(url + "/up").method("POST").content_type("application/octet-stream").data("a" * 20_000).timeout(5).run()
+        assert (raw.status, raw.body) == (200, "20000")
+        pairs = Request(url + "/up").method("POST").data("&".join(["x=1"] * 1025)).timeout(5).run()
+        assert pairs.status == 400  # 4 KB: under max_form_body, over the 1024 pairs
+        assert Request(url + "/up").method("POST").data("&".join(["x=1"] * 1024)).timeout(5).run().status == 200
+
+
 def test_max_body_rejects_larger_requests():
     app = Server(max_body=1000)
 

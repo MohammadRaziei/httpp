@@ -328,13 +328,18 @@ public:
     server keep_alive_timeout(int seconds) && { keep_alive_timeout(seconds); return std::move(*this); }
     HTTPP_API server& keep_alive_max(std::size_t requests) &; // requests per connection (default 1000, 0 = no limit)
     server keep_alive_max(std::size_t requests) && { keep_alive_max(requests); return std::move(*this); }
-    HTTPP_API server& max_body(std::size_t bytes) &;      // largest request body accepted; 0 = no limit
+    HTTPP_API server& max_body(std::size_t bytes) &;      // largest request body accepted (default 100 MiB); 0 = no limit
     server max_body(std::size_t bytes) && { max_body(bytes); return std::move(*this); }
+    // Largest application/x-www-form-urlencoded body, refused above it with a 413 (default 1 MiB, like nginx's client_body_buffer_size). A form is
+    // split into many small strings, so it has a lower limit than an upload; multipart/form-data and other types only have max_body. 0 = max_body only.
+    // A body or query string with more than 1024 pairs is refused with a 400 whatever this is set to.
+    HTTPP_API server& max_form_body(std::size_t bytes) &;
+    server max_form_body(std::size_t bytes) && { max_form_body(bytes); return std::move(*this); }
     HTTPP_API server& header_timeout(int seconds) &;      // whole request head must arrive within this (slowloris); default 10, 0 = no limit
     server header_timeout(int seconds) && { header_timeout(seconds); return std::move(*this); }
     HTTPP_API server& body_timeout(int seconds) &;        // whole request body must arrive within this after its head (slow drip); default 120, 0 = no limit
     server body_timeout(int seconds) && { body_timeout(seconds); return std::move(*this); }
-    HTTPP_API server& max_connections(std::size_t n) &;   // open connections allowed; one more gets a 503; default 0 = no limit
+    HTTPP_API server& max_connections(std::size_t n) &;   // open connections allowed; one more gets a 503; default 10000 (Tomcat's maxConnections is 8192), 0 = no limit
     server max_connections(std::size_t n) && { max_connections(n); return std::move(*this); }
     HTTPP_API server& async_timeout(int seconds) &;       // route_async: answer within this or 504; 0 = never
     server async_timeout(int seconds) && { async_timeout(seconds); return std::move(*this); }

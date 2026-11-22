@@ -179,6 +179,16 @@ UTEST(async_https, host_name_mismatch_is_a_tls_error) {
     ASSERT_TRUE(r.error == httpp::error_kind::tls);
 }
 
+UTEST(async_https, a_certificate_without_subject_alt_name_is_refused_even_when_its_cn_matches) {
+    // CN=127.0.0.1 and no subjectAltName, trusted as its own CA, reached as 127.0.0.1: mbedtls alone would take the CN.
+    tls_server srv(testcerts::no_san_cert, testcerts::no_san_key, [](const std::string&) { return ok_response("never"); });
+    async_http eng;
+    auto f = run(eng, https_job(srv.port(), write_pem(testcerts::no_san_cert, "nosan")));
+    ASSERT_TRUE(ready(f));
+    auto r = f.get();
+    ASSERT_TRUE(r.error == httpp::error_kind::tls);
+}
+
 UTEST(async_https, verify_false_accepts_anything) {
     tls_server srv(testcerts::other_cert, testcerts::other_key, [](const std::string&) { return ok_response("unverified"); });
     async_http eng;

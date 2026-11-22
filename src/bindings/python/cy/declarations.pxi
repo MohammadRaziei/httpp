@@ -98,6 +98,7 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cpp_server& keep_alive_timeout(int seconds) except +
         cpp_server& keep_alive_max(size_t requests) except +
         cpp_server& max_body(size_t nbytes) except +
+        cpp_server& max_form_body(size_t nbytes) except +
         cpp_server& header_timeout(int seconds) except +
         cpp_server& body_timeout(int seconds) except +
         cpp_server& compression(size_t min_size, int level) except +

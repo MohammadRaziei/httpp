@@ -260,6 +260,21 @@ response json_error(int status, const char* text) {
     return r;
 }
 
+// True when a browser says the request comes from another site: it sends Origin on every cross-site POST ("null" for a sandboxed frame or a
+// redirect chain), and the host part of a same-site Origin is the Host the browser connected to. A request without Origin (curl, a script, an
+// address typed in the bar) is not cross-site. Without this, any web page could make the visitor's browser POST /api/zip to a browser running
+// on their machine and make it spend their CPU and bandwidth (the answer cannot be read by that page, so this is not a leak, only a nuisance).
+bool cross_origin(const server_request& req) {
+    const std::string origin = req.header("Origin");
+    if (origin.empty()) return false;
+    const std::size_t scheme_end = origin.find("://");
+    if (scheme_end == std::string::npos) return true;
+    std::string a = origin.substr(scheme_end + 3), b = req.header("Host");
+    for (char& c : a) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (char& c : b) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return a != b;
+}
+
 } // namespace
 
 static const char* theme_name(file_browser::theme_mode m) {
@@ -385,6 +400,7 @@ server file_browser::mount(server s, const std::string& base) const {
             std::string dir_in;
             std::vector<std::string> names;
             if (req.method == "POST") {
+                if (cross_origin(req)) { res = json_error(403, "cross-site request refused"); return; }
                 form_data f;
                 try { f = req.form(); } catch (const std::invalid_argument&) { res = json_error(400, "bad request"); return; }
                 dir_in = f.field("path");

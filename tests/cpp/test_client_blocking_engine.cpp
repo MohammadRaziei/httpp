@@ -5,6 +5,7 @@
 #include "local_server.hpp"
 
 #include <atomic>
+#include <cstdlib>
 #include <chrono>
 #include <future>
 #include <string>
@@ -27,6 +28,17 @@ void add_routes(httpp::server& s) {
     s.get("/big", [](const httpp::server_request&, httpp::response& r) {
         r.status = 200;
         r.body = std::string(4096, 'z');
+    });
+    s.get("/endless", [](const httpp::server_request&, httpp::response& r) { // never finishes: 1 MiB pieces for as long as the client reads
+        r.status = 200;
+        static const std::string piece(1024 * 1024, 'e');
+        r.stream = [](std::size_t, std::string& chunk) { chunk = piece; return true; };
+    });
+    s.get("/heads/{kb}", [](const httpp::server_request& q, httpp::response& r) { // that many KiB of headers, in lines of 1000 bytes
+        r.status = 200;
+        r.body = "ok";
+        const int kb = std::atoi(q.path_param("kb").c_str());
+        for (int i = 0; i < kb; ++i) r.headers.emplace_back("X-Pad-" + std::to_string(i), std::string(1000, 'h'));
     });
 }
 
@@ -120,4 +132,40 @@ UTEST(client_blocking, async_client_set_header_replaces_a_same_name_default) {
 UTEST(client_blocking, fetch_does_not_leave_the_client_in_a_bad_state) {
     testutil::local_server srv(add_routes);
     for (int i = 0; i < 3; ++i) ASSERT_EQ(200, httpp::client::fetch(srv.url("/echo?n=1")).status);
+}
+
+UTEST(client_blocking, a_body_collected_by_run_stops_at_the_default_limit_of_256_mib) {
+    testutil::local_server srv(add_routes);
+    const auto r = httpp::request(srv.url("/endless")).run();
+    ASSERT_EQ(413, r.status);
+    ASSERT_TRUE(r.error == httpp::error_kind::too_large);
+    ASSERT_TRUE(r.body.size() <= 256u * 1024 * 1024);
+}
+
+UTEST(client_blocking, a_streamed_body_has_no_default_limit) {
+    testutil::local_server srv(add_routes);
+    std::size_t seen = 0;
+    const std::size_t stop_at = 300u * 1024 * 1024; // more than the collecting limit
+    const auto r = httpp::request(srv.url("/endless")).on_body([&](std::string_view piece) {
+        seen += piece.size();
+        return seen < stop_at;
+    }).run();
+    ASSERT_TRUE(seen >= stop_at);
+    ASSERT_TRUE(r.error == httpp::error_kind::canceled); // stopped by us, not by a limit
+}
+
+UTEST(client_blocking, max_response_size_zero_removes_the_default_limit_and_a_large_one_raises_it) {
+    testutil::local_server srv(add_routes);
+    ASSERT_EQ(200, httpp::request(srv.url("/big")).max_response_size(0).run().status);
+    ASSERT_EQ(200, httpp::request(srv.url("/big")).max_response_size(1024 * 1024 * 1024).run().status);
+}
+
+UTEST(client_blocking, a_response_head_over_64_kib_is_refused_and_a_big_one_below_it_is_not) {
+    testutil::local_server srv(add_routes);
+    const auto ok = httpp::request(srv.url("/heads/40")).run();
+    ASSERT_EQ(200, ok.status);
+    ASSERT_STREQ("ok", ok.body.c_str());
+    const auto too_big = httpp::request(srv.url("/heads/70")).run();
+    ASSERT_EQ(413, too_big.status);
+    ASSERT_TRUE(too_big.error == httpp::error_kind::too_large);
 }

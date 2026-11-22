@@ -151,7 +151,7 @@ struct async_server::impl {
     std::atomic<int> read_to, write_to, ka_to;
     std::atomic<int> head_to{10};          // seconds for a whole request head to arrive (slowloris), 0 = no limit
     std::atomic<int> body_to{120};         // seconds for a whole request body to arrive after its head, 0 = no limit
-    std::atomic<std::size_t> ka_max, max_body;
+    std::atomic<std::size_t> ka_max, max_body, max_form_body;
     std::atomic<std::size_t> max_conn{0};  // 0 = no limit
     request_fn on_request;
     blocking_fn run_blocking;
@@ -181,7 +181,7 @@ struct async_server::impl {
 
     impl(options o, request_fn r, blocking_fn b)
         : read_to(o.read_timeout_sec), write_to(o.write_timeout_sec), ka_to(o.keep_alive_timeout_sec),
-          ka_max(o.keep_alive_max == 0 ? no_limit : o.keep_alive_max), max_body(o.max_body),
+          ka_max(o.keep_alive_max == 0 ? no_limit : o.keep_alive_max), max_body(o.max_body), max_form_body(o.max_form_body),
           on_request(std::move(r)), run_blocking(std::move(b)) {
         poster_->io = &io;
     }
@@ -223,6 +223,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
     bool got_bytes = false;   // part of a request has arrived (read timeout instead of idle timeout)
     std::chrono::steady_clock::time_point head_start; // when the first byte of this request arrived
     std::chrono::steady_clock::time_point body_start; // when the head of this request was complete
+    std::size_t body_limit = 0; // the body size this request may have (0 = none), set when its head is complete
     bool req_keep = false;    // the client allows keep-alive
     bool req_head = false;
     int req_minor = 1;
@@ -294,7 +295,20 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
             c->req_minor = p->http_minor;
             c->req_head = std::string_view(c->req.method) == "HEAD";
             c->req_keep = llhttp_should_keep_alive(p) != 0;
-            const std::size_t limit = c->srv.max_body.load();
+            // One pass over the headers: the body type (a urlencoded form has the smaller limit) and the Host header, which HTTP/1.1
+            // requires exactly once (RFC 9112 section 3.2): none, or two that may differ, is how a proxy and this server end up with
+            // different ideas of the target host, so it is refused.
+            std::size_t limit = c->srv.max_body.load();
+            const std::size_t form_limit = c->srv.max_form_body.load();
+            std::size_t hosts = 0;
+            bool form = false;
+            for (const auto& h : c->req.headers) {
+                if (ieq(h.first, "Host")) ++hosts;
+                else if (ieq(h.first, "Content-Type") && h.second.size() >= 33 && ieq_bytes(h.second.data(), "application/x-www-form-urlencoded", 33)) form = true;
+            }
+            if (p->http_minor >= 1 && hosts != 1) { c->reject = 400; return HPE_USER; }
+            if (form && form_limit && (!limit || form_limit < limit)) limit = form_limit;
+            c->body_limit = limit;
             if (limit && p->content_length > limit && !(p->flags & F_CHUNKED)) { c->reject = 413; return HPE_USER; }
             if (p->http_minor >= 1) {
                 for (const auto& h : c->req.headers) {
@@ -316,7 +330,7 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         };
         settings.on_body = [](llhttp_t* p, const char* at, std::size_t n) -> int {
             auto* c = static_cast<conn*>(p->data);
-            const std::size_t limit = c->srv.max_body.load();
+            const std::size_t limit = c->body_limit;
             if (limit && c->req.body.size() + n > limit) { c->reject = 413; return HPE_USER; }
             c->req.body.append(at, n);
             return 0;
@@ -1104,6 +1118,7 @@ void async_server::write_timeout(int seconds) { impl_->write_to = seconds; }
 void async_server::keep_alive_timeout(int seconds) { impl_->ka_to = seconds; }
 void async_server::keep_alive_max(std::size_t requests) { impl_->ka_max = requests == 0 ? no_limit : requests; }
 void async_server::max_body(std::size_t bytes) { impl_->max_body = bytes; }
+void async_server::max_form_body(std::size_t bytes) { impl_->max_form_body = bytes; }
 void async_server::header_timeout(int seconds) { impl_->head_to = seconds; }
 void async_server::body_timeout(int seconds) { impl_->body_to = seconds; }
 void async_server::max_connections(std::size_t n) { impl_->max_conn = n; }

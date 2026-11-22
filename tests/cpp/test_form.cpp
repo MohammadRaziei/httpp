@@ -125,3 +125,53 @@ UTEST(httpp_form, a_handler_reads_an_upload_from_a_real_request) {
     ASSERT_STREQ("me|big.txt:100000", r.body.c_str());
     ASSERT_EQ(400, c.post("/up", "garbage", "multipart/form-data; boundary=B").status);
 }
+
+namespace {
+std::string many_pairs(std::size_t n, const std::string& item = "x=1") {
+    std::string s;
+    for (std::size_t i = 0; i < n; ++i) { if (i) s += '&'; s += item; }
+    return s;
+}
+}  // namespace
+
+UTEST(httpp_form, a_urlencoded_body_may_hold_1024_pairs_and_not_one_more) {
+    const std::string type = "application/x-www-form-urlencoded";
+    ASSERT_EQ(1024u, multipart_request(many_pairs(1024), type).form().fields.size());
+    ASSERT_TRUE(throws_invalid([&] { multipart_request(many_pairs(1025), type).form(); }));
+    ASSERT_EQ(1u, multipart_request(many_pairs(1) + std::string(5000, '&'), type).form().fields.size()); // empty items are not pairs
+    // the hostile shape of the report: millions of tiny pairs
+    ASSERT_TRUE(throws_invalid([&] { multipart_request(many_pairs(300000), type).form(); }));
+}
+
+UTEST(httpp_form, a_request_with_too_many_pairs_in_its_query_or_form_is_a_400) {
+    local_server srv([](httpp::server& s) {
+        s.post("/n", [](const httpp::server_request& req, httpp::response& res) { res.body = std::to_string(req.query.size()); });
+    });
+    httpp::client c(srv.url());
+    ASSERT_STREQ("1024", c.post("/n", many_pairs(1024)).body.c_str());     // the client labels a text body as a form
+    ASSERT_EQ(400, c.post("/n", many_pairs(1025)).status);
+    ASSERT_EQ(200, c.post("/n?" + many_pairs(1024, "q=1"), "").status);
+    ASSERT_EQ(400, c.post("/n?" + many_pairs(1025, "q=1"), "").status);   // the query string is limited the same way (8 KiB target)
+    // a form of a few megabytes is refused for its size before it is parsed (the default max_form_body is 1 MiB)
+    ASSERT_EQ(413, c.post("/n", many_pairs(300000)).status);
+    ASSERT_EQ(200, c.post("/n", "a=1").status);                            // and the server is fine afterwards
+}
+
+UTEST(httpp_form, a_control_or_direction_character_in_a_name_is_refused) {
+    auto with_filename = [&](const std::string& filename) {
+        const std::string body = "--b" + crlf + "Content-Disposition: form-data; name=\"f\"; filename=\"" + filename + "\"" + crlf + crlf + "x" + crlf + "--b--" + crlf;
+        return multipart_request(body, "multipart/form-data; boundary=b").form();
+    };
+    ASSERT_STREQ("plain name.txt", with_filename("plain name.txt").files[0].filename.c_str());
+    ASSERT_STREQ("caf\xC3\xA9.txt", with_filename("caf\xC3\xA9.txt").files[0].filename.c_str()); // ordinary UTF-8 is fine, also E2 xx xx ones
+    ASSERT_STREQ("\xE2\x82\xAC.txt", with_filename("\xE2\x82\xAC.txt").files[0].filename.c_str()); // the euro sign: E2 82 AC
+    ASSERT_TRUE(throws_invalid([&] { with_filename(std::string("a\0b.txt", 7)); }));      // NUL
+    ASSERT_TRUE(throws_invalid([&] { with_filename("a\x01" "b.txt"); }));                 // a control character
+    ASSERT_TRUE(throws_invalid([&] { with_filename("a\x7f" "b.txt"); }));                 // DEL
+    ASSERT_TRUE(throws_invalid([&] { with_filename("evil\xE2\x80\xAEgpj.exe"); }));       // U+202E, right-to-left override
+    ASSERT_TRUE(throws_invalid([&] { with_filename("a\xE2\x80\x8E" "b"); }));             // U+200E
+    ASSERT_TRUE(throws_invalid([&] { with_filename("a\xE2\x81\xA6" "b"); }));             // U+2066
+    // the same for the field name
+    const std::string body = "--b" + crlf + "Content-Disposition: form-data; name=\"a\x01\"" + crlf + crlf + "x" + crlf + "--b--" + crlf;
+    ASSERT_TRUE(throws_invalid([&] { multipart_request(body, "multipart/form-data; boundary=b").form(); }));
+}

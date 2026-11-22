@@ -52,6 +52,10 @@ inline bool ieq(const std::string& a, const char* b) {
 using detail::parse_query;
 using detail::percent_decode;
 
+// Open connections one server accepts unless max_connections says otherwise: Tomcat's maxConnections is 8192, nginx's worker_connections
+// 512 to 1024 per worker. Each connection costs about 20 KiB idle, so this is about 200 MB at the limit.
+constexpr std::size_t default_max_connections = 10000;
+
 std::vector<std::string> split_path(const std::string& path) {
     std::vector<std::string> parts;
     std::size_t pos = 1; // skip the leading '/'
@@ -490,7 +494,7 @@ struct server::impl {
     std::vector<std::unique_ptr<detail::async_server>> engines;
     detail::async_server* engine = nullptr; // engines[0]
     std::vector<std::function<void(detail::async_server&)>> applied;
-    std::size_t max_conn_total = 0; // 0 = no limit; shared out over the engines
+    std::size_t max_conn_total = default_max_connections; // 0 = no limit; shared out over the engines
     std::atomic<detail::worker_pool*>& pool = cfg->pool; // alive only while listening; lives in the config so a late answer needs no `this`
     std::size_t io_route_count = 0;                  // routes added with route_io (set before listening)
 
@@ -561,10 +565,12 @@ struct server::impl {
         raw_path = target.substr(0, q);
         req.path = percent_decode(raw_path, false);
         if (req.path.find('\0') != std::string::npos) return false;
-        if (q != std::string::npos) parse_query(target.substr(q + 1), req.query);
+        // Too many pairs is a refusal (400), not a truncation: a handler must not see half of a query (and the pairs are what costs memory).
+        if (q != std::string::npos && !parse_query(target.substr(q + 1), req.query)) { hr.target = std::move(target); return false; }
         for (const auto& [k, v] : req.headers) { // like cpp-httplib: form fields count as parameters
-            if (ieq(k, "Content-Type") && v.compare(0, 33, "application/x-www-form-urlencoded") == 0)
-                parse_query(req.body, req.query);
+            if (ieq(k, "Content-Type") && v.compare(0, 33, "application/x-www-form-urlencoded") == 0) {
+                if (!parse_query(req.body, req.query)) { hr.target = std::move(target); return false; }
+            }
         }
         return true;
     }
@@ -1410,6 +1416,7 @@ server& server::write_timeout(int seconds) & { impl_->configure([seconds](detail
 server& server::keep_alive_timeout(int seconds) & { impl_->configure([seconds](detail::async_server& e) { e.keep_alive_timeout(seconds); }); return *this; }
 server& server::keep_alive_max(std::size_t requests) & { impl_->configure([requests](detail::async_server& e) { e.keep_alive_max(requests); }); return *this; }
 server& server::max_body(std::size_t bytes) & { impl_->configure([bytes](detail::async_server& e) { e.max_body(bytes); }); return *this; }
+server& server::max_form_body(std::size_t bytes) & { impl_->configure([bytes](detail::async_server& e) { e.max_form_body(bytes); }); return *this; }
 server& server::tls(const path& cert_file, const path& key_file, const std::string& key_password) & {
     std::string error;
     auto ctx = detail::make_tls_server_context(cert_file.str(), key_file.str(), key_password, error);

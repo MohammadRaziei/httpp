@@ -457,6 +457,29 @@ UTEST(httpp_file_browser, zip_is_off_by_default_and_the_page_does_not_offer_it) 
     EXPECT_TRUE(contains(page.header("Content-Security-Policy"), "form-action 'none'"));
 }
 
+UTEST(httpp_file_browser, a_cross_site_post_to_the_zip_route_is_refused) {
+    tree t;
+    local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).zip(true).mount(s, "/files"); });
+    const std::string host = "127.0.0.1:" + std::to_string(srv.port);
+    auto post_from = [&](const std::string& origin) {
+        httpp::client c("127.0.0.1", srv.port);
+        if (!origin.empty()) c.header("Origin", origin);
+        return c.post("/files/api/zip", "path=%2Fsub").status;
+    };
+    const int none = post_from(""), same = post_from("http://" + host), same_upper = post_from("http://127.0.0.1:" + std::to_string(srv.port));
+    const int other = post_from("https://evil.test"), other_port = post_from("http://127.0.0.1:1"), null_origin = post_from("null");
+    const int rebound = post_from("http://evil.test:" + std::to_string(srv.port));
+    EXPECT_EQ(200, none);      // curl and scripts send no Origin
+    EXPECT_EQ(200, same);      // the page's own form
+    EXPECT_EQ(200, same_upper);
+    EXPECT_EQ(403, other);
+    EXPECT_EQ(403, other_port);
+    EXPECT_EQ(403, null_origin);
+    EXPECT_EQ(403, rebound);
+    // reading with GET is not changed by this (a link is not a form post, and the answer cannot be read cross-site)
+    EXPECT_EQ(200, httpp::client::fetch(srv.url("/files/api/zip?path=/sub")).status);
+}
+
 UTEST(httpp_file_browser, zip_of_a_folder_is_streamed_with_its_files_and_a_download_name) {
     tree t;
     local_server srv([&](httpp::server& s) { httpp::file_browser(t.root.string()).zip(true).mount(s, "/files"); });

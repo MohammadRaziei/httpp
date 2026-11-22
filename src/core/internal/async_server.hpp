@@ -90,6 +90,7 @@ public:
         int keep_alive_timeout_sec = 5;  // idle connection waiting for its next request
         std::size_t keep_alive_max = 1000; // requests one connection may serve (0 = no limit)
         std::size_t max_body = 100u * 1024 * 1024; // 0 = no limit
+        std::size_t max_form_body = 1u * 1024 * 1024; // a body of type application/x-www-form-urlencoded; 0 = only max_body applies
     };
 
     // `answer` may be called from any thread, once; later calls and calls after the connection or
@@ -132,6 +133,9 @@ public:
     void keep_alive_timeout(int seconds);
     void keep_alive_max(std::size_t requests);
     void max_body(std::size_t bytes);
+    // Largest application/x-www-form-urlencoded body (413 above it); a form is parsed into many small strings, so it gets a smaller limit
+    // than a file upload. 0 = no extra limit (max_body only).
+    void max_form_body(std::size_t bytes);
     // Seconds a whole request head (request line + headers) may take from its first byte; 0 = no limit (default 10).
     void header_timeout(int seconds);
     void body_timeout(int seconds);

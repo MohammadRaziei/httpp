@@ -218,6 +218,11 @@ cdef class Server:
         self._srv.max_body(nbytes)
         return self
 
+    def max_form_body(self, size_t nbytes):
+        """Largest application/x-www-form-urlencoded body accepted (413 above it; default 1 MiB); 0 = only max_body applies."""
+        self._srv.max_form_body(nbytes)
+        return self
+
     def header_timeout(self, int seconds):
         """Seconds the whole request head may take to arrive (slowloris guard); 0 = no limit."""
         self._srv.header_timeout(seconds)

@@ -177,6 +177,69 @@ def test_server_serves_a_directory(httpp_exe, tmp_path, stop_process):
 
 
 @pytest.mark.parametrize("command", ["server", "browse"])
+def test_a_loopback_server_only_answers_the_names_of_the_loopback_address(httpp_exe, tmp_path, stop_process, command):
+    # DNS rebinding: a web page whose name points at 127.0.0.1 still sends its own name as Host.
+    (tmp_path / "hello.txt").write_text("hi there")
+    port = free_port()
+    page = "/hello.txt" if command == "server" else "/"
+    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    def status(host):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            conn.putrequest("GET", page, skip_host=True)
+            conn.putheader("Host", host)
+            conn.endheaders()
+            return conn.getresponse().status
+        finally:
+            conn.close()
+
+    try:
+        assert wait_for(f"http://127.0.0.1:{port}{page}", proc).status == 200
+        for host in ("localhost", f"localhost:{port}", "127.0.0.1", f"127.0.0.1:{port}", f"[::1]:{port}", "LOCALHOST"):
+            assert status(host) == 200, host
+        for host in ("evil.test", f"evil.test:{port}", "127.0.0.1.evil.test", "localhost.evil.test", "xlocalhost"):
+            assert status(host) == 400, host
+    finally:
+        stop_process(proc)
+
+
+def test_the_browser_refuses_a_cross_site_zip_post(httpp_exe, tmp_path, stop_process):
+    (tmp_path / "a.txt").write_text("a")
+    port = free_port()
+    proc = subprocess.Popen([*httpp_exe, "browse", str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    def post(origin):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
+            if origin:
+                headers["Origin"] = origin
+            conn.request("POST", "/api/zip", body="path=%2F", headers=headers)
+            return conn.getresponse().status
+        finally:
+            conn.close()
+
+    try:
+        wait_for(f"http://127.0.0.1:{port}/", proc)
+        assert post("https://evil.test") == 403
+        assert post("null") == 403
+        assert post(f"http://127.0.0.1:{port}") != 403
+        assert post(None) != 403
+    finally:
+        stop_process(proc)
+
+
+@pytest.mark.parametrize("url", ["http://a:b:c/", "http://host:99999999999/", "ftp://example.com/x", "http://[::1/"])
+def test_curl_and_download_refuse_a_url_they_cannot_take(httpp_exe, tmp_path, url):
+    # the constructors threw std::invalid_argument and nothing caught it: the process aborted (exit 134)
+    for args in (("curl", url), ("download", url, "-o", str(tmp_path / "out"))):
+        r = run(httpp_exe, *args)
+        assert 0 < r.returncode < 128, (args, r.returncode, r.stderr)
+        assert "terminate called" not in r.stderr, r.stderr
+
+
+@pytest.mark.parametrize("command", ["server", "browse"])
 def test_the_native_commands_log_the_address_and_each_request(httpp_exe, tmp_path, stop_process, command):
     port = free_port()
     proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

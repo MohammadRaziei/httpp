@@ -443,11 +443,14 @@ public:
     request cookie(std::string name, std::string value) && { cookie(std::move(name), std::move(value)); return std::move(*this); }
 
     // Upper bound, in bytes, on the response body this request will
-    // buffer into response::body. 0 (the default) means no limit, which
-    // matches curl/wget: run() hands you the whole body as a string, so
-    // httpp does not second-guess how big that is. Set a non-zero value
-    // to guard against a hostile or runaway server; exceeding it yields
-    // response::status == 413 (Payload Too Large) with error too_large.
+    // buffer into response::body (after decoding a gzip or deflate body).
+    // The default is 256 MiB: run() holds the whole body in memory, about
+    // three times over while it is read and decoded, so a hostile or
+    // runaway server must not be able to take the machine. 0 means no
+    // limit. Exceeding it yields response::status == 413 (Payload Too
+    // Large) with error too_large. A response whose head (status line and
+    // headers) is over 64 KiB ends the same way. Transfers that stream
+    // (on_body, save_to, download) have no body limit.
     HTTPP_API request& max_response_size(std::size_t bytes) &;
     request max_response_size(std::size_t bytes) && { max_response_size(bytes); return std::move(*this); }
 

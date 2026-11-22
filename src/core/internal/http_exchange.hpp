@@ -69,6 +69,10 @@ void set_header(header_list& headers, std::string name, std::string value); // r
 struct request_spec {
     static constexpr int redirect_limit = 20;
     static constexpr long default_timeout = 300; // 0 would mean "wait forever"
+    // What run() collects into response::body unless max_response_size says otherwise (0 = no limit). A body held in memory costs about
+    // three times its size while it is read and decoded, so a server that never stops sending (or a gzip bomb) must not be able to take
+    // the whole machine; a transfer that streams (on_body, save_to, download) never meets this limit.
+    static constexpr std::size_t default_max_response_size = 256u * 1024 * 1024;
 
     std::string method; // upper case
     std::string scheme, host;
@@ -90,7 +94,7 @@ struct request_spec {
     bool verify = true;
     std::string ca_file;
     proxy_setting proxy;
-    std::size_t max_response_size = 0;
+    std::size_t max_response_size = request_spec::default_max_response_size;
     bool keep_alive = true; // keep the connection in the engine's pool for the next request
     // Stream the final response body to this sink (it runs on download_async_http()). Redirect and
     // error-status handling stays in the sink's on_head; a redirect that is followed is never offered to it.
@@ -123,7 +127,7 @@ struct session_settings {
     bool verify = true;
     std::string ca_file;
     proxy_setting proxy;
-    std::size_t max_response_size = 0;
+    std::size_t max_response_size = request_spec::default_max_response_size;
     bool keep_alive = true;
     bool has_basic = false;
     std::string user, password, bearer;
