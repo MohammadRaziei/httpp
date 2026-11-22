@@ -78,12 +78,19 @@ file_lock::file_lock(const path& target, std::chrono::milliseconds stale_after) 
     std::string last_seen;
     auto last_change = clock::now();
     bool first = true;
+    int missing = 0;
     for (;;) {
         if (st_->dir.mkdir()) {
             st_->owned = true;
             break;
         }
-        if (!st_->dir.is_dir()) break;  // cannot create it (read-only directory?): go on without a lock
+        if (!st_->dir.is_dir()) {
+            // mkdir failed and there is no directory: either it cannot be made (a read-only folder: it fails every time), or its owner
+            // let go between the two calls. Take it again before going on without a lock: skipping it here would let two writers in.
+            if (++missing > 3) break;
+            continue;
+        }
+        missing = 0;
         st_->waited = true;
         const std::string seen = read_head(st_->dir / "alive", 64);
         const auto now = clock::now();
