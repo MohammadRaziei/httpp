@@ -36,18 +36,16 @@ endpoint parse_base(const url& u, const char* who) {
 
 // --- settings_ref: each setting and its rule, once, for client, async_client and request (ADR-0093) ---
 
-void detail::settings_ref::timeout(long seconds) const { g_->update([&](session_settings& s) { s.set_timeout(seconds); }); }
-long detail::settings_ref::timeout() const { return g_->read([](const session_settings& s) { return s.timeout; }); }
-void detail::settings_ref::connect_timeout(long seconds) const { g_->update([&](session_settings& s) { s.set_connect_timeout(seconds); }); }
-long detail::settings_ref::connect_timeout() const { return g_->read([](const session_settings& s) { return s.connect_timeout; }); }
-void detail::settings_ref::max_time(long seconds) const { g_->update([&](session_settings& s) { s.set_max_time(seconds); }); }
-long detail::settings_ref::max_time() const { return g_->read([](const session_settings& s) { return s.max_time; }); }
+void detail::settings_ref::timeout(double seconds) const { g_->update([&](session_settings& s) { s.set_timeout(seconds); }); }
+double detail::settings_ref::timeout() const { return g_->read([](const session_settings& s) { return s.timeout; }); }
+void detail::settings_ref::connect_timeout(double seconds) const { g_->update([&](session_settings& s) { s.set_connect_timeout(seconds); }); }
+double detail::settings_ref::connect_timeout() const { return g_->read([](const session_settings& s) { return s.connect_timeout; }); }
+void detail::settings_ref::max_time(double seconds) const { g_->update([&](session_settings& s) { s.set_max_time(seconds); }); }
+double detail::settings_ref::max_time() const { return g_->read([](const session_settings& s) { return s.max_time; }); }
 void detail::settings_ref::retry(int times) const { g_->update([&](session_settings& s) { s.set_retry(times); }); }
 int detail::settings_ref::retry() const { return g_->read([](const session_settings& s) { return s.retries; }); }
-void detail::settings_ref::retry_delay(long seconds) const { g_->update([&](session_settings& s) { s.set_retry_delay(seconds); }); }
-long detail::settings_ref::retry_delay() const { return g_->read([](const session_settings& s) { return s.retry_delay_ms / 1000; }); }
-void detail::settings_ref::retry_delay_ms(long ms) const { g_->update([&](session_settings& s) { s.set_retry_delay_ms(ms); }); }
-long detail::settings_ref::retry_delay_ms() const { return g_->read([](const session_settings& s) { return s.retry_delay_ms; }); }
+void detail::settings_ref::retry_delay(double seconds) const { g_->update([&](session_settings& s) { s.set_retry_delay(seconds); }); }
+double detail::settings_ref::retry_delay() const { return g_->read([](const session_settings& s) { return s.retry_delay; }); }
 void detail::settings_ref::retry_connrefused(bool enable) const { g_->update([&](session_settings& s) { s.retry_connrefused = enable; }); }
 bool detail::settings_ref::retry_connrefused() const { return g_->read([](const session_settings& s) { return s.retry_connrefused; }); }
 void detail::settings_ref::max_redirects(int count) const { g_->update([&](session_settings& s) { s.set_max_redirects(count); }); }

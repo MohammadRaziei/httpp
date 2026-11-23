@@ -20,13 +20,12 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         response send(string method, string path, vector[pair[string, string]] headers,
                       string body, string content_type) except + nogil
         cpp_client& header(string name, string value) except +
-        cpp_client& timeout(long seconds) except +
+        cpp_client& timeout(double seconds) except +
         cpp_client& max_redirects(int count) except +  # std::invalid_argument -> ValueError
-        cpp_client& connect_timeout(long seconds) except +
-        cpp_client& max_time(long seconds) except +
+        cpp_client& connect_timeout(double seconds) except +
+        cpp_client& max_time(double seconds) except +
         cpp_client& retry(int times) except +
-        cpp_client& retry_delay(long seconds) except +
-        cpp_client& retry_delay_ms(long ms) except +
+        cpp_client& retry_delay(double seconds) except +
         cpp_client& retry_connrefused(cbool enable) except +
         cpp_client& auto_compression(cbool enable) except +
         cpp_client& basic_auth(string user, string password) except +
@@ -316,13 +315,12 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         cpp_download& force(cbool enable) except +
         cpp_download& sha256(string hex) except +
         cpp_download& sha256_url(string checksum_url) except +
-        cpp_download& timeout(long seconds) except +
-        long timeout() except +
-        cpp_download& connect_timeout(long seconds) except +  # std::invalid_argument -> ValueError
-        cpp_download& max_time(long seconds) except +  # std::invalid_argument -> ValueError
+        cpp_download& timeout(double seconds) except +
+        double timeout() except +
+        cpp_download& connect_timeout(double seconds) except +  # std::invalid_argument -> ValueError
+        cpp_download& max_time(double seconds) except +  # std::invalid_argument -> ValueError
         cpp_download& retry(int times) except +
-        cpp_download& retry_delay(long seconds) except +
-        cpp_download& retry_delay_ms(long ms) except +
+        cpp_download& retry_delay(double seconds) except +
         cpp_download& retry_connrefused(cbool enable) except +
         cpp_download& basic_auth(string user, string password) except +
         cpp_download& bearer(string token) except +
@@ -389,14 +387,13 @@ cdef extern from "httpp/client.hpp" namespace "httpp::client":
         cpp_curl_request& basic_auth(string user, string password) except +
         cpp_curl_request& bearer(string token) except +
         cpp_curl_request& cookie(string name, string value) except +
-        cpp_curl_request& timeout(long seconds) except +
+        cpp_curl_request& timeout(double seconds) except +
         cpp_curl_request& max_redirects(int count) except +  # std::invalid_argument -> ValueError
         cpp_curl_request& auto_compression(cbool enable) except +
-        cpp_curl_request& connect_timeout(long seconds) except +  # std::invalid_argument -> ValueError
-        cpp_curl_request& max_time(long seconds) except +  # std::invalid_argument -> ValueError
+        cpp_curl_request& connect_timeout(double seconds) except +  # std::invalid_argument -> ValueError
+        cpp_curl_request& max_time(double seconds) except +  # std::invalid_argument -> ValueError
         cpp_curl_request& retry(int times) except +
-        cpp_curl_request& retry_delay(long seconds) except +
-        cpp_curl_request& retry_delay_ms(long ms) except +
+        cpp_curl_request& retry_delay(double seconds) except +
         cpp_curl_request& retry_connrefused(cbool enable) except +
         cpp_curl_request& save_to(string file) except +
         cpp_curl_request& save_in(string folder) except +

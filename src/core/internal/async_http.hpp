@@ -23,6 +23,18 @@
 
 namespace httpp::detail {
 
+// The longest wait any setting can ask for (about 31 years): it keeps `now() + wait` inside the range of steady_clock.
+inline constexpr double longest_wait_seconds = 1e9;
+
+// A wait given in seconds (fractions allowed) as the milliseconds a timer takes. 0, a negative number or not-a-number is 0;
+// anything above 0 is at least 1 ms, so a tiny wait never turns into "no wait" (0 means "none" or "the default" in the settings).
+inline std::chrono::milliseconds seconds_to_ms(double seconds) {
+    if (!(seconds > 0)) return std::chrono::milliseconds(0);
+    if (seconds > longest_wait_seconds) seconds = longest_wait_seconds;
+    const long long ms = static_cast<long long>(seconds * 1000.0 + 0.5);
+    return std::chrono::milliseconds(ms < 1 ? 1 : ms);
+}
+
 // How the proxy of a job is spoken to (ADR-0067 and 0068).
 enum class proxy_kind {
     http,    // plain http goes in absolute form, https through CONNECT; credentials are a Proxy-Authorization header
@@ -57,9 +69,9 @@ struct async_job {
     std::string target = "/"; // path and query, already percent-encoded
     std::vector<std::pair<std::string, std::string>> headers;
     std::string body;
-    long timeout_sec = 0;               // per step (resolve, connect, write, each read); 0 = none
+    double timeout_sec = 0;             // seconds per step (resolve, connect, write, each read); 0 = none
     std::chrono::steady_clock::time_point deadline{}; // the whole request must end by then (error_kind::timeout); epoch = no limit
-    long connect_timeout_sec = 0;       // resolve, connect, proxy and TLS handshake instead of timeout_sec; 0 = timeout_sec
+    double connect_timeout_sec = 0;     // resolve, connect, proxy and TLS handshake instead of timeout_sec; 0 = timeout_sec
     std::size_t max_response_size = 0;  // body bytes; 0 = no limit
     bool auto_decode = true;            // undo gzip / deflate in response::body (a sink always gets the bytes as sent)
     // Keep the connection for the next request to the same place, and reuse an idle one if there is one.

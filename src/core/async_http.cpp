@@ -136,7 +136,7 @@ struct async_http::impl {
         bool tls_ready = false;
         bool reused = false;
         bool closed = false;
-        long timeout = 0;
+        double timeout = 0; // seconds
         std::string rbuf = std::string(16384, '\0');
         std::string wire;               // ciphertext (or plain bytes) being written
         std::string head;               // proxy CONNECT response head
@@ -144,7 +144,7 @@ struct async_http::impl {
         connection(impl& o, key_t k) : owner(o), key(std::move(k)), resolver(o.io), sock(o.io), timer(o.io), idle_timer(o.io) {}
 
         // ---- operation plumbing ----
-        void begin(long timeout_sec, std::function<void(io_result)> cb) {
+        void begin(double timeout_sec, std::function<void(io_result)> cb) {
             pending = std::move(cb);
             timeout = timeout_sec;
             arm();
@@ -152,7 +152,7 @@ struct async_http::impl {
         void arm() {
             const std::uint64_t gen = ++armed;
             if (timeout <= 0) return;
-            timer.expires_after(std::chrono::seconds(timeout));
+            timer.expires_after(seconds_to_ms(timeout));
             timer.async_wait([self = shared_from_this(), gen](std::error_code ec) {
                 if (ec || gen != self->armed || self->closed) return;
                 self->fail(error_kind::timeout, "timed out");
@@ -409,7 +409,7 @@ struct async_http::impl {
         }
 
         // ---- write ----
-        void write(std::string data, long timeout_sec, std::function<void(io_result)> cb) {
+        void write(std::string data, double timeout_sec, std::function<void(io_result)> cb) {
             begin(timeout_sec, std::move(cb));
             if (!tls) {
                 wire = std::move(data);
@@ -424,7 +424,7 @@ struct async_http::impl {
         }
 
         // ---- read: the next chunk of plaintext, or eof ----
-        void read(long timeout_sec, std::function<void(io_result)> cb) {
+        void read(double timeout_sec, std::function<void(io_result)> cb) {
             begin(timeout_sec, std::move(cb));
             if (!tls) {
                 return read_wire([self = shared_from_this()](const std::string& bytes) {

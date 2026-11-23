@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <future>
 #include <stdexcept>
@@ -124,13 +125,21 @@ void session_settings::set_bearer(std::string token) {
     bearer = std::move(token); // basic wins if both are set
 }
 
-void session_settings::set_connect_timeout(long seconds) {
-    if (seconds < 0) throw std::invalid_argument("connect_timeout must not be negative");
+namespace {
+// A wait given in seconds: a negative number or not-a-number throws (so does one above `most`).
+void check_wait(double seconds, const char* name, double most) {
+    if (!(seconds >= 0)) throw std::invalid_argument(std::string(name) + " must not be negative"); // not a number fails this too
+    if (seconds > most) throw std::invalid_argument(std::string(name) + " is too long");
+}
+} // namespace
+
+void session_settings::set_connect_timeout(double seconds) {
+    check_wait(seconds, "connect_timeout", longest_wait_seconds);
     connect_timeout = seconds;
 }
 
-void session_settings::set_max_time(long seconds) {
-    if (seconds < 0) throw std::invalid_argument("max_time must not be negative");
+void session_settings::set_max_time(double seconds) {
+    check_wait(seconds, "max_time", longest_wait_seconds);
     max_time = seconds;
 }
 
@@ -139,16 +148,9 @@ void session_settings::set_retry(int times) {
     retries = times;
 }
 
-void session_settings::set_retry_delay(long seconds) {
-    if (seconds < 0) throw std::invalid_argument("retry_delay must not be negative");
-    if (seconds > 86400) throw std::invalid_argument("retry_delay must not be more than a day");
-    retry_delay_ms = seconds * 1000;
-}
-
-void session_settings::set_retry_delay_ms(long ms) {
-    if (ms < 0) throw std::invalid_argument("retry_delay_ms must not be negative");
-    if (ms > 86400L * 1000) throw std::invalid_argument("retry_delay_ms must not be more than a day");
-    retry_delay_ms = ms;
+void session_settings::set_retry_delay(double seconds) {
+    check_wait(seconds, "retry_delay", 86400); // a day, as the command line has always limited it
+    retry_delay = seconds;
 }
 
 void session_settings::set_max_redirects(int count) {
@@ -200,7 +202,7 @@ bool session_settings::make_spec(const endpoint& where, const std::string& metho
     out.connect_timeout = connect_timeout;
     out.max_time = max_time;
     out.retries = retries;
-    out.retry_delay_ms = retry_delay_ms;
+    out.retry_delay = retry_delay;
     out.retry_connrefused = retry_connrefused;
     out.on_retry = on_retry;
     out.redirects_left = max_redirects;
@@ -348,7 +350,7 @@ std::string location_of(const response& r) {
 // One hop and, through the callback, the hops that follow it. The caller of run_chain() has already started the clock.
 void run_hops(std::shared_ptr<request_spec> spec, std::function<void(response)> done) {
     if (spec->max_time > 0 && spec->deadline == std::chrono::steady_clock::time_point{}) // the first hop starts the clock; a redirect inherits it
-        spec->deadline = std::chrono::steady_clock::now() + std::chrono::seconds(spec->max_time);
+        spec->deadline = std::chrono::steady_clock::now() + seconds_to_ms(spec->max_time);
     engine_for(*spec).submit(make_job(*spec), [spec, done = std::move(done)](response r) mutable {
         if (!spec->follow || !is_redirect(r.status)) return done(std::move(r));
         request_spec next;
@@ -394,9 +396,9 @@ bool worth_another_try(const request_spec& spec, const response& r) {
     return transient_status(r.status);
 }
 
-// Milliseconds: the asked-for wait, or 1, 2, 4, ... seconds (600 at most).
-long wait_before_retry_ms(const request_spec& spec, int retried) {
-    return spec.retry_delay_ms > 0 ? spec.retry_delay_ms : std::min<long>(600, 1L << std::min(retried, 9)) * 1000;
+// Seconds: the asked-for wait, or 1, 2, 4, ... (600 at most).
+double wait_before_retry(const request_spec& spec, int retried) {
+    return spec.retry_delay > 0 ? spec.retry_delay : static_cast<double>(std::min<long>(600, 1L << std::min(retried, 9)));
 }
 
 // Try number `retried` + 1. `base` is never run itself: each try gets a copy, because a try writes its own deadline and its redirect count.
@@ -413,14 +415,14 @@ void run_tries(std::shared_ptr<const request_spec> base, int retried, std::funct
     }
     run_attempt(std::move(spec), [base, retried, done = std::move(done)](response r) mutable {
         if (retried >= base->retries || !worth_another_try(*base, r)) return done(std::move(r));
-        const long wait_ms = wait_before_retry_ms(*base, retried);
+        const double wait = wait_before_retry(*base, retried);
         if (base->on_retry) {
             try {
-                base->on_retry(r, retried + 1, (wait_ms + 999) / 1000); // whole seconds, rounded up: the notice's type is old (ADR-0097)
+                base->on_retry(r, retried + 1, static_cast<long>(std::ceil(wait))); // whole seconds, rounded up: the notice's type is old (ADR-0097)
             } catch (...) { // a notice that throws must not strand the request on the network thread
             }
         }
-        engine_for(*base).post_after(std::chrono::milliseconds(wait_ms), [base, retried, done = std::move(done)]() mutable {
+        engine_for(*base).post_after(seconds_to_ms(wait), [base, retried, done = std::move(done)]() mutable {
             run_tries(base, retried + 1, std::move(done));
         });
     });

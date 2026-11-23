@@ -80,12 +80,12 @@ struct request_spec {
     std::string target; // "/path?query", percent-encoded
     header_list headers;
     std::string body, content_type;
-    long timeout = 0;
-    long connect_timeout = 0; // 0 = timeout covers the connect steps too
-    long max_time = 0; // seconds for the whole request, redirects included; 0 = no such limit
+    double timeout = 0; // seconds
+    double connect_timeout = 0; // seconds; 0 = timeout covers the connect steps too
+    double max_time = 0; // seconds for the whole request, redirects included; 0 = no such limit
     std::chrono::steady_clock::time_point deadline{}; // set from max_time when the request starts; epoch = none
     int retries = 0; // more tries after one that may pass (ADR-0097); 0 = never
-    long retry_delay_ms = 0; // milliseconds before each new try; 0 = 1, 2, 4, ... up to 600 seconds
+    double retry_delay = 0; // seconds before each new try; 0 = 1, 2, 4, ... up to 600
     bool retry_connrefused = false; // also try again after error_kind::connection
     std::function<void(const response&, int, long)> on_retry; // before each new try: the last response, its number, the wait
     std::function<void(response&)> on_finish; // once, with the final response, before it is handed to the caller (ADR-0097)
@@ -115,11 +115,11 @@ endpoint endpoint_of(const url& u, bool with_base_path);
 // Everything a caller configures once and that applies to each request made afterwards.
 struct session_settings {
     header_list headers;
-    long timeout = 0; // 0 = default_timeout
-    long connect_timeout = 0; // 0 = timeout covers the connect steps too
-    long max_time = 0; // 0 = no limit on the whole request
+    double timeout = 0; // seconds; 0 = default_timeout
+    double connect_timeout = 0; // seconds; 0 = timeout covers the connect steps too
+    double max_time = 0; // seconds; 0 = no limit on the whole request
     int retries = 0;
-    long retry_delay_ms = 0; // 0 = 1, 2, 4, ... up to 600 seconds
+    double retry_delay = 0; // seconds; 0 = 1, 2, 4, ... up to 600
     bool retry_connrefused = false;
     std::function<void(const response&, int, long)> on_retry; // only a download's job sets this (download::on_retry, ADR-0109); a request sets its own on the spec
     int max_redirects = request_spec::redirect_limit;
@@ -139,12 +139,12 @@ struct session_settings {
     void set_default_header(std::string name, std::string value);
     void set_basic(std::string user_name, std::string pass);
     void set_bearer(std::string token);
-    void set_timeout(long seconds) { timeout = seconds > 0 ? seconds : 0; } // 0 or less: the default again
-    void set_connect_timeout(long seconds);  // throws std::invalid_argument for a negative number
-    void set_max_time(long seconds);         // same
+    // 0, less, or not a number: the default again; above longest_wait_seconds it is cut to that
+    void set_timeout(double seconds) { timeout = seconds > 0 ? (seconds < longest_wait_seconds ? seconds : longest_wait_seconds) : 0; }
+    void set_connect_timeout(double seconds); // throws std::invalid_argument for a negative number, not a number, or too long
+    void set_max_time(double seconds);        // same
     void set_retry(int times);               // same
-    void set_retry_delay(long seconds);      // same (stored as milliseconds)
-    void set_retry_delay_ms(long ms);        // same
+    void set_retry_delay(double seconds);    // same, and more than a day
     void set_max_redirects(int count);       // 0 follows none, -1 no limit, any other negative number throws (redirect_hops)
     int redirects() const;                   // what set_max_redirects was given: 0, n or -1
     void set_proxy(const url& proxy_url);    // "" = no proxy; throws std::invalid_argument for a URL that is no proxy

@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <future>
 #include <stdexcept>
 #include <string>
@@ -12,8 +13,8 @@
 
 // retry(), retry_delay(), retry_connrefused() and on_retry(): a request that failed for a reason that may pass is sent again
 // by the library, not by its caller (ADR-0097). Only a timeout, a 408, 429, 500, 502, 503 or 504 and, if asked, a failed
-// connection count, as in curl. retry_delay() is in whole seconds, so a test that uses it waits at least one; retry_delay_ms()
-// is for the ones that must not.
+// connection count, as in curl. The delay is in seconds and may have a fraction: a test that must not wait a whole second asks
+// for 0.1.
 
 namespace {
 double seconds_since(std::chrono::steady_clock::time_point start) {
@@ -84,11 +85,11 @@ UTEST(httpp_client_retry, a_timeout_is_retried) {
     ASSERT_LT(res.elapsed_ms, 900); // elapsed_ms and bytes_received are those of the last try, not of the waits
 }
 
-UTEST(httpp_client_retry, a_wait_in_milliseconds_is_not_rounded_up_to_a_second) {
+UTEST(httpp_client_retry, a_wait_of_a_fraction_of_a_second_is_not_rounded_up_to_a_second) {
     std::atomic<int> hits{0};
     testutil::local_server ls([&](httpp::server& s) { flaky_route(s, hits, 1); });
     const auto start = std::chrono::steady_clock::now();
-    httpp::response res = httpp::request(ls.url("/flaky")).retry(2).retry_delay_ms(150).run();
+    httpp::response res = httpp::request(ls.url("/flaky")).retry(2).retry_delay(0.15).run();
     const double took = seconds_since(start);
     ASSERT_TRUE(res.ok());
     ASSERT_EQ(2, hits.load());
@@ -134,12 +135,12 @@ UTEST(httpp_client_retry, on_retry_is_told_the_last_answer_the_number_of_the_ret
     ASSERT_EQ(1, delay);
 }
 
-UTEST(httpp_client_retry, on_retry_is_told_whole_seconds_rounded_up_for_a_wait_in_milliseconds) {
+UTEST(httpp_client_retry, on_retry_is_told_whole_seconds_rounded_up_for_a_wait_of_a_fraction_of_a_second) {
     std::atomic<int> hits{0};
     testutil::local_server ls([&](httpp::server& s) { flaky_route(s, hits, 1); });
     long delay = -1;
     httpp::response res =
-        httpp::request(ls.url("/flaky")).retry(1).retry_delay_ms(100).on_retry([&](const httpp::response&, int, long wait) { delay = wait; }).run();
+        httpp::request(ls.url("/flaky")).retry(1).retry_delay(0.1).on_retry([&](const httpp::response&, int, long wait) { delay = wait; }).run();
     ASSERT_TRUE(res.ok());
     ASSERT_EQ(1, delay);
 }
@@ -209,35 +210,38 @@ UTEST(httpp_client_retry, an_async_client_retries_too) {
     ASSERT_EQ(2, hits.load());
 }
 
-UTEST(httpp_client_retry, retry_delay_and_retry_delay_ms_are_one_setting_and_are_checked) {
+UTEST(httpp_client_retry, a_fraction_of_a_second_is_kept_as_it_is_and_the_wait_is_checked) {
     httpp::request r("http://127.0.0.1:1/x");
-    ASSERT_EQ(0, r.retry_delay_ms());
-    r.retry_delay_ms(250);
-    ASSERT_EQ(250, r.retry_delay_ms());
-    ASSERT_EQ(0, r.retry_delay()); // whole seconds, rounded down
+    r.retry_delay(0.25);
+    ASSERT_EQ(0.25, r.retry_delay());
     r.retry_delay(2);
-    ASSERT_EQ(2000, r.retry_delay_ms()); // the last one set wins
-    ASSERT_EQ(2, r.retry_delay());
-    r.retry_delay_ms(0);
-    ASSERT_EQ(0, r.retry_delay()); // 0 is the default back-off again
+    ASSERT_EQ(2.0, r.retry_delay());
+    r.retry_delay(0);
+    ASSERT_EQ(0.0, r.retry_delay()); // 0 is the default back-off again
 
     httpp::client c{httpp::url("http://127.0.0.1:1")};
-    c.retry_delay_ms(300);
-    ASSERT_EQ(300, c.make_request("/x").retry_delay_ms()); // a session hands it on
+    c.retry_delay(0.3);
+    ASSERT_EQ(0.3, c.make_request("/x").retry_delay()); // a session hands it on
 
-    bool negative = false, too_long = false;
+    bool negative = false, too_long = false, not_a_number = false;
     try {
-        r.retry_delay_ms(-1);
+        r.retry_delay(-0.5);
     } catch (const std::invalid_argument&) {
         negative = true;
     }
     try {
-        r.retry_delay_ms(86400L * 1000 + 1);
+        r.retry_delay(86400.5);
     } catch (const std::invalid_argument&) {
         too_long = true;
     }
+    try {
+        r.retry_delay(std::nan(""));
+    } catch (const std::invalid_argument&) {
+        not_a_number = true;
+    }
     ASSERT_TRUE(negative);
     ASSERT_TRUE(too_long);
+    ASSERT_TRUE(not_a_number);
 }
 
 UTEST(httpp_client_retry, the_settings_are_read_back_a_session_hands_them_on_and_a_negative_number_throws) {

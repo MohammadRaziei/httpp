@@ -328,8 +328,8 @@ bool expected_digest(const job& j, std::string& digest, std::string& error) {
 
 download_result execute(const job& j) {
     // Locked first: the checksum file is fetched to a temporary name next to dest, which two processes must not share.
-    const long timeout = j.net.timeout > 0 ? j.net.timeout : 15;
-    const auto stale_after = std::min(std::chrono::milliseconds(timeout * 1000), j.max_wait);
+    const double timeout = j.net.timeout > 0 ? j.net.timeout : 15; // seconds
+    const auto stale_after = std::min(detail::seconds_to_ms(timeout), j.max_wait);
     const auto lock = std::make_unique<httpp::file_lock>(httpp::path(j.dest), stale_after);
 
     std::string expected, error;

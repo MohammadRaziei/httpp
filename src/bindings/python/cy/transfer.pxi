@@ -55,7 +55,7 @@ cdef class Download:
     def __init__(self, str url, dest_path="", *, enable_progress=None, resume=None, force=None, sha256=None,
                  sha256_url=None, max_wait=None, timeout=None, max_redirects=None, connect_timeout=None,
                  max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None, proxy=None, headers=None,
-                 retry=None, retry_delay=None, retry_connrefused=None, retry_delay_ms=None):
+                 retry=None, retry_delay=None, retry_connrefused=None):
         """Every keyword is the name of a setter and does what the setter does (basic_auth takes (user, password);
         headers is a dict, one header() call per item);
         Download(url, path, resume=True, timeout=30) is Download(url, path).resume().timeout(30)."""
@@ -92,12 +92,8 @@ cdef class Download:
             self.proxy(proxy)
         if retry is not None:
             self.retry(retry)
-        if retry_delay is not None and retry_delay_ms is not None:
-            raise ValueError("give retry_delay or retry_delay_ms, not both")
         if retry_delay is not None:
             self.retry_delay(retry_delay)
-        if retry_delay_ms is not None:
-            self.retry_delay_ms(retry_delay_ms)
         if retry_connrefused is not None:
             self.retry_connrefused(retry_connrefused)
         for name, value in (headers.items() if hasattr(headers, "items") else headers or ()):
@@ -118,14 +114,9 @@ cdef class Download:
     def retry_delay(self, seconds):
         """The wait in seconds (a float: 0.2 is 200 ms) before each new try; 0 (default) waits 1, 2, 4, ... seconds, 600 at
         most. ValueError for a negative number or more than a day."""
-        self._dl.retry_delay_ms(_delay_ms(seconds, "retry_delay"))
-        return self
-
-    def retry_delay_ms(self, long ms):
-        """The same wait in milliseconds. One setting: the last of retry_delay() and retry_delay_ms() wins."""
-        if ms < 0:
-            raise ValueError("retry_delay_ms must not be negative")
-        self._dl.retry_delay_ms(ms)
+        if seconds < 0:
+            raise ValueError("retry_delay must not be negative")
+        self._dl.retry_delay(<double>seconds)
         return self
 
     def retry_connrefused(self, cbool enable=True):
@@ -180,11 +171,11 @@ cdef class Download:
         return self
 
     def timeout(self, seconds=None):
-        """Seconds for connecting, reading and writing; 0 or less keeps the defaults. With no argument it
-        returns the value."""
+        """Seconds (a float is fine) for connecting, reading and writing; 0 or less keeps the defaults. With no
+        argument it returns the value."""
         if seconds is None:
             return self._dl.timeout()
-        self._dl.timeout(<long>seconds)
+        self._dl.timeout(<double>seconds)
         return self
 
     def connect_timeout(self, seconds):
@@ -193,7 +184,7 @@ cdef class Download:
         negative number."""
         if seconds < 0:
             raise ValueError("connect_timeout must not be negative")
-        self._dl.connect_timeout(max(1, int(round(seconds))))
+        self._dl.connect_timeout(<double>seconds)
         return self
 
     def max_time(self, seconds):
@@ -202,7 +193,7 @@ cdef class Download:
         limit; timeout() is separate and limits each step. ValueError for a negative number."""
         if seconds < 0:
             raise ValueError("max_time must not be negative")
-        self._dl.max_time(0 if seconds == 0 else max(1, int(round(seconds))))
+        self._dl.max_time(<double>seconds)
         return self
 
     def basic_auth(self, str user, str password):
@@ -515,7 +506,7 @@ cdef class Request:
                  content_type=None, cookies=None, timeout=None, max_redirects=None, auto_compression=None,
                  connect_timeout=None, max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None,
                  proxy=None, max_response_size=None, retry=None, retry_delay=None, retry_connrefused=None,
-                 retry_delay_ms=None, save_to=None, save_in=None, create_dirs=None, overwrite=None, include_head=None,
+                 save_to=None, save_in=None, create_dirs=None, overwrite=None, include_head=None,
                  on_body=None, on_head=None, on_retry=None):
         """Every keyword is the name of a setter and does what the setter does, so Request(url, method="PUT",
         timeout=10) is Request(url).method("PUT").timeout(10). Three are plural because the setter is called once
@@ -564,12 +555,8 @@ cdef class Request:
             self.max_response_size(max_response_size)
         if retry is not None:
             self.retry(retry)
-        if retry_delay is not None and retry_delay_ms is not None:
-            raise ValueError("give retry_delay or retry_delay_ms, not both")
         if retry_delay is not None:
             self.retry_delay(retry_delay)
-        if retry_delay_ms is not None:
-            self.retry_delay_ms(retry_delay_ms)
         if retry_connrefused is not None:
             self.retry_connrefused(retry_connrefused)
         if save_to is not None:
@@ -667,8 +654,9 @@ cdef class Request:
         return self
 
     def timeout(self, seconds):
-        """Give up after this many seconds (connect, read and write each)."""
-        self._req.timeout(max(1, int(round(seconds))))
+        """Give up after this many seconds (connect, read and write each). A float is fine: 0.5 is half a second.
+        0 or less keeps the default."""
+        self._req.timeout(<double>seconds)
         return self
 
     def max_redirects(self, int count):
@@ -689,7 +677,7 @@ cdef class Request:
         limits each write and read; without this one it covers the connect steps too."""
         if seconds < 0:
             raise ValueError("connect_timeout must not be negative")
-        self._req.connect_timeout(max(1, int(round(seconds))))
+        self._req.connect_timeout(<double>seconds)
         return self
 
     def max_time(self, seconds):
@@ -698,7 +686,7 @@ cdef class Request:
         no such limit; timeout() is separate and limits each step. ValueError for a negative number."""
         if seconds < 0:
             raise ValueError("max_time must not be negative")
-        self._req.max_time(0 if seconds == 0 else max(1, int(round(seconds))))
+        self._req.max_time(<double>seconds)
         return self
 
     def verify(self, cbool enable):
@@ -728,14 +716,9 @@ cdef class Request:
     def retry_delay(self, seconds):
         """The wait in seconds (a float: 0.2 is 200 ms) before each new try; 0 (default) waits 1, 2, 4, ... seconds, 600 at
         most. ValueError for a negative number or more than a day."""
-        self._req.retry_delay_ms(_delay_ms(seconds, "retry_delay"))
-        return self
-
-    def retry_delay_ms(self, long ms):
-        """The same wait in milliseconds. One setting: the last of retry_delay() and retry_delay_ms() wins."""
-        if ms < 0:
-            raise ValueError("retry_delay_ms must not be negative")
-        self._req.retry_delay_ms(ms)
+        if seconds < 0:
+            raise ValueError("retry_delay must not be negative")
+        self._req.retry_delay(<double>seconds)
         return self
 
     def retry_connrefused(self, cbool enable=True):
@@ -838,13 +821,12 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
     cdef cppclass cpp_async_client "httpp::async_client":
         cpp_async_client(string base_url, size_t max_connections) except +
         cpp_async_client& header(string name, string value) except +
-        cpp_async_client& timeout(long seconds) except +
+        cpp_async_client& timeout(double seconds) except +
         cpp_async_client& max_redirects(int count) except +
-        cpp_async_client& connect_timeout(long seconds) except +
-        cpp_async_client& max_time(long seconds) except +
+        cpp_async_client& connect_timeout(double seconds) except +
+        cpp_async_client& max_time(double seconds) except +
         cpp_async_client& retry(int times) except +
-        cpp_async_client& retry_delay(long seconds) except +
-        cpp_async_client& retry_delay_ms(long ms) except +
+        cpp_async_client& retry_delay(double seconds) except +
         cpp_async_client& retry_connrefused(cbool enable) except +
         cpp_async_client& auto_compression(cbool enable) except +
         cpp_async_client& basic_auth(string user, string password) except +
@@ -927,11 +909,11 @@ cdef class _AsyncClientCore:
     def __init__(self, str base_url, size_t max_connections=8, *, headers=None, timeout=None,
                  max_redirects=None, connect_timeout=None, max_time=None,
                  cbool auto_compression=True, basic_auth=None, bearer=None, cbool verify=True, ca_file=None,
-                 proxy=None, retry=None, retry_delay=None, retry_connrefused=None, retry_delay_ms=None):
+                 proxy=None, retry=None, retry_delay=None, retry_connrefused=None):
         self._cli = new cpp_async_client(base_url.encode("utf-8"), max_connections)
         _apply_client_options(self._cli, headers, timeout, max_redirects, connect_timeout, max_time,
                               auto_compression, basic_auth, bearer, verify, ca_file, proxy,
-                              retry, retry_delay, retry_connrefused, retry_delay_ms)
+                              retry, retry_delay, retry_connrefused)
 
     def __dealloc__(self):
         if self._cli is not NULL:

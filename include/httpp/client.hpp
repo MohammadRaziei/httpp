@@ -178,18 +178,16 @@ struct session_settings;
 class settings_ref {
 public:
     explicit settings_ref(guarded_settings& settings) noexcept : g_(&settings) {}
-    HTTPP_API void timeout(long seconds) const;
-    HTTPP_API long timeout() const;
-    HTTPP_API void connect_timeout(long seconds) const;
-    HTTPP_API long connect_timeout() const;
-    HTTPP_API void max_time(long seconds) const;
-    HTTPP_API long max_time() const;
+    HTTPP_API void timeout(double seconds) const;
+    HTTPP_API double timeout() const;
+    HTTPP_API void connect_timeout(double seconds) const;
+    HTTPP_API double connect_timeout() const;
+    HTTPP_API void max_time(double seconds) const;
+    HTTPP_API double max_time() const;
     HTTPP_API void retry(int times) const;
     HTTPP_API int retry() const;
-    HTTPP_API void retry_delay(long seconds) const;
-    HTTPP_API long retry_delay() const;
-    HTTPP_API void retry_delay_ms(long ms) const;
-    HTTPP_API long retry_delay_ms() const;
+    HTTPP_API void retry_delay(double seconds) const;
+    HTTPP_API double retry_delay() const;
     HTTPP_API void retry_connrefused(bool enable) const;
     HTTPP_API bool retry_connrefused() const;
     HTTPP_API void max_redirects(int count) const;
@@ -224,25 +222,25 @@ private:
 template <class Self>
 class configurable {
 public:
-    // connect, read and write, in seconds; 0 or less: the default
-    HTTPP_MEMBER Self& timeout(long seconds) & { ref().timeout(seconds); return self(); }
-    Self timeout(long seconds) && { ref().timeout(seconds); return std::move(self()); }
-    HTTPP_MEMBER long timeout() const { return ref().timeout(); }
+    // connect, read and write, in seconds (a fraction is fine: 0.5 is half a second); 0 or less: the default
+    HTTPP_MEMBER Self& timeout(double seconds) & { ref().timeout(seconds); return self(); }
+    Self timeout(double seconds) && { ref().timeout(seconds); return std::move(self()); }
+    HTTPP_MEMBER double timeout() const { return ref().timeout(); }
 
     // --connect-timeout (seconds): the limit for resolving the host, connecting, the proxy handshake and the TLS handshake.
     // timeout() still limits each write and read. 0 (the default) means timeout() covers the connect steps too. Throws
     // std::invalid_argument for a negative number.
-    HTTPP_MEMBER Self& connect_timeout(long seconds) & { ref().connect_timeout(seconds); return self(); }
-    Self connect_timeout(long seconds) && { ref().connect_timeout(seconds); return std::move(self()); }
-    HTTPP_MEMBER long connect_timeout() const { return ref().connect_timeout(); }
+    HTTPP_MEMBER Self& connect_timeout(double seconds) & { ref().connect_timeout(seconds); return self(); }
+    Self connect_timeout(double seconds) && { ref().connect_timeout(seconds); return std::move(self()); }
+    HTTPP_MEMBER double connect_timeout() const { return ref().connect_timeout(); }
 
     // -m/--max-time (seconds): one limit for the whole request, from the start to the last body byte, redirects and a
     // streamed body included. When it runs out the request ends with error_kind::timeout, even if the server is still
     // sending. 0 (the default) sets no such limit. timeout() is separate: it limits each step, so a slow trickle never
     // trips it. Throws std::invalid_argument for a negative number.
-    HTTPP_MEMBER Self& max_time(long seconds) & { ref().max_time(seconds); return self(); }
-    Self max_time(long seconds) && { ref().max_time(seconds); return std::move(self()); }
-    HTTPP_MEMBER long max_time() const { return ref().max_time(); }
+    HTTPP_MEMBER Self& max_time(double seconds) & { ref().max_time(seconds); return self(); }
+    Self max_time(double seconds) && { ref().max_time(seconds); return std::move(self()); }
+    HTTPP_MEMBER double max_time() const { return ref().max_time(); }
 
     // --retry (ADR-0097): how many more times to send the request after a try that may pass. Only a timeout and the statuses
     // 408, 429, 500, 502, 503 and 504 count (and a failed connection with retry_connrefused()); any other answer, a 404 or
@@ -255,17 +253,11 @@ public:
 
     // --retry-delay (seconds): the wait before each new try. 0 (the default) waits 1, 2, 4, ... seconds, 600 at most. The
     // wait is a timer on the network thread, not a sleep: other requests go on. It holds the connection slot of an
-    // async_client. Throws std::invalid_argument for a negative number or more than a day. The getter gives whole seconds
-    // (rounded down: 200 ms reads as 0); retry_delay_ms() gives what was set.
-    HTTPP_MEMBER Self& retry_delay(long seconds) & { ref().retry_delay(seconds); return self(); }
-    Self retry_delay(long seconds) && { ref().retry_delay(seconds); return std::move(self()); }
-    HTTPP_MEMBER long retry_delay() const { return ref().retry_delay(); }
-
-    // The same wait in milliseconds, for a short one (a test that waits for a server to come up). One setting: the last of
-    // retry_delay() and retry_delay_ms() wins. on_retry() is still told whole seconds, rounded up.
-    HTTPP_MEMBER Self& retry_delay_ms(long ms) & { ref().retry_delay_ms(ms); return self(); }
-    Self retry_delay_ms(long ms) && { ref().retry_delay_ms(ms); return std::move(self()); }
-    HTTPP_MEMBER long retry_delay_ms() const { return ref().retry_delay_ms(); }
+    // async_client. A fraction is fine (0.05 waits 50 ms). Throws std::invalid_argument for a negative number or more than a
+    // day. on_retry() is still told whole seconds, rounded up (a 50 ms wait is announced as 1).
+    HTTPP_MEMBER Self& retry_delay(double seconds) & { ref().retry_delay(seconds); return self(); }
+    Self retry_delay(double seconds) && { ref().retry_delay(seconds); return std::move(self()); }
+    HTTPP_MEMBER double retry_delay() const { return ref().retry_delay(); }
 
     // --retry-connrefused: also send again after error_kind::connection (a refused connection, a failed lookup). Off by default.
     HTTPP_MEMBER Self& retry_connrefused(bool enable) & { ref().retry_connrefused(enable); return self(); }

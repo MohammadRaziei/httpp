@@ -67,7 +67,7 @@ def test_connect_timeout_does_not_limit_the_wait_for_the_answer():
 
 def test_connect_timeout_takes_seconds_like_timeout():
     with running(chain_app()) as url:
-        assert Request(url + "/c").connect_timeout(0.4).run().ok  # rounds up to a whole second, never to zero
+        assert Request(url + "/c").connect_timeout(0.4).run().ok  # a fraction of a second is kept as it is
     with pytest.raises(ValueError):
         Request("http://127.0.0.1:1/").connect_timeout(-1)
 

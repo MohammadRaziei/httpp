@@ -557,7 +557,7 @@ def test_a_streamed_generator_is_released_when_the_response_ends_or_the_client_h
     try:
         # A server started on a thread takes a moment to accept (longer on a slow Windows or free-threaded runner), and a fixed
         # sleep is a guess: a refused connection is tried again every 50 ms, for 5 s at most.
-        done = Request(f"http://127.0.0.1:{port}/done").retry(100).retry_connrefused().retry_delay_ms(50).run()
+        done = Request(f"http://127.0.0.1:{port}/done").retry(100).retry_connrefused().retry_delay(0.05).run()
         assert done.body == "a;", f"/done gave status {done.status}, error {done.error}: {done.error_message}"
         sock = socket.create_connection(("127.0.0.1", port), timeout=3)
         sock.sendall(b"GET /endless HTTP/1.1\r\nHost: x\r\n\r\n")

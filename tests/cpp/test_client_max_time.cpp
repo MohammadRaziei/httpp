@@ -33,6 +33,34 @@ UTEST(httpp_client_max_time, a_slow_answer_ends_with_a_timeout_when_the_time_is_
     ASSERT_LT(took, 2.5);
 }
 
+UTEST(httpp_client_max_time, a_fraction_of_a_second_is_a_real_limit_not_a_whole_second) {
+    testutil::local_server ls([](httpp::server& s) {
+        s.get("/slow", [](const httpp::server_request&, httpp::response& res) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+            res.status = 200;
+            res.body = "late";
+        });
+    });
+    for (int which = 0; which < 2; ++which) { // max_time(), then the per-step timeout()
+        const auto start = std::chrono::steady_clock::now();
+        httpp::request r(ls.url("/slow"));
+        if (which == 0) r.max_time(0.3); else r.timeout(0.3);
+        httpp::response res = r.run();
+        const double took = seconds_since(start);
+        ASSERT_STREQ("timeout", res.error_name());
+        ASSERT_GT(took, 0.25);
+        ASSERT_LT(took, 0.9);
+    }
+}
+
+UTEST(httpp_client_max_time, the_settings_read_back_a_fraction_of_a_second) {
+    httpp::request r("http://127.0.0.1:1/x");
+    r.timeout(0.5).connect_timeout(0.25).max_time(1.5);
+    ASSERT_EQ(0.5, r.timeout());
+    ASSERT_EQ(0.25, r.connect_timeout());
+    ASSERT_EQ(1.5, r.max_time());
+}
+
 UTEST(httpp_client_max_time, the_per_step_timeout_alone_does_not_end_a_request_that_keeps_going) {
     testutil::local_server ls([](httpp::server& s) {
         s.get("/ok", [](const httpp::server_request&, httpp::response& res) {
