@@ -50,6 +50,21 @@ cdef vector[pair[string, string]] _header_pairs(object headers):
     return out
 
 
+cdef extern from *:
+    """
+    #include "httpp/client.hpp"
+    namespace httpp_py {
+    // response::filename() reads a Content-Disposition value; Python hands over just that value so the one parser stays in C++.
+    inline std::string content_disposition_filename(const std::string& value) {
+        httpp::response r;
+        r.headers.emplace_back("Content-Disposition", value);
+        return r.filename();
+    }
+    }
+    """
+    string cpp_content_disposition_filename "httpp_py::content_disposition_filename"(const string& value) except +
+
+
 cdef class Response:
     """A response to an HTTP request made via Client / Request / the module-level get(), post(), ...
 
@@ -94,6 +109,16 @@ cdef class Response:
         """The file save_to() or save_in() wrote the body to, or None. Written the way the platform writes a path, as pathlib does:
         `res.saved_as == str(target)` holds for the Path that was given (on Windows with backslashes)."""
         return self._saved_as
+
+    @property
+    def filename(self):
+        """The file name the server suggests in Content-Disposition (`filename="report.pdf"`), as a bare name: any folder part is cut
+        off and control characters are dropped. "" when there is no such header, no filename in it, or nothing usable ("", "." or
+        ".."). The extended form `filename*=` is not read, like `curl -J` (C++: response::filename())."""
+        cdef object value = self.header("content-disposition")
+        if not value:
+            return ""
+        return cpp_content_disposition_filename((<str>value).encode("utf-8")).decode("utf-8", "replace")
 
     @property
     def status(self):

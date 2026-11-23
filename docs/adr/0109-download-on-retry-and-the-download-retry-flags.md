@@ -1,6 +1,6 @@
 # ADR-0109: `download::on_retry` and the `--retry` flags of `httpp download`
 
-- **Status:** implemented in C++ (built and tested on Linux); the Python binding of `on_retry` and the Python CLI tests are not done / not run here; the points under "Taken by default" are for the owner to confirm
+- **Status:** implemented in C++ (built and tested on Linux); `Download.on_retry` is bound in Python; the Python CLI tests are not done / not run here; the points under "Taken by default" are for the owner to confirm
 - **Date:** 2026-11-22
 - **Decided by:** the project owner asked for the CLI flag after ADR-0104 had made `retry` work on a download ("fix the CLI flag too and give me the patch"); the details were left to the implementer
 - **Source:** `include/httpp/download.hpp`, `src/core/download.cpp` (`impl::on_retry_fn`, `to_job`), `src/core/internal/http_exchange.{hpp,cpp}` (`session_settings::on_retry`), `src/cli/httpp_cli.cpp` (`cmd_download`, `print_retry_warning`), `tests/cpp/test_download_retry.cpp`, `tests/python/test_cli.py`

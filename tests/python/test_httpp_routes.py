@@ -1,13 +1,12 @@
 """Tests for decorator-style routes on httpp.Server."""
 
+import contextlib
 import json
-import sys
 import threading
 import time
 from contextlib import contextmanager
 
 import pytest
-
 from httpp import Client, Request, Server
 
 
@@ -208,6 +207,44 @@ def test_listen_on_a_taken_port_raises():
         blocker.close()
 
 
+def test_bind_takes_the_port_now_and_url_says_where():
+    import urllib.request
+
+    app = Server()
+
+    @app.get("/hi")
+    def hi():
+        return "hello"
+
+    assert app.url() == ""  # nothing bound yet
+    app.bind("127.0.0.1", 0)  # port 0: any free port
+    url = app.url()
+    assert url.startswith("http://127.0.0.1:") and url.endswith("/") and not url.endswith(":0/")
+    th = threading.Thread(target=app.listen_after_bind)
+    th.start()
+    try:
+        time.sleep(0.05)
+        assert urllib.request.urlopen(url + "hi", timeout=5).read() == b"hello"
+    finally:
+        app.stop()
+        th.join()
+
+
+def test_bind_on_a_taken_port_raises():
+    import socket
+
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen()
+    try:
+        app = Server()
+        with pytest.raises(OSError):
+            app.bind("127.0.0.1", blocker.getsockname()[1])
+        assert app.url() == ""  # a failed bind leaves no address behind
+    finally:
+        blocker.close()
+
+
 def test_keyboard_interrupt_stops_listen():
     """Simulates Ctrl+C with interrupt_main (portable; real SIGINT can't be sent
     to a child on Windows). If listen() ever blocks the main thread outside
@@ -403,10 +440,8 @@ def test_server_can_be_dropped_while_an_async_request_is_pending():
     th.start()
 
     def call():
-        try:
+        with contextlib.suppress(Exception):  # the connection is closed under it; that is the point
             Client("127.0.0.1", port).get("/slow")
-        except Exception:
-            pass  # the connection is closed under it; that is the point
 
     client = threading.Thread(target=call)
     client.start()
@@ -428,7 +463,7 @@ def test_idle_connections_do_not_block_other_requests():
     try:  # POSIX only; Windows has no per-process fd limit to raise
         import resource
 
-        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        _soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         resource.setrlimit(resource.RLIMIT_NOFILE, (min(hard, 4096) if hard != resource.RLIM_INFINITY else 4096, hard))
     except ImportError:
         pass
@@ -502,7 +537,7 @@ def test_ctrl_c_at_any_moment_never_wedges_listen():
         armed = []  # plain lists as flags: the test must not use a lock an interrupt could break (see the docstring)
         sent = []
 
-        def interrupt_when_armed():
+        def interrupt_when_armed(armed=armed, delay=delay, sent=sent):  # bound now: the next lap rebinds the names
             while not armed:
                 time.sleep(0.001)
             time.sleep(delay)

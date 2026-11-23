@@ -148,7 +148,7 @@ The CLI is kept to flags and exit codes; what a flag does is a library capabilit
 #### Consequences
 
 - No new `request` method was needed; the transfer features of `request` this CLI uses are all the ones it had.
-- The three library helpers are inline in their headers, so the C++/Python parity test does not list them. `Response.filename` is not in Python yet.
+- The three library helpers are inline in their headers, so the C++/Python parity test does not list them. `Response.filename` and `URL.filename` are bound in Python by hand (both `""` when there is nothing, as in C++).
 - `-v` still shows only the headers `httpp curl` sends, not the engine's own.
 
 #### Related

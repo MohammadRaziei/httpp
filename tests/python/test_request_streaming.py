@@ -7,9 +7,7 @@ import time
 from contextlib import contextmanager
 
 import pytest
-
-import httpp
-from httpp import Server, Request, Client
+from httpp import Client, Download, Request, Server
 
 
 @contextmanager
@@ -127,6 +125,45 @@ def test_retry_sends_again_after_a_503_and_on_retry_is_told():
         assert [n for _, n, _ in notes] == [1, 2] and all(status == 503 for status, _, _ in notes)
 
 
+def test_download_on_retry_is_told_before_each_new_try(tmp_path):
+    app = make_app()
+    with running(app) as url:
+        notes = []
+        out = tmp_path / "flaky.txt"
+        res = Download(url + "/flaky", str(out)).enable_progress(False).retry(3).retry_delay(0.05) \
+            .on_retry(lambda last, n, delay: notes.append((last.status, n, delay))).run()
+        assert res.ok and out.read_text() == "ok"
+        assert app.calls["flaky"] == 3
+        assert [n for _, n, _ in notes] == [1, 2] and all(status == 503 for status, _, _ in notes)
+        assert all(delay == 1 for _, _, delay in notes)  # 50 ms is announced as 1 (whole seconds, rounded up)
+
+
+def test_download_on_retry_is_a_keyword_and_takes_a_callable(tmp_path):
+    app = make_app()
+    with running(app) as url:
+        seen = []
+        res = Download(url + "/flaky", str(tmp_path / "k.txt"), enable_progress=False, retry=3, retry_delay=0.05,
+                       on_retry=lambda last, n, delay: seen.append(n)).run()
+        assert res.ok and seen == [1, 2]
+    with pytest.raises(TypeError):
+        Download("http://127.0.0.1:1/x", str(tmp_path / "x")).on_retry(5)
+
+
+def test_an_exception_in_download_on_retry_is_raised_when_the_download_is_over(tmp_path):
+    app = make_app()
+
+    def boom(last, n, delay):
+        raise RuntimeError("boom")
+
+    with running(app) as url:
+        out = tmp_path / "boom.txt"
+        with pytest.raises(RuntimeError, match="boom"):
+            Download(url + "/flaky", str(out)).enable_progress(False).retry(3).retry_delay(0.05).on_retry(boom).run()
+        assert app.calls["flaky"] == 3  # the download went on, as with Request.on_retry
+        # the error was taken: the next run of a working download is not blamed for it
+        assert Download(url + "/text", str(tmp_path / "t.txt")).enable_progress(False).run().ok
+
+
 def test_retry_delay_takes_fractions_of_a_second():
     # 0.15 s must not be rounded to 0 (the default 1, 2, 4 s back-off) or up to 1
     for make in (lambda url: Request(url).retry(2).retry_delay(0.15),
@@ -193,3 +230,31 @@ def test_constructor_keywords_are_the_setters(tmp_path):
         assert res.status == 200 and b"".join(got) == b"hello world" * 1000
         res = Request(url + "/text", save_to=str(tmp_path / "k.txt")).run()
         assert res.ok and (tmp_path / "k.txt").exists()
+
+
+def test_response_filename_is_the_name_from_content_disposition():
+    app = Server()
+    headers = {
+        "/quoted": 'attachment; filename="../evil/report.pdf"',  # only the name is used
+        "/bare": "attachment; filename=plain.txt; size=3",
+        "/star": "attachment; filename*=UTF-8''ignored.txt",  # the extended form is not read, like curl -J
+        "/dots": 'attachment; filename=".."',
+        "/nothing": "inline",
+    }
+
+    def add(path, value):
+        @app.get(path)
+        def handler(response):
+            response.add_header("Content-Disposition", value)
+            return "x"
+
+    for path, value in headers.items():
+        add(path, value)
+
+    @app.get("/none")
+    def none():
+        return "x"
+
+    with running(app) as url:
+        got = {path: Request(url + path).run().filename for path in [*headers, "/none"]}
+    assert got == {"/quoted": "report.pdf", "/bare": "plain.txt", "/star": "", "/dots": "", "/nothing": "", "/none": ""}

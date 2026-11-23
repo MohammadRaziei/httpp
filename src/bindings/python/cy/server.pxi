@@ -265,6 +265,19 @@ cdef class Server:
     def bind_to_any_port(self, str host):
         return self._srv.bind_to_any_port(host.encode("utf-8"))
 
+    def bind(self, str host, int port):
+        """Bind the socket now and listen later with listen_after_bind(): url() is known in between. Port 0 takes any free port
+        (bind_to_any_port() returns it as a number, url() holds it). OSError when the address cannot be bound (the port is in use,
+        or no permission)."""
+        cdef string h = host.encode("utf-8")
+        if not self._srv.bind(h, port):
+            raise OSError(f"httpp: could not bind {host}:{port} (port in use, or no permission?)")
+
+    def url(self):
+        """The address the server is bound to, "https://127.0.0.1:8000/" (https after tls(), an IPv6 host in brackets, the port that
+        was really bound), or "" before a bind. The host is the one that was asked for: "0.0.0.0" stays "0.0.0.0"."""
+        return self._srv.url().decode("utf-8")
+
     def listen_after_bind(self):
         cdef cbool ok
         with nogil:

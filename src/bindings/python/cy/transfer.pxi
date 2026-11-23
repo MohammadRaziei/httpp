@@ -51,15 +51,18 @@ cdef class Download:
     force (with resume: ignore existing files and start from byte 0).
     """
     cdef cpp_download* _dl
+    cdef object _on_retry  # a _Callback (declared later in this file) kept alive for C++, which holds a borrowed pointer
+    cdef list _errors      # what on_retry raised, re-raised by run()
 
     def __init__(self, str url, dest_path="", *, enable_progress=None, resume=None, force=None, sha256=None,
                  sha256_url=None, max_wait=None, timeout=None, max_redirects=None, connect_timeout=None,
                  max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None, proxy=None, headers=None,
-                 retry=None, retry_delay=None, retry_connrefused=None):
+                 retry=None, retry_delay=None, retry_connrefused=None, on_retry=None):
         """Every keyword is the name of a setter and does what the setter does (basic_auth takes (user, password);
         headers is a dict, one header() call per item);
         Download(url, path, resume=True, timeout=30) is Download(url, path).resume().timeout(30)."""
         self._dl = new cpp_download(url.encode("utf-8"), _fs(dest_path))
+        self._errors = []
         if enable_progress is not None:
             self.enable_progress(enable_progress)
         if resume is not None:
@@ -96,6 +99,8 @@ cdef class Download:
             self.retry_delay(retry_delay)
         if retry_connrefused is not None:
             self.retry_connrefused(retry_connrefused)
+        if on_retry is not None:
+            self.on_retry(on_retry)
         for name, value in (headers.items() if hasattr(headers, "items") else headers or ()):
             self.header(name, value)
 
@@ -122,6 +127,18 @@ cdef class Download:
     def retry_connrefused(self, cbool enable=True):
         """Also send again after a refused connection or a failed lookup (off by default)."""
         self._dl.retry_connrefused(enable)
+        return self
+
+    def on_retry(self, fn):
+        """With retry: fn(response, retry_number, delay_seconds) is called before each new try with the answer of the try that
+        failed (status 0 and .error set when there was none), the number of the retry about to start (1, 2, ...) and the whole
+        seconds it waits first (a wait under a second is announced as 1). It runs on the thread that runs the download: keep
+        it short and do not make a blocking httpp request in it. An exception it raises does not stop the download; run()
+        raises it when the download is over (as Request.on_retry does)."""
+        if not callable(fn):
+            raise TypeError("on_retry takes a callable")
+        self._on_retry = _Callback(fn, self._errors)
+        py_dl_on_retry(self._dl[0], <void*>self._on_retry, <retry_cb_fn>_retry_trampoline)
         return self
 
     def header(self, str name, str value):
@@ -236,6 +253,8 @@ cdef class Download:
         cdef download_result res
         with nogil:
             res = self._dl.run()
+        if self._errors:  # on_retry raised: the download went on, and that is the error to report
+            raise self._errors.pop(0)
         return DownloadResult(res.ok, res.status, res.error, res.skipped, res.sha256)
 
     def run_async(self):
@@ -336,7 +355,7 @@ cdef class URL:
     helpers:
 
         u = httpp.URL.parse("https://example.com:8443/a/b?x=1")
-        u.valid, u.scheme, u.host, u.port, u.path, u.query
+        u.valid, u.scheme, u.host, u.port, u.path, u.query, u.filename
         httpp.URL.encode_component("a b/é")        # 'a%20b%2F%C3%A9'
         httpp.URL.decode_component("a%20b+c")      # 'a b+c'  ("+" stays "+")
         httpp.URL.build_query({"q": "x y", "n": 2})  # 'q=x%20y&n=2'
@@ -352,6 +371,7 @@ cdef class URL:
     cdef readonly int port
     cdef readonly str path
     cdef readonly str query
+    cdef readonly str filename  # the last piece of the path, "" when there is none (url_filename)
 
     def __init__(self, str raw):
         cdef cpp_url u = cpp_parse_url(raw.encode("utf-8"))
@@ -364,6 +384,7 @@ cdef class URL:
         self.port = cpp_url_port(u)
         self.path = cpp_url_path(u).decode("utf-8", "replace")
         self.query = cpp_url_query(u).decode("utf-8", "replace")
+        self.filename = cpp_url_filename(u).decode("utf-8", "replace")
 
     @staticmethod
     def parse(str raw):
@@ -423,6 +444,7 @@ cdef extern from *:
     #include <functional>
     #include <string_view>
     #include "httpp/client.hpp"
+    #include "httpp/download.hpp"
     typedef bool (*httpp_py_body_cb)(void*, const char*, std::size_t);
     typedef bool (*httpp_py_head_cb)(void*, const httpp::response&);
     typedef void (*httpp_py_retry_cb)(void*, const httpp::response&, int, long);
@@ -435,6 +457,9 @@ cdef extern from *:
     static void httpp_py_on_retry(httpp::request& r, void* ctx, httpp_py_retry_cb fn) {
         r.on_retry([ctx, fn](const httpp::response& last, int number, long delay) { fn(ctx, last, number, delay); });
     }
+    static void httpp_py_dl_on_retry(httpp::download& d, void* ctx, httpp_py_retry_cb fn) {
+        d.on_retry([ctx, fn](const httpp::response& last, int number, long delay) { fn(ctx, last, number, delay); });
+    }
     """
     ctypedef bint (*body_cb_fn "httpp_py_body_cb")(void*, const char*, size_t) noexcept nogil
     ctypedef bint (*head_cb_fn "httpp_py_head_cb")(void*, const response&) noexcept nogil
@@ -442,6 +467,7 @@ cdef extern from *:
     void py_on_body "httpp_py_on_body"(cpp_curl_request& r, void* ctx, body_cb_fn fn) except +
     void py_on_head "httpp_py_on_head"(cpp_curl_request& r, void* ctx, head_cb_fn fn) except +
     void py_on_retry "httpp_py_on_retry"(cpp_curl_request& r, void* ctx, retry_cb_fn fn) except +
+    void py_dl_on_retry "httpp_py_dl_on_retry"(cpp_download& d, void* ctx, retry_cb_fn fn) except +
 
 
 cdef class _Callback:

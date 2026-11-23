@@ -107,6 +107,8 @@ cdef extern from "httpp/server.hpp" namespace "httpp":
         cpp_server& reuse_port(cbool on) except +
         cpp_server& io_threads(size_t n) except +
         int bind_to_any_port(string host) except +
+        cbool bind(string host, int port) except +
+        string url() except +
         cbool listen_after_bind() except + nogil
         cbool listen(string host, int port) except + nogil
         void stop() except +
@@ -368,6 +370,7 @@ cdef extern from "httpp/url.hpp" namespace "httpp":
     int cpp_url_port "httpp::url_port"(const cpp_url& u)
     string cpp_url_path "httpp::url_path"(const cpp_url& u) except +
     string cpp_url_query "httpp::url_query"(const cpp_url& u) except +
+    string cpp_url_filename "httpp::url_filename"(const cpp_url& u) except +
     string cpp_encode_component "httpp::encode_component"(const string& text) except +
     string cpp_decode_component "httpp::decode_component"(const string& text) except +
     string cpp_build_query "httpp::build_query"(const vector[pair[string, string]]& params) except +

@@ -5,10 +5,9 @@ import threading
 import time
 from contextlib import contextmanager
 
-import pytest
-
 import httpp
-from httpp import Download, Server, URL, progress
+import pytest
+from httpp import URL, Download, Server, progress
 
 SIZE = 2_000_000
 CONTENT = bytes(i % 251 for i in range(SIZE))
@@ -249,9 +248,7 @@ def test_bar_refuses_negative_numbers():
 def test_range_yields_every_index_and_advances_the_bar_once_per_step(capfd):
     r = progress.range(5, "steps")
     assert len(r) == 5
-    seen = []
-    for i in r:
-        seen.append(i)
+    seen = list(r)
     assert seen == [0, 1, 2, 3, 4]
     out, err = capfd.readouterr()
     assert out == "" and "steps" in err and "100%" in err
@@ -271,6 +268,7 @@ def test_url_parse_exposes_the_parts_and_never_raises():
     assert (u.valid, u.scheme, u.host, u.port, u.path, u.query) == (
         True, "https", "example.com", 8443, "/a/b", "x=1&y=2")
     assert URL("http://example.com/p").port == 80
+    assert u.filename == "b"
     assert URL("https://example.com/p").port == 443
     for bad in ("nonsense", "", "ftp://example.com/x"):
         assert URL.parse(bad).valid is False
@@ -300,3 +298,11 @@ def test_url_build_query_encodes_names_and_values():
         URL.build_query({"a": None})
     with pytest.raises(TypeError):
         URL.build_query([("a", ["list"])])
+
+
+def test_url_filename_is_the_last_piece_of_the_path():
+    assert URL("http://h/dir/file.tar.gz?x=1").filename == "file.tar.gz"
+    assert URL("http://h/a%20b.txt").filename == "a%20b.txt"  # not percent-decoded
+    for none in ("http://h", "http://h/", "http://h/dir/", "http://h/a/.."):
+        assert URL(none).filename == "", none
+    assert URL("nonsense").valid is False and URL("nonsense").filename == URL("nonsense").path  # no validity check, as in C++
