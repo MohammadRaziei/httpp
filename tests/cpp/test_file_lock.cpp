@@ -11,19 +11,14 @@
 
 using httpp::file_lock;
 using httpp::path;
+using httpp::temp_path;
 using std::chrono::milliseconds;
 using clk = std::chrono::steady_clock;
 
 namespace {
 
-path fresh_dir(const char* name) {
-    path d = path(std::string("test_tmp_file_lock_") + name);
-    std::vector<path> v;
-    d.iterdir(v);
-    for (const path& e : v) e.unlink();
-    d.mkdir();
-    return d;
-}
+// A folder of its own in the system temp directory, removed with everything in it when the test ends.
+temp_path fresh_dir(const char* name) { return temp_path(std::string("httpp_file_lock_") + name + "_"); }
 
 double seconds_since(clk::time_point t) { return std::chrono::duration<double>(clk::now() - t).count(); }
 
@@ -53,7 +48,7 @@ struct fake_owner {
 }  // namespace
 
 UTEST(file_lock, holds_the_lock_directory_while_it_lives_and_removes_it_after) {
-    const path d = fresh_dir("basic");
+    temp_path d = fresh_dir("basic");
     const path target = d / "data.txt";
     {
         file_lock lock(target);
@@ -65,11 +60,10 @@ UTEST(file_lock, holds_the_lock_directory_while_it_lives_and_removes_it_after) {
     }
     ASSERT_FALSE(path(target.str() + ".lock").exists());
     { file_lock again(target); ASSERT_TRUE(again.owned()); }  // and it can be taken again
-    d.rmdir();
 }
 
 UTEST(file_lock, a_second_taker_waits_until_the_first_lets_go) {
-    const path d = fresh_dir("wait");
+    temp_path d = fresh_dir("wait");
     const path target = d / "data.txt";
     auto first = std::make_unique<file_lock>(target);
     std::atomic<bool> got{false};
@@ -85,12 +79,11 @@ UTEST(file_lock, a_second_taker_waits_until_the_first_lets_go) {
     other.join();
     ASSERT_TRUE(got.load());
     ASSERT_TRUE(waited);
-    d.rmdir();
 }
 
 // The reason the lock exists: read-modify-write from several threads loses no update.
 UTEST(file_lock, serializes_a_read_modify_write_across_threads) {
-    const path d = fresh_dir("counter");
+    temp_path d = fresh_dir("counter");
     const path target = d / "count.txt";
     target.write_text("0");
     const int threads = 4, rounds = 15;
@@ -106,11 +99,10 @@ UTEST(file_lock, serializes_a_read_modify_write_across_threads) {
     for (auto& th : pool) th.join();
     ASSERT_EQ(threads * rounds, std::stoi(target.read_text()));
     target.unlink();
-    d.rmdir();
 }
 
 UTEST(file_lock, waits_for_a_live_owner_and_takes_over_when_it_is_gone) {
-    const path d = fresh_dir("live");
+    temp_path d = fresh_dir("live");
     const path target = d / "data.txt";
     fake_owner owner(target);
     std::thread releaser([&] {
@@ -128,7 +120,7 @@ UTEST(file_lock, waits_for_a_live_owner_and_takes_over_when_it_is_gone) {
 }
 
 UTEST(file_lock, takes_over_a_lock_whose_owner_died_after_stale_after) {
-    const path d = fresh_dir("dead");
+    temp_path d = fresh_dir("dead");
     const path target = d / "data.txt";
     path dead(target.str() + ".lock");
     dead.mkdir();
@@ -143,11 +135,11 @@ UTEST(file_lock, takes_over_a_lock_whose_owner_died_after_stale_after) {
         ASSERT_TRUE(took < 4.0);
     }
     ASSERT_FALSE(dead.exists());
-    d.rmdir();
 }
 
 UTEST(file_lock, goes_on_unlocked_when_the_lock_cannot_be_made) {
-    const path target = path("test_tmp_file_lock_no_such_dir") / "x" / "data.txt";
+    temp_path area("httpp_file_lock_");
+    const path target = area / "no_such_dir" / "x" / "data.txt";
     const auto t = clk::now();
     file_lock lock(target);
     ASSERT_FALSE(lock.owned());

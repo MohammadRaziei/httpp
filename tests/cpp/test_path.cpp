@@ -85,9 +85,9 @@ UTEST(path, absolute) {
 }
 
 UTEST(path, disk_members_and_open) {
-    const path dir = "path_test_dir";
-    if (dir.exists()) (dir / "f.txt").unlink();
-    else ASSERT_TRUE(dir.mkdir());
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
+    const path dir = area / "path_test_dir";
+    ASSERT_TRUE(dir.mkdir());
     ASSERT_TRUE(dir.is_dir());
     ASSERT_FALSE(dir.is_file());
     const path f = dir / "f.txt";
@@ -109,20 +109,19 @@ UTEST(path, disk_members_and_open) {
         out << "!";
     }
     ASSERT_TRUE(f.read_text() == "hello!");
-    ASSERT_TRUE(httpp::sha256_file(f) == httpp::sha256_file("path_test_dir/f.txt")); // a string converts implicitly
+    ASSERT_TRUE(httpp::sha256_file(f) == httpp::sha256_file((dir / "f.txt").str())); // a string converts implicitly
     const path g = dir / "g.txt";
     ASSERT_TRUE(f.rename(g));
     ASSERT_FALSE(f.exists());
     ASSERT_TRUE(g.exists());
     ASSERT_TRUE(g.unlink());
-    ASSERT_FALSE(path("path_test_dir/missing").open());
+    ASSERT_FALSE((dir / "missing").open());
 }
 
 // The case that motivated open(): serve a file from an address, with the path as the response's file.
 UTEST(path, a_path_is_what_a_route_serves_as_a_file) {
-    const path dir = "path_serve_dir";
-    dir.mkdir();
-    const path f = dir / "page.txt";
+    temp_path area("httpp_path_test_"); // removed, with everything in it, when the test ends
+    const path f = area / "page.txt";
     f.write_text("served from a path");
     testutil::local_server srv([&](httpp::server& s) {
         s.get("/page", [&](const httpp::server_request&, httpp::response& res) { res.file = f; });
@@ -429,11 +428,8 @@ UTEST(temp_path, it_is_a_path_where_a_path_is_taken) {
 // ---- write_text_atomic and read_text ranges ----
 
 namespace {
-path scratch_dir(const char* name) {
-    path d = path(std::string("test_tmp_path_") + name);
-    for (const path& e : [&] { std::vector<path> v; d.iterdir(v); return v; }()) e.unlink();
-    d.mkdir();
-    return d;
+temp_path scratch_dir(const char* name) {
+    return temp_path(std::string("httpp_path_") + name + "_"); // removed when the test ends
 }
 int leftovers(const path& d, const std::string& keep) {
     std::vector<path> v;
@@ -445,7 +441,7 @@ int leftovers(const path& d, const std::string& keep) {
 }  // namespace
 
 UTEST(path, write_text_atomic_creates_and_replaces_a_file_and_leaves_nothing_behind) {
-    const path d = scratch_dir("atomic");
+    temp_path d = scratch_dir("atomic");
     const path f = d / "state.txt";
     f.write_text_atomic("first");
     ASSERT_TRUE(f.read_text() == "first");
@@ -455,11 +451,11 @@ UTEST(path, write_text_atomic_creates_and_replaces_a_file_and_leaves_nothing_beh
     ASSERT_TRUE(f.exists() && f.read_text().empty());
     ASSERT_EQ(0, leftovers(d, "state.txt"));  // no ".tmp.*" files
     f.unlink();
-    d.rmdir();
 }
 
 UTEST(path, write_text_atomic_throws_and_leaves_no_file_when_the_directory_is_missing) {
-    const path f = path("test_tmp_path_no_such_dir") / "x" / "state.txt";
+    temp_path area("httpp_path_test_");
+    const path f = area / "no_such_dir" / "x" / "state.txt";
     bool threw = false;
     try {
         f.write_text_atomic("data");
@@ -471,7 +467,7 @@ UTEST(path, write_text_atomic_throws_and_leaves_no_file_when_the_directory_is_mi
 }
 
 UTEST(path, write_text_atomic_keeps_the_old_file_when_the_target_cannot_be_replaced) {
-    const path d = scratch_dir("blocked");
+    temp_path d = scratch_dir("blocked");
     const path target = d / "dir_in_the_way";
     target.mkdir();  // rename() of a file over a directory fails
     bool threw = false;
@@ -484,12 +480,11 @@ UTEST(path, write_text_atomic_keeps_the_old_file_when_the_target_cannot_be_repla
     ASSERT_TRUE(target.is_dir());
     ASSERT_EQ(0, leftovers(d, "dir_in_the_way"));  // the temporary file was removed
     target.rmdir();
-    d.rmdir();
 }
 
 // A reader never sees a half-written file, however often a writer replaces it (write_text() would show an empty or cut one).
 UTEST(path, a_reader_sees_only_whole_texts_while_writers_replace_the_file) {
-    const path d = scratch_dir("race");
+    temp_path d = scratch_dir("race");
     const path f = d / "shared.txt";
     const std::string a(200000, 'a'), b(300000, 'b');
     f.write_text_atomic(a);
@@ -513,11 +508,10 @@ UTEST(path, a_reader_sees_only_whole_texts_while_writers_replace_the_file) {
     ASSERT_EQ(0, torn.load());
     ASSERT_EQ(0, leftovers(d, "shared.txt"));
     f.unlink();
-    d.rmdir();
 }
 
 UTEST(path, read_text_takes_a_byte_range) {
-    const path d = scratch_dir("range");
+    temp_path d = scratch_dir("range");
     const path f = d / "line.txt";
     f.write_text("abcdefghij");
     ASSERT_TRUE(f.read_text(0, 4) == "abcd");
@@ -542,5 +536,4 @@ UTEST(path, read_text_takes_a_byte_range) {
     ASSERT_TRUE(f.read_text(19998, 30000) == "xxEND");
     ASSERT_TRUE(f.read_text(0, 17000).size() == 17000u);
     f.unlink();
-    d.rmdir();
 }

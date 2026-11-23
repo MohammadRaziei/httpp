@@ -2,6 +2,7 @@
 #include "utest/utest.h"
 #include "httpp/client.hpp"
 #include "httpp/middleware.hpp"
+#include "httpp/path.hpp"
 #include "httpp/server.hpp"
 #include "internal/tls_session.hpp"
 #include "local_server.hpp"
@@ -11,7 +12,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <filesystem>
 #include <fstream>
 #include <future>
 #include <stdexcept>
@@ -24,16 +24,15 @@ using namespace std::chrono;
 
 namespace {
 
-// The test certificates as files (the API takes paths), written once per process.
+// The test certificates as files (the API takes paths), written once per process into a folder that goes with the process.
 struct cert_files {
+    httpp::temp_path dir{"httpp_tls_test_"};
     std::string cert, key, other_key;
     cert_files() {
-        const auto dir = std::filesystem::temp_directory_path() / ("httpp_tls_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-        std::filesystem::create_directories(dir);
         auto put = [&](const char* name, const char* text) {
-            const auto p = dir / name;
+            const std::string p = (dir / name).str();
             std::ofstream(p, std::ios::binary) << text;
-            return p.string();
+            return p;
         };
         cert = put("cert.pem", testcerts::good_cert);
         key = put("key.pem", testcerts::good_key);

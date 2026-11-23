@@ -2,6 +2,7 @@
 // A tiny TLS server (mbedtls, blocking, one thread per connection) for the engine tests, so they need
 // no `openssl` binary. Shared by test_async_https.cpp and test_async_pool_proxy.cpp.
 
+#include "httpp/path.hpp"
 #include "internal/async_http.hpp"
 #include "test_certs.hpp"
 
@@ -17,7 +18,6 @@
 
 #include <atomic>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -148,8 +148,14 @@ inline std::string keep_response(const std::string& body) {
     return "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body;
 }
 
+// The folder of the certificate files: one per process, removed when the process ends (httpp::temp_path).
+inline const httpp::path& pem_dir() {
+    static const httpp::temp_path dir("httpp_tls_test_");
+    return dir.get();
+}
+
 inline std::string write_pem(const char* pem, const char* name) {
-    std::string path = (std::filesystem::temp_directory_path() / (std::string("httpp_test_") + name + ".pem")).string();
+    const std::string path = (pem_dir() / (std::string(name) + ".pem")).str();
     std::ofstream(path, std::ios::binary) << pem;
     return path;
 }
