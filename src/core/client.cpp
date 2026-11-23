@@ -45,7 +45,9 @@ long detail::settings_ref::max_time() const { return g_->read([](const session_s
 void detail::settings_ref::retry(int times) const { g_->update([&](session_settings& s) { s.set_retry(times); }); }
 int detail::settings_ref::retry() const { return g_->read([](const session_settings& s) { return s.retries; }); }
 void detail::settings_ref::retry_delay(long seconds) const { g_->update([&](session_settings& s) { s.set_retry_delay(seconds); }); }
-long detail::settings_ref::retry_delay() const { return g_->read([](const session_settings& s) { return s.retry_delay; }); }
+long detail::settings_ref::retry_delay() const { return g_->read([](const session_settings& s) { return s.retry_delay_ms / 1000; }); }
+void detail::settings_ref::retry_delay_ms(long ms) const { g_->update([&](session_settings& s) { s.set_retry_delay_ms(ms); }); }
+long detail::settings_ref::retry_delay_ms() const { return g_->read([](const session_settings& s) { return s.retry_delay_ms; }); }
 void detail::settings_ref::retry_connrefused(bool enable) const { g_->update([&](session_settings& s) { s.retry_connrefused = enable; }); }
 bool detail::settings_ref::retry_connrefused() const { return g_->read([](const session_settings& s) { return s.retry_connrefused; }); }
 void detail::settings_ref::max_redirects(int count) const { g_->update([&](session_settings& s) { s.set_max_redirects(count); }); }

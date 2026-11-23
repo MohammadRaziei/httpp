@@ -9,6 +9,8 @@ such changes are listed under **Changed**).
 
 ### Added
 
+- **`retry_delay_ms` (ADR-0110).** The wait between tries in milliseconds, on `request`, `client`, `async_client` and `download` and in Python (`Request`, `Download`, `Client`, `AsyncClient`, as a method and a keyword). It is one setting with `retry_delay`: the last one set wins, 0 is still the 1, 2, 4, ... second back-off. Python's `retry_delay` now takes a float (`0.2` is 200 ms; it used to round to a whole second). `on_retry` is still told whole seconds, rounded up, and the CLI's `--retry-delay` stays in seconds. `settings_ref` gained two members: rebuild consumers.
+
 - **`httpp download --retry`, `--retry-delay`, `--retry-connrefused` and `download::on_retry` (ADR-0109; the Python binding of `on_retry` is not done yet).** The flags are those of `httpp curl`, with the same warning before each wait (`-q` hides it); they work with `-o` (a real `httpp::download`, ADR-0104) and without it (the body goes to standard output, now through `httpp::request` instead of `client::fetch`). A transfer that fails for a transport reason on that path says why instead of `status 0`. `download` gained a public member: rebuild consumers.
 
 - **`httpp::http_exception(status, detail, headers)` (ADR-0020), the C++ twin of Python's `HTTPException`.** Throw it from a handler (sync, `get_async` or a websocket `on_handshake`) and the client gets `{"detail": detail}` with that status and headers; `detail` defaults to the reason phrase, a status outside 100 to 599 throws `std::invalid_argument`. A C++ `exception_handler` runs after the answer is made and may change it. The reason phrases moved to `src/core/internal/http_reason.hpp`, and the three places that answered an exception now share one function.

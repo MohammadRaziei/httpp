@@ -549,22 +549,15 @@ def test_a_streamed_generator_is_released_when_the_response_ends_or_the_client_h
 
     app.get("/done")(lambda: tracked("done", False))
     app.get("/endless")(lambda: tracked("endless", True))
-    app.get("/ready")(lambda: "ok")
 
     port = app.bind_to_any_port("127.0.0.1")
     th = threading.Thread(target=app.listen_after_bind)
     th.start()
     time.sleep(0.05)
     try:
-        # Wait until the server really answers: a fixed sleep is too short on a slow (Windows, free-threaded) runner.
-        deadline = time.monotonic() + 10
-        while True:
-            ready = Request(f"http://127.0.0.1:{port}/ready").run()
-            if ready.ok or time.monotonic() > deadline:
-                break
-            time.sleep(0.05)
-        assert ready.ok, f"the server never answered: {ready.error}: {ready.error_message}"
-        done = Request(f"http://127.0.0.1:{port}/done").run()
+        # A server started on a thread takes a moment to accept (longer on a slow Windows or free-threaded runner), and a fixed
+        # sleep is a guess: a refused connection is tried again every 50 ms, for 5 s at most.
+        done = Request(f"http://127.0.0.1:{port}/done").retry(100).retry_connrefused().retry_delay_ms(50).run()
         assert done.body == "a;", f"/done gave status {done.status}, error {done.error}: {done.error_message}"
         sock = socket.create_connection(("127.0.0.1", port), timeout=3)
         sock.sendall(b"GET /endless HTTP/1.1\r\nHost: x\r\n\r\n")

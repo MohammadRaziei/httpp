@@ -188,6 +188,8 @@ public:
     HTTPP_API int retry() const;
     HTTPP_API void retry_delay(long seconds) const;
     HTTPP_API long retry_delay() const;
+    HTTPP_API void retry_delay_ms(long ms) const;
+    HTTPP_API long retry_delay_ms() const;
     HTTPP_API void retry_connrefused(bool enable) const;
     HTTPP_API bool retry_connrefused() const;
     HTTPP_API void max_redirects(int count) const;
@@ -253,10 +255,17 @@ public:
 
     // --retry-delay (seconds): the wait before each new try. 0 (the default) waits 1, 2, 4, ... seconds, 600 at most. The
     // wait is a timer on the network thread, not a sleep: other requests go on. It holds the connection slot of an
-    // async_client. Throws std::invalid_argument for a negative number.
+    // async_client. Throws std::invalid_argument for a negative number or more than a day. The getter gives whole seconds
+    // (rounded down: 200 ms reads as 0); retry_delay_ms() gives what was set.
     HTTPP_MEMBER Self& retry_delay(long seconds) & { ref().retry_delay(seconds); return self(); }
     Self retry_delay(long seconds) && { ref().retry_delay(seconds); return std::move(self()); }
     HTTPP_MEMBER long retry_delay() const { return ref().retry_delay(); }
+
+    // The same wait in milliseconds, for a short one (a test that waits for a server to come up). One setting: the last of
+    // retry_delay() and retry_delay_ms() wins. on_retry() is still told whole seconds, rounded up.
+    HTTPP_MEMBER Self& retry_delay_ms(long ms) & { ref().retry_delay_ms(ms); return self(); }
+    Self retry_delay_ms(long ms) && { ref().retry_delay_ms(ms); return std::move(self()); }
+    HTTPP_MEMBER long retry_delay_ms() const { return ref().retry_delay_ms(); }
 
     // --retry-connrefused: also send again after error_kind::connection (a refused connection, a failed lookup). Off by default.
     HTTPP_MEMBER Self& retry_connrefused(bool enable) & { ref().retry_connrefused(enable); return self(); }

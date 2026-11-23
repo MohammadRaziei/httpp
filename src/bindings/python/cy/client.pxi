@@ -206,9 +206,16 @@ cdef bytes _fs(object p):
     return os.fsencode(p)
 
 
+cdef long _delay_ms(value, str name) except -1:
+    """A wait given in seconds (an int or a float: 0.2 is 200 ms) as whole milliseconds; ValueError for a negative one."""
+    if value < 0:
+        raise ValueError(f"{name} must not be negative")
+    return <long>round(value * 1000)
+
+
 cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, max_redirects, connect_timeout,
                                 max_time, cbool auto_compression, basic_auth, bearer, cbool verify, ca_file, proxy,
-                                retry=None, retry_delay=None, retry_connrefused=None) except *:
+                                retry=None, retry_delay=None, retry_connrefused=None, retry_delay_ms=None) except *:
     """The options httpp.Client and httpp.AsyncClient share (the C++ client and async_client have the same setters)."""
     if headers:
         for name, value in (headers.items() if hasattr(headers, "items") else headers):
@@ -227,10 +234,14 @@ cdef void _apply_client_options(_cpp_http_client* cli, headers, timeout, max_red
         if retry < 0:
             raise ValueError("retry must not be negative")
         cli.retry(retry)
+    if retry_delay is not None and retry_delay_ms is not None:
+        raise ValueError("give retry_delay or retry_delay_ms, not both")
     if retry_delay is not None:
-        if retry_delay < 0:
-            raise ValueError("retry_delay must not be negative")
-        cli.retry_delay(int(round(retry_delay)))
+        cli.retry_delay_ms(_delay_ms(retry_delay, "retry_delay"))
+    if retry_delay_ms is not None:
+        if retry_delay_ms < 0:
+            raise ValueError("retry_delay_ms must not be negative")
+        cli.retry_delay_ms(<long>retry_delay_ms)
     if retry_connrefused is not None:
         cli.retry_connrefused(retry_connrefused)
     if not auto_compression:
@@ -281,14 +292,15 @@ cdef class Client:
     def __init__(self, str host_or_url, port=None, cbool ssl=False, *, headers=None, timeout=None,
                  max_redirects=None, connect_timeout=None, max_time=None,
                  cbool auto_compression=True, basic_auth=None, bearer=None, cbool verify=True, ca_file=None,
-                 proxy=None, cbool keep_alive=True, retry=None, retry_delay=None, retry_connrefused=None):
+                 proxy=None, cbool keep_alive=True, retry=None, retry_delay=None, retry_connrefused=None,
+                 retry_delay_ms=None):
         if port is None:
             self._cli = new cpp_client(host_or_url.encode("utf-8"))
         else:
             self._cli = new cpp_client(host_or_url.encode("utf-8"), <int>port, ssl)
         _apply_client_options(self._cli, headers, timeout, max_redirects, connect_timeout, max_time,
                               auto_compression, basic_auth, bearer, verify, ca_file, proxy,
-                              retry, retry_delay, retry_connrefused)
+                              retry, retry_delay, retry_connrefused, retry_delay_ms)
         if not keep_alive:
             self._cli.keep_alive(False)
 

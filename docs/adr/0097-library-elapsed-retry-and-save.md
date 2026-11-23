@@ -74,7 +74,7 @@ That was logic of the request in the front end. The library already runs the clo
 5. With `on_body()` the sink of a try that can still be followed by another is wrapped: a transient status is answered with `verdict::skip`, so the body is read and thrown away and neither `on_head` nor `on_body` of the caller sees it. On the last try the head is handed on as usual. A transient answer is therefore shown to the callbacks if and only if it is the final one. A failure after a body already reached `on_body` (a timeout in the middle of it, say) is still retried and the body then arrives again from its first byte: the callbacks cannot take it back. `httpp curl` behaves the same as before.
 6. The wait is a timer, not a sleep: `async_http::post_after(delay, fn)` runs `fn` on the engine's loop thread when the time has passed, so other requests go on, and `run_async` and `async_client` need no thread of their own. `run()` still blocks its caller for the wait, as it blocks for the request. The wait holds the connection slot of an `async_client`.
 7. `httpp curl` copies `--retry`, `--retry-delay` and `--retry-connrefused` into those settings and, unless `-s`, prints `Warning: transient problem, will retry in N seconds (K of M)` from `on_retry`, as before. It has no loop, no clock, no transient table and no sleep of its own, and no `#include <thread>`.
-8. The wait is in whole seconds (curl's unit); `retry_delay` takes no fraction.
+8. The wait is in whole seconds (curl's unit); `retry_delay` takes no fraction. (Later, ADR-0110: `retry_delay_ms` is added for a short wait, and Python's `retry_delay` takes a float.)
 
 #### Rejected alternatives
 

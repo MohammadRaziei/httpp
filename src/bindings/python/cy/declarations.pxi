@@ -26,6 +26,7 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         cpp_client& max_time(long seconds) except +
         cpp_client& retry(int times) except +
         cpp_client& retry_delay(long seconds) except +
+        cpp_client& retry_delay_ms(long ms) except +
         cpp_client& retry_connrefused(cbool enable) except +
         cpp_client& auto_compression(cbool enable) except +
         cpp_client& basic_auth(string user, string password) except +
@@ -321,6 +322,7 @@ cdef extern from "httpp/download.hpp" namespace "httpp":
         cpp_download& max_time(long seconds) except +  # std::invalid_argument -> ValueError
         cpp_download& retry(int times) except +
         cpp_download& retry_delay(long seconds) except +
+        cpp_download& retry_delay_ms(long ms) except +
         cpp_download& retry_connrefused(cbool enable) except +
         cpp_download& basic_auth(string user, string password) except +
         cpp_download& bearer(string token) except +
@@ -394,6 +396,7 @@ cdef extern from "httpp/client.hpp" namespace "httpp::client":
         cpp_curl_request& max_time(long seconds) except +  # std::invalid_argument -> ValueError
         cpp_curl_request& retry(int times) except +
         cpp_curl_request& retry_delay(long seconds) except +
+        cpp_curl_request& retry_delay_ms(long ms) except +
         cpp_curl_request& retry_connrefused(cbool enable) except +
         cpp_curl_request& save_to(string file) except +
         cpp_curl_request& save_in(string folder) except +

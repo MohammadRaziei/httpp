@@ -85,7 +85,7 @@ struct request_spec {
     long max_time = 0; // seconds for the whole request, redirects included; 0 = no such limit
     std::chrono::steady_clock::time_point deadline{}; // set from max_time when the request starts; epoch = none
     int retries = 0; // more tries after one that may pass (ADR-0097); 0 = never
-    long retry_delay = 0; // seconds before each new try; 0 = 1, 2, 4, ... up to 600
+    long retry_delay_ms = 0; // milliseconds before each new try; 0 = 1, 2, 4, ... up to 600 seconds
     bool retry_connrefused = false; // also try again after error_kind::connection
     std::function<void(const response&, int, long)> on_retry; // before each new try: the last response, its number, the wait
     std::function<void(response&)> on_finish; // once, with the final response, before it is handed to the caller (ADR-0097)
@@ -119,7 +119,7 @@ struct session_settings {
     long connect_timeout = 0; // 0 = timeout covers the connect steps too
     long max_time = 0; // 0 = no limit on the whole request
     int retries = 0;
-    long retry_delay = 0;
+    long retry_delay_ms = 0; // 0 = 1, 2, 4, ... up to 600 seconds
     bool retry_connrefused = false;
     std::function<void(const response&, int, long)> on_retry; // only a download's job sets this (download::on_retry, ADR-0109); a request sets its own on the spec
     int max_redirects = request_spec::redirect_limit;
@@ -143,7 +143,8 @@ struct session_settings {
     void set_connect_timeout(long seconds);  // throws std::invalid_argument for a negative number
     void set_max_time(long seconds);         // same
     void set_retry(int times);               // same
-    void set_retry_delay(long seconds);      // same
+    void set_retry_delay(long seconds);      // same (stored as milliseconds)
+    void set_retry_delay_ms(long ms);        // same
     void set_max_redirects(int count);       // 0 follows none, -1 no limit, any other negative number throws (redirect_hops)
     int redirects() const;                   // what set_max_redirects was given: 0, n or -1
     void set_proxy(const url& proxy_url);    // "" = no proxy; throws std::invalid_argument for a URL that is no proxy

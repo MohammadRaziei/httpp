@@ -55,7 +55,7 @@ cdef class Download:
     def __init__(self, str url, dest_path="", *, enable_progress=None, resume=None, force=None, sha256=None,
                  sha256_url=None, max_wait=None, timeout=None, max_redirects=None, connect_timeout=None,
                  max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None, proxy=None, headers=None,
-                 retry=None, retry_delay=None, retry_connrefused=None):
+                 retry=None, retry_delay=None, retry_connrefused=None, retry_delay_ms=None):
         """Every keyword is the name of a setter and does what the setter does (basic_auth takes (user, password);
         headers is a dict, one header() call per item);
         Download(url, path, resume=True, timeout=30) is Download(url, path).resume().timeout(30)."""
@@ -92,8 +92,12 @@ cdef class Download:
             self.proxy(proxy)
         if retry is not None:
             self.retry(retry)
+        if retry_delay is not None and retry_delay_ms is not None:
+            raise ValueError("give retry_delay or retry_delay_ms, not both")
         if retry_delay is not None:
             self.retry_delay(retry_delay)
+        if retry_delay_ms is not None:
+            self.retry_delay_ms(retry_delay_ms)
         if retry_connrefused is not None:
             self.retry_connrefused(retry_connrefused)
         for name, value in (headers.items() if hasattr(headers, "items") else headers or ()):
@@ -112,10 +116,16 @@ cdef class Download:
         return self
 
     def retry_delay(self, seconds):
-        """The wait in seconds before each new try; 0 (default) waits 1, 2, 4, ... seconds, 600 at most."""
-        if seconds < 0:
-            raise ValueError("retry_delay must not be negative")
-        self._dl.retry_delay(int(round(seconds)))
+        """The wait in seconds (a float: 0.2 is 200 ms) before each new try; 0 (default) waits 1, 2, 4, ... seconds, 600 at
+        most. ValueError for a negative number or more than a day."""
+        self._dl.retry_delay_ms(_delay_ms(seconds, "retry_delay"))
+        return self
+
+    def retry_delay_ms(self, long ms):
+        """The same wait in milliseconds. One setting: the last of retry_delay() and retry_delay_ms() wins."""
+        if ms < 0:
+            raise ValueError("retry_delay_ms must not be negative")
+        self._dl.retry_delay_ms(ms)
         return self
 
     def retry_connrefused(self, cbool enable=True):
@@ -505,7 +515,7 @@ cdef class Request:
                  content_type=None, cookies=None, timeout=None, max_redirects=None, auto_compression=None,
                  connect_timeout=None, max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None,
                  proxy=None, max_response_size=None, retry=None, retry_delay=None, retry_connrefused=None,
-                 save_to=None, save_in=None, create_dirs=None, overwrite=None, include_head=None,
+                 retry_delay_ms=None, save_to=None, save_in=None, create_dirs=None, overwrite=None, include_head=None,
                  on_body=None, on_head=None, on_retry=None):
         """Every keyword is the name of a setter and does what the setter does, so Request(url, method="PUT",
         timeout=10) is Request(url).method("PUT").timeout(10). Three are plural because the setter is called once
@@ -554,8 +564,12 @@ cdef class Request:
             self.max_response_size(max_response_size)
         if retry is not None:
             self.retry(retry)
+        if retry_delay is not None and retry_delay_ms is not None:
+            raise ValueError("give retry_delay or retry_delay_ms, not both")
         if retry_delay is not None:
             self.retry_delay(retry_delay)
+        if retry_delay_ms is not None:
+            self.retry_delay_ms(retry_delay_ms)
         if retry_connrefused is not None:
             self.retry_connrefused(retry_connrefused)
         if save_to is not None:
@@ -712,10 +726,16 @@ cdef class Request:
         return self
 
     def retry_delay(self, seconds):
-        """The wait in seconds before each new try; 0 (default) waits 1, 2, 4, ... seconds, 600 at most."""
-        if seconds < 0:
-            raise ValueError("retry_delay must not be negative")
-        self._req.retry_delay(int(round(seconds)))
+        """The wait in seconds (a float: 0.2 is 200 ms) before each new try; 0 (default) waits 1, 2, 4, ... seconds, 600 at
+        most. ValueError for a negative number or more than a day."""
+        self._req.retry_delay_ms(_delay_ms(seconds, "retry_delay"))
+        return self
+
+    def retry_delay_ms(self, long ms):
+        """The same wait in milliseconds. One setting: the last of retry_delay() and retry_delay_ms() wins."""
+        if ms < 0:
+            raise ValueError("retry_delay_ms must not be negative")
+        self._req.retry_delay_ms(ms)
         return self
 
     def retry_connrefused(self, cbool enable=True):
@@ -824,6 +844,7 @@ cdef extern from "httpp/client.hpp" namespace "httpp":
         cpp_async_client& max_time(long seconds) except +
         cpp_async_client& retry(int times) except +
         cpp_async_client& retry_delay(long seconds) except +
+        cpp_async_client& retry_delay_ms(long ms) except +
         cpp_async_client& retry_connrefused(cbool enable) except +
         cpp_async_client& auto_compression(cbool enable) except +
         cpp_async_client& basic_auth(string user, string password) except +
@@ -906,11 +927,11 @@ cdef class _AsyncClientCore:
     def __init__(self, str base_url, size_t max_connections=8, *, headers=None, timeout=None,
                  max_redirects=None, connect_timeout=None, max_time=None,
                  cbool auto_compression=True, basic_auth=None, bearer=None, cbool verify=True, ca_file=None,
-                 proxy=None, retry=None, retry_delay=None, retry_connrefused=None):
+                 proxy=None, retry=None, retry_delay=None, retry_connrefused=None, retry_delay_ms=None):
         self._cli = new cpp_async_client(base_url.encode("utf-8"), max_connections)
         _apply_client_options(self._cli, headers, timeout, max_redirects, connect_timeout, max_time,
                               auto_compression, basic_auth, bearer, verify, ca_file, proxy,
-                              retry, retry_delay, retry_connrefused)
+                              retry, retry_delay, retry_connrefused, retry_delay_ms)
 
     def __dealloc__(self):
         if self._cli is not NULL:

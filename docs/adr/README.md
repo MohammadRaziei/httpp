@@ -72,6 +72,7 @@ texts kept, in order, as its parts. Numbers are not renumbered, so there are gap
 | [0106](0106-direct-scheme-is-no-proxy.md) | `direct://` (any case, nothing after the scheme) means no proxy at all, like `""`, when a proxy is given explicitly: `proxy("direct://")`, `-x direct://`, `resolve_proxy(..., "direct://")`; an error in the environment; bare `direct` and `off` stay hosts | implemented (C++) |
 | [0107](0107-environment-variables.md) | `httpp::env` in `httpp_utils`: `get`, `first`, `set`, `unset` on UTF-8 text (wide API on Windows) with one lock, and `env::scope`, which puts the old value back; the four `getenv` readers and the proxy test helper move onto it | implemented in C++ (built and tested on Linux); Windows branch not run |
 | [0108](0108-resource-limits-and-request-checks.md) | Limits and request checks from the 0.9.0 security review: 1024 pairs and a 1 MiB form body, 10000 connections, one `Host`, loopback `Host` allowlist in the CLI, same-origin zip POST, no control or direction characters in multipart names, TLS needs a SAN, client body 256 MiB and head 64 KiB | implemented (C++, Python) |
+| [0110](0110-retry-delay-in-milliseconds.md) | `retry_delay_ms` (a wait in milliseconds) next to `retry_delay`, and a Python `retry_delay` that takes a fraction of a second |
 | [0109](0109-download-on-retry-and-the-download-retry-flags.md) | `download::on_retry` and `httpp download --retry/--retry-delay/--retry-connrefused` (also without `-o`); one shared warning function with `curl`; `-q` hides it | implemented (C++) |
 
 ## Not decided yet

@@ -127,6 +127,33 @@ def test_retry_sends_again_after_a_503_and_on_retry_is_told():
         assert [n for _, n, _ in notes] == [1, 2] and all(status == 503 for status, _, _ in notes)
 
 
+def test_retry_delay_takes_fractions_of_a_second_and_has_a_milliseconds_twin():
+    # 0.15 s must not be rounded to 0 (the default 1, 2, 4 s back-off) or up to 1
+    for make in (lambda url: Request(url).retry(2).retry_delay(0.15),
+                 lambda url: Request(url).retry(2).retry_delay_ms(150),
+                 lambda url: Request(url, retry=2, retry_delay=0.15),
+                 lambda url: Request(url, retry=2, retry_delay_ms=150)):
+        with running(make_app()) as url:
+            start = time.monotonic()
+            res = make(url + "/flaky").run()
+            took = time.monotonic() - start
+        assert res.status == 200
+        assert 0.14 < took < 0.9
+
+
+def test_a_client_takes_the_wait_in_milliseconds_too_and_refuses_both():
+    Client("http://127.0.0.1:1", retry=2, retry_delay_ms=200)
+    Client("http://127.0.0.1:1", retry=2, retry_delay=0.2)
+    with pytest.raises(ValueError):
+        Client("http://127.0.0.1:1", retry_delay=1, retry_delay_ms=200)
+    with pytest.raises(ValueError):
+        Request("http://127.0.0.1:1/", retry_delay=1, retry_delay_ms=200)
+    with pytest.raises(ValueError):
+        Request("http://127.0.0.1:1/").retry_delay_ms(-1)
+    with pytest.raises(ValueError):
+        Request("http://127.0.0.1:1/").retry_delay(86401)  # more than a day
+
+
 def test_retry_values_are_checked():
     with pytest.raises(ValueError):
         Request("http://127.0.0.1:1/").retry(-1)
