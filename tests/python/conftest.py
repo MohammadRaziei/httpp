@@ -19,6 +19,28 @@ import httpp_cli
 # (tests/python/CMakeLists.txt).
 
 
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """In CI, write the reason of every failure the moment it happens.
+
+    pytest prints the reasons at the end of the run, and a run that dies on the way (an abort() in a C++ thread, a hang that
+    pytest-timeout ends) never gets there: the log then says FAILED and nothing more. The report goes to the terminal writer with
+    a flush, because the output of a piped process is block-buffered and an abort loses what has not been flushed."""
+    outcome = yield
+    report = outcome.get_result()
+    if not report.failed or not os.environ.get("CI"):
+        return
+    reporter = item.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is None:
+        return
+    reporter.ensure_newline()
+    reporter.write_line(f"===== {report.when} of {report.nodeid} FAILED =====", red=True)
+    reporter.write_line(report.longreprtext)
+    flush = getattr(getattr(reporter, "_tw", None), "flush", None)  # a private name of pytest: do without it if it is gone
+    if flush is not None:
+        flush()
+
+
 @pytest.fixture(autouse=True)
 def _plain_text(monkeypatch):
     """Python 3.14 argparse colours its help when FORCE_COLOR is set; the tests compare text, in this process and in the commands they start."""
