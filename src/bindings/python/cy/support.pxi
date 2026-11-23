@@ -223,3 +223,43 @@ def resolve_proxy(str url, proxy=None, no_proxy=None):
     if not found.has_value():
         return None
     return _proxy_text(found.value())
+
+
+# What an abort says. A C++ exception nobody caught on a network or pool thread ends in std::terminate, which on Windows (MSVC)
+# prints nothing: the log of a CI run showed only "Fatal Python error: Aborted". This handler writes the exception first, then
+# calls the one that was there before (or abort()). Set once, at import.
+cdef extern from *:
+    """
+    #include <cstdio>
+    #include <cstdlib>
+    #include <exception>
+    #include <typeinfo>
+    namespace {
+    std::terminate_handler httpp_py_previous_terminate = nullptr;
+    void httpp_py_report_terminate() {
+        std::fputs("httpp: std::terminate: ", stderr);
+        try {
+            if (std::exception_ptr e = std::current_exception()) std::rethrow_exception(e);
+            std::fputs("called with no exception in flight", stderr);
+        } catch (const std::exception& ex) {
+            std::fprintf(stderr, "uncaught %s: %s", typeid(ex).name(), ex.what());
+        } catch (...) {
+            std::fputs("uncaught exception of an unknown type", stderr);
+        }
+        std::fputs("\\n", stderr);
+        std::fflush(stderr);
+        if (httpp_py_previous_terminate && httpp_py_previous_terminate != httpp_py_report_terminate) httpp_py_previous_terminate();
+        std::abort();
+    }
+    }
+    static void httpp_py_install_terminate_report() {
+        static bool done = false;
+        if (done) return;
+        done = true;
+        httpp_py_previous_terminate = std::set_terminate(httpp_py_report_terminate);
+    }
+    """
+    void httpp_py_install_terminate_report() noexcept
+
+
+httpp_py_install_terminate_report()
