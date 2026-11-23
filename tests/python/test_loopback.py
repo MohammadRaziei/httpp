@@ -97,3 +97,11 @@ def test_client_keeps_a_connection_alive_on_the_loopback(host):
     with serving(host) as port:
         client = httpp.Client(f"http://{url_host}:{port}")
         assert [client.get("/ping").status for _ in range(5)] == [200] * 5
+
+
+def test_a_bracketed_ipv6_literal_is_connected_to_not_resolved():
+    """`[::1]` goes to the resolver without its brackets. Port 1 has no server, so the answer is a refusal (or, on a computer with no IPv6, an
+    unreachable network): a failure to *connect*. "cannot resolve host" means the brackets reached the resolver. Needs no IPv6 on the computer."""
+    r = httpp.Request("http://[::1]:1/", timeout=5, method="GET").run()
+    assert r.status == 0
+    assert "cannot resolve host" not in repr(r), r

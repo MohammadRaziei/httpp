@@ -36,6 +36,12 @@ constexpr std::size_t max_response_head = 64u * 1024;
 
 using asio::ip::tcp;
 
+// url_host() keeps the brackets of an IPv6 literal ("[::1]"); a resolver and a certificate name take the bare address.
+std::string bare_host(const std::string& host) {
+    if (host.size() > 2 && host.front() == '[' && host.back() == ']') return host.substr(1, host.size() - 2);
+    return host;
+}
+
 // A new connection is opened only when no idle one is available, so the pool never holds more than the peak number of requests that were in
 // flight at once. This limit only guards against a huge burst. It used to be 8: with more than 8 requests in flight at once (32 threads on a
 // free-threaded Python, or 32 asyncio tasks) every connection above the 8th was closed when its response ended and opened again for the next
@@ -201,11 +207,11 @@ struct async_http::impl {
                 std::string err;
                 auto ctx = owner.context_for(job.verify, job.ca_file, err);
                 if (!ctx) { pending = std::move(cb); return fail(error_kind::tls, err); }
-                tls = std::make_unique<tls_session>(std::move(ctx), job.host);
+                tls = std::make_unique<tls_session>(std::move(ctx), bare_host(job.host));
                 if (!tls->ok()) { pending = std::move(cb); return fail(error_kind::tls, tls->error()); }
             }
             begin(job.connect_timeout_sec > 0 ? job.connect_timeout_sec : job.timeout_sec, std::move(cb));
-            const std::string& host = via_proxy ? job.proxy_host : job.host;
+            const std::string host = bare_host(via_proxy ? job.proxy_host : job.host);  // the resolver wants "::1", not "[::1]"
             const int port = via_proxy ? job.proxy_port : job.port;
             resolver.async_resolve(host, std::to_string(port),
                 [self = shared_from_this(), job_host = job.host, job_port = job.port, via_proxy, tunnel = via_proxy && !socks && job.tls,

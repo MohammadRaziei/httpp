@@ -22,3 +22,7 @@ Ports for a command that must **not** be listening (a "dead" address for `curl`)
 ## Loopback tests
 
 `tests/python/test_loopback.py` runs our server and our client on 127.0.0.1, on `::1` and through `localhost` (which may resolve to either, first). The IPv6 tests are skipped on a computer with no `::1`.
+
+## A client bug the loopback tests found
+
+CI (ubuntu) failed `test_ipv6_loopback_answers`: `http://[::1]:PORT/` ended in "cannot resolve host: Host not found". `url_host()` keeps the brackets of an IPv6 literal, and `connect()` in `async_http.cpp` handed that text to the resolver, which only knows `::1`. (The SOCKS code and `proxy.cpp` already took the brackets off by hand; `connect()` did not.) `connect()` now resolves, and gives the TLS session as its name, the host without brackets, for the target and for the proxy alike. `test_a_bracketed_ipv6_literal_is_connected_to_not_resolved` needs no IPv6 on the computer: it asks `[::1]:1` and requires a failure to connect, not to resolve.
