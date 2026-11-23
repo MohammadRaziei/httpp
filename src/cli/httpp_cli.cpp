@@ -898,7 +898,7 @@ int main(int argc, char** argv) {
     auto* c_server = app.add_subcommand("server", "Serve a directory over HTTP, like `python -m http.server`.");
     c_server->add_option("directory", sv.directory, "The folder to serve")->capture_default_str();
     c_server->add_option("--host", sv.host, "Use 127.0.0.1 to keep it on this computer (the default is every interface, and there is no login)")->capture_default_str();
-    c_server->add_option("--port,-p", sv.port)->check(CLI::Range(1, 65535))->capture_default_str();
+    c_server->add_option("--port,-p", sv.port, "0 lets the system choose a free port (the address printed at start says which)")->check(CLI::Range(0, 65535))->capture_default_str();
     c_server->add_flag("--hidden", sv.hidden, "Serve names that start with a dot too (otherwise they answer 404)");
     c_server->add_flag("--no-dates", sv.no_dates, "Send no file times: no Last-Modified and no ETag (every answer says Cache-Control: no-cache)");
     c_server->add_flag("--no-banner", sv.no_banner, "Do not print the banner on a terminal");
@@ -913,7 +913,7 @@ int main(int argc, char** argv) {
     auto* c_browse = app.add_subcommand("browse", "Browse a directory in the web browser (read-only: list, open, download).");
     c_browse->add_option("directory", b.directory, "The folder to browse")->capture_default_str();
     c_browse->add_option("--host", b.host, "Use 0.0.0.0 to share on every interface (there is no login)")->capture_default_str();
-    c_browse->add_option("--port,-p", b.port)->check(CLI::Range(1, 65535))->capture_default_str();
+    c_browse->add_option("--port,-p", b.port, "0 lets the system choose a free port (the address printed at start says which)")->check(CLI::Range(0, 65535))->capture_default_str();
     c_browse->add_option("--title", b.title)->capture_default_str();
     c_browse->add_option("--theme", b.theme)->check(CLI::IsMember({"auto", "light", "dark"}))->capture_default_str();
     c_browse->add_option("--accent", b.accent, "Accent colour")->type_name("#RRGGBB");

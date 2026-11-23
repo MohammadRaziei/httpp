@@ -68,6 +68,25 @@ def free_port():
         return s.getsockname()[1]
 
 
+def announced_port(proc, timeout=30):
+    """The port a server started with `--port 0` got, and the line that said so: (port, line).
+
+    The commands print "<what> at <url>" once the socket is bound, so the system picked the port and nothing here guessed it: a port found
+    by binding and closing a socket (free_port) can be taken by another test worker before the server asks for it. The line is read from
+    stdout, so it is not in what stop_process returns later; it comes back here for the tests that look at it."""
+    found = []
+    reader = threading.Thread(target=lambda: found.append(proc.stdout.readline()), daemon=True)
+    reader.start()
+    reader.join(timeout)
+    line = found[0] if found else ""
+    m = re.search(r"https?://(?:\[[^\]]+\]|[^:/\s]+):(\d+)/", line)
+    if m is None:
+        proc.kill()
+        _, err = proc.communicate()
+        pytest.fail(f"the server did not say where it listens (stdout: {line!r}, stderr: {err!r})")
+    return int(m.group(1)), line
+
+
 @contextmanager
 def running(app):
     port = app.bind_to_any_port("127.0.0.1")
@@ -190,8 +209,8 @@ def test_run_and_path_point_to_py(httpp_exe, old):
 
 def test_server_serves_a_directory(httpp_exe, tmp_path, stop_process):
     (tmp_path / "hello.txt").write_text("hi there")
-    port = free_port()
-    proc = subprocess.Popen([*httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen([*httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", "0"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    port, head = announced_port(proc)
     try:
         r = wait_for(f"http://127.0.0.1:{port}/hello.txt", proc)
         assert (r.status, r.text) == (200, "hi there")
@@ -204,9 +223,9 @@ def test_server_serves_a_directory(httpp_exe, tmp_path, stop_process):
 def test_a_loopback_server_only_answers_the_names_of_the_loopback_address(httpp_exe, tmp_path, stop_process, command):
     # DNS rebinding: a web page whose name points at 127.0.0.1 still sends its own name as Host.
     (tmp_path / "hello.txt").write_text("hi there")
-    port = free_port()
     page = "/hello.txt" if command == "server" else "/"
-    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", "0"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    port, head = announced_port(proc)
 
     def status(host):
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
@@ -230,8 +249,8 @@ def test_a_loopback_server_only_answers_the_names_of_the_loopback_address(httpp_
 
 def test_the_browser_refuses_a_cross_site_zip_post(httpp_exe, tmp_path, stop_process):
     (tmp_path / "a.txt").write_text("a")
-    port = free_port()
-    proc = subprocess.Popen([*httpp_exe, "browse", str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen([*httpp_exe, "browse", str(tmp_path), "--host", "127.0.0.1", "--port", "0"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    port, head = announced_port(proc)
 
     def post(origin):
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
@@ -265,8 +284,8 @@ def test_curl_and_download_refuse_a_url_they_cannot_take(httpp_exe, tmp_path, ur
 
 @pytest.mark.parametrize("command", ["server", "browse"])
 def test_the_native_commands_log_the_address_and_each_request(httpp_exe, tmp_path, stop_process, command):
-    port = free_port()
-    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", "0"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    port, head = announced_port(proc)
     try:
         assert wait_for(f"http://127.0.0.1:{port}/", proc).status != 0
         assert httpp.Request(f"http://127.0.0.1:{port}/nope.txt", method="GET").run().status == 404
@@ -313,25 +332,25 @@ def test_the_native_commands_serve_https_when_given_a_certificate(httpp_exe, tmp
     cert, key, _ = certs
     (tmp_path / "hello.txt").write_text("hi there")
     page = "/hello.txt" if command == "server" else "/"  # server has no folder page; browse answers / with one
-    port = free_port()
-    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port), "--ssl-certfile", cert, "--ssl-keyfile", key],
+    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", "0", "--ssl-certfile", cert, "--ssl-keyfile", key],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    port, head = announced_port(proc)
     try:
         _wait_for_port(port, proc)
         assert _https_get(port, cert, page)[0] == 200
         assert httpp.Request(f"http://127.0.0.1:{port}{page}", method="GET").run().status != 200  # one port serves TLS or plain HTTP, never both
     finally:
         out, err = stop_process(proc)
-    assert f"https://127.0.0.1:{port}/" in out, out
+    assert f"https://127.0.0.1:{port}/" in head + out, head + out
     assert f"listening on https://127.0.0.1:{port}" in err, err
 
 
 def test_server_over_https_serves_the_files(httpp_exe, tmp_path, stop_process, certs):  # noqa: F811
     cert, key, _ = certs
     (tmp_path / "hello.txt").write_text("hi there")
-    port = free_port()
-    proc = subprocess.Popen([*httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", str(port), "--ssl-certfile", cert, "--ssl-keyfile", key],
+    proc = subprocess.Popen([*httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", "0", "--ssl-certfile", cert, "--ssl-keyfile", key],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    port, head = announced_port(proc)
     try:
         _wait_for_port(port, proc)
         assert _https_get(port, cert, "/hello.txt") == (200, b"hi there")
@@ -386,8 +405,8 @@ def test_an_encrypted_key_without_its_password_says_so_and_a_wrong_one_fails(htt
 
 @pytest.mark.parametrize("command", ["server", "browse"])
 def test_the_native_commands_stay_quiet_with_log_level_off(httpp_exe, tmp_path, stop_process, command):
-    port = free_port()
-    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port), "--log-level", "off"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", "0", "--log-level", "off"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    port, head = announced_port(proc)
     try:
         assert wait_for(f"http://127.0.0.1:{port}/", proc).status != 0
         assert httpp.Request(f"http://127.0.0.1:{port}/nope.txt", method="GET").run().status == 404
@@ -416,9 +435,9 @@ def test_server_reports_a_port_that_is_taken(httpp_exe, tmp_path):
 
 @posix_only
 def _serve(httpp_exe, directory, *flags):
-    port = free_port()
-    proc = subprocess.Popen([*httpp_exe, "server", str(directory), "--host", "127.0.0.1", "--port", str(port), *flags],
+    proc = subprocess.Popen([*httpp_exe, "server", str(directory), "--host", "127.0.0.1", "--port", "0", *flags],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    port, head = announced_port(proc)
     return proc, f"http://127.0.0.1:{port}"
 
 
@@ -505,8 +524,8 @@ def test_ctrl_c_and_sigterm_stop_the_server_cleanly(httpp_exe, tmp_path, command
     import signal
 
     for sig in (signal.SIGINT, signal.SIGTERM):
-        port = free_port()
-        proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", "0"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        port, head = announced_port(proc)
         try:
             assert wait_for(f"http://127.0.0.1:{port}/", proc).status != 0
             proc.send_signal(sig)
@@ -1153,9 +1172,9 @@ def test_curl_output_dir_and_create_dirs(httpp_exe, echo_app, tmp_path):
 def test_curl_k_and_cacert_open_an_https_server_with_a_self_signed_certificate(httpp_exe, tmp_path, stop_process, certs):  # noqa: F811
     cert, key, _ = certs
     (tmp_path / "hello.txt").write_text("hi there")
-    port = free_port()
-    proc = subprocess.Popen([*httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", str(port), "--ssl-certfile", cert, "--ssl-keyfile", key],
+    proc = subprocess.Popen([*httpp_exe, "server", str(tmp_path), "--host", "127.0.0.1", "--port", "0", "--ssl-certfile", cert, "--ssl-keyfile", key],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    port, head = announced_port(proc)
     try:
         _wait_for_port(port, proc)
         url = f"https://127.0.0.1:{port}/hello.txt"
@@ -1482,3 +1501,22 @@ def test_python_dash_m_httpp_and_the_executable_answer_alike(httpp_bin):
     for args in (["--version"], ["curl", "--help"], ["download"], ["bogus-command"]):
         a, b = python_m(*args), run(httpp_bin, *args)
         assert (a.returncode, a.stdout, a.stderr) == (b.returncode, b.stdout, b.stderr), args
+
+
+@pytest.mark.parametrize("command", ["server", "browse"])
+def test_port_0_lets_the_system_choose_and_the_address_says_which(httpp_exe, tmp_path, stop_process, command):
+    (tmp_path / "hello.txt").write_text("hi there")
+    proc = subprocess.Popen([*httpp_exe, command, str(tmp_path), "--host", "127.0.0.1", "--port", "0"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    port, head = announced_port(proc)
+    try:
+        assert port > 0 and f"http://127.0.0.1:{port}/" in head, head
+        assert wait_for(f"http://127.0.0.1:{port}/", proc).status != 0
+    finally:
+        _, err = stop_process(proc)
+    assert f"listening on http://127.0.0.1:{port}" in err, err
+
+
+def test_a_port_outside_0_to_65535_is_a_usage_error(httpp_exe):
+    for port in ("-1", "65536"):
+        assert run(httpp_exe, "server", "--port", port).returncode == 2
+        assert run(httpp_exe, "browse", "--port", port).returncode == 2
