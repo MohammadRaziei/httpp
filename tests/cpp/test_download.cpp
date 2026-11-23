@@ -1,5 +1,6 @@
 #include "utest/utest.h"
 #include "httpp/download.hpp"
+#include "httpp/path.hpp"
 #include "httpp/utils.hpp"
 #include "httpp/server.hpp"
 #include "internal/deflate.hpp"
@@ -13,6 +14,12 @@
 #include <future>
 
 namespace {
+// Where the tests put their files: one folder per process, removed with everything in it when the process ends.
+std::string out(const char* name) {
+    static const httpp::temp_path dir("httpp_download_test_");
+    return (dir.get() / name).str();
+}
+
 struct running_server {
     httpp::server srv;
     std::thread th;
@@ -45,7 +52,7 @@ UTEST(httpp_download, downloads_body_to_a_file) {
     });
     running_server rs(std::move(s));
 
-    const std::string dest = "test_download_output.txt";
+    const std::string dest = out("test_download_output.txt");
     std::remove(dest.c_str());
 
     std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/data";
@@ -62,7 +69,7 @@ UTEST(httpp_download, reports_failure_for_404) {
     httpp::server s;
     running_server rs(std::move(s));
 
-    const std::string dest = "test_download_missing.txt";
+    const std::string dest = out("test_download_missing.txt");
     std::remove(dest.c_str());
 
     std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/nope";
@@ -82,7 +89,7 @@ UTEST(httpp_download, builder_form_works_with_chained_calls) {
     });
     running_server rs(std::move(s));
 
-    const std::string dest = "test_download_builder.txt";
+    const std::string dest = out("test_download_builder.txt");
     std::remove(dest.c_str());
 
     std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/f";
@@ -105,7 +112,7 @@ UTEST(httpp_download, run_async_returns_a_future) {
     });
     running_server rs(std::move(s));
 
-    const std::string dest = "test_download_async.txt";
+    const std::string dest = out("test_download_async.txt");
     std::remove(dest.c_str());
 
     std::string url = "http://127.0.0.1:" + std::to_string(rs.port) + "/f";
@@ -145,7 +152,7 @@ bool exists(const std::string& path) { return std::ifstream(path).good(); }
 
 UTEST(httpp_download_sha256, a_matching_digest_is_accepted_in_either_case) {
     running_server rs(file_server(""));
-    const std::string dest = "test_dl_sha_ok.bin";
+    const std::string dest = out("test_dl_sha_ok.bin");
     std::remove(dest.c_str());
     auto res = httpp::download(url_of(rs), dest).disable_progress().sha256(body_digest).run();
     ASSERT_TRUE(res.ok);
@@ -160,7 +167,7 @@ UTEST(httpp_download_sha256, a_matching_digest_is_accepted_in_either_case) {
 
 UTEST(httpp_download_sha256, a_wrong_digest_fails_and_leaves_no_file) {
     running_server rs(file_server(""));
-    const std::string dest = "test_dl_sha_bad.bin";
+    const std::string dest = out("test_dl_sha_bad.bin");
     std::remove(dest.c_str());
     auto res = httpp::download(url_of(rs), dest).disable_progress().sha256(std::string(64, '0')).run();
     EXPECT_FALSE(res.ok);
@@ -171,7 +178,7 @@ UTEST(httpp_download_sha256, a_wrong_digest_fails_and_leaves_no_file) {
 
 UTEST(httpp_download_sha256, a_malformed_digest_fails_before_any_request) {
     httpp::server s;  // nothing listens for it: the check must not even get that far
-    const std::string dest = "test_dl_sha_malformed.bin";
+    const std::string dest = out("test_dl_sha_malformed.bin");
     std::remove(dest.c_str());
     auto res = httpp::download("http://127.0.0.1:1/f.bin", dest).disable_progress().sha256("abc").run();
     EXPECT_FALSE(res.ok);
@@ -181,7 +188,7 @@ UTEST(httpp_download_sha256, a_malformed_digest_fails_before_any_request) {
 
 UTEST(httpp_download_sha256, the_digest_can_come_from_a_checksum_file) {
     running_server rs(file_server(body_digest + "  f.bin\n"));
-    const std::string dest = "test_dl_sha_url.bin";
+    const std::string dest = out("test_dl_sha_url.bin");
     std::remove(dest.c_str());
     auto res = httpp::download(url_of(rs), dest).disable_progress().sha256_url().run();  // default: <url>.sha256
     ASSERT_TRUE(res.ok);
@@ -195,7 +202,7 @@ UTEST(httpp_download_sha256, the_digest_can_come_from_a_checksum_file) {
 }
 
 UTEST(httpp_download_sha256, a_bad_checksum_file_is_an_error_and_nothing_is_downloaded) {
-    const std::string dest = "test_dl_sha_url_bad.bin";
+    const std::string dest = out("test_dl_sha_url_bad.bin");
     {   // an HTML page where the digest should be
         running_server rs(file_server("<!DOCTYPE html><html>Not Found</html>"));
         std::remove(dest.c_str());
@@ -224,7 +231,7 @@ UTEST(httpp_download_sha256, a_bad_checksum_file_is_an_error_and_nothing_is_down
 
 UTEST(httpp_download_sha256, resume_does_not_trust_a_complete_looking_but_corrupt_file) {
     running_server rs(file_server(""));
-    const std::string dest = "test_dl_sha_corrupt.bin";
+    const std::string dest = out("test_dl_sha_corrupt.bin");
     { std::ofstream(dest, std::ios::binary) << std::string(body_text.size(), 'X'); }  // right size, wrong bytes
     auto res = httpp::download(url_of(rs), dest).disable_progress().resume().sha256(body_digest).run();
     ASSERT_TRUE(res.ok);
@@ -295,7 +302,7 @@ double seconds_since(std::chrono::steady_clock::time_point t) {
 
 UTEST(httpp_download_lock, every_download_takes_the_lock_and_gives_it_back) {
     running_server rs(file_server(""));
-    const std::string dest = "test_dl_lock_free.bin";
+    const std::string dest = out("test_dl_lock_free.bin");
     std::remove(dest.c_str());
     auto res = httpp::download(url_of(rs), dest).disable_progress().run();
     ASSERT_TRUE(res.ok);
@@ -308,7 +315,7 @@ UTEST(httpp_download_lock, every_download_takes_the_lock_and_gives_it_back) {
 
 UTEST(httpp_download_lock, a_live_lock_is_waited_for_even_beyond_the_timeout) {
     running_server rs(file_server(""));
-    const std::string dest = "test_dl_lock_wait.bin";
+    const std::string dest = out("test_dl_lock_wait.bin");
     std::remove(dest.c_str());
     fake_owner owner(dest);  // keeps rewriting `alive`
     std::thread releaser([&] { std::this_thread::sleep_for(std::chrono::milliseconds(1500)); owner.release(); });
@@ -323,7 +330,7 @@ UTEST(httpp_download_lock, a_live_lock_is_waited_for_even_beyond_the_timeout) {
 
 UTEST(httpp_download_lock, a_lock_that_does_not_change_is_waited_for_as_long_as_the_timeout_then_taken_over) {
     running_server rs(file_server(""));
-    const std::string dest = "test_dl_lock_stale.bin";
+    const std::string dest = out("test_dl_lock_stale.bin");
     std::remove(dest.c_str());
     make_lock_dir(dest + ".lock");  // its owner died: nobody rewrites `alive`
     { std::ofstream(dest + ".lock/alive") << "12345 7\n"; }
@@ -341,7 +348,7 @@ UTEST(httpp_download_lock, a_lock_that_does_not_change_is_waited_for_as_long_as_
 
 UTEST(httpp_download_lock, the_wait_for_an_unchanged_lock_is_the_smaller_of_max_wait_and_timeout) {
     running_server rs(file_server(""));
-    const std::string dest = "test_dl_lock_min.bin";
+    const std::string dest = out("test_dl_lock_min.bin");
     for (long long max_wait_ms : {400LL, 1000LL}) {
         std::remove(dest.c_str());
         make_lock_dir(dest + ".lock");  // dead lock: nobody rewrites `alive`
@@ -361,7 +368,7 @@ UTEST(httpp_download_lock, the_wait_for_an_unchanged_lock_is_the_smaller_of_max_
 
 UTEST(httpp_download_lock, a_lock_that_keeps_being_updated_is_waited_for_however_small_max_wait_is) {
     running_server rs(file_server(""));
-    const std::string dest = "test_dl_lock_live.bin";
+    const std::string dest = out("test_dl_lock_live.bin");
     std::remove(dest.c_str());
     fake_owner owner(dest);  // rewrites `alive` every 20 ms for the whole 1.5 s
     std::thread releaser([&] { std::this_thread::sleep_for(std::chrono::milliseconds(1500)); owner.release(); });
@@ -380,7 +387,7 @@ UTEST(httpp_download_lock, a_waiter_uses_the_file_the_owner_finished_without_a_r
     httpp::server s;
     s.get("/f.bin", [&](const httpp::server_request&, httpp::response& res) { ++requests; res.status = 200; res.body = body_text; });
     running_server rs(std::move(s));
-    const std::string dest = "test_dl_lock_shared.bin";
+    const std::string dest = out("test_dl_lock_shared.bin");
     std::remove(dest.c_str());
     fake_owner owner(dest);
     std::thread owner_finishes([&] {
@@ -404,7 +411,7 @@ UTEST(httpp_download_lock, two_downloads_of_one_file_fetch_it_once) {
         res.body = body_text;
     });
     running_server rs(std::move(s));
-    const std::string dest = "test_dl_lock_two.bin";
+    const std::string dest = out("test_dl_lock_two.bin");
     std::remove(dest.c_str());
     auto make = [&] { return httpp::download(url_of(rs), dest).disable_progress().resume().sha256(body_digest); };
     auto a = make().run_async();
@@ -426,7 +433,7 @@ UTEST(httpp_download_timeout, set_timeout_also_limits_the_network) {
         res.body = "late";
     });
     running_server rs(std::move(s));
-    const std::string dest = "test_dl_timeout.bin";
+    const std::string dest = out("test_dl_timeout.bin");
     std::remove(dest.c_str());
     const auto t0 = std::chrono::steady_clock::now();
     auto res = httpp::download(url_of(rs, "/slow"), dest).disable_progress().timeout(1).run();
@@ -444,7 +451,7 @@ UTEST(httpp_download, a_gzip_body_is_saved_as_sent_not_decoded_and_not_refused) 
         res.headers.emplace_back("Content-Encoding", "gzip");
     });
     running_server rs(std::move(s));
-    const std::string dest = "test_download_gzip_output.bin";
+    const std::string dest = out("test_download_gzip_output.bin");
     std::remove(dest.c_str());
     auto result = httpp::download("http://127.0.0.1:" + std::to_string(rs.port) + "/f", dest).disable_progress().run();
     ASSERT_TRUE(result.ok);

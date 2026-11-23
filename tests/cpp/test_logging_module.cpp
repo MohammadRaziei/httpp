@@ -44,7 +44,12 @@ lg::callback_handler into(collector& c) {
     });
 }
 
-httpp::path tmp(const char* name) { return httpp::path(name); } // relative: the test runs in its build directory
+// A name inside the folder of this process (one per process, removed with its content when the process ends), so the tests
+// leave nothing behind in the build directory.
+httpp::path tmp(const char* name) {
+    static const httpp::temp_path dir("httpp_logging_test_");
+    return dir.get() / name;
+}
 
 // The file as text: a file_handler writes native line ends (CRLF on Windows, as Python's FileHandler does), and
 // reading in text mode gives them back as "\n".
@@ -674,7 +679,7 @@ UTEST(log, debug_level_shows_connection_level_detail) {
 
 UTEST(log, a_file_name_is_utf8_and_a_missing_directory_is_reported) {
     log_guard g;
-    const std::string path = "httpp_test_log_\xD9\x84\xD9\x88\xD8\xAC.txt"; // a Persian word, in UTF-8
+    const std::string path = tmp("httpp_test_log_\xD9\x84\xD9\x88\xD8\xAC.txt").str(); // a Persian word, in UTF-8
     std::remove(path.c_str());
     ASSERT_TRUE(httpp::set_log_file(path));
     httpp::set_log_level(httpp::logging::level::warning);
@@ -689,7 +694,7 @@ UTEST(log, a_file_name_is_utf8_and_a_missing_directory_is_reported) {
 
 UTEST(log, can_write_to_a_file_and_back_to_stderr) {
     log_guard g;
-    const std::string path = "httpp_test_log.txt";
+    const std::string path = tmp("httpp_test_log.txt").str();
     std::remove(path.c_str());
     ASSERT_TRUE(httpp::set_log_file(path));
     httpp::set_log_level(httpp::logging::level::warning);
