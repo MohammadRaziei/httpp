@@ -24,16 +24,6 @@ def v():
 '''
 
 
-def get_v(port):
-    # An answer to a try that hit the old process while it was going down never comes (the connection is closed); the
-    # client sends such a try again. Whether the value is the one we wait for is wait_value's business.
-    res = Request(f"http://127.0.0.1:{port}/v", timeout=2).retry(2).retry_delay(0.05).retry_connrefused().run()
-    if res.failed:
-        raise ConnectionError(f"no HTTP answer: {res.error_message}")
-    value, pid = res.text.split("|")
-    return value, int(pid)
-
-
 def write_app(path, value):
     path.write_text(APP.format(value=value))
     future = time.time() + write_app.bump  # a filesystem with coarse mtimes must still see a change
@@ -48,12 +38,12 @@ def wait_value(port, value, seconds=20):
     end = time.monotonic() + seconds
     last = None
     while time.monotonic() < end:
-        try:
-            last = get_v(port)
+        # A try that hits the old process while it is going down is closed without an answer; the client sends it again.
+        res = Request(f"http://127.0.0.1:{port}/v", timeout=2).retry(2).retry_delay(0.05).retry_connrefused().run()
+        if not res.failed:
+            last = tuple(res.text.split("|", 1))  # (value, pid of the process that answered)
             if last[0] == value:
                 return last
-        except (OSError, ValueError):
-            pass
         time.sleep(0.1)
     raise AssertionError(f"server never answered {value!r} (last: {last})")
 
