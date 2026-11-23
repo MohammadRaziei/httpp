@@ -99,7 +99,10 @@ skip = "*i686*"
 # 120 s (it does not kill the test), so a hang shows where it is stuck.
 # pytest-timeout (thread method) prints every thread's stack and ends the run after 600 s in one test, so a hang fails
 # the job at once instead of holding it for 90 minutes.
-test-command = "pytest {project}/tests -o faulthandler_timeout=120 --timeout=600 --timeout-method=thread --durations=20 -m \"not cpp\" -v"
+# TEMPORARY, to read why three tests fail on cp314t-win32: pytest prints the reasons of the failures only at the end, and a run
+# that a hang ends never gets there. --maxfail=3 ends the run (with the reasons, --tb=short, and -rf) at the third failure,
+# before the hang. Take --maxfail, --tb and -rf out again when they are understood.
+test-command = "pytest {project}/tests -o faulthandler_timeout=120 --timeout=600 --timeout-method=thread --durations=20 --maxfail=3 --tb=short -rf -m \"not cpp\" -v"
 test-extras = ["test"]
 
 [tool.cibuildwheel.linux]
