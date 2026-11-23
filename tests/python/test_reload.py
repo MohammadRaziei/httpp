@@ -7,12 +7,9 @@ import subprocess
 import sys
 import time
 
-import pytest
-
 import httpp
-from httpp import Server
-from httpp import _reload
-
+import pytest
+from httpp import Server, _reload
 from test_run import child_env, free_port, wait_for
 
 APP = '''
@@ -33,8 +30,10 @@ def get_v(port):
         data = b""
         while chunk := s.recv(4096):
             data += chunk
-    body = data.split(b"\r\n\r\n", 1)[1].decode()
-    value, pid = body.split("|")
+    _, end_of_head, body = data.partition(b"\r\n\r\n")
+    if not end_of_head:  # the old process was going down and closed the connection before it answered: a retry will do
+        raise ConnectionError(f"no HTTP answer (got {data!r})")
+    value, pid = body.decode().split("|")
     return value, int(pid)
 
 
@@ -145,5 +144,5 @@ def test_reload_restarts_on_change_survives_a_broken_file_and_stops_on_sigterm(t
 def test_cli_reload_with_workers_is_an_error(tmp_path):
     write_app(tmp_path / "myapp.py", "1")
     r = subprocess.run([sys.executable, "-m", "httpp", "py", "run", "myapp:app", "--reload", "--workers", "2", "--port", str(free_port())],
-                       cwd=tmp_path, env=child_env(), capture_output=True, text=True, timeout=30)
+                       cwd=tmp_path, env=child_env(), capture_output=True, text=True, timeout=30, check=False)
     assert r.returncode == 1 and "reload" in r.stderr
