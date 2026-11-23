@@ -9,9 +9,8 @@ import threading
 import time
 from contextlib import contextmanager
 
-import pytest
-
 import httpp
+import pytest
 from httpp import Server
 
 
@@ -38,7 +37,7 @@ def _app():
 
     @app.post("/echo")
     def echo(request):
-        return request.body.decode()
+        return request.body  # bytes go back untouched: the body of the binary test is not valid UTF-8
 
     return app
 
