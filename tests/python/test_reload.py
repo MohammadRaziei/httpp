@@ -9,7 +9,7 @@ import time
 
 import httpp
 import pytest
-from httpp import Server, _reload
+from httpp import Request, Server, _reload
 from test_run import child_env, free_port, wait_for
 
 APP = '''
@@ -25,15 +25,12 @@ def v():
 
 
 def get_v(port):
-    with socket.create_connection(("127.0.0.1", port), timeout=2) as s:
-        s.sendall(b"GET /v HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
-        data = b""
-        while chunk := s.recv(4096):
-            data += chunk
-    _, end_of_head, body = data.partition(b"\r\n\r\n")
-    if not end_of_head:  # the old process was going down and closed the connection before it answered: a retry will do
-        raise ConnectionError(f"no HTTP answer (got {data!r})")
-    value, pid = body.decode().split("|")
+    # An answer to a try that hit the old process while it was going down never comes (the connection is closed); the
+    # client sends such a try again. Whether the value is the one we wait for is wait_value's business.
+    res = Request(f"http://127.0.0.1:{port}/v", timeout=2).retry(2).retry_delay(0.05).retry_connrefused().run()
+    if res.failed:
+        raise ConnectionError(f"no HTTP answer: {res.error_message}")
+    value, pid = res.text.split("|")
     return value, int(pid)
 
 
