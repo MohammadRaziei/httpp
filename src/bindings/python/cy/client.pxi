@@ -91,7 +91,8 @@ cdef class Response:
 
     @property
     def saved_as(self):
-        """The file save_to() or save_in() wrote the body to, or None."""
+        """The file save_to() or save_in() wrote the body to, or None. Written the way the platform writes a path, as pathlib does:
+        `res.saved_as == str(target)` holds for the Path that was given (on Windows with backslashes)."""
         return self._saved_as
 
     @property
@@ -175,6 +176,12 @@ cdef class Response:
         return f"<Response [{self._status}]>"
 
 
+cdef str _native_path(str p):
+    """A path from C++ (httpp::path keeps "/" on every platform) as Python's own write it: the platform's separator, so that it equals
+    str(pathlib.Path) for the same file. Only the separator changes, nothing is collapsed or resolved. A no-op where the separator is "/"."""
+    return p if os.sep == "/" else p.replace("/", os.sep)
+
+
 cdef _make_response(response res):
     """Convert a C++ httpp::response into a Python Response, headers and all."""
     cdef list headers = [
@@ -186,7 +193,7 @@ cdef _make_response(response res):
                     None if error == "none" else error,
                     res.error_message.decode("utf-8", errors="replace"),
                     res.elapsed_ms, res.bytes_received,
-                    res.saved_as.decode("utf-8", errors="replace") if not res.saved_as.empty() else None)
+                    _native_path(res.saved_as.decode("utf-8", errors="replace")) if not res.saved_as.empty() else None)
 
 
 ctypedef fused _cpp_http_client:
