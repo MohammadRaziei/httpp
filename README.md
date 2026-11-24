@@ -47,7 +47,8 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - **Client and server in one library.** Most lightweight HTTP libraries only do one side.
 - **Decorator-style routing in Python**, in the spirit of Flask and FastAPI: path parameters, typed
   conversion, JSON responses, `async def` handlers.
-- **Built-in server.** No ASGI/WSGI layer and no separate process to launch.
+- **Built-in server, no ASGI/WSGI.** Plain `def` and `async def` handlers both run on httpp itself: no ASGI/WSGI layer and
+  no separate process to launch. The routing API follows FastAPI's, so moving an app over takes little rewriting.
 - **Real async.** `async def` handlers run on one shared asyncio event loop and release their
   worker thread while they `await`. Idle connections wait in an event loop too (epoll, kqueue or IOCP,
   via [Asio](https://think-async.com/Asio/)), so thousands of slow or idle requests cost
@@ -594,8 +595,6 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
   keeps running until it finishes.
 - Platforms: the connection layer is tested on Linux. Windows and macOS are untested by the author; CI
   on those platforms is the real check.
-- There is no ASGI or WSGI interface (see above), so ASGI/WSGI applications such as FastAPI or Flask
-  cannot be mounted on it yet.
 - cpp-httplib is no longer used: the server, the client (blocking and async) and downloads all run on our own
   engines (Asio + llhttp + mbedTLS), see ADR-0051 to ADR-0051.
 - `httpp curl` is a subset of curl (no `-F`, `--json`, `-G`, `-b`, `-x`, `-k`, `--cacert`, `--data-binary`, `-C`, `-r`, `--http2`; `httpp::request` has several of these, the command does not expose them yet); there is no libcurl-style C API.
