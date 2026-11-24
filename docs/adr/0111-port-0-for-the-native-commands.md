@@ -26,3 +26,9 @@ Ports for a command that must **not** be listening (a "dead" address for `curl`)
 ## A client bug the loopback tests found
 
 CI (ubuntu) failed `test_ipv6_loopback_answers`: `http://[::1]:PORT/` ended in "cannot resolve host: Host not found". `url_host()` keeps the brackets of an IPv6 literal, and `connect()` in `async_http.cpp` handed that text to the resolver, which only knows `::1`. (The SOCKS code and `proxy.cpp` already took the brackets off by hand; `connect()` did not.) `connect()` now resolves, and gives the TLS session as its name, the host without brackets, for the target and for the proxy alike. `test_a_bracketed_ipv6_literal_is_connected_to_not_resolved` needs no IPv6 on the computer: it asks `[::1]:1` and requires a failure to connect, not to resolve.
+
+### Where the brackets are taken off
+
+`url_host()` stays the host as written, brackets included: a `Host:` header, a `CONNECT` line, an absolute-form proxy target and the connection pool key all need the URL's own text. Three places need the address and used to take the brackets off by hand, each its own copy: `connect()` (and the TLS name), `socks_request()` and `no_proxy_matches()`; the first had forgotten. liburlparser now owns that: `urlparser::bare_host(text)`, which works on text because a job's `host` and `proxy_host` are strings; for the host of a url it is `bare_host(u.host_text())`. The three places call it.
+
+`httpp::url_port()` (ADR-0067) is gone: the port of a URL is `u.effective_port()` of liburlparser (called `port_or_default()` up to 2.3.1), and liburlparser's `default_port()` now also knows socks5 and socks5h (1080), the one rule httpp had added on top. Callers, the Cython layer and the tests use `effective_port()` directly. One visible change comes with it: liburlparser's `normalized()` drops a port equal to the scheme's default, so `socks5://h:1080/` normalizes to `socks5://h/`.

@@ -43,14 +43,8 @@ inline bool url_is_http(const url& u) {
     const std::string_view s = u.protocol();
     return (s == "http" || s == "https") && !u.host_text().empty();
 }
-// The port, or the scheme's default when the URL names none: http 80, https 443, socks5 and socks5h 1080 (a proxy address,
-// ADR-0068). 0 for any other scheme without a port.
-inline int url_port(const url& u) {
-    if (u.port() != 0) return u.port();
-    const std::string_view s = u.protocol();
-    if (s == "socks5" || s == "socks5h") return 1080;
-    return url::default_port(s);
-}
+// The port of a URL is `u.effective_port()`: the one the URL names, else its scheme's default (http 80, https 443, socks5 and
+// socks5h 1080 for a proxy address, ADR-0068), else 0.
 inline std::string url_scheme(const url& u) { return std::string(u.protocol()); }
 // The host as written, IPv6 literals keep their brackets ("[::1]").
 inline std::string url_host(const url& u) { return std::string(u.host_text()); }

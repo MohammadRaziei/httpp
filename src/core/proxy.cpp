@@ -75,8 +75,7 @@ bool entry_matches(std::string entry, const std::string& host) {
 }
 
 bool no_proxy_matches(const url& target, const std::string& list) {
-    std::string host = lower(url_host(target));
-    if (host.size() > 2 && host.front() == '[' && host.back() == ']') host = host.substr(1, host.size() - 2);
+    const std::string host = lower(std::string(urlparser::bare_host(target.host_text())));
     std::size_t at = 0;
     while (at < list.size()) {
         std::size_t end = list.find_first_of(", \t\r\n", at);

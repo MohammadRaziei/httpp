@@ -29,7 +29,7 @@ struct clean_environment {
 // "scheme://host:port" of a proxy, or "(direct)": url::str() normalizes the text (a trailing "/"), so it is not compared.
 std::string describe(const std::optional<httpp::url>& p) {
     if (!p) return "(direct)";
-    return httpp::url_scheme(*p) + "://" + httpp::url_host(*p) + ":" + std::to_string(httpp::url_port(*p));
+    return httpp::url_scheme(*p) + "://" + httpp::url_host(*p) + ":" + std::to_string(p->effective_port());
 }
 
 std::string proxy_for(const std::string& target) { return describe(httpp::proxy_from_environment(target)); }
@@ -83,7 +83,7 @@ UTEST(httpp_proxy, a_value_without_a_scheme_is_an_http_proxy_like_in_curl) {
     std::optional<httpp::url> p = httpp::proxy_from_environment(httpp::url("http://example.com/"));
     ASSERT_TRUE(p.has_value());
     ASSERT_STREQ("proxy.local", httpp::url_host(*p).c_str());
-    ASSERT_EQ(3128, httpp::url_port(*p));
+    ASSERT_EQ(3128, p->effective_port());
     ASSERT_STREQ("user", httpp::url_username(*p).c_str());
     ASSERT_STREQ("pa ss", httpp::url_password(*p).c_str());
 }
@@ -139,6 +139,8 @@ UTEST(httpp_proxy, no_proxy_takes_addresses_and_ipv4_cidr_ranges) {
     ASSERT_STREQ("(direct)", proxy_for("http://127.9.9.9/").c_str());
     ASSERT_STREQ("(direct)", proxy_for("http://10.1.2.3/").c_str());
     ASSERT_STREQ("(direct)", proxy_for("http://192.168.77.5/").c_str());
+    ASSERT_STREQ("(direct)", proxy_for("http://[::1]:8080/").c_str()); // the URL's "[::1]" is compared as the entry's "::1"
+    ASSERT_STREQ("http://127.0.0.1:1111", proxy_for("http://[2001:db8::1]:8080/").c_str());
     ASSERT_STREQ("http://127.0.0.1:1111", proxy_for("http://10.1.2.4/").c_str());
     ASSERT_STREQ("http://127.0.0.1:1111", proxy_for("http://192.169.0.1/").c_str());
     ASSERT_STREQ("http://127.0.0.1:1111", proxy_for("http://parrot.live/").c_str()); // the case that mattered: his no_proxy has loopback only
@@ -225,7 +227,7 @@ UTEST(httpp_proxy, the_bare_words_direct_and_off_are_hosts_like_any_other) {
     auto with_port = httpp::resolve_proxy(target, std::string("direct:3128"), std::nullopt);
     ASSERT_TRUE(with_port.has_value());
     ASSERT_STREQ("direct", httpp::url_host(*with_port).c_str());
-    ASSERT_EQ(3128, static_cast<int>(httpp::url_port(*with_port)));
+    ASSERT_EQ(3128, static_cast<int>(with_port->effective_port()));
 }
 
 UTEST(httpp_proxy, direct_in_the_environment_is_an_error_it_only_works_when_it_is_given_explicitly) {

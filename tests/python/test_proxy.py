@@ -45,6 +45,13 @@ def test_no_proxy_lists(monkeypatch):
     assert httpp.proxy_from_environment("http://parrot.live/") == "http://127.0.0.1:1111"
 
 
+def test_no_proxy_compares_an_ipv6_literal_without_its_brackets(monkeypatch):
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:1111")
+    monkeypatch.setenv("no_proxy", "::1")
+    assert httpp.proxy_from_environment("http://[::1]:8080/") is None  # the URL says "[::1]", the entry says "::1"
+    assert httpp.proxy_from_environment("http://[2001:db8::1]:8080/") == "http://127.0.0.1:1111"
+
+
 def test_the_result_keeps_the_login_and_a_socks_address_in_a_form_a_request_reads_back(monkeypatch):
     monkeypatch.setenv("http_proxy", "http://user:pa%20ss@proxy.local:3128")
     assert httpp.proxy_from_environment("http://example.com/") == "http://user:pa%20ss@proxy.local:3128"

@@ -18,7 +18,7 @@ UTEST(httpp_url, parses_basic_http_url) {
     ASSERT_TRUE(httpp::url_valid(u));
     ASSERT_STREQ("http", httpp::url_scheme(u).c_str());
     ASSERT_STREQ("example.com", httpp::url_host(u).c_str());
-    ASSERT_EQ(80, httpp::url_port(u));
+    ASSERT_EQ(80, u.effective_port());
     ASSERT_STREQ("/path", httpp::url_path(u).c_str());
     ASSERT_STREQ("x=1", httpp::url_query(u).c_str());
 }
@@ -27,13 +27,13 @@ UTEST(httpp_url, parses_https_with_explicit_port) {
     httpp::url u = httpp::parse_url("https://example.com:8443/a/b");
     ASSERT_TRUE(httpp::url_valid(u));
     ASSERT_STREQ("https", httpp::url_scheme(u).c_str());
-    ASSERT_EQ(8443, httpp::url_port(u));
+    ASSERT_EQ(8443, u.effective_port());
     ASSERT_STREQ("/a/b", httpp::url_path(u).c_str());
     ASSERT_TRUE(httpp::url_query(u).empty());
 }
 
 UTEST(httpp_url, https_without_a_port_is_443) {
-    ASSERT_EQ(443, httpp::url_port(httpp::parse_url("https://example.com/")));
+    ASSERT_EQ(443, httpp::parse_url("https://example.com/").effective_port());
 }
 
 UTEST(httpp_url, defaults_path_to_root) {
@@ -67,9 +67,9 @@ UTEST(httpp_url, a_socks_url_is_valid_but_not_http) {
     httpp::url u = httpp::parse_url("socks5h://proxy.local");
     ASSERT_TRUE(httpp::url_valid(u));
     ASSERT_FALSE(httpp::url_is_http(u));
-    ASSERT_EQ(1080, httpp::url_port(u));
-    ASSERT_EQ(1080, httpp::url_port(httpp::parse_url("socks5://proxy.local")));
-    ASSERT_EQ(9050, httpp::url_port(httpp::parse_url("socks5://proxy.local:9050")));
+    ASSERT_EQ(1080, u.effective_port());
+    ASSERT_EQ(1080, httpp::parse_url("socks5://proxy.local").effective_port());
+    ASSERT_EQ(9050, httpp::parse_url("socks5://proxy.local:9050").effective_port());
     ASSERT_TRUE(httpp::url_is_http(httpp::parse_url("https://example.com")));
 }
 
@@ -105,7 +105,7 @@ UTEST(httpp_url, the_user_and_password_are_decoded) {
     ASSERT_STREQ("us@er", httpp::url_username(u).c_str());
     ASSERT_STREQ("p:ss", httpp::url_password(u).c_str());
     ASSERT_STREQ("proxy.local", httpp::url_host(u).c_str());
-    ASSERT_EQ(3128, httpp::url_port(u));
+    ASSERT_EQ(3128, u.effective_port());
     httpp::url only_user = "http://bob@h/";
     ASSERT_STREQ("bob", httpp::url_username(only_user).c_str());
     ASSERT_STREQ("", httpp::url_password(only_user).c_str());
@@ -116,7 +116,7 @@ UTEST(httpp_url, an_ipv6_literal_keeps_its_brackets_in_the_host) {
     httpp::url u = httpp::parse_url("http://[::1]:8080/");
     ASSERT_TRUE(httpp::url_valid(u));
     ASSERT_STREQ("[::1]", httpp::url_host(u).c_str());
-    ASSERT_EQ(8080, httpp::url_port(u));
+    ASSERT_EQ(8080, u.effective_port());
     ASSERT_STREQ("/", httpp::url_path(u).c_str());
 }
 
@@ -124,7 +124,7 @@ UTEST(httpp_url, an_ipv6_literal_without_a_port_uses_the_scheme_default) {
     httpp::url u = httpp::parse_url("https://[2001:db8::1]/a?b=1");
     ASSERT_TRUE(httpp::url_valid(u));
     ASSERT_STREQ("[2001:db8::1]", httpp::url_host(u).c_str());
-    ASSERT_EQ(443, httpp::url_port(u));
+    ASSERT_EQ(443, u.effective_port());
     ASSERT_STREQ("b=1", httpp::url_query(u).c_str());
 }
 
@@ -134,20 +134,20 @@ UTEST(httpp_url, an_ipv6_literal_with_userinfo_and_a_port) {
     ASSERT_STREQ("bob", httpp::url_username(u).c_str());
     ASSERT_STREQ("s3cret", httpp::url_password(u).c_str());
     ASSERT_STREQ("[::1]", httpp::url_host(u).c_str());
-    ASSERT_EQ(3128, httpp::url_port(u));
+    ASSERT_EQ(3128, u.effective_port());
 }
 
 UTEST(httpp_url, an_ipv4_literal_is_just_a_host_string) {
     httpp::url u = httpp::parse_url("http://127.0.0.1:8080/x");
     ASSERT_TRUE(httpp::url_valid(u));
     ASSERT_STREQ("127.0.0.1", httpp::url_host(u).c_str());
-    ASSERT_EQ(8080, httpp::url_port(u));
+    ASSERT_EQ(8080, u.effective_port());
 }
 
 UTEST(httpp_url, an_empty_port_after_the_colon_means_no_port) {
     httpp::url u = httpp::parse_url("http://example.com:/p");
     ASSERT_TRUE(httpp::url_valid(u));
-    ASSERT_EQ(80, httpp::url_port(u));
+    ASSERT_EQ(80, u.effective_port());
 }
 
 // --- fetch_public_suffix_list: from a local server, no internet needed ---

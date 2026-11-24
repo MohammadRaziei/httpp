@@ -553,7 +553,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
                 if (!query.empty()) path += "?" + query;
             } catch (const std::exception&) {
             }
-            if (proxy) std::cerr << "* Uses proxy " << httpp::url_scheme(*proxy) << "://" << httpp::url_host(*proxy) << ":" << httpp::url_port(*proxy) << "\n"; // without the login
+            if (proxy) std::cerr << "* Uses proxy " << httpp::url_scheme(*proxy) << "://" << httpp::url_host(*proxy) << ":" << proxy->effective_port() << "\n"; // without the login
             std::cerr << "> " << effective << " " << path << " HTTP/1.1\n";
             for (const auto& [name, value] : plan.sent) std::cerr << "> " << name << ": " << value << "\n";
             std::cerr << ">" << std::endl;

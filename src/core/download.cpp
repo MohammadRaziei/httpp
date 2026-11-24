@@ -275,7 +275,7 @@ std::string file_name_of(const std::string& url_str) {
 bool same_host_and_port(const std::string& a, const std::string& b) {
     try {
         const url ua = parse_url(a), ub = parse_url(b);
-        return url_scheme(ua) == url_scheme(ub) && url_host(ua) == url_host(ub) && url_port(ua) == url_port(ub);
+        return url_scheme(ua) == url_scheme(ub) && url_host(ua) == url_host(ub) && ua.effective_port() == ub.effective_port();
     } catch (const std::exception&) {
         return false;
     }

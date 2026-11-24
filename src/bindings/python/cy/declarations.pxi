@@ -360,6 +360,7 @@ cdef extern from "httpp/progress.hpp" namespace "httpp::progress":
 cdef extern from "httpp/url.hpp" namespace "httpp":
     cdef cppclass cpp_url "httpp::url":  # urlparser::url (ADR-0067)
         cpp_url()
+        int effective_port() const  # the URL's port, else its scheme's default, else 0
     cpp_url cpp_parse_url "httpp::parse_url"(const string& raw) except +
     cbool cpp_url_valid "httpp::url_valid"(const cpp_url& u)
     cbool cpp_url_is_http "httpp::url_is_http"(const cpp_url& u)
@@ -367,7 +368,6 @@ cdef extern from "httpp/url.hpp" namespace "httpp":
     string cpp_url_host "httpp::url_host"(const cpp_url& u) except +
     string cpp_url_username "httpp::url_username"(const cpp_url& u) except +
     string cpp_url_password "httpp::url_password"(const cpp_url& u) except +
-    int cpp_url_port "httpp::url_port"(const cpp_url& u)
     string cpp_url_path "httpp::url_path"(const cpp_url& u) except +
     string cpp_url_query "httpp::url_query"(const cpp_url& u) except +
     string cpp_url_filename "httpp::url_filename"(const cpp_url& u) except +

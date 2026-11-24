@@ -381,7 +381,7 @@ cdef class URL:
         self.host = cpp_url_host(u).decode("utf-8", "replace")
         self.username = cpp_url_username(u).decode("utf-8", "replace")
         self.password = cpp_url_password(u).decode("utf-8", "replace")
-        self.port = cpp_url_port(u)
+        self.port = u.effective_port()
         self.path = cpp_url_path(u).decode("utf-8", "replace")
         self.query = cpp_url_query(u).decode("utf-8", "replace")
         self.filename = cpp_url_filename(u).decode("utf-8", "replace")

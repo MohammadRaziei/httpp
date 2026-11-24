@@ -185,7 +185,7 @@ cdef str _proxy_text(const cpp_url& proxy):
         if password.size() > 0:
             text += ":" + cpp_encode_component(password).decode("ascii")
         text += "@"
-    return text + cpp_url_host(proxy).decode("utf-8") + ":" + str(cpp_url_port(proxy))
+    return text + cpp_url_host(proxy).decode("utf-8") + ":" + str(proxy.effective_port())
 
 
 def proxy_from_environment(str url):

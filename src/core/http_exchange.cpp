@@ -98,7 +98,7 @@ proxy_setting parse_proxy_url(const url& u) {
         throw std::invalid_argument("proxy: '" + u.str() + "' is not an http://, socks5:// or socks5h:// URL with a host");
     const std::string user = url_username(u), pass = url_password(u);
     out.host = url_host(u);
-    out.port = url_port(u);
+    out.port = u.effective_port();
     if (u.protocol() == "http") {
         if (!user.empty() || !pass.empty()) out.authorization = "Basic " + base64(user + ":" + pass);
     } else {
@@ -220,7 +220,7 @@ endpoint endpoint_of(const url& u, bool with_base_path) {
     endpoint e;
     e.scheme = url_scheme(u);
     e.host = url_host(u);
-    e.port = url_port(u);
+    e.port = u.effective_port();
     if (with_base_path) {
         std::string p = url_path(u);
         while (!p.empty() && p.back() == '/') p.pop_back();
@@ -298,7 +298,7 @@ bool resolve_location(const request_spec& cur, std::string loc, request_spec& ne
         if (!url_is_http(u)) return false;
         next.scheme = url_scheme(u);
         next.host = url_host(u);
-        next.port = url_port(u);
+        next.port = u.effective_port();
         next.target = url_path(u);
         if (!u.query().empty()) next.target += "?" + url_query(u);
         return true;
