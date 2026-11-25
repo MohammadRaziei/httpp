@@ -6,18 +6,24 @@ import {useLang} from './LangContext';
 import styles from './Lang.module.css';
 
 type Entry = {code: string; path: string; url: string};
-// per topic: one Entry per language id, plus `readme` (the topic folder on GitHub)
-const data = snippets as unknown as Record<string, Record<string, Entry | string>>;
+// per topic: `readme` (the topic folder on GitHub) and `files`: one Entry per language id for each file stem
+// (`main` is the example of the page, any other stem is an extra shown below it)
+type Topic = {readme: string; files: Record<string, Record<string, Entry>>};
+const data = snippets as unknown as Record<string, Topic>;
 
-// The code of one example in the language chosen in the navbar. The code comes from examples/<name>/<lang>/main.<ext>;
-// the file name above it links to that file on GitHub.
-export default function Lang({name}: {name: string}) {
+// The code of one example in the language chosen in the navbar. The code comes from examples/<name>/<lang>/<file>.<ext>
+// (`file` defaults to `main`); the file name above it links to that file on GitHub.
+export default function Lang({name, file = 'main'}: {name: string; file?: string}) {
   const {lang, setLang} = useLang();
-  const entry = data[name]?.[lang] as Entry | undefined;
+  const entry = data[name]?.files?.[file]?.[lang];
   const known = languages.find((l) => l.id === lang);
 
-  if (!data[name]) {
-    return <p className={styles.missing}>Snippet "{name}" was not found. Run scripts/prepare.py.</p>;
+  if (!data[name]?.files?.[file]) {
+    return (
+      <p className={styles.missing}>
+        Snippet "{name}/{file}" was not found. Run scripts/prepare.py.
+      </p>
+    );
   }
 
   return (
