@@ -36,7 +36,7 @@ The command listens on every interface, so anyone on your network can read the f
 
 :::
 
-To let people see what is in a folder instead of asking for a file by name, run [`httpp browse`](browse-command.mdx), which adds a listing, a preview and ZIP downloads.
+To let people see what is in a folder instead of asking for a file by name, run [`httpp browse`](file-browser.mdx), which adds a listing, a preview and ZIP downloads.
 
 ## HTTPS
 
@@ -46,7 +46,7 @@ To let people see what is in a folder instead of asking for a file by name, run 
 httpp server <path> --ssl-certfile cert.pem --ssl-keyfile key.pem
 ```
 
-The printed address starts with `https://`, and one port serves TLS or plain HTTP, never both. For an encrypted key add `--ssl-keyfile-password`, or set `HTTPP_SSL_KEYFILE_PASSWORD` to keep the password out of the process list. [`httpp browse`](browse-command.mdx#https) takes the same options, which are also the ones `httpp run` has. In C++ the same thing is `tls(cert, key)` on the server.
+The printed address starts with `https://`, and one port serves TLS or plain HTTP, never both. For an encrypted key add `--ssl-keyfile-password`, or set `HTTPP_SSL_KEYFILE_PASSWORD` to keep the password out of the process list. [`httpp browse`](file-browser.mdx#https) takes the same options, which are also the ones `httpp run` has. In C++ the same thing is `tls(cert, key)` on the server.
 
 The command is the `Directory` below, mounted at `/` with `show_hidden(false)` (unless `--hidden`) and `show_dates(false)` (with `--no-dates`), so everything on this page about names, `index.html` and file types applies to it. The one difference from `serve_directory`: that call serves names that start with a dot, as the next sections say.
 

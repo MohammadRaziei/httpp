@@ -5,8 +5,118 @@ title: Browse files
 
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
+import ThemedImage from '@theme/ThemedImage';
+import listLight from './browse/01-list-light.png';
+import listDark from './browse/02-list-dark.png';
+import grid from './browse/03-grid-light.png';
+import selection from './browse/04-selection.png';
+import contextMenu from './browse/05-context-menu.png';
+import previewText from './browse/06-preview-text.png';
+import previewSvg from './browse/07-preview-svg.png';
+import search from './browse/08-search.png';
+import folder from './browse/09-folder.png';
+import mobile from './browse/10-mobile-dark.png';
+import noDates from './browse/11-no-dates.png';
 
-`FileBrowser` (`httpp::file_browser` in C++) adds a page where people can look through a folder, search it, sort it and download files. It is read-only: nothing can be uploaded, renamed or deleted (the only route that reads a body is the optional ZIP request, and all it reads is names). The page is one self-contained HTML document that comes with the library, so it needs no files of yours and no internet.
+A file browser is a page where people can look through a folder, filter it, sort it, preview files and download one file or many. It is read-only: nothing can be uploaded, renamed or deleted (the only route that reads a body is the optional ZIP request, and all it reads is names). The page is one self-contained HTML document that comes with the library, so it needs no files of yours and no internet.
+
+There are two ways to use it, and they are the same page:
+
+- the command `httpp browse`, to share a folder with nothing to write or set up (the first half of this page);
+- `FileBrowser` in Python and `httpp::file_browser` in C++, to put the page on a route of your own server (from [In your own program](#in-your-own-program) on).
+
+## Share a folder with `httpp browse`
+
+`httpp browse` is a single command. It does not need Python.
+
+```bash
+httpp browse ~/Downloads
+# Browsing '/home/you/Downloads' (read-only) at http://127.0.0.1:8000/
+```
+
+Open the address in a browser. The port is `8000` unless you pass `--port`. On a terminal the command also prints a small banner first; `--no-banner` turns it off, and a pipe or a log file never gets it.
+
+<ThemedImage alt="The file browser listing a shared folder, in the light and the dark theme" sources={{light: listLight, dark: listDark}} />
+
+The page follows the system theme (`--theme light` or `--theme dark` fixes it, and the viewer can still switch with the **Theme** button). The header has the folder path, a filter box, **List** and **Grid** buttons and **Folder ZIP**. A click on a column header sorts by name, type, size or date.
+
+### Look at a folder
+
+The list shows the type, size and modified time of every entry. **Grid** shows the same folder as tiles, which suits pictures and short names. `--view grid` and `--sort size` choose how the page starts.
+
+<ThemedImage alt="The same folder in grid view" sources={{light: grid, dark: grid}} />
+
+### Filter and open folders
+
+The filter box narrows the open folder as you type, and the footer says how many entries are showing. A click on a folder opens it, and the path at the top lets you go back. A `..` row leads one level up.
+
+<ThemedImage alt="The filter box showing only names that contain re" sources={{light: search, dark: search}} />
+
+<ThemedImage alt="The src folder with the path Home / src in the header" sources={{light: folder, dark: folder}} />
+
+### Select files and download them as one ZIP
+
+With ZIP on (`httpp browse` has it on and `--no-zip` turns it off; in the library it is off until you call `zip(true)`, Python `zip=True`) the page can bundle files:
+
+- a **checkbox** on every row (Shift+click for a range, Space on a focused row, **Ctrl+A** for all), or **drag a rectangle** with the mouse over the rows (Ctrl or Shift adds to what is selected; a click on empty space clears it; touch screens scroll as usual and use the checkboxes);
+- a bar at the bottom shows what is selected, with **Download ZIP**, **Copy names** and **Clear**; the **Folder ZIP** button in the header takes the open folder;
+- a folder goes in with everything under it. Hidden names stay out (unless `show_hidden`), and so do links that lead out of the root and links to folders (they could loop); a link to a file inside the root is included;
+- **nothing is compressed**: the ZIP is a bundle, not a smaller file (music and video are compressed already). It is streamed while it is read, so memory stays small however big it is, and it uses Zip64, so it can pass 4 GiB and 65535 entries. File names are UTF-8 (Persian, Arabic and the rest show correctly). The browser shows no total size, because it is not known when the download starts;
+- the request is refused before any byte is sent when it names something that is not there (`404`), a bad name (`400`) or more than `max_zip_entries` entries (`413`); the page shows the reason.
+
+<ThemedImage alt="Three rows selected, with the Download ZIP bar at the bottom" sources={{light: selection, dark: selection}} />
+
+A request can make the server read a lot of disk, so ZIP is **off by default in the library**: turn it on where the viewers are trusted or behind the `before` hook.
+
+### Right-click
+
+A right-click opens the page's own menu: Preview or Open, Open in a new tab, Download, Copy name, Copy path, Copy link and Select, and the ZIP entries when ZIP is on. On empty space it offers the folder ZIP, Select all, Copy folder path and Refresh. It works with the keyboard too (the menu key, arrows, Enter and Esc). The filter box and the column headers keep the browser's own menu, and so does the preview dialog.
+
+<ThemedImage alt="The right-click menu open on a PDF" sources={{light: contextMenu, dark: contextMenu}} />
+
+### Preview a file
+
+A click on a text file opens it in a dialog, and a click on an image shows the image. The buttons in the corner download the file, open it raw in a new tab or close the dialog.
+
+<ThemedImage alt="A text file previewed in a dialog" sources={{light: previewText, dark: previewText}} />
+
+An SVG is shown as an image.
+
+<ThemedImage alt="An SVG file previewed as an image" sources={{light: previewSvg, dark: previewSvg}} />
+
+What may run in the page is limited; see [What it keeps out](#what-it-keeps-out).
+
+### Keep the file times private
+
+The list shows when each file was changed, and the server sends the same time in other places too: the listing the page reads, the `Last-Modified` and `ETag` headers of a file, and the date of every entry of a ZIP. `--no-dates` (`show_dates(false)` in code) removes all of them.
+
+<ThemedImage alt="The list without a Modified column" sources={{light: noDates, dark: noDates}} />
+
+The Modified column and the sort by date are gone, the listing has no `mtime`, files carry neither `Last-Modified` nor `ETag` (so a browser asks again each time), and every ZIP entry is dated 1980-01-01. Sizes and the response's own `Date` header are still sent. It is separate from safe mode, which is about files that could run code.
+
+### On a phone
+
+The same page fits a narrow screen: the toolbar wraps and the type and date columns drop out. A touch screen scrolls as usual and selects with the checkboxes.
+
+<div style={{maxWidth: 300}}>
+  <ThemedImage alt="The file browser on a phone-sized screen" sources={{light: mobile, dark: mobile}} />
+</div>
+
+### HTTPS
+
+Give a certificate and its private key (both PEM) and the command serves `https` instead of `http`:
+
+```sh
+httpp browse ~/Downloads --ssl-certfile cert.pem --ssl-keyfile key.pem
+```
+
+The address it prints starts with `https://`. The certificate file holds the chain with the server's own certificate first. One port serves TLS or plain HTTP, never both, so a plain `http://` request to it is dropped. For a key encrypted with a password, pass `--ssl-keyfile-password`, or set `HTTPP_SSL_KEYFILE_PASSWORD` in the environment so the password stays out of the process list. The options are the ones `httpp run` has, and the command refuses to start, naming the file, if one cannot be read or the key does not belong to the certificate.
+
+For use on your own computer, a certificate your browser trusts is easiest to make with [mkcert](https://github.com/FiloSottile/mkcert); `openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 30 -subj /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1 -keyout key.pem -out cert.pem` makes a self-signed one, which the browser warns about once.
+
+## In your own program
+
+`httpp browse` is the file browser of the library with a command line in front of it. To put the page on a route of your own server, mount it:
 
 <Lang name="file_browser" />
 
@@ -19,76 +129,67 @@ httpp curl http://127.0.0.1:8000/files/raw/a.txt
 # alpha
 ```
 
-## What it serves
-
-| Request | Answer |
-|---|---|
-| `GET /files` | the browser page |
-| `GET /files/api/list?path=/sub` | the entries of one folder as JSON |
-| `GET /files/raw/<path>` | the file itself; `Range` and `HEAD` work |
-| `GET` or `POST /files/api/zip` | a ZIP of a folder or of chosen names in it; only with `zip(true)` (see below) |
-
-A file that could run code in the page's own origin (html, svg, xml, scripts and files of an unknown type) is always sent as a download, and `?download=1` makes any file a download.
-
 <Only lang="cpp">
 
 The header is `httpp/file_browser.hpp`. It is not part of `httpp.h`, so include it yourself, as the example does.
 
 </Only>
 
-## Select, download as ZIP, right-click
+### What it serves
 
-With `zip(true)` (Python `zip=True`; `httpp browse` has it on, `--no-zip` turns it off) the page can bundle files:
+The routes are shown under `/files`, the base of the example. `httpp browse` mounts the browser at `/`, so there they are `/`, `/api/list`, `/raw/<path>` and `/api/zip`.
 
-- a **checkbox** on every row (Shift+click for a range, Space on a focused row, **Ctrl+A** for all), or **drag a rectangle** with the mouse over the rows (Ctrl or Shift adds to what is selected; a click on empty space clears it; touch screens scroll as usual and use the checkboxes);
-- a bar at the bottom shows what is selected, with **Download ZIP**, **Copy names** and **Clear**; the **Folder ZIP** button in the header takes the open folder;
-- a folder goes in with everything under it. Hidden names stay out (unless `show_hidden`), and so do links that lead out of the root and links to folders (they could loop); a link to a file inside the root is included;
-- **nothing is compressed**: the ZIP is a bundle, not a smaller file (music and video are compressed already). It is streamed while it is read, so memory stays small however big it is, and it uses Zip64, so it can pass 4 GiB and 65535 entries. File names are UTF-8 (Persian, Arabic and the rest show correctly). The browser shows no total size, because it is not known when the download starts.
-- the request is refused before any byte is sent when it names something that is not there (`404`), a bad name (`400`) or more than `max_zip_entries` entries (`413`); the page shows the reason.
+| Request | Answer |
+|---|---|
+| `GET /files` | the browser page |
+| `GET /files/api/list?path=/sub` | the entries of one folder as JSON |
+| `GET /files/raw/<path>` | the file itself; `Range` and `HEAD` work |
+| `GET` or `POST /files/api/zip` | a ZIP of a folder or of chosen names in it; only with ZIP on |
 
-The same works for programs: `GET /files/api/zip?path=/music&name=a.mp3&name=b.mp3` (no `name`: the whole folder), or `POST` with the same fields as a form.
+A file that could run code in the page's own origin (html, svg, xml, scripts and files of an unknown type) is always sent as a download, and `?download=1` makes any file a download. The one exception is html and svg in the default mode; see [What it keeps out](#what-it-keeps-out).
 
-A request can make the server read a lot of disk, so this is **off by default** in the library: turn it on where the viewers are trusted or behind the `before` hook.
+The ZIP route works for programs too: `GET /files/api/zip?path=/music&name=a.mp3&name=b.mp3` (no `name`: the whole folder), or `POST` with the same fields as a form. A `POST` with an `Origin` that is not the `Host` (or `null`) is refused with `403`; a request without `Origin` (curl, scripts) is served as before.
 
-**Right-click** opens the page's own menu (Open or Preview, Open in a new tab, Download, Copy name, Copy path, Copy link, Select, and ZIP entries when it is on; on empty space: folder ZIP, Select all, Copy folder path, Refresh). It works with the keyboard (the menu key, arrows, Enter, Esc). The filter box and the column headers keep the browser's own menu, and so does the preview dialog.
+### Settings
 
-The page ends with a small **Powered by httpp** link to the project on GitHub; `powered_by(false)` (`--no-powered-by`) removes it.
+Every setting is a method that returns the browser, so they chain, and the same names work in both languages. A bad value is refused where you set it and leaves the browser as it was. Most settings are also an option of `httpp browse`; the second column says which.
 
-## What it keeps out
-
-The folder you give is a ceiling. `..` segments, backslashes, NUL bytes, absolute paths and symlinks that lead out of it are refused, and a missing path, a hidden path and a path outside the folder all get the same `404`, so an answer never tells which of them it was. Names that start with a dot are not listed and answer `404` unless you set `show_hidden`.
-
-A file that could run code in the page's origin (xml, js, a type httpp does not know) is never shown: its preview says so and "Open raw" downloads it. **html and svg** are the exception by default: "Open raw" renders them in the tab it opens, and the dialog shows an svg as an image (an html file stays text there). Both are sent with `Content-Security-Policy: sandbox; default-src 'none'; ...`, so no script runs, nothing is fetched from another origin (images, styles and fonts of the same server still load), forms are blocked and the page has an opaque origin: it cannot reach the browser or the viewer's session. xml, js and unknown types stay downloads, and `?download=1` still forces a download.
-
-**Safe mode** (`safe_mode(true)`, Python `safe_mode=True`, `httpp browse --safe`) turns that off: html and svg are only downloaded too, and nothing that could run code is ever shown.
-
-The browser has **no login of its own**. The `before` hook of the server runs first, so that is the place to ask for a key or a session: see [hooks](hooks.mdx).
-
-## Settings
-
-Every setting is a method that returns the browser, so they chain, and the same names work in both languages. A bad value is refused where you set it and leaves the browser as it was.
-
-| Setting | Default | Meaning |
-|---|---|---|
-| `title(text)` | `"Files"` | page header and tab title (escaped, any text is safe) |
-| `theme(theme)` | `system` | `Theme.SYSTEM` follows the system, or `Theme.LIGHT` / `Theme.DARK`; the viewer can still switch |
-| `accent("#rrggbb")` | empty | accent colour, empty for the default |
-| `search(bool)` | `true` | show the filter box (it filters the open folder in the browser) |
-| `show_hidden(bool)` | `false` | list and serve names that start with a dot |
-| `show_dates(bool)` | `true` | `false`: no file time anywhere: no Modified column or sort by date, no `mtime` in `api/list`, no `Last-Modified` or `ETag` on the files, every ZIP entry dated 1980-01-01 |
-| `max_entries(count)` | `5000` | a larger folder is cut at this many and flagged `"truncated"`; must be above 0 |
-| `layout(view)` | `list` | first view, `View.LIST` or `View.GRID` |
-| `sort_by(key)` | `name` | first sort, `Sort.NAME`, `Sort.SIZE` or `Sort.DATE` |
-| `zip(bool)` | `false` | the page can select files and folders and download them as one ZIP (`api/zip`); see above |
-| `max_zip_entries(count)` | `50000` | the most entries (files and folders) one ZIP may hold, `413` beyond; must be above 0 |
-| `powered_by(bool)` | `true` | the "Powered by httpp" line at the bottom of the page |
-| `safe_mode(bool)` | `false` | `false`: html and svg are rendered by "Open raw", in a sandbox (see below). `true`: html, svg, xml, js and unknown types are only downloaded |
+| Setting | `httpp browse` | Default | Meaning |
+|---|---|---|---|
+| `title(text)` | `--title` | `"Files"` | page header and tab title (escaped, any text is safe) |
+| `theme(theme)` | `--theme` | `system` | `Theme.SYSTEM` follows the system (`auto` in the command), or `Theme.LIGHT` / `Theme.DARK`; the viewer can still switch |
+| `accent("#rrggbb")` | `--accent #RRGGBB` | empty | accent colour, empty for the default |
+| `search(bool)` | `--no-search` | `true` | show the filter box (it filters the open folder in the browser) |
+| `show_hidden(bool)` | `--hidden` | `false` | list and serve names that start with a dot |
+| `show_dates(bool)` | `--no-dates` | `true` | `false`: no file time anywhere: no Modified column or sort by date, no `mtime` in `api/list`, no `Last-Modified` or `ETag` on the files, every ZIP entry dated 1980-01-01 |
+| `max_entries(count)` | `--max-entries N` | `5000` | a larger folder is cut at this many and flagged `"truncated"`; must be above 0 |
+| `layout(view)` | `--view` | `list` | first view, `View.LIST` or `View.GRID` |
+| `sort_by(key)` | `--sort` | `name` | first sort, `Sort.NAME`, `Sort.SIZE` or `Sort.DATE` |
+| `zip(bool)` | `--no-zip` | `false` | the page can select files and folders and download them as one ZIP (`api/zip`). The command turns it on |
+| `max_zip_entries(count)` | none | `50000` | the most entries (files and folders) one ZIP may hold, `413` beyond; must be above 0 |
+| `powered_by(bool)` | `--no-powered-by` | `true` | the "Powered by httpp" line at the bottom of the page |
+| `safe_mode(bool)` | `--safe` | `false` | `false`: html and svg are rendered by "Open raw", in a sandbox. `true`: html, svg, xml, js and unknown types are only downloaded |
 
 In Python the enums are `httpp.FileBrowser.Theme`, `.View` and `.Sort`; in C++ they are `httpp::file_browser::theme_mode`, `view_mode` and `sort_key`. Python also takes the settings as keyword arguments: `httpp.FileBrowser("shared", title="Team files", view=httpp.FileBrowser.View.GRID)`.
 
 A bad `base` (it must start with `/`) and a folder that does not exist or is the root of the file system are errors when you call `mount`: `ValueError` in Python, `std::invalid_argument` in C++.
 
-## Where the two differ
+These options belong to the command only, because a program has its own server to set up:
+
+| `httpp browse` | Default | Meaning |
+|---|---|---|
+| `directory` | `.` | the folder to browse |
+| `--host` | `127.0.0.1` | `0.0.0.0` shares on every interface (there is no login) |
+| `-p`, `--port` | `8000` | the port |
+| `--ssl-certfile FILE`, `--ssl-keyfile FILE` | none | serve `https` (see [HTTPS](#https)); give both |
+| `--ssl-keyfile-password PASSWORD` | none | the password of an encrypted key; `HTTPP_SSL_KEYFILE_PASSWORD` works too |
+| `--no-banner` | off | do not print the banner on a terminal |
+| `--log-level` | `info` | `trace`, `debug`, `info`, `warning`, `error` or `off` |
+| `--shutdown-timeout SECONDS` | `10` | how long requests in progress may take to finish on Ctrl+C |
+
+In your own program the server owns the address, the log and TLS: see [serve a directory](serve-directory.mdx#https) for TLS and the [server handle](server-handle.mdx) for the rest.
+
+### Python and C++
 
 | | Python | C++ |
 |---|---|---|
@@ -97,3 +198,15 @@ A bad `base` (it must start with `/`) and a folder that does not exist or is the
 | Enums | `FileBrowser.Theme`, `.View`, `.Sort` | `theme_mode`, `view_mode`, `sort_key` |
 | Header | nothing to include | `httpp/file_browser.hpp` |
 | Bad setup | `ValueError` | `std::invalid_argument` |
+
+## What it keeps out
+
+The page is read-only: nothing can be uploaded, renamed or deleted.
+
+The folder you give is a ceiling. `..` segments, backslashes, NUL bytes, absolute paths and symlinks that lead out of it are refused, and a missing path, a hidden path and a path outside the folder all get the same `404`, so an answer never tells which of them it was. Names that start with a dot are not listed and answer `404` unless you set `show_hidden` (`--hidden`).
+
+A file that could run code in the page's origin (xml, js, a type httpp does not know) is never shown: its preview says so and "Open raw" downloads it. **html and svg** are the exception by default: "Open raw" renders them in the tab it opens, and the dialog shows an svg as an image (an html file stays text there). Both are sent with `Content-Security-Policy: sandbox; default-src 'none'; ...`, so no script runs, nothing is fetched from another origin (images, styles and fonts of the same server still load), forms are blocked and the page has an opaque origin: it cannot reach the browser or the viewer's session. xml, js and unknown types stay downloads, and `?download=1` still forces a download.
+
+**Safe mode** (`safe_mode(true)`, Python `safe_mode=True`, `httpp browse --safe`) turns that off: html and svg are only downloaded too, and nothing that could run code is ever shown.
+
+The browser has **no login of its own**. `httpp browse` listens on `127.0.0.1` by default, so only your own computer can reach it; `--host 0.0.0.0` opens it to everyone on the network, so use it only where that is fine. In your own program, the `before` hook of the server runs first, so that is the place to ask for a key or a session: see [hooks](hooks.mdx).

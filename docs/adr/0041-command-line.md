@@ -77,7 +77,7 @@ Verified on Linux: Python suite 783 passed on 3.13, 782 on 3.14t; `examples/find
 
 - **Status:** accepted
 - **Decided by:** the project owner (asked for TLS on the two commands that stay up)
-- **Source:** `src/cli/httpp_cli.cpp` (`tls_args`, `add_tls_options`), `src/core/tls_session.cpp` (the encrypted-key hint), `tests/python/test_cli.py` (the TLS section), `docs/site/docs/server/serve-directory.mdx`, `docs/site/docs/server/browse-command.mdx`
+- **Source:** `src/cli/httpp_cli.cpp` (`tls_args`, `add_tls_options`), `src/core/tls_session.cpp` (the encrypted-key hint), `tests/python/test_cli.py` (the TLS section), `docs/site/docs/server/serve-directory.mdx`, `docs/site/docs/server/file-browser.mdx`
 
 #### Context
 
