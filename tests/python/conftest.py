@@ -111,3 +111,58 @@ def httpp_exe(request):
         return [request.getfixturevalue("httpp_command")]
     exe = _find_command()
     return [exe] if exe else [sys.executable, "-m", "httpp"]
+
+
+# --- Address-space trace (diagnosis of the cp314t-win32 wheel job) ---------------------------------------------------------
+# On the 32-bit free-threaded Windows job the hook tests of test_server_features.py fail after ~750 passed tests with MemoryError
+# that Python cannot even print ("lost sys.stderr"). The suspicion is that the process runs out of its 2 GiB of address space;
+# nothing proves it. This writes one MEMTRACE line after every test (free address space, address space in use, thread count) so
+# one CI run shows whether the numbers fall to zero before the first failure, and in which test they jump.
+# It is on by itself in a 32-bit Windows process and with HTTPP_MEM_TRACE=1 anywhere. Take it out when the cause is fixed.
+_MEM_TRACE = os.environ.get("HTTPP_MEM_TRACE") == "1" or (sys.platform == "win32" and sys.maxsize <= 2**32)
+
+
+def _address_space_mib():
+    """(free MiB, used MiB) of the address space of this process, or None where it cannot be read."""
+    if sys.platform == "win32":
+        import ctypes
+
+        class MemoryStatusEx(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+        status = MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(MemoryStatusEx)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return None
+        return status.ullAvailVirtual // 2**20, (status.ullTotalVirtual - status.ullAvailVirtual) // 2**20
+    try:
+        with open("/proc/self/statm") as f:  # Linux: only so the plumbing can be tried; the number is not an address-space limit
+            used = int(f.read().split()[0]) * os.sysconf("SC_PAGE_SIZE") // 2**20
+        return 0, used
+    except OSError:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _memtrace(request):
+    yield
+    if not _MEM_TRACE:
+        return
+    import threading
+
+    numbers = _address_space_mib()
+    free, used = numbers if numbers is not None else (None, None)
+    if free is None:
+        return
+    line = f"MEMTRACE free={free}MiB used={used}MiB threads={threading.active_count()} {request.node.nodeid}"
+    # pytest's capture would keep the line until the test fails; switch it off for this one line
+    capture = request.config.pluginmanager.get_plugin("capturemanager")
+    if capture is not None:
+        with capture.global_and_fixture_disabled():
+            print(line, file=sys.stderr, flush=True)
+    else:
+        print(line, file=sys.stderr, flush=True)
