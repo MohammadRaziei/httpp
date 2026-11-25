@@ -59,6 +59,7 @@ import sys
 import threading
 import time
 import traceback
+import weakref
 
 from . import _background, _forms, _log, _params, _router, _schema
 from . import security as _security
@@ -597,6 +598,22 @@ class _FlatRaw:
         return _parse_form(self.body, ctype)
 
 
+def _weak_hook(bound):
+    """A bound hook method (app._run_before ...) that does not keep its app alive.
+
+    The core keeps every hook it is given in app._handlers, so a plain bound method is a cycle: app -> _handlers -> method -> app.
+    Reference counting never frees such an app; the cycle collector does, and on free-threaded CPython it runs late, so the stopped
+    servers of a long run (a test suite) pile up with everything they hold (see ADR-0112). If the app is gone no request can arrive,
+    and the answer is the neutral one: None (go on / change nothing / keep the plain error)."""
+    ref = weakref.WeakMethod(bound)
+
+    def hook(*args):
+        method = ref()
+        return None if method is None else method(*args)
+
+    return hook
+
+
 def _prepare_flat(fn):
     """_prepare for the hooks: called with the six values, not with a RawRequest."""
     prepare = _prepare(fn)
@@ -605,6 +622,7 @@ def _prepare_flat(fn):
 
 def _adapt(fn, app, plan=None, status=200, shape=None):
     """Sync handler -> what the compiled core calls on a worker thread: raw request in, (status, body, headers) out."""
+    app_ref = weakref.ref(app)  # the closures below are kept in app._handlers: a strong reference would be a cycle (see ADR-0112)
     prepare = _prepare(fn, plan)
     has_out = plan is not None and (plan.wants_response or plan.background_name is not None)
 
@@ -623,9 +641,8 @@ def _adapt(fn, app, plan=None, status=200, shape=None):
                     result = _to_response(rv if shape is None else shape(rv), status)
                     return _merge_out(result, kwargs, plan) if has_out else result
             except Exception as exc:
-                handler = app._exception_handler_for(exc)
+                handler = _on_exception(app_ref, exc)
                 if handler is None:
-                    app._unhandled(exc)
                     raise
                 return _to_response(_call(handler, ServerRequest._from_raw(raw), exc), 500)
 
@@ -640,13 +657,38 @@ def _adapt(fn, app, plan=None, status=200, shape=None):
             result = _to_response(rv if shape is None else shape(rv), status)
             return _merge_out(result, kwargs, plan) if has_out else result
         except Exception as exc:
-            handler = app._exception_handler_for(exc)
+            handler = _on_exception(app_ref, exc)
             if handler is None:
-                app._unhandled(exc)
                 raise  # the compiled core logs it and answers a plain 500
             return _to_response(_call(handler, ServerRequest._from_raw(raw), exc), 500)
 
     return call
+
+
+def _on_exception(app_ref, exc):
+    """The exception handler for `exc` (None when there is none), asked of the app through its weak reference.
+
+    A function of its own on purpose: no frame of a request holds the app. A traceback that is kept (a log record, a task result)
+    holds its frames, and a frame with the app in it would hold the app too (ADR-0112). Without an app (it was dropped while the
+    request was still running) the answer is None: the core logs the error and answers a plain 500."""
+    app = app_ref()
+    if app is None:
+        return None
+    handler = app._exception_handler_for(exc)
+    if handler is None:
+        app._unhandled(exc)
+    return handler
+
+
+def _wants_after(app_ref):
+    """True when the app has after / error hooks that must run on the calling thread (see `run` in `_adapt_async`)."""
+    app = app_ref()
+    return app is not None and bool(app._after or app._error_handlers)
+
+
+def _timeout_of(app_ref):
+    app = app_ref()
+    return 0 if app is None else app._handler_timeout
 
 
 def _call(fn, *args, **kwargs):
@@ -828,6 +870,7 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
     """Async handler -> a dispatcher for the compiled core's loop routes: `dispatch(raw, done)` runs on
     the loop thread, returns at once, and the response is sent through `done` when the handler is finished.
     One task per request does everything: the handler, its exception handler and the timeout."""
+    app_ref = weakref.ref(app)  # the dispatcher is kept in app._handlers: a strong reference would be a cycle (see ADR-0112)
     prepare = _prepare(fn, plan)
     has_deps = plan is not None and bool(plan.deps)
     has_out = plan is not None and (plan.wants_response or plan.background_name is not None)
@@ -859,9 +902,8 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                         if has_out:
                             result = _merge_out(result, kwargs, plan)
                 except Exception as exc:
-                    handler = app._exception_handler_for(exc)
+                    handler = _on_exception(app_ref, exc)
                     if handler is None:
-                        app._unhandled(exc)
                         raise  # answered with a plain 500 below
                     rv = handler(ServerRequest._from_raw(raw), exc)
                     if inspect.isawaitable(rv):
@@ -881,7 +923,7 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
         # hooks it is safe, and cheaper, to call it right here. after/error hooks run inside
         # done() on the calling thread, and an `async def` one would wait on this very loop.
         # ponytail: executor fallback whenever such hooks exist; upgrade path: await the hooks here.
-        if app._after or app._error_handlers:
+        if _wants_after(app_ref):
             await loop.run_in_executor(None, done, *result)
         else:
             try:
@@ -891,6 +933,7 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                 done(500, b"Internal Server Error", [])
 
     def dispatch(raw, done, inline=False, lane=0):
+        timeout = _timeout_of(app_ref)
         if inline:
             # On an I/O thread, holding its lane's gate: the loop thread is asleep in its selector, so this is
             # the loop's own work done early. The loop must look "running" to the code in the handler; whatever
@@ -907,8 +950,8 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                 _set_running_loop(None)
             if not task.done():
                 _tasks.add(task)
-                if app._handler_timeout:
-                    ln.deadlines.add(loop, task, app._handler_timeout)
+                if timeout:
+                    ln.deadlines.add(loop, task, timeout)
             if not task.done() or len(loop._ready) != ready or len(loop._scheduled) != scheduled:
                 ln.wake[1].send(b"\0")  # the loop sleeps with a timeout that does not know about this
             return
@@ -920,13 +963,13 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
             task = asyncio.Task(run(raw, done), loop=loop, eager_start=True)
             if not task.done():
                 _tasks.add(task)  # the loop only keeps weak references to tasks
-                if app._handler_timeout:  # a handler that finished at once needs no deadline
-                    loop._httpp_lane.deadlines.add(loop, task, app._handler_timeout)
+                if timeout:  # a handler that finished at once needs no deadline
+                    loop._httpp_lane.deadlines.add(loop, task, timeout)
             return
         task = loop.create_task(run(raw, done))
         _tasks.add(task)  # the loop only keeps weak references to tasks
-        if app._handler_timeout:
-            loop._httpp_lane.deadlines.add(loop, task, app._handler_timeout)
+        if timeout:
+            loop._httpp_lane.deadlines.add(loop, task, timeout)
 
     return dispatch
 
@@ -1242,9 +1285,11 @@ class Server(_Server):
         return self._openapi_doc
 
     def _add_docs(self, openapi_url, docs_url):
+        me = weakref.proxy(self)  # the route is kept in self._handlers: a strong reference would be a cycle (see ADR-0112)
+
         @self.get(openapi_url, include_in_schema=False)
         def openapi_json():
-            return _ResponseBase(self._openapi_json(), media_type="application/json")
+            return _ResponseBase(me._openapi_json(), media_type="application/json")
 
         if docs_url is not None:  # Swagger UI is served by C++ from files compiled into libhttpp
             Swagger(openapi_url).title(self._title).mount(self, docs_url)
@@ -1264,7 +1309,7 @@ class Server(_Server):
         """@app.before_request: fn(request) returns None to go on, or a response (anything a
         route may return) to answer right here without calling the route."""
         if not self._before:
-            self.set_before_hook(self._run_before)
+            self.set_before_hook(_weak_hook(self._run_before))
         self._before.append((fn, _prepare_flat(fn)))
         return fn
 
@@ -1272,7 +1317,7 @@ class Server(_Server):
         """@app.after_request: fn(request, response) may edit response.status / .headers
         (a ResponseHead). Hooks run in registration order, also for rejected requests."""
         if not self._after:
-            self.set_after_hook(self._run_after)
+            self.set_after_hook(_weak_hook(self._run_after))
         self._after.append(fn)
         return fn
 
@@ -1285,7 +1330,7 @@ class Server(_Server):
 
         def register(fn):
             if not self._error_handlers:
-                self.set_error_hook(self._run_error)
+                self.set_error_hook(_weak_hook(self._run_error))
             for status in statuses:
                 self._error_handlers[status] = (fn, _prepare_flat(fn))
             return fn

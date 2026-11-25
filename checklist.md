@@ -100,3 +100,4 @@ Design: `docs/adr/0041-command-line.md`. `httpp server|browse|download|curl` nat
 
 ## 5. Binding policy (ADR-0016), unchanged
 Python binds only what `include/` exports; a public C++ function is bound only when necessary; `tests/python/test_cpp_python_parity.py` forces every public C++ name to be bound or listed in `NOT_EXPOSED` with a reason. Not exposed on purpose: `route_io`, `route_shared`, `route_ws`, `find_swagger_ui_asset`. The new `mount_file_browser` is bound (as `Server.mount_file_browser`).
+- [ ] Run the wheel job for `cp314t-win32` with the ADR-0112 fix: the `MEMTRACE` free-space number must stay flat; then remove the trace from `tests/python/conftest.py` (and look at the other cycles listed under Not verified)
