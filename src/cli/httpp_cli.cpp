@@ -23,6 +23,7 @@
 #include "httpp/file_browser.hpp"
 #include "httpp/logging.hpp"
 #include "httpp/middleware.hpp"
+#include "httpp/progress.hpp"
 #include "httpp/proxy.hpp"
 #include "httpp/server.hpp"
 #include "httpp/url.hpp"
@@ -31,6 +32,7 @@
 #include <cctype>
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -39,6 +41,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -289,6 +292,9 @@ struct curl_args {
     std::string proxy, noproxy;   // -x, --noproxy
     std::string cacert, output_dir; // --cacert, --output-dir
     std::vector<std::string> json;  // every --json; joined without a separator
+    std::vector<std::string> form;        // every -F: name=value, name=@file[;type=T][;filename=F], name=<file
+    std::vector<std::string> form_string; // every --form-string: name=value, the value is never read as a file
+    bool progress_bar = false;    // -#: a progress bar on stderr while a file is sent
     bool has_user = false;
     bool has_proxy = false;       // -x was given (an empty value means no proxy at all)
     bool has_noproxy = false;     // --noproxy was given (an empty value excludes nothing)
@@ -313,11 +319,20 @@ struct curl_args {
     long retry_delay = 0;         // --retry-delay, in seconds; 0 = 1, 2, 4, ... up to 10 minutes
 };
 
+// One -F or --form-string, worked out once.
+struct form_item {
+    std::string name, value; // value: the text, or the path of the file
+    std::string filename, type;
+    bool is_file = false;
+};
+
 // What the command works out once, before the first transfer.
 struct curl_plan {
     std::vector<std::pair<std::string, std::string>> sent; // headers from -H, -A, -e and --compressed
     bool has_body = false;
     std::string body;
+    std::string upload_path;                   // -T FILE: the body is this file, read while it is sent (not "-")
+    std::vector<form_item> form_parts;        // -F and --form-string, in the order given
     std::string user_name, user_password;
     std::ofstream dump_file; // -D FILE
     bool dump_to_stdout = false;
@@ -496,7 +511,27 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         if (proxy) req.proxy(*proxy);
         if (!chosen.empty()) req.method(chosen);
         for (const auto& [name, value] : plan.sent) req.header(name, value);
-        if (plan.has_body) req.data(plan.body);
+        if (!plan.upload_path.empty()) {
+            // -T FILE is read while it is sent. curl sends no type of its own for -T; this command always sent the urlencoded
+            // default (the body was passed to data()), and keeps doing so.
+            req.body_file(httpp::path(plan.upload_path)).content_type("application/x-www-form-urlencoded");
+        } else if (!plan.form_parts.empty()) {
+            for (const form_item& part : plan.form_parts) {
+                if (part.is_file) req.file(part.name, httpp::path(part.value), part.filename, part.type);
+                else req.field(part.name, part.value);
+            }
+        } else if (plan.has_body) {
+            req.data(plan.body);
+        }
+        if ((!plan.upload_path.empty() || !plan.form_parts.empty()) && a.progress_bar) {
+            auto bar = std::make_shared<std::unique_ptr<httpp::progress::bar>>();
+            req.progress([bar](std::uint64_t sent, std::uint64_t total) {
+                if (total == 0) return;
+                if (!*bar) *bar = std::make_unique<httpp::progress::bar>(static_cast<std::size_t>(total), "upload");
+                if (sent >= total) (*bar)->finish();
+                else (*bar)->set_progress(static_cast<std::size_t>(sent));
+            });
+        }
         // -L with --max-redirs 0 follows nothing and fails on the first redirect (exit 47): on_head() checks that.
         if (a.location && a.max_redirs != 0) req.max_redirects(a.max_redirs == -2 ? 20 : a.max_redirs);
         if (a.max_time > 0) req.max_time(a.max_time);
@@ -628,10 +663,11 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
         };
         res = attempt();
 
-        if (write_failed || res.error == httpp::error_kind::file) { // a file or a closed pipe: curl's exit code 23
+        if (write_failed || res.error == httpp::error_kind::file) { // a file or a closed pipe: curl's exit code 23, or 26 for a file being sent
             error_text = write_failed ? write_error : res.error_message;
             curl_error(a, error_text);
-            code = curl_exit_write_error;
+            const bool sending_file = !plan.upload_path.empty() || !plan.form_parts.empty();
+            code = !write_failed && sending_file && !to_file ? curl_exit_read_error : curl_exit_write_error;
         } else if (res.failed()) { // no HTTP answer to show
             error_text = error_label(res.error);
             if (res.error == httpp::error_kind::timeout) {
@@ -655,6 +691,7 @@ int curl_transfer(const curl_args& a, curl_plan& plan, const std::string& given_
 
 int cmd_curl(const curl_args& a) {
     curl_plan plan;
+    bool form_failed = false; // a -F file could not be read (exit 26) rather than the field being malformed (exit 1)
 #if !defined(_WIN32)
     std::signal(SIGPIPE, SIG_IGN); // like curl: a closed pipe is a failed write (exit 23), not a silent death by signal
 #endif
@@ -695,6 +732,10 @@ int cmd_curl(const curl_args& a) {
         curl_error(a, "--json cannot be used with -d or -T");
         return 1;
     }
+    if ((!a.form.empty() || !a.form_string.empty()) && (!a.upload_file.empty() || !a.data.empty() || !a.json.empty())) {
+        curl_error(a, "-F cannot be used with -d, --json or -T");
+        return 1;
+    }
     if (!a.cacert.empty() && !a.insecure && !httpp::path(a.cacert).is_file()) {
         curl_error(a, "error setting certificate file: " + a.cacert);
         return curl_exit_cacert;
@@ -712,7 +753,61 @@ int cmd_curl(const curl_args& a) {
         }
         plan.has_body = true;
     }
-    if (!a.upload_file.empty()) {
+    if (!a.form.empty() || !a.form_string.empty()) {
+        // -F name=value, -F name=@file[;type=T][;filename=F], -F name=<file (the text of the file as the value), --form-string name=value.
+        // ponytail: -F and --form-string parts are sent -F first, then --form-string, not in command-line order. Upgrade: record the argument position of each.
+        auto split = [&](const std::string& text, bool literal) -> bool {
+            const std::size_t eq = text.find('=');
+            if (eq == std::string::npos || eq == 0) {
+                curl_error(a, "malformed form field (expected 'name=value'): '" + text + "'");
+                return false;
+            }
+            form_item item;
+            item.name = text.substr(0, eq);
+            std::string value = text.substr(eq + 1);
+            if (!literal && !value.empty() && (value[0] == '@' || value[0] == '<')) {
+                const bool as_text = value[0] == '<';
+                value.erase(0, 1);
+                if (!as_text) { // ;type=... and ;filename=... follow the path
+                    std::size_t semi;
+                    while ((semi = value.rfind(';')) != std::string::npos) {
+                        const std::string option = value.substr(semi + 1);
+                        if (option.compare(0, 5, "type=") == 0) item.type = option.substr(5);
+                        else if (option.compare(0, 9, "filename=") == 0) item.filename = option.substr(9);
+                        else break;
+                        value.erase(semi);
+                    }
+                    if (!httpp::path(value).is_file()) {
+                        curl_error(a, "cannot read '" + value + "'");
+                        form_failed = true;
+                        return false;
+                    }
+                    item.is_file = true;
+                } else {
+                    std::string content;
+                    if (!read_whole(value, content)) {
+                        curl_error(a, "cannot read '" + value + "'");
+                        form_failed = true;
+                        return false;
+                    }
+                    value = content;
+                }
+            }
+            item.value = std::move(value);
+            plan.form_parts.push_back(std::move(item));
+            return true;
+        };
+        for (const std::string& text : a.form) if (!split(text, false)) return form_failed ? curl_exit_read_error : 1;
+        for (const std::string& text : a.form_string) if (!split(text, true)) return 1;
+        plan.has_body = true;
+    } else if (!a.upload_file.empty() && a.upload_file != "-") {
+        if (!httpp::path(a.upload_file).is_file() || !std::ifstream(httpp::path(a.upload_file).native(), std::ios::binary)) {
+            curl_error(a, "cannot read '" + a.upload_file + "'");
+            return curl_exit_read_error;
+        }
+        plan.upload_path = a.upload_file; // read while it is sent, never held whole in memory (ADR-0113)
+        plan.has_body = true;
+    } else if (!a.upload_file.empty()) { // -T -: standard input has no size known up front, so it is read whole first
         if (!read_whole(a.upload_file, plan.body)) {
             curl_error(a, "cannot read '" + a.upload_file + "'");
             return curl_exit_read_error;
@@ -945,7 +1040,7 @@ int main(int argc, char** argv) {
 
     // curl
     curl_args ca;
-    auto* c_curl = app.add_subcommand("curl", "Make requests (a curl-like subset: -X -H -d -o -O -f -s -S -i -I -v -L -m -u -A -e -w -T -D -d @file --compressed --retry; several URLs).");
+    auto* c_curl = app.add_subcommand("curl", "Make requests (a curl-like subset: -X -H -d -o -O -f -s -S -i -I -v -L -m -u -A -e -w -T -F -D -d @file --compressed --retry; several URLs).");
     // Not ->required(): a missing URL is reported below the way curl does (exit code 2), not as a CLI11 usage error.
     c_curl->add_option("url", ca.urls, "URL (several are fetched in turn; a failure does not stop the rest, the first one sets the exit code)");
     c_curl->set_version_flag("--version,-V", std::string("httpp curl ") + k_version + " compatible with curl " + k_curl_compat_version);
@@ -957,7 +1052,10 @@ int main(int argc, char** argv) {
     c_curl->add_flag("--silent,-s", ca.silent, "Hide the error line and the retry warnings");
     c_curl->add_flag("--show-error,-S", ca.show_error, "With -s: show the error line anyway");
     c_curl->add_option("--write-out,-w", ca.write_out, "After each transfer print FORMAT: %{http_code} %{content_type} %{size_download} %{exitcode} %{errormsg} %{url}, \\n \\t; '@file' reads it from a file")->type_name("FORMAT");
-    c_curl->add_option("--upload-file,-T", ca.upload_file, "Send this file ('-' is stdin) with PUT; a URL ending in '/' gets the file name added")->type_name("FILE");
+    c_curl->add_option("--upload-file,-T", ca.upload_file, "Send this file ('-' is stdin) with PUT, read while it is sent; a URL ending in '/' gets the file name added")->type_name("FILE");
+    c_curl->add_option("--form,-F", ca.form, "Send a multipart/form-data body (repeatable): 'name=value', 'name=@file[;type=T][;filename=F]' to upload a file, 'name=<file' for the text of a file")->type_name("NAME=CONTENT")->allow_extra_args(false);
+    c_curl->add_option("--form-string", ca.form_string, "Like -F name=value, but a value that starts with '@' or '<' is text, not a file (repeatable)")->type_name("NAME=VALUE")->allow_extra_args(false);
+    c_curl->add_flag("--progress-bar,-#", ca.progress_bar, "Show a progress bar on stderr while a file of -F or -T is sent");
     c_curl->add_option("--dump-header,-D", ca.dump_header, "Write the status line and headers of each answer to this file ('-' is stdout)")->type_name("FILE");
     c_curl->add_flag("--compressed", ca.compressed, "Accepted for curl scripts: it changes nothing, the answer is written as it arrives and the request asks for 'Accept-Encoding: identity' (an explicit -H wins)");
     c_curl->add_option("--retry", ca.retry, "Try again up to NUM times after a timeout or a 408, 429, 500, 502, 503 or 504")->check(CLI::Range(0, 1000000))->type_name("NUM");

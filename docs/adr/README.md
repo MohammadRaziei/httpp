@@ -75,6 +75,7 @@ texts kept, in order, as its parts. Numbers are not renumbered, so there are gap
 | [0110](0110-waits-take-a-fraction-of-a-second.md) | `timeout`, `connect_timeout`, `max_time` and `retry_delay` are `double` seconds: a fraction is a real wait, in C++ and Python |
 | [0111](0111-port-0-for-the-native-commands.md) | `httpp server` and `httpp browse` accept `--port 0`; the CLI tests start a server on port 0 and read the port from the printed line, so they are safe under pytest-xdist |
 | [0112](0112-a-stopped-server-must-not-be-in-a-reference-cycle.md) | Nothing stored in `app._handlers` holds the app strongly (weak proxy / `WeakMethod`): a stopped server is freed by reference counting, also on free-threaded CPython |
+| [0113](0113-client-uploads-streamed-bodies-and-multipart.md) | Client uploads: `field`, `file`, `file_data`, `body_file` and `progress` on `request`, a body read while it is sent, `curl -F` and a streamed `-T`; no `upload` class |
 | [0109](0109-download-on-retry-and-the-download-retry-flags.md) | `download::on_retry` and `httpp download --retry/--retry-delay/--retry-connrefused` (also without `-o`); one shared warning function with `curl`; `-q` hides it | implemented (C++) |
 
 ## Not decided yet
@@ -85,7 +86,7 @@ removing the hop for `async def` handlers that await (see ADR-0023), WebSocket b
 
 ## Writing a new ADR
 
-File name `NNNN-short-english-title.md`; the next free number is **0113** (raise it when you use it). Sections: status, context, decision, rejected alternatives,
+File name `NNNN-short-english-title.md`; the next free number is **0114** (raise it when you use it). Sections: status, context, decision, rejected alternatives,
 consequences (including what is **not** verified), related. Add the row to the table above in number order.
 Do not edit an accepted ADR; when a decision changes, write a new ADR and mark the old one "superseded by ADR-NNNN", or, when the subject already has a merged ADR, see below.
 

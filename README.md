@@ -63,7 +63,7 @@ installed system-wide (no `apt`, `brew` or `choco`).
   exceptions, sessions, an `AsyncClient`, timeouts, redirects, TLS verification.
 - **Downloads** that can resume, with a tqdm-style progress bar (drawn on stderr, so piped output
   stays clean). The features above exist in both C++ and Python, with similar APIs.
-- **A modern `curl`**: `httpp curl URL...` covers the everyday flags (`-X -H -d -o -O -f -s -S -i -I -v -L -m -u -A -e -w -T -D -d @file --compressed --retry`, several URLs) and uses curl's exit codes ([guide](docs/site/docs/client/curl-command.mdx)); in C++ the same job is `httpp::request`, in Python `httpp.Request`.
+- **A modern `curl`**: `httpp curl URL...` covers the everyday flags (`-X -H -d -o -O -f -s -S -i -I -v -L -m -u -A -e -w -T -F -D -d @file --compressed --retry`, several URLs) and uses curl's exit codes ([guide](docs/site/docs/client/curl-command.mdx)); in C++ the same job is `httpp::request`, in Python `httpp.Request`.
 - **No system dependencies.** Nothing to install system-wide; the only build-time download is the
   header-only Asio (about 3 MB, pinned by hash), which can be supplied locally instead.
 
@@ -256,6 +256,15 @@ async def profile(name: str = Form(), age: int = Form(18), avatar: UploadFile = 
 `File()` can also be annotated `bytes`. The whole body is in memory: size it with `max_body` (default 100 MiB). `filename` is what the
 client sent, cut to its last path component; never build a disk path from it unchecked. At most 1024 parts and 8 KiB of headers per part.
 `UploadFile.read()` is not there: the data is already in `data` (no `await` needed).
+
+Sending a file from the client is `Request.file()` (C++ `request::file()`): the file is read from disk while it is sent, so its size is not limited by memory ([guide](docs/site/docs/client/upload.mdx), [ADR-0113](docs/adr/0113-client-uploads-streamed-bodies-and-multipart.md)):
+
+```python
+res = httpp.Request(url).field("who", "ada").file("doc", "report.pdf").progress(lambda sent, total: print(sent, total)).run()
+httpp.Request(url).body_file("backup.tar").run()   # PUT the whole file
+```
+
+From the command line: `httpp curl -F who=ada -F doc=@report.pdf URL`, and `-T file` streams too.
 
 ### Streaming and files
 

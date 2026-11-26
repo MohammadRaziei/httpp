@@ -20,6 +20,16 @@ httpp curl "http://127.0.0.1:8000/inspect?page=2" -H "X-Token: abc" -d "hello"
 # body=hello
 ```
 
+The same program has a second route, `/upload`, which reads a form with a file in it. Send it one with `curl -F` (or with the [upload](../client/upload.mdx) example):
+
+```bash
+httpp curl -F title=shopping -F doc=@notes.txt http://127.0.0.1:8000/upload
+# title=shopping
+# name=notes.txt
+# type=text/plain
+# size=18
+```
+
 ## What the code does
 
 <Only lang="python">
@@ -34,6 +44,8 @@ The handler receives a `const httpp::server_request&`. `method`, `path` and `bod
 
 </Only>
 
+`request.form()` (Python) and `req.form()` (C++) decode a `multipart/form-data` or urlencoded body. A text field is `form.field(name)` and a file is `form.file(name)`, which has `filename` (as sent, without any folder), `content_type` and the bytes. The whole body is held in memory while it is read, so the server limits its size (`max_body`, 100 MiB by default); the client side sends a file from disk without that cost, see [upload](../client/upload.mdx).
+
 ## Where the two differ
 
 | | Python | C++ |
@@ -44,4 +56,4 @@ The handler receives a `const httpp::server_request&`. `method`, `path` and `bod
 | Header | `request.headers.get("x-token")`, lower-case names | `req.header("X-Token")`, any case |
 | Missing value | `None` from `.get` | empty string |
 | Body | `request.body`, `request.text`, `request.json()` | `req.body`; parse JSON with a library of your choice |
-| Forms and uploads | covered in the README | `req.form()`, see `include/httpp/server.hpp` |
+| Forms and uploads | `request.form()`, `form.field(name)`, `form.file(name)` | `req.form()`, `form.field(name)`, `form.file(name)` (a pointer, null when absent) |

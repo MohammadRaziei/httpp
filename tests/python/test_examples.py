@@ -111,6 +111,21 @@ def check_get_request(out, cwd):
     expect(out.splitlines() == ["200 hello world", "200"], f"output {out!r}")
 
 
+def check_upload(out, cwd):
+    lines = out.splitlines()
+    expect(lines[:1] == ["200"], f"output {out!r}")
+    expect("\n".join(lines[1:]) == "title=shopping\nname=notes.txt\ntype=text/plain\nsize=18", f"output {out!r}")
+
+
+def check_upload_progress(out, cwd):
+    lines = out.splitlines()
+    expect(lines[-1] == "200", f"output {out!r}")
+    steps = [tuple(int(n) for n in line.split("/")) for line in lines[:-1]]
+    expect(len(steps) >= 4, f"only {len(steps)} progress lines: {out!r}")
+    expect(steps[0][0] == 0 and steps[-1][0] == steps[-1][1] and steps[-1][1] > 200000, f"progress {steps[0]} ... {steps[-1]}")
+    expect([s for s, _ in steps] == sorted(s for s, _ in steps), "progress went backwards")
+
+
 def check_post_request(out, cwd):
     lines = out.splitlines()
     expect(lines[:1] == ["200"], f"output {out!r}")
@@ -273,6 +288,8 @@ SERVERS = {
 CLIENTS = {
     "get_request": ("get_route", check_get_request),
     "post_request": ("request_data", check_post_request),
+    "upload": ("request_data", check_upload),
+    "upload/progress": ("request_data", check_upload_progress),
     "download": ("get_route", check_download),
     "download/verified": ("get_route", check_download_verified),
     "download/async": ("get_route", check_download_async),

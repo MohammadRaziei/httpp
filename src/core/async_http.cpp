@@ -663,12 +663,12 @@ struct async_http::impl {
             for (const auto& h : job.headers) out += h.first + ": " + h.second + "\r\n";
             if (plain_via_proxy && !job.proxy_authorization.empty()) out += "Proxy-Authorization: " + job.proxy_authorization + "\r\n";
             if (!job.keep_alive && !has_header(job, "Connection")) out += "Connection: close\r\n";
-            bool wants_len = !job.body.empty() || ieq(job.method, "POST") || ieq(job.method, "PUT") ||
+            bool wants_len = job.source || !job.body.empty() || ieq(job.method, "POST") || ieq(job.method, "PUT") ||
                              ieq(job.method, "PATCH");
             if (wants_len && !has_header(job, "Content-Length"))
-                out += "Content-Length: " + std::to_string(job.body.size()) + "\r\n";
+                out += "Content-Length: " + std::to_string(job.source ? job.source->length : job.body.size()) + "\r\n";
             out += "\r\n";
-            out += job.body;
+            if (!job.source) out += job.body; // a source is written piece by piece in send()
             use_connection(false);
         }
 
@@ -706,7 +706,56 @@ struct async_http::impl {
             return true;
         }
 
+        // A body from job.source: the head and the first piece go out together, then one piece per write. Each piece is read when the one
+        // before it has been written (back-pressure), so a file of any size costs one buffer.
+        std::unique_ptr<body_reader> reader; // the current pass over the source
+        std::uint64_t sent = 0;              // body bytes written in this pass
+
+        // ponytail: the response is read only after the whole body is written, so a server that answers early (413) and closes is seen as a
+        // write error. Upgrade: start read() before the last piece and keep writing.
+        void send_source() {
+            std::string error;
+            reader = job.source->open(error);
+            if (!reader) return fail(error_kind::file, error.empty() ? "cannot open the request body" : error);
+            sent = 0;
+            if (job.source->on_sent) job.source->on_sent(0);
+            pump(out);
+        }
+
+        void pump(std::string buf) {
+            constexpr std::size_t piece = 64 * 1024;
+            const std::size_t head = buf.size();
+            std::size_t n = 0;
+            const std::uint64_t left = job.source->length - sent;
+            if (left > 0) {
+                const std::size_t want = left < piece ? static_cast<std::size_t>(left) : piece;
+                buf.resize(head + want);
+                try {
+                    n = reader->read(&buf[head], want);
+                } catch (const std::exception& e) {
+                    return fail(error_kind::file, e.what());
+                }
+                if (n == 0) return fail(error_kind::file, "the request body is shorter than it was when the request started");
+                buf.resize(head + n);
+            }
+            conn->write(std::move(buf), job.timeout_sec, [self = shared_from_this(), n](io_result r) {
+                if (self->finished) return;
+                if (!r.ok) {
+                    if (self->maybe_retry(r)) return;
+                    return self->fail(r.kind, r.message);
+                }
+                self->sent += n;
+                if (self->job.source->on_sent) self->job.source->on_sent(self->sent);
+                if (self->sent >= self->job.source->length) {
+                    self->reader.reset();
+                    return self->read();
+                }
+                self->pump(std::string());
+            });
+        }
+
         void send() {
+            if (job.source) return send_source();
             conn->write(out, job.timeout_sec, [self = shared_from_this()](io_result r) {
                 if (self->finished) return;
                 if (!r.ok) {

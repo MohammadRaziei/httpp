@@ -448,6 +448,7 @@ cdef extern from *:
     typedef bool (*httpp_py_body_cb)(void*, const char*, std::size_t);
     typedef bool (*httpp_py_head_cb)(void*, const httpp::response&);
     typedef void (*httpp_py_retry_cb)(void*, const httpp::response&, int, long);
+    typedef void (*httpp_py_progress_cb)(void*, unsigned long long, unsigned long long);
     static void httpp_py_on_body(httpp::request& r, void* ctx, httpp_py_body_cb fn) {
         r.on_body([ctx, fn](std::string_view piece) { return fn(ctx, piece.data(), piece.size()); });
     }
@@ -457,6 +458,9 @@ cdef extern from *:
     static void httpp_py_on_retry(httpp::request& r, void* ctx, httpp_py_retry_cb fn) {
         r.on_retry([ctx, fn](const httpp::response& last, int number, long delay) { fn(ctx, last, number, delay); });
     }
+    static void httpp_py_on_progress(httpp::request& r, void* ctx, httpp_py_progress_cb fn) {
+        r.progress([ctx, fn](std::uint64_t sent, std::uint64_t total) { fn(ctx, sent, total); }); // widened to unsigned long long, the type Cython declares
+    }
     static void httpp_py_dl_on_retry(httpp::download& d, void* ctx, httpp_py_retry_cb fn) {
         d.on_retry([ctx, fn](const httpp::response& last, int number, long delay) { fn(ctx, last, number, delay); });
     }
@@ -464,6 +468,8 @@ cdef extern from *:
     ctypedef bint (*body_cb_fn "httpp_py_body_cb")(void*, const char*, size_t) noexcept nogil
     ctypedef bint (*head_cb_fn "httpp_py_head_cb")(void*, const response&) noexcept nogil
     ctypedef void (*retry_cb_fn "httpp_py_retry_cb")(void*, const response&, int, long) noexcept nogil
+    ctypedef void (*progress_cb_fn "httpp_py_progress_cb")(void*, unsigned long long, unsigned long long) noexcept nogil
+    void py_on_progress "httpp_py_on_progress"(cpp_curl_request& r, void* ctx, progress_cb_fn fn) except +
     void py_on_body "httpp_py_on_body"(cpp_curl_request& r, void* ctx, body_cb_fn fn) except +
     void py_on_head "httpp_py_on_head"(cpp_curl_request& r, void* ctx, head_cb_fn fn) except +
     void py_on_retry "httpp_py_on_retry"(cpp_curl_request& r, void* ctx, retry_cb_fn fn) except +
@@ -514,6 +520,16 @@ cdef void _retry_trampoline(void* ctx, const response& last, int number, long de
             cb.errors.append(e)
 
 
+cdef void _progress_trampoline(void* ctx, unsigned long long sent, unsigned long long total) noexcept nogil:
+    httpp_py_pin_thread()
+    with gil:
+        cb = <_Callback>ctx
+        try:
+            cb.fn(sent, total)
+        except BaseException as e:
+            cb.errors.append(e)
+
+
 cdef class Request:
     """A small, curl-flavored fluent request builder, for one-off requests where a Client session
     is overkill. NOT a libcurl-compatible shim.
@@ -522,7 +538,7 @@ cdef class Request:
         await Request(url).params({"q": "x"}).run_async()
     """
     cdef cpp_curl_request* _req
-    cdef _Callback _on_body, _on_head, _on_retry
+    cdef _Callback _on_body, _on_head, _on_retry, _on_progress
     cdef list _errors
 
     def __cinit__(self):
@@ -533,11 +549,13 @@ cdef class Request:
                  connect_timeout=None, max_time=None, basic_auth=None, bearer=None, verify=None, ca_file=None,
                  proxy=None, max_response_size=None, retry=None, retry_delay=None, retry_connrefused=None,
                  save_to=None, save_in=None, create_dirs=None, overwrite=None, include_head=None,
-                 on_body=None, on_head=None, on_retry=None):
+                 on_body=None, on_head=None, on_retry=None, fields=None, files=None, body_file=None, progress=None):
         """Every keyword is the name of a setter and does what the setter does, so Request(url, method="PUT",
         timeout=10) is Request(url).method("PUT").timeout(10). Three are plural because the setter is called once
         per item: headers, params, cookies (a dict each). basic_auth takes (user, password). json, form and data
-        set the body and exclude each other."""
+        set the body and exclude each other. fields is a dict (or pairs) of text fields and files a dict (or pairs) of
+        name -> path, (path, filename) or (path, filename, content_type): a multipart upload, see field() and file(); body_file
+        is a path (PUT the whole file) and progress a callable(sent, total)."""
         self._req = new cpp_curl_request(url.encode("utf-8"))
         if method is not None:
             self.method(method)
@@ -555,6 +573,17 @@ cdef class Request:
             self.data(data)
         if content_type is not None:
             self.content_type(content_type)
+        if (fields is not None or files is not None) and body_file is not None:
+            raise ValueError("fields / files and body_file set the body: give only one kind")
+        for name, value in (fields.items() if hasattr(fields, "items") else fields or ()):
+            self.field(name, value)
+        for name, spec in (files.items() if hasattr(files, "items") else files or ()):
+            if isinstance(spec, (tuple, list)):
+                self.file(name, *spec)
+            else:
+                self.file(name, spec)
+        if body_file is not None:
+            self.body_file(body_file)
         for name, value in (cookies.items() if hasattr(cookies, "items") else cookies or ()):
             self.cookie(name, value)
         if timeout is not None:
@@ -601,6 +630,8 @@ cdef class Request:
             self.on_head(on_head)
         if on_retry is not None:
             self.on_retry(on_retry)
+        if progress is not None:
+            self.progress(progress)
 
     def __dealloc__(self):
         if self._req is not NULL:
@@ -619,6 +650,8 @@ cdef class Request:
             other.on_head(self._on_head.fn)
         if self._on_retry is not None:
             other.on_retry(self._on_retry.fn)
+        if self._on_progress is not None:
+            other.progress(self._on_progress.fn)
         return other
 
     def method(self, str m):
@@ -661,6 +694,40 @@ cdef class Request:
         for name, value in (mapping.items() if hasattr(mapping, "items") else mapping):
             fields.push_back(pair[string, string](str(name).encode("utf-8"), str(value).encode("utf-8")))
         self._req.form(fields)
+        return self
+
+    def field(self, str name, value):
+        """Add a text field to a multipart/form-data body (an upload), in the order called. The method becomes POST unless
+        method() said otherwise. The Content-Type, with its boundary, is made for you."""
+        self._req.field(name.encode("utf-8"), str(value).encode("utf-8"))
+        return self
+
+    def file(self, str name, path, filename=None, content_type=None):
+        """Add a file to a multipart/form-data body. The file is read from disk while it is sent, so its size is not limited
+        by memory. filename is what the server sees (default: the end of path); content_type defaults to the type of that
+        name. A file that is not there makes run() return a Response with error "file" and nothing is sent."""
+        self._req.file(name.encode("utf-8"), _fs(path), (filename or "").encode("utf-8"), (content_type or "").encode("utf-8"))
+        return self
+
+    def file_data(self, str name, data, str filename, content_type=None):
+        """Add a file part from bytes (or str) you already have."""
+        self._req.file_data(name.encode("utf-8"), _to_bytes(data), filename.encode("utf-8"), (content_type or "").encode("utf-8"))
+        return self
+
+    def body_file(self, path):
+        """Like curl -T: the whole body is this file, read while it is sent. The method becomes PUT unless method() said
+        otherwise; the Content-Type is that of the file name unless content_type() says otherwise."""
+        self._req.body_file(_fs(path))
+        return self
+
+    def progress(self, fn):
+        """For a body of file() or body_file(): fn(sent, total) is called while it is sent, with the body bytes written so far
+        and the body's total; the last call has sent == total, and a retry starts again from 0. It runs on a network thread
+        (with the GIL), keep it short. An exception it raises does not stop the upload; run() raises it afterwards."""
+        if not callable(fn):
+            raise TypeError("progress takes a callable")
+        self._on_progress = _Callback(fn, self._errors)
+        py_on_progress(self._req[0], <void*>self._on_progress, <progress_cb_fn>_progress_trampoline)
         return self
 
     def content_type(self, str type_):
@@ -827,7 +894,7 @@ cdef class Request:
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
         # the callbacks are kept alive by the holder until the request is done, even if this Request is dropped meanwhile
-        holder = (loop, fut, self._errors, (self._on_body, self._on_head, self._on_retry))
+        holder = (loop, fut, self._errors, (self._on_body, self._on_head, self._on_retry, self._on_progress))
         Py_INCREF(holder)  # owned by the C++ callback until _done_trampoline releases it
         try:
             with nogil:

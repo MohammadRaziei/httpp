@@ -261,6 +261,7 @@ async_job make_job(const request_spec& s) {
     j.auto_decode = s.auto_compression;
     if (method_has_body(s.method)) {
         j.body = s.body;
+        j.source = s.source;
         if (!has_header(s.headers, "Content-Type"))
             j.headers.emplace_back("Content-Type", s.content_type.empty() ? "application/x-www-form-urlencoded" : s.content_type);
     }
@@ -333,7 +334,7 @@ bool resolve_location(const request_spec& cur, std::string loc, request_spec& ne
 
 bool is_redirect(int status) { return status == 301 || status == 302 || status == 303 || status == 307 || status == 308; }
 
-async_http& engine_for(const request_spec& spec) { return spec.sink ? download_async_http() : shared_async_http(); }
+async_http& engine_for(const request_spec& spec) { return spec.sink || spec.source ? download_async_http() : shared_async_http(); }
 
 namespace {
 
@@ -365,6 +366,7 @@ void run_hops(std::shared_ptr<request_spec> spec, std::function<void(response)> 
         if (r.status == 303 && next.method != "GET" && next.method != "HEAD") { // 303 becomes a GET
             next.method = "GET";
             next.body.clear();
+            next.source.reset();
             next.content_type.clear();
             remove_header(next.headers, "Content-Type");
             remove_header(next.headers, "Content-Length");

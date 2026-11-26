@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <future>
 #include <memory>
@@ -436,6 +437,37 @@ public:
     // An urlencoded form body from these fields.
     HTTPP_API request& form(const std::vector<std::pair<std::string, std::string>>& fields) &;
     request form(const std::vector<std::pair<std::string, std::string>>& fields) && { form(fields); return std::move(*this); }
+
+    // A multipart/form-data body (ADR-0113), the one a browser sends for <form enctype="multipart/form-data">. field(), file() and
+    // file_data() add one part each, in the order called, and all three set the method to POST unless method() said otherwise. A file()
+    // is read from disk while it is sent, never held whole in memory, so its size is not limited by memory. The Content-Type (the boundary
+    // included) is made for you and content_type() does not change it. A part that cannot be sent (a file that is not there) makes run()
+    // return a response with error_kind::file and the reason in error_message; nothing is sent. Mixing parts with data(), json(), form()
+    // or body_file() is an error of the same kind: a request has one kind of body.
+    HTTPP_API request& field(std::string name, std::string value) &;
+    request field(std::string name, std::string value) && { field(std::move(name), std::move(value)); return std::move(*this); }
+    // A file part. `filename` is what the server sees (default: the last part of `file`); `content_type` defaults to the type of that name
+    // ("application/octet-stream" when the extension is not known).
+    HTTPP_API request& file(std::string name, const path& file, std::string filename = {}, std::string content_type = {}) &;
+    request file(std::string name, const path& file, std::string filename = {}, std::string content_type = {}) && {
+        this->file(std::move(name), file, std::move(filename), std::move(content_type));
+        return std::move(*this);
+    }
+    // A file part from bytes you already have.
+    HTTPP_API request& file_data(std::string name, std::string data, std::string filename, std::string content_type = {}) &;
+    request file_data(std::string name, std::string data, std::string filename, std::string content_type = {}) && {
+        file_data(std::move(name), std::move(data), std::move(filename), std::move(content_type));
+        return std::move(*this);
+    }
+    // curl -T: the whole body is this file, read while it is sent (Content-Length is its size). The method is PUT unless method() said
+    // otherwise; the Content-Type is that of the file name unless content_type() or a header says otherwise.
+    HTTPP_API request& body_file(const path& file) &;
+    request body_file(const path& file) && { body_file(file); return std::move(*this); }
+    // Called while a body of file() or body_file() is sent, with the body bytes written so far and the body's total (it is called with
+    // (0, total) when a try starts, and a retry starts again from 0). It runs on a network thread: keep it short. The head of the request
+    // is not counted. Use it for a progress bar; the cost of an unused call is nothing.
+    HTTPP_API request& progress(std::function<void(std::uint64_t sent, std::uint64_t total)> notice) &;
+    request progress(std::function<void(std::uint64_t sent, std::uint64_t total)> notice) && { progress(std::move(notice)); return std::move(*this); }
 
     HTTPP_API request& content_type(std::string type) &;
     request content_type(std::string type) && { content_type(std::move(type)); return std::move(*this); }

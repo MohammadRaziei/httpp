@@ -387,6 +387,10 @@ cdef extern from "httpp/client.hpp" namespace "httpp::client":
         cpp_curl_request& param(string name, string value) except +
         cpp_curl_request& json(string document) except +
         cpp_curl_request& form(vector[pair[string, string]] fields) except +
+        cpp_curl_request& field(string name, string value) except +
+        cpp_curl_request& file(string name, string file, string filename, string content_type) except +
+        cpp_curl_request& file_data(string name, string data, string filename, string content_type) except +
+        cpp_curl_request& body_file(string file) except +
         cpp_curl_request& basic_auth(string user, string password) except +
         cpp_curl_request& bearer(string token) except +
         cpp_curl_request& cookie(string name, string value) except +

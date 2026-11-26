@@ -1,0 +1,105 @@
+---
+id: upload
+title: Upload a file
+---
+
+import Lang from '@site/src/components/Lang';
+import Only from '@site/src/components/Only';
+
+An upload sends a file, or a form with files in it, to a server. There is no separate class: the calls are on the request builder from [Send a request with a body](post-request.mdx). The file is read from disk while it is sent, so its size is not limited by memory. This example talks to the `/upload` route of [Read the request](../server/request-data.mdx), so start that one first.
+
+<Lang name="upload" />
+
+The server answers with what it read from the form:
+
+```text
+200
+title=shopping
+name=notes.txt
+type=text/plain
+size=18
+```
+
+## What the code does
+
+`field(name, value)` adds a text field and `file(name, path)` adds a file, in the order you call them. Together they make a `multipart/form-data` body, the one a browser sends for a form with a file input, and the method becomes `POST` unless you set another. The `Content-Type`, with its boundary, is made for you.
+
+The server sees the file under the name you gave `file()`. Its file name is the end of the path and its type comes from that name (`text/plain` for `.txt`, `application/octet-stream` when the extension is not known). Give them yourself when they should differ:
+
+<Only lang="python">
+
+```python
+req.file("doc", "report_final.tmp", filename="report.pdf", content_type="application/pdf")
+req.file_data("avatar", png_bytes, "me.png")   # bytes you already have, no file on disk
+```
+
+</Only>
+
+<Only lang="cpp">
+
+```cpp
+req.file("doc", httpp::path("report_final.tmp"), "report.pdf", "application/pdf");
+req.file_data("avatar", png_bytes, "me.png");  // bytes you already have, no file on disk
+```
+
+</Only>
+
+A file that is not there, or cannot be read, does not throw: `run()` returns a response with error `file` and the path in the message, and nothing is sent. Mixing a form with `data()`, `json()`, `form()` or `body_file()` fails the same way: a request has one kind of body.
+
+## Send a whole file
+
+`body_file(path)` is `curl -T`: the body is the file itself, sent with `PUT` unless you set another method, and with the type of the file name unless you call `content_type()`.
+
+<Only lang="python">
+
+```python
+httpp.Request("http://127.0.0.1:8000/store").body_file("backup.tar").run()
+```
+
+</Only>
+
+<Only lang="cpp">
+
+```cpp
+httpp::request("http://127.0.0.1:8000/store").body_file(httpp::path("backup.tar")).run();
+```
+
+</Only>
+
+## Show the progress
+
+<Lang name="upload" file="progress" />
+
+`progress` is called with the body bytes written so far and the total, from a network thread, so keep it short. The head of the request is not counted. A retry starts again from `0`.
+
+## How it is sent
+
+The length of the body is known before the first byte, so it goes out with `Content-Length`, never chunked, and the file is read in pieces of 64 KiB, each one after the previous was written. A file that gets shorter while it is sent fails the request with error `file`. After a redirect with `307` or `308` the body is sent again from its first byte; after a `303` the request becomes a `GET` with no body.
+
+An upload that streams from a file runs on the same network thread as downloads, so a slow disk never delays your short API calls.
+
+:::note
+
+The answer is read after the whole body is written. A server that answers early (for example `413`, too large) and closes the connection shows up as a failed write, not as that answer.
+
+:::
+
+## From the command line
+
+```bash
+httpp curl -F title=shopping -F doc=@notes.txt http://127.0.0.1:8000/upload
+httpp curl -T backup.tar -# http://127.0.0.1:8000/store
+```
+
+`-F name=@file` uploads a file (add `;type=image/png` or `;filename=me.png` after the path), `-F name=<file` sends the text of a file as a value, `--form-string` never treats a value as a file, and `-#` draws a progress bar on stderr. See [`httpp curl`](curl-command.mdx).
+
+## Where the two differ
+
+| | Python | C++ |
+|---|---|---|
+| Text field | `req.field(name, value)` | `req.field(name, value)` |
+| File | `req.file(name, path, filename=None, content_type=None)` | `req.file(name, httpp::path(p), filename, content_type)` |
+| Bytes as a file | `req.file_data(name, data, filename, content_type=None)` | `req.file_data(name, data, filename, content_type)` |
+| Whole file | `req.body_file(path)` | `req.body_file(httpp::path(p))` |
+| Progress | `req.progress(fn(sent, total))` | `req.progress(fn)` |
+| Keywords | `Request(url, fields={...}, files={...}, body_file=p, progress=fn)` | the chain above |

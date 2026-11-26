@@ -19,9 +19,10 @@ The code on every page follows the language you pick in the top bar. Your choice
 7. Mount, secure and stop the server: [the server handle](server/server-handle.mdx).
 8. Call a server: [GET requests](client/get-request.mdx) and [requests with a body](client/post-request.mdx).
 9. Save a file: [download](client/download.mdx), with a checksum, resume and no blocking.
-10. Try a request from the terminal with [`httpp curl`](client/curl-command.mdx).
-11. See how fast it is: [benchmarks](benchmarks.mdx).
+10. Send a file or a form: [upload](client/upload.mdx), read from disk while it is sent.
+11. Try a request from the terminal with [`httpp curl`](client/curl-command.mdx).
+12. See how fast it is: [benchmarks](benchmarks.mdx).
 
 ## What is not here yet
 
-These areas exist in the library and are documented only in the project README for now: routers, middleware, forms and uploads, streaming responses (a file is covered in [send a file](server/send-file.mdx)), async handlers, WebSocket, sessions, running the server with `httpp run` (workers, reload, graceful shutdown), the client's timeouts, redirects, retries and proxies, and testing your app.
+These areas exist in the library and are documented only in the project README for now: routers, middleware, streaming responses (a file is covered in [send a file](server/send-file.mdx)), async handlers, WebSocket, sessions, running the server with `httpp run` (workers, reload, graceful shutdown), the client's timeouts, redirects, retries and proxies, and testing your app.

@@ -4,6 +4,8 @@
 #include "httpp/client.hpp"
 #include "httpp/url.hpp"
 
+#include "httpp/server.hpp" // mime_type_for
+#include "internal/body_source.hpp"
 #include "internal/file_writer.hpp"
 #include "internal/http_exchange.hpp"
 
@@ -153,6 +155,10 @@ struct request::impl {
     std::string method;       // empty until set explicitly or via a body
     std::string body;
     std::string content_type = "application/x-www-form-urlencoded";
+    bool content_type_set = false; // content_type() or json() was called: body_file() then keeps it instead of guessing from the name
+    std::vector<detail::form_part> parts; // field(), file(), file_data(): a multipart body
+    std::optional<path> body_path;        // body_file(): the whole body is this file
+    std::function<void(std::uint64_t, std::uint64_t)> on_progress_fn; // progress()
     header_list headers;      // repeatable, in the order given
     header_list params, cookies;
     guarded_settings settings; // timeout, redirects, auth, proxy, TLS, size limit
@@ -189,9 +195,30 @@ struct request::impl {
         // Streamed bytes are passed on as the server sent them: ask for no coding, as downloads do (ADR-0051).
         const bool saving_body = save_file || save_folder;
         if ((on_piece || saving_body) && !detail::has_header(call, "Accept-Encoding")) call.emplace_back("Accept-Encoding", "identity");
+        std::shared_ptr<detail::body_source> source;
+        std::string type = content_type;
+        if (!parts.empty() || body_path) {
+            std::string why;
+            if (!parts.empty() && body_path) why = "field(), file() and body_file() cannot be mixed: a request has one kind of body";
+            else if (!body.empty()) why = "a request has one kind of body: data(), json() or form() cannot be mixed with " + std::string(body_path ? "body_file()" : "field() and file()");
+            else if (body_path) {
+                source = detail::make_file_source(*body_path, why);
+                if (source && !content_type_set) type = mime_type_for(body_path->name().str());
+            } else {
+                source = detail::make_multipart_source(parts, type, why);
+            }
+            if (!source) {
+                error = detail::failed_response(error_kind::file, why);
+                return false;
+            }
+            if (on_progress_fn) {
+                source->on_sent = [notice = on_progress_fn, total = source->length](std::uint64_t sent) { notice(sent, total); };
+            }
+        }
         if (!settings.make_spec_for_url(url, params.empty() ? std::string() : httpp::build_query(params), method, call, body,
-                                        content_type, out, error))
+                                        type, out, error))
             return false;
+        out.source = std::move(source);
         if (saving_body) {
             auto keep = std::make_shared<saving>();
             auto sink = std::make_shared<detail::body_sink>();
@@ -274,6 +301,10 @@ request request::clone() const {
     to.method = from.method;
     to.body = from.body;
     to.content_type = from.content_type;
+    to.content_type_set = from.content_type_set;
+    to.parts = from.parts;
+    to.body_path = from.body_path;
+    to.on_progress_fn = from.on_progress_fn;
     to.headers = from.headers;
     to.params = from.params;
     to.cookies = from.cookies;
@@ -305,6 +336,7 @@ request& request::data(std::string body) & {
 request& request::json(std::string document) & {
     impl_->body = std::move(document);
     impl_->content_type = "application/json";
+    impl_->content_type_set = true;
     if (impl_->method.empty()) impl_->method = "POST";
     return *this;
 }
@@ -314,7 +346,50 @@ request& request::form(const std::vector<std::pair<std::string, std::string>>& f
     if (impl_->method.empty()) impl_->method = "POST";
     return *this;
 }
-request& request::content_type(std::string type) & { impl_->content_type = std::move(type); return *this; }
+request& request::content_type(std::string type) & {
+    impl_->content_type = std::move(type);
+    impl_->content_type_set = true;
+    return *this;
+}
+request& request::field(std::string name, std::string value) & {
+    detail::form_part p;
+    p.name = std::move(name);
+    p.value = std::move(value);
+    impl_->parts.push_back(std::move(p));
+    if (impl_->method.empty()) impl_->method = "POST";
+    return *this;
+}
+request& request::file(std::string name, const path& file, std::string filename, std::string content_type) & {
+    detail::form_part p;
+    p.what = detail::form_part::kind::file;
+    p.name = std::move(name);
+    p.value = file.str();
+    p.filename = std::move(filename);
+    p.content_type = std::move(content_type);
+    impl_->parts.push_back(std::move(p));
+    if (impl_->method.empty()) impl_->method = "POST";
+    return *this;
+}
+request& request::file_data(std::string name, std::string data, std::string filename, std::string content_type) & {
+    detail::form_part p;
+    p.what = detail::form_part::kind::data;
+    p.name = std::move(name);
+    p.value = std::move(data);
+    p.filename = std::move(filename);
+    p.content_type = std::move(content_type);
+    impl_->parts.push_back(std::move(p));
+    if (impl_->method.empty()) impl_->method = "POST";
+    return *this;
+}
+request& request::body_file(const path& file) & {
+    impl_->body_path = file;
+    if (impl_->method.empty()) impl_->method = "PUT";
+    return *this;
+}
+request& request::progress(std::function<void(std::uint64_t, std::uint64_t)> notice) & {
+    impl_->on_progress_fn = std::move(notice);
+    return *this;
+}
 request& request::cookie(std::string name, std::string value) & {
     httpp::cookie check(name, value); // refuses what could not be sent as a Cookie pair
     impl_->cookies.emplace_back(std::move(name), std::move(value));

@@ -20,7 +20,10 @@ httpp curl http://127.0.0.1:8000/health -sS -f -m 5 --retry 3
 | `-H`, `--header "Name: value"` | An extra header. Repeat it for more. |
 | `-d`, `--data TEXT` | The body. Repeat it and the pieces are joined with `&`. `-d @file` reads a file (`@-` reads standard input) and drops its line breaks, as curl does. |
 | `--json DATA` | Send DATA as the body with `Content-Type` and `Accept` set to `application/json` (a `-H` with the same name wins). `--json @file` reads a file as it is, line breaks included. Repeat it and the pieces are joined with no separator. It cannot be combined with `-d` or `-T`. |
-| `-T`, `--upload-file FILE` | Send a file with `PUT` (`-` is standard input). A URL that ends with `/` gets the file name added. It cannot be combined with `-d`. |
+| `-T`, `--upload-file FILE` | Send a file with `PUT`, read while it is sent, so a big file costs no memory (`-` is standard input, read whole first). A URL that ends with `/` gets the file name added. It cannot be combined with `-d`, `--json` or `-F`. |
+| `-F`, `--form NAME=CONTENT` | Send a `multipart/form-data` body. `name=value` is a text field, `name=@file` uploads a file (`;type=TYPE` and `;filename=NAME` may follow the path), `name=<file` sends the text of a file. Repeat it for more parts. The file is read while it is sent. It cannot be combined with `-d`, `--json` or `-T`. |
+| `--form-string NAME=VALUE` | Like `-F name=value`, but a value that starts with `@` or `<` is text, not a file. |
+| `-#`, `--progress-bar` | With `-F` or `-T`: a progress bar on stderr while the file is sent. |
 | `-x`, `--proxy URL` | Use this proxy: `[http://][user:password@]host[:port]`, `socks5://...` or `socks5h://...`. `-x ""` and `-x direct://` (any case) mean no proxy at all, whatever the environment says. Nothing may follow the scheme (`direct://host` is an error), a bare `direct` or `off` is a host as in curl, and `http_proxy=direct://` in the environment is an error. curl itself does not know `direct://`. |
 | `--noproxy LIST` | Hosts that go direct, separated by commas: names (and their subdomains), IPv4 addresses, `a.b.c.d/n` ranges, `*` for all. Replaces `no_proxy`, and also applies to `-x`. |
 | `-u`, `--user user:password` | Basic authentication. Only the first colon splits, so a password may contain colons. |
@@ -76,7 +79,7 @@ The file flags work the same way: `-o`, `-O`, `-J`, `--output-dir`, `--create-di
 | 7 | The connection failed. A failed lookup is reported here too. |
 | 22 | `-f` and a status of 400 or more. |
 | 23 | A file could not be written, or `-O` found no file name. |
-| 26 | A file for `-d` or `-T` could not be read. |
+| 26 | A file for `-d`, `-T` or `-F` could not be read. |
 | 28 | Timeout. |
 | 35 | TLS failed. |
 | 47 | Too many redirects. |

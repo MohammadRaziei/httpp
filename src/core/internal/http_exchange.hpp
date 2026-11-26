@@ -80,6 +80,9 @@ struct request_spec {
     std::string target; // "/path?query", percent-encoded
     header_list headers;
     std::string body, content_type;
+    // A body read from a file or built from parts while it is sent (ADR-0113). When set, `body` is empty and content_type carries the
+    // type (multipart boundary included). Shared by the copies a redirect or a retry makes: every pass opens its own reader.
+    std::shared_ptr<const body_source> source;
     double timeout = 0; // seconds
     double connect_timeout = 0; // seconds; 0 = timeout covers the connect steps too
     double max_time = 0; // seconds for the whole request, redirects included; 0 = no such limit

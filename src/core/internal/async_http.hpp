@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -59,6 +60,27 @@ struct body_sink {
     std::function<bool(const char* data, std::size_t size)> on_data;
 };
 
+// One pass over a request body that is not held in memory (ADR-0113): the bytes of a file, or a multipart body made of text and files.
+class body_reader {
+public:
+    virtual ~body_reader() = default;
+    // Puts up to `capacity` bytes at `out` and returns how many. A short count is not the end: only 0 is. Throws std::runtime_error, with a
+    // message that names the file, when the source cannot be read (it is gone, or it got shorter than when the request started).
+    virtual std::size_t read(char* out, std::size_t capacity) = 0;
+};
+
+// A request body that the engine pulls piece by piece while it writes (async_job::source), so a file of any size costs one buffer. Its
+// length is known before the first byte and becomes Content-Length: the body is never chunked.
+struct body_source {
+    std::uint64_t length = 0;
+    // Starts a pass over the body from its first byte. Every try of the request, and every redirect that sends the body again, starts a new
+    // one. Returns null and sets `error` when the source cannot be opened at all.
+    std::function<std::unique_ptr<body_reader>(std::string& error)> open;
+    // Optional. Called on the engine's loop thread after each piece is written, with the body bytes written so far in this pass (the head of
+    // the request is not counted). A pass that starts again (a retry) starts again from a smaller number.
+    std::function<void(std::uint64_t sent)> on_sent;
+};
+
 struct async_job {
     std::string host;
     int port = 80;
@@ -69,6 +91,9 @@ struct async_job {
     std::string target = "/"; // path and query, already percent-encoded
     std::vector<std::pair<std::string, std::string>> headers;
     std::string body;
+    // The body read from a source while it is written (a request with a file), instead of `body`, which stays empty. The Content-Length is the
+    // source's length. The job should run on download_async_http(): reading a file blocks the loop thread for a moment.
+    std::shared_ptr<const body_source> source;
     double timeout_sec = 0;             // seconds per step (resolve, connect, write, each read); 0 = none
     std::chrono::steady_clock::time_point deadline{}; // the whole request must end by then (error_kind::timeout); epoch = no limit
     double connect_timeout_sec = 0;     // resolve, connect, proxy and TLS handshake instead of timeout_sec; 0 = timeout_sec
@@ -121,7 +146,7 @@ private:
 // shutting down) is a classic way to hang at exit. The OS reclaims it with the process.
 async_http& shared_async_http();
 
-// A second engine, for transfers that stream to a sink (downloads): a slow disk then stalls other downloads
+// A second engine, for transfers that stream to a sink (downloads) or from a source (uploads): a slow disk then stalls other transfers
 // only, never the short API calls on shared_async_http().
 async_http& download_async_http();
 
