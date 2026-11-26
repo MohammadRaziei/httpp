@@ -3,6 +3,7 @@ id: download
 title: Download a file
 ---
 
+import Differ from '@site/src/components/Differ';
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
 
@@ -81,10 +82,10 @@ httpp download https://example.com/f.zip -o f.zip --retry 3   # try again up to 
 
 ## Where the two differ
 
-| | Python | C++ |
-|---|---|---|
-| Builder | `httpp.Download(url, path)` | `httpp::download(url, path)` |
-| Result | `httpp.DownloadResult` | `httpp::download_result` |
-| How long a stale lock is waited for | `max_wait(seconds)` | `max_wait(std::chrono::milliseconds)` |
-| Without blocking | `await ....run_async()` | `std::future` from `run_async()` |
-| One call | `httpp.download(url, path)` | `httpp::download(url, path).run()` |
+<Differ rows={[
+  ["Builder", "`httpp.Download(url, path)`", "`httpp::download(url, path)`"],
+  ["Result", "`httpp.DownloadResult`", "`httpp::download_result`"],
+  ["How long a stale lock is waited for", "`max_wait(seconds)`", "`max_wait(std::chrono::milliseconds)`"],
+  ["Without blocking", "`await ....run_async()`", "`std::future` from `run_async()`"],
+  ["One call", "`httpp.download(url, path)`", "`httpp::download(url, path).run()`"],
+]} />

@@ -3,6 +3,7 @@ id: errors
 title: Handle errors
 ---
 
+import Differ from '@site/src/components/Differ';
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
 
@@ -77,9 +78,9 @@ Setting the status on the response, as the first example does, is one way. The o
 
 ## Where the two differ
 
-| | Python | C++ |
-|---|---|---|
-| Leave a handler with a status | `return body, 404` or `raise HTTPException(404, "...")` | set `res.status` and fill the body, or `throw http_exception(404, "...")` |
-| Handle an exception | `@app.exception_handler(ValueError)`, one per type | `app.exception_handler(fn)`, one for all, rethrow to find the type |
-| Shape the server's own `404` and `405` | `@app.error_handler(404)`, one per status | `app.error_handler(fn)`, one for all, look at `res.status` |
-| An exception nobody handles | plain `500`, traceback in the server's output | plain `500` |
+<Differ rows={[
+  ["Leave a handler with a status", "`return body, 404` or `raise HTTPException(404, \"...\")`", "set `res.status` and fill the body, or `throw http_exception(404, \"...\")`"],
+  ["Handle an exception", "`@app.exception_handler(ValueError)`, one per type", "`app.exception_handler(fn)`, one for all, rethrow to find the type"],
+  ["Shape the server's own `404` and `405`", "`@app.error_handler(404)`, one per status", "`app.error_handler(fn)`, one for all, look at `res.status`"],
+  ["An exception nobody handles", "plain `500`, traceback in the server's output", "plain `500`"],
+]} />

@@ -3,6 +3,7 @@ id: serve-directory
 title: Serve a folder
 ---
 
+import Differ from '@site/src/components/Differ';
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
 
@@ -99,7 +100,7 @@ httpp.Directory("public").show_hidden(False).show_dates(False).download_active(T
 
 ## Where the two differ
 
-| | Python | C++ |
-|---|---|---|
-| Short call | `app.serve_directory(mount, folder)` | `app.serve_directory(mount, folder)` |
-| With settings | `httpp.Directory(folder).set_...().mount(app, mount)` | `httpp::directory(folder).set_...().mount(app, mount)` |
+<Differ rows={[
+  ["Short call", "`app.serve_directory(mount, folder)`", "`app.serve_directory(mount, folder)`"],
+  ["With settings", "`httpp.Directory(folder).set_...().mount(app, mount)`", "`httpp::directory(folder).set_...().mount(app, mount)`"],
+]} />

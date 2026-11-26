@@ -3,6 +3,7 @@ id: upload
 title: Upload a file
 ---
 
+import Differ from '@site/src/components/Differ';
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
 
@@ -95,11 +96,11 @@ httpp curl -T backup.tar -# http://127.0.0.1:8000/store
 
 ## Where the two differ
 
-| | Python | C++ |
-|---|---|---|
-| Text field | `req.field(name, value)` | `req.field(name, value)` |
-| File | `req.file(name, path, filename=None, content_type=None)` | `req.file(name, httpp::path(p), filename, content_type)` |
-| Bytes as a file | `req.file_data(name, data, filename, content_type=None)` | `req.file_data(name, data, filename, content_type)` |
-| Whole file | `req.body_file(path)` | `req.body_file(httpp::path(p))` |
-| Progress | `req.progress(fn(sent, total))` | `req.progress(fn)` |
-| Keywords | `Request(url, fields={...}, files={...}, body_file=p, progress=fn)` | the chain above |
+<Differ rows={[
+  ["Text field", "`req.field(name, value)`", "`req.field(name, value)`"],
+  ["File", "`req.file(name, path, filename=None, content_type=None)`", "`req.file(name, httpp::path(p), filename, content_type)`"],
+  ["Bytes as a file", "`req.file_data(name, data, filename, content_type=None)`", "`req.file_data(name, data, filename, content_type)`"],
+  ["Whole file", "`req.body_file(path)`", "`req.body_file(httpp::path(p))`"],
+  ["Progress", "`req.progress(fn(sent, total))`", "`req.progress(fn)`"],
+  ["Keywords", "`Request(url, fields={...}, files={...}, body_file=p, progress=fn)`", "the chain above"],
+]} />

@@ -3,6 +3,7 @@ id: post-request
 title: Send a request with a body
 ---
 
+import Differ from '@site/src/components/Differ';
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
 
@@ -41,7 +42,7 @@ If you already have a client object, its `post`, `put`, `patch` and `del` method
 
 ## Where the two differ
 
-| | Python | C++ |
-|---|---|---|
-| Builder | `httpp.Request(url)` | `httpp::request(url)` |
-| Send | `.run()` | `.run()`, `.run_async()` |
+<Differ rows={[
+  ["Builder", "`httpp.Request(url)`", "`httpp::request(url)`"],
+  ["Send", "`.run()`", "`.run()`, `.run_async()`"],
+]} />

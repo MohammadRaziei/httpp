@@ -1,0 +1,69 @@
+/* The table of "Where the two differ": hairlines only, a quiet label column, the code of the chosen language in front. */
+.wrap {
+  margin-bottom: var(--ifm-leading);
+  overflow-x: auto;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 6px;
+}
+
+.table {
+  display: table;
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  background: transparent;
+}
+
+.table th,
+.table td {
+  padding: 0.65rem 1rem;
+  border: 0;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  background: transparent;
+  text-align: left;
+  vertical-align: top;
+}
+
+.table thead th {
+  border-top: 0;
+  border-bottom: 1px solid var(--ifm-color-emphasis-300);
+  font: 600 0.75rem var(--ifm-font-family-base);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.table thead th:last-child {
+  color: var(--ifm-color-primary);
+}
+
+.table tbody tr:first-child > * {
+  border-top: 0;
+}
+
+.table tbody tr:nth-child(even) {
+  background: transparent;
+}
+
+.what {
+  width: 32%;
+  font-weight: 500;
+  color: var(--ifm-color-emphasis-800);
+}
+
+.table td code {
+  border: 0;
+  background: var(--ifm-color-emphasis-100);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 600px) {
+  .what {
+    width: 38%;
+  }
+  .table th,
+  .table td {
+    padding: 0.55rem 0.7rem;
+  }
+}

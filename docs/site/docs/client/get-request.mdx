@@ -3,6 +3,7 @@ id: get-request
 title: Send a GET request
 ---
 
+import Differ from '@site/src/components/Differ';
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
 
@@ -30,9 +31,9 @@ Network failures never throw. They come back as a response with status `0` and `
 
 ## Where the two differ
 
-| | Python | C++ |
-|---|---|---|
-| Client type | `httpp.Client` | `httpp::client` |
-| One call with a URL | `Client.fetch(url)` | `httpp::client::fetch(url)` |
-| Success flag | `res.ok` | `res.ok()` |
-| Missing header | `None` | empty string |
+<Differ rows={[
+  ["Client type", "`httpp.Client`", "`httpp::client`"],
+  ["One call with a URL", "`Client.fetch(url)`", "`httpp::client::fetch(url)`"],
+  ["Success flag", "`res.ok`", "`res.ok()`"],
+  ["Missing header", "`None`", "empty string"],
+]} />

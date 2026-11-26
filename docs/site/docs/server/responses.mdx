@@ -3,6 +3,7 @@ id: responses
 title: Shape the response
 ---
 
+import Differ from '@site/src/components/Differ';
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
 
@@ -47,9 +48,9 @@ A handler fills in the `httpp::response&` it is given. Set `res.body` for the bo
 
 ## Where the two differ
 
-| | Python | C++ |
-|---|---|---|
-| Send JSON | return a `dict` or `list` | `res.json(serialized_text)` |
-| Status | second item of the returned tuple | `res.status`, default `200` |
-| Extra headers | third item of the returned tuple | `res.headers.emplace_back(...)` |
-| Redirect, cookie | headers in the tuple | `res.redirect(...)`, `res.set_cookie(...)` |
+<Differ rows={[
+  ["Send JSON", "return a `dict` or `list`", "`res.json(serialized_text)`"],
+  ["Status", "second item of the returned tuple", "`res.status`, default `200`"],
+  ["Extra headers", "third item of the returned tuple", "`res.headers.emplace_back(...)`"],
+  ["Redirect, cookie", "headers in the tuple", "`res.redirect(...)`, `res.set_cookie(...)`"],
+]} />

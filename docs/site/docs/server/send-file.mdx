@@ -3,6 +3,7 @@ id: send-file
 title: Send a file
 ---
 
+import Differ from '@site/src/components/Differ';
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
 
@@ -39,8 +40,8 @@ The path is trusted. Never build it from what a visitor sent, because a name suc
 
 ## Where the two differ
 
-| | Python | C++ |
-|---|---|---|
-| Send a file | `return httpp.file(path)` | `res.file = path` |
-| Content type | guessed from the extension, or pass one | set it yourself, `httpp::mime_type_for(path)` helps |
-| Missing file | `404` | `404` |
+<Differ rows={[
+  ["Send a file", "`return httpp.file(path)`", "`res.file = path`"],
+  ["Content type", "guessed from the extension, or pass one", "set it yourself, `httpp::mime_type_for(path)` helps"],
+  ["Missing file", "`404`", "`404`"],
+]} />
