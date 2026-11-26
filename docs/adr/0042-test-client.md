@@ -16,7 +16,7 @@ Read this first. It says what holds today; the parts below give the reasons, the
 ### `httpp.testclient.TestClient` serves the app on a loopback port
 
 - **Status:** accepted
-- **Source:** `src/bindings/python/httpp/testclient.py`, `Server._unhandled` and `Server._exception_sink` in `server.py`, `tests/python/test_testclient.py`
+- **Source:** `src/bindings/python/httpp/testclient.py`, `_RequestState.unhandled` and `Server._exception_sink` (a property on the `_RequestState` of the server) in `server.py`, `tests/python/test_testclient.py`
 
 #### Context
 
@@ -38,7 +38,7 @@ in Python, which would drift.
 3. Cookies the server sets are kept by name in `client.cookies` and sent back; `Max-Age=0` or a past `Expires` deletes. Redirects are followed by the client itself (up to 20,
    `TooManyRedirects` after that; 303, and 301/302 after POST, become GET) so cookies and `history` work across hops.
 4. `raise_server_exceptions`: when a handler raises and no exception handler answers, the three places that re-raise for the core (sync, sync with dependencies, async)
-   first call `Server._unhandled(exc)`, which appends to `Server._exception_sink` when a test client has set it. The client re-raises the first one after the response
+   first call `_RequestState.unhandled(exc)`, which appends to the sink (`Server._exception_sink`) when a test client has set it. The client re-raises the first one after the response
    (the server still answers 500, so the connection state is normal). Without a test client the sink is `None` and nothing changes.
 
 #### Rejected alternatives

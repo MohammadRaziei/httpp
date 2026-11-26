@@ -2,6 +2,8 @@
 
 import contextlib
 import json
+import selectors
+import socket
 import threading
 import time
 from contextlib import contextmanager
@@ -345,12 +347,48 @@ def test_second_server_on_a_served_port_fails_instead_of_sharing_it():
 # ---- real async: awaiting requests must not occupy worker threads -----------
 
 
+def get_all_at_once(port, path, count, timeout=10.0):
+    """`count` GET requests on `count` connections, sent and read by THIS thread alone; the status code of each answer.
+
+    A thread per request is the simple way to make them concurrent, but a thread is expensive where the address space is small:
+    32-bit free-threaded CPython reserves tens of MiB per thread, and 100 of them did not fit (the cp315t-win32 wheel job hung in
+    Thread.start()). The test is about the threads of the server, not about those of the client."""
+    request = f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".encode()
+    selector = selectors.DefaultSelector()
+    answers = {}
+    try:
+        for i in range(count):
+            sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+            sock.sendall(request)
+            sock.setblocking(False)
+            answers[i] = bytearray()
+            selector.register(sock, selectors.EVENT_READ, i)
+        end = time.monotonic() + timeout
+        open_connections = count
+        while open_connections:
+            left = end - time.monotonic()
+            if left <= 0:
+                raise TimeoutError(f"{open_connections} of {count} answers are missing")
+            for key, _ in selector.select(left):
+                chunk = key.fileobj.recv(65536)
+                if chunk:
+                    answers[key.data] += chunk
+                else:  # the server closes the connection after the answer (Connection: close)
+                    selector.unregister(key.fileobj)
+                    key.fileobj.close()
+                    open_connections -= 1
+    finally:
+        for key in list(selector.get_map().values()):
+            key.fileobj.close()
+        selector.close()
+    return [int(bytes(answers[i]).split(b" ", 2)[1]) for i in range(count)]
+
+
 def test_async_handlers_do_not_hold_worker_threads():
     """100 requests that each await 0.5 s finish together in ~0.5 s. With one
     blocked thread per request they would need several rounds (the pool is a
     few dozen threads), i.e. 2 s or more."""
     import asyncio
-    from concurrent.futures import ThreadPoolExecutor
 
     app = Server()
 
@@ -362,11 +400,29 @@ def test_async_handlers_do_not_hold_worker_threads():
     with running(app) as url:
         port = int(url.rsplit(":", 1)[1])
         started = time.time()
-        with ThreadPoolExecutor(100) as ex:
-            statuses = list(ex.map(lambda _: Client("127.0.0.1", port).get("/wait").status, range(100)))
+        statuses = get_all_at_once(port, "/wait", 100)
         elapsed = time.time() - started
     assert statuses == [200] * 100
     assert elapsed < 1.5
+
+
+def test_get_all_at_once_sees_a_server_that_holds_a_thread_per_request():
+    """The check above is only worth something if it fails for a server that does hold a thread per request: 32 requests that each
+    sleep 0.25 s in a plain `def` handler need 8 rounds of a worker pool fixed at 4 threads, so about 2 s on any machine."""
+    app = Server(threads=4, max_threads=4)
+
+    @app.get("/wait")
+    def wait():
+        time.sleep(0.25)
+        return "ok"
+
+    with running(app) as url:
+        port = int(url.rsplit(":", 1)[1])
+        started = time.time()
+        statuses = get_all_at_once(port, "/wait", 32, timeout=30.0)
+        elapsed = time.time() - started
+    assert statuses == [200] * 32
+    assert elapsed > 1.5
 
 
 def test_async_handlers_share_one_event_loop():

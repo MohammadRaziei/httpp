@@ -59,7 +59,6 @@ import sys
 import threading
 import time
 import traceback
-import weakref
 
 from . import _background, _forms, _log, _params, _router, _schema
 from . import security as _security
@@ -598,31 +597,106 @@ class _FlatRaw:
         return _parse_form(self.body, ctype)
 
 
-def _weak_hook(bound):
-    """A bound hook method (app._run_before ...) that does not keep its app alive.
-
-    The core keeps every hook it is given in app._handlers, so a plain bound method is a cycle: app -> _handlers -> method -> app.
-    Reference counting never frees such an app; the cycle collector does, and on free-threaded CPython it runs late, so the stopped
-    servers of a long run (a test suite) pile up with everything they hold (see ADR-0112). If the app is gone no request can arrive,
-    and the answer is the neutral one: None (go on / change nothing / keep the plain error)."""
-    ref = weakref.WeakMethod(bound)
-
-    def hook(*args):
-        method = ref()
-        return None if method is None else method(*args)
-
-    return hook
-
-
 def _prepare_flat(fn):
     """_prepare for the hooks: called with the six values, not with a RawRequest."""
     prepare = _prepare(fn)
     return lambda *flat: prepare(_FlatRaw(*flat))
 
 
-def _adapt(fn, app, plan=None, status=200, shape=None):
+class _RequestState:
+    """What serving a request needs from its Server: the hooks, the handlers for errors and exceptions, the handler timeout.
+
+    The Server and every handler registered on it point at this one object, and it points at neither (ADR-0112). The core keeps
+    each handler and hook it is given, so a handler that held the Server would be a cycle, Server -> handler -> Server, which
+    reference counting never frees; on free-threaded CPython the cycle collector runs late and the stopped servers of a long run
+    piled up with everything they hold. A request in flight keeps what it needs alive through this object, whatever happens to the
+    Server."""
+
+    __slots__ = ("before", "after", "error_handlers", "exception_handlers", "handler_timeout", "exception_sink")
+
+    def __init__(self):
+        self.before, self.after = [], []
+        self.error_handlers, self.exception_handlers = {}, {}
+        self.handler_timeout = None  # seconds; None means never
+        self.exception_sink = None  # a list while httpp.testclient is watching: unhandled handler exceptions are appended to it
+
+    # ponytail: Python exceptions never reach the C++ exception hook (the adapters catch them), so
+    # exception_handler is handled in Python rather than through exception_handler.
+    def unhandled(self, exc):
+        """A handler raised `exc` and no exception handler answers for it (the core answers 500). httpp.testclient re-raises it in the test."""
+        sink = self.exception_sink
+        if sink is not None:
+            sink.append(exc)
+
+    def exception_handler_for(self, exc):
+        for cls in type(exc).__mro__:
+            handler = self.exception_handlers.get(cls)
+            if handler is not None:
+                return handler
+        return _http_exception_handler if isinstance(exc, HTTPException) else None
+
+    def run_before(self, *raw):
+        for fn, prepare in self.before:
+            kwargs, _ = prepare(*raw)
+            try:
+                rv = _call(fn, **kwargs)
+            except HTTPException as exc:  # the usual way to refuse a request in a hook (auth)
+                handler = self.exception_handler_for(exc)
+                return _to_response(_call(handler, ServerRequest(*raw), exc), 500)
+            if rv is not None:
+                return _to_response(rv)
+        return None
+
+    def run_after(self, method, path, body, headers, query, path_params, status, resp_headers):
+        request = ServerRequest(method, path, body, headers, query, path_params)
+        head = ResponseHead(status, resp_headers)
+        for fn in self.after:
+            _call(fn, request, head)
+        for k, v in head.headers:  # hooks may have edited the list directly
+            _check_header(k, v)
+        return int(head.status), list(head.headers)
+
+    def run_error(self, method, path, body, headers, query, path_params, status):
+        entry = self.error_handlers.get(status)
+        if entry is None:
+            return None
+        fn, prepare = entry
+        kwargs, _ = prepare(method, path, body, headers, query, path_params)
+        rv = _call(fn, **kwargs)
+        return None if rv is None else _to_response(rv, status)
+
+
+class _OpenAPIDocument:
+    """The OpenAPI document of one Server: built on first use, kept until a route is added (the Server resets it).
+
+    The /openapi.json route holds this and not the Server, for the reason given at `_RequestState`. `routes` is the Server's own list,
+    so a route added later is seen."""
+
+    __slots__ = ("routes", "title", "version", "description", "security_schemes", "security", "text", "doc")
+
+    def __init__(self, routes, title, version, description, security_schemes, security):
+        self.routes, self.title, self.version, self.description = routes, title, version, description
+        self.security_schemes, self.security = security_schemes, security
+        self.text = self.doc = None
+
+    def reset(self):
+        self.text = self.doc = None
+
+    def json(self):
+        """The document as JSON text, written once and kept (what /openapi.json serves)."""
+        if self.text is None:
+            self.text = _schema.build_openapi_json(self.routes, title=self.title, version=self.version, description=self.description,
+                                                   security_schemes=self.security_schemes, security=self.security)
+        return self.text
+
+    def dict(self):
+        if self.doc is None:
+            self.doc = json.loads(self.json())
+        return self.doc
+
+
+def _adapt(fn, state, plan=None, status=200, shape=None):
     """Sync handler -> what the compiled core calls on a worker thread: raw request in, (status, body, headers) out."""
-    app_ref = weakref.ref(app)  # the closures below are kept in app._handlers: a strong reference would be a cycle (see ADR-0112)
     prepare = _prepare(fn, plan)
     has_out = plan is not None and (plan.wants_response or plan.background_name is not None)
 
@@ -641,8 +715,9 @@ def _adapt(fn, app, plan=None, status=200, shape=None):
                     result = _to_response(rv if shape is None else shape(rv), status)
                     return _merge_out(result, kwargs, plan) if has_out else result
             except Exception as exc:
-                handler = _on_exception(app_ref, exc)
+                handler = state.exception_handler_for(exc)
                 if handler is None:
+                    state.unhandled(exc)
                     raise
                 return _to_response(_call(handler, ServerRequest._from_raw(raw), exc), 500)
 
@@ -657,38 +732,13 @@ def _adapt(fn, app, plan=None, status=200, shape=None):
             result = _to_response(rv if shape is None else shape(rv), status)
             return _merge_out(result, kwargs, plan) if has_out else result
         except Exception as exc:
-            handler = _on_exception(app_ref, exc)
+            handler = state.exception_handler_for(exc)
             if handler is None:
+                state.unhandled(exc)
                 raise  # the compiled core logs it and answers a plain 500
             return _to_response(_call(handler, ServerRequest._from_raw(raw), exc), 500)
 
     return call
-
-
-def _on_exception(app_ref, exc):
-    """The exception handler for `exc` (None when there is none), asked of the app through its weak reference.
-
-    A function of its own on purpose: no frame of a request holds the app. A traceback that is kept (a log record, a task result)
-    holds its frames, and a frame with the app in it would hold the app too (ADR-0112). Without an app (it was dropped while the
-    request was still running) the answer is None: the core logs the error and answers a plain 500."""
-    app = app_ref()
-    if app is None:
-        return None
-    handler = app._exception_handler_for(exc)
-    if handler is None:
-        app._unhandled(exc)
-    return handler
-
-
-def _wants_after(app_ref):
-    """True when the app has after / error hooks that must run on the calling thread (see `run` in `_adapt_async`)."""
-    app = app_ref()
-    return app is not None and bool(app._after or app._error_handlers)
-
-
-def _timeout_of(app_ref):
-    app = app_ref()
-    return 0 if app is None else app._handler_timeout
 
 
 def _call(fn, *args, **kwargs):
@@ -866,11 +916,10 @@ class _Deadlines:
             self._arm(loop, soonest)
 
 
-def _adapt_async(fn, app, plan=None, status=200, shape=None):
+def _adapt_async(fn, state, plan=None, status=200, shape=None):
     """Async handler -> a dispatcher for the compiled core's loop routes: `dispatch(raw, done)` runs on
     the loop thread, returns at once, and the response is sent through `done` when the handler is finished.
     One task per request does everything: the handler, its exception handler and the timeout."""
-    app_ref = weakref.ref(app)  # the dispatcher is kept in app._handlers: a strong reference would be a cycle (see ADR-0112)
     prepare = _prepare(fn, plan)
     has_deps = plan is not None and bool(plan.deps)
     has_out = plan is not None and (plan.wants_response or plan.background_name is not None)
@@ -902,8 +951,9 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                         if has_out:
                             result = _merge_out(result, kwargs, plan)
                 except Exception as exc:
-                    handler = _on_exception(app_ref, exc)
+                    handler = state.exception_handler_for(exc)
                     if handler is None:
+                        state.unhandled(exc)
                         raise  # answered with a plain 500 below
                     rv = handler(ServerRequest._from_raw(raw), exc)
                     if inspect.isawaitable(rv):
@@ -923,7 +973,7 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
         # hooks it is safe, and cheaper, to call it right here. after/error hooks run inside
         # done() on the calling thread, and an `async def` one would wait on this very loop.
         # ponytail: executor fallback whenever such hooks exist; upgrade path: await the hooks here.
-        if _wants_after(app_ref):
+        if state.after or state.error_handlers:
             await loop.run_in_executor(None, done, *result)
         else:
             try:
@@ -933,7 +983,6 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                 done(500, b"Internal Server Error", [])
 
     def dispatch(raw, done, inline=False, lane=0):
-        timeout = _timeout_of(app_ref)
         if inline:
             # On an I/O thread, holding its lane's gate: the loop thread is asleep in its selector, so this is
             # the loop's own work done early. The loop must look "running" to the code in the handler; whatever
@@ -950,8 +999,8 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
                 _set_running_loop(None)
             if not task.done():
                 _tasks.add(task)
-                if timeout:
-                    ln.deadlines.add(loop, task, timeout)
+                if state.handler_timeout:
+                    ln.deadlines.add(loop, task, state.handler_timeout)
             if not task.done() or len(loop._ready) != ready or len(loop._scheduled) != scheduled:
                 ln.wake[1].send(b"\0")  # the loop sleeps with a timeout that does not know about this
             return
@@ -963,13 +1012,13 @@ def _adapt_async(fn, app, plan=None, status=200, shape=None):
             task = asyncio.Task(run(raw, done), loop=loop, eager_start=True)
             if not task.done():
                 _tasks.add(task)  # the loop only keeps weak references to tasks
-                if timeout:  # a handler that finished at once needs no deadline
-                    loop._httpp_lane.deadlines.add(loop, task, timeout)
+                if state.handler_timeout:  # a handler that finished at once needs no deadline
+                    loop._httpp_lane.deadlines.add(loop, task, state.handler_timeout)
             return
         task = loop.create_task(run(raw, done))
         _tasks.add(task)  # the loop only keeps weak references to tasks
-        if timeout:
-            loop._httpp_lane.deadlines.add(loop, task, timeout)
+        if state.handler_timeout:
+            loop._httpp_lane.deadlines.add(loop, task, state.handler_timeout)
 
     return dispatch
 
@@ -1114,14 +1163,14 @@ class Server(_Server):
         # answer on one thread. With cores to spare the hop to the loop thread is the faster pipeline (measured on 16
         # threads: 126k against 158k req/s), with one or two cores the saved CPU wins (about 30 percent more).
         self._inline_async = (cpus <= 2) if inline_async is None else bool(inline_async)
-        self._routes, self._openapi_doc, self._openapi_text = [], None, None
+        self._routes = []
         self._title, self._version, self._description = title, version, description
         # OpenAPI security: documentation for the Swagger "Authorize" button, see httpp/security.py
         self._security_schemes = _security.check_schemes(security_schemes)
         self._security = _security.requirements(security, self._security_schemes, "Server(security=...)")
-        self._before, self._after, self._startup, self._shutdown = [], [], [], []
-        self._error_handlers, self._exception_handlers = {}, {}
-        self._exception_sink = None  # a list while httpp.testclient is watching: unhandled handler exceptions are appended to it
+        self._openapi = _OpenAPIDocument(self._routes, title, version, description, self._security_schemes, self._security)
+        self._startup, self._shutdown = [], []
+        self._request_state = _RequestState()  # hooks, error / exception handlers, handler timeout: shared with the handlers, see ADR-0112
 
         if threads is None:
             if max_threads is not None:
@@ -1158,7 +1207,7 @@ class Server(_Server):
 
         if handler_timeout is not None and handler_timeout < 0:
             raise ValueError("handler_timeout can't be negative")
-        self._handler_timeout = handler_timeout or None  # 0 and None both mean "never"
+        self._request_state.handler_timeout = handler_timeout or None  # 0 and None both mean "never"
         self._has_async = False  # set by the first `async def` route
         # The C++ timer is only the backstop for the Python one (it can't cancel the coroutine).
         # ponytail: fixed 5 s grace.
@@ -1197,17 +1246,17 @@ class Server(_Server):
             check = V.compile_type(model) if model is not None else None
             shape = (lambda rv: _shape(rv, check)) if check is not None else None
             if inspect.iscoroutinefunction(fn):
-                adapted = _adapt_async(fn, self, plan, status, shape)
+                adapted = _adapt_async(fn, self._request_state, plan, status, shape)
                 # A handler that cannot suspend may run on the I/O thread (see _GatedSelector).
                 inline = self._inline_async and _EAGER and not plan.deps and _cannot_suspend(fn)
                 add = self._add_raw_hybrid_route if inline else self._add_raw_loop_route
                 self._has_async = True
             else:
-                adapted, add = _adapt(fn, self, plan, status, shape), self._add_raw_route
+                adapted, add = _adapt(fn, self._request_state, plan, status, shape), self._add_raw_route
             for m in methods:
                 add(m, pattern, adapted)
             self._routes.append(_params.Route(path, tuple(methods), fn, plan, meta))
-            self._openapi_doc = self._openapi_text = None
+            self._openapi.reset()
             return fn  # unchanged, so it stays directly callable / testable
 
         return register
@@ -1272,24 +1321,18 @@ class Server(_Server):
 
     def _openapi_json(self):
         """The OpenAPI 3.1 document for the routes registered so far as JSON text, written once and kept (what /openapi.json serves)."""
-        if self._openapi_text is None:
-            self._openapi_text = _schema.build_openapi_json(self._routes, title=self._title, version=self._version,
-                                                            description=self._description, security_schemes=self._security_schemes,
-                                                            security=self._security)
-        return self._openapi_text
+        return self._openapi.json()
 
     def openapi(self):
         """The OpenAPI 3.1 document for the routes registered so far, as a dict."""
-        if self._openapi_doc is None:
-            self._openapi_doc = json.loads(self._openapi_json())
-        return self._openapi_doc
+        return self._openapi.dict()
 
     def _add_docs(self, openapi_url, docs_url):
-        me = weakref.proxy(self)  # the route is kept in self._handlers: a strong reference would be a cycle (see ADR-0112)
+        document = self._openapi  # the route keeps the document, not the Server (ADR-0112)
 
         @self.get(openapi_url, include_in_schema=False)
         def openapi_json():
-            return _ResponseBase(me._openapi_json(), media_type="application/json")
+            return _ResponseBase(document.json(), media_type="application/json")
 
         if docs_url is not None:  # Swagger UI is served by C++ from files compiled into libhttpp
             Swagger(openapi_url).title(self._title).mount(self, docs_url)
@@ -1308,17 +1351,17 @@ class Server(_Server):
     def before_request(self, fn):
         """@app.before_request: fn(request) returns None to go on, or a response (anything a
         route may return) to answer right here without calling the route."""
-        if not self._before:
-            self.set_before_hook(_weak_hook(self._run_before))
-        self._before.append((fn, _prepare_flat(fn)))
+        if not self._request_state.before:
+            self.set_before_hook(self._request_state.run_before)
+        self._request_state.before.append((fn, _prepare_flat(fn)))
         return fn
 
     def after_request(self, fn):
         """@app.after_request: fn(request, response) may edit response.status / .headers
         (a ResponseHead). Hooks run in registration order, also for rejected requests."""
-        if not self._after:
-            self.set_after_hook(_weak_hook(self._run_after))
-        self._after.append(fn)
+        if not self._request_state.after:
+            self.set_after_hook(self._request_state.run_after)
+        self._request_state.after.append(fn)
         return fn
 
     def error_handler(self, *statuses):
@@ -1329,10 +1372,10 @@ class Server(_Server):
             raise ValueError("error_handler(*statuses) takes HTTP error statuses (400-599)")
 
         def register(fn):
-            if not self._error_handlers:
-                self.set_error_hook(_weak_hook(self._run_error))
+            if not self._request_state.error_handlers:
+                self.set_error_hook(self._request_state.run_error)
             for status in statuses:
-                self._error_handlers[status] = (fn, _prepare_flat(fn))
+                self._request_state.error_handlers[status] = (fn, _prepare_flat(fn))
             return fn
 
         return register
@@ -1345,7 +1388,7 @@ class Server(_Server):
 
         def register(fn):
             for t in types:
-                self._exception_handlers[t] = fn
+                self._request_state.exception_handlers[t] = fn
             return fn
 
         return register
@@ -1360,50 +1403,14 @@ class Server(_Server):
         self._shutdown.append(fn)
         return fn
 
-    # ponytail: Python exceptions never reach the C++ exception hook (the adapters catch them), so
-    # exception_handler is handled in Python rather than through exception_handler.
-    def _unhandled(self, exc):
-        """A handler raised `exc` and no exception handler answers for it (the core answers 500). httpp.testclient re-raises it in the test."""
-        sink = self._exception_sink
-        if sink is not None:
-            sink.append(exc)
+    @property
+    def _exception_sink(self):
+        """A list while httpp.testclient is watching: unhandled handler exceptions are appended to it (None otherwise)."""
+        return self._request_state.exception_sink
 
-    def _exception_handler_for(self, exc):
-        for cls in type(exc).__mro__:
-            handler = self._exception_handlers.get(cls)
-            if handler is not None:
-                return handler
-        return _http_exception_handler if isinstance(exc, HTTPException) else None
-
-    def _run_before(self, *raw):
-        for fn, prepare in self._before:
-            kwargs, _ = prepare(*raw)
-            try:
-                rv = _call(fn, **kwargs)
-            except HTTPException as exc:  # the usual way to refuse a request in a hook (auth)
-                handler = self._exception_handler_for(exc)
-                return _to_response(_call(handler, ServerRequest(*raw), exc), 500)
-            if rv is not None:
-                return _to_response(rv)
-        return None
-
-    def _run_after(self, method, path, body, headers, query, path_params, status, resp_headers):
-        request = ServerRequest(method, path, body, headers, query, path_params)
-        head = ResponseHead(status, resp_headers)
-        for fn in self._after:
-            _call(fn, request, head)
-        for k, v in head.headers:  # hooks may have edited the list directly
-            _check_header(k, v)
-        return int(head.status), list(head.headers)
-
-    def _run_error(self, method, path, body, headers, query, path_params, status):
-        entry = self._error_handlers.get(status)
-        if entry is None:
-            return None
-        fn, prepare = entry
-        kwargs, _ = prepare(method, path, body, headers, query, path_params)
-        rv = _call(fn, **kwargs)
-        return None if rv is None else _to_response(rv, status)
+    @_exception_sink.setter
+    def _exception_sink(self, sink):
+        self._request_state.exception_sink = sink
 
     @contextlib.contextmanager
     def _lifecycle(self):

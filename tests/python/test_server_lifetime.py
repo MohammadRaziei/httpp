@@ -192,23 +192,29 @@ def _short_circuit(app):
     _sync_route(app)
 
 
-# Every way to hand the server something it keeps. The request goes to /r: the paths that run at request time (async hooks, error
-# handlers, a hook that answers for the route) must not leave a cycle either.
-SETUPS = [_sync_route, _async_route, _router, _before_hook, _after_hook, _error_handler, _exception_handler, _websocket, _lifecycle,
-          _dependency, _background, _directory, _async_hooks, _raising_routes, _short_circuit, _swagger, _file_browser,
-          _middleware(CORSMiddleware, allow_origins=["*"]), _middleware(TrustedHostMiddleware), _middleware(GZipMiddleware),
-          _middleware(HTTPSRedirectMiddleware), _middleware(ProxyHeadersMiddleware),
-          _middleware(BasicAuthMiddleware, users={"a": "b"}), _middleware(RateLimitMiddleware, requests_per_second=100.0, burst=10)]
+# Every way to hand the server something it keeps, with the status its /r must answer. The request goes through each one, so the paths
+# that run at request time (async hooks, error handlers, a hook that answers for the route) must not leave a cycle either, and the
+# answer is checked because a server that is freed but no longer answers is no fix (an async route that never answered was once
+# "freed" in this file).
+SETUPS = [
+    (_sync_route, 200), (_async_route, 200), (_router, 200), (_before_hook, 200), (_after_hook, 200), (_error_handler, 200),
+    (_exception_handler, 200), (_websocket, 200), (_lifecycle, 200), (_dependency, 200), (_background, 200), (_directory, 200),
+    (_async_hooks, 200), (_raising_routes, 418), (_short_circuit, 503), (_swagger, 200), (_file_browser, 200),
+    (_middleware(CORSMiddleware, allow_origins=["*"]), 200), (_middleware(TrustedHostMiddleware), 200), (_middleware(GZipMiddleware), 200),
+    (_middleware(HTTPSRedirectMiddleware), 307), (_middleware(ProxyHeadersMiddleware), 200),
+    (_middleware(BasicAuthMiddleware, users={"a": "b"}), 401), (_middleware(RateLimitMiddleware, requests_per_second=100.0, burst=10), 200),
+]
 
 
-@pytest.mark.parametrize("setup", SETUPS, ids=lambda f: f.__name__.strip("_"))
-def test_a_stopped_server_is_freed_without_the_cycle_collector(setup):
+@pytest.mark.parametrize("setup, status", SETUPS, ids=[setup.__name__.strip("_") for setup, _ in SETUPS])
+def test_a_stopped_server_is_freed_without_the_cycle_collector(setup, status):
     app = Server()
     setup(app)
     with running(app) as url:
-        Request(url + "/r", timeout=5).run()  # the answer does not matter: some setups answer 401, 418, 503 on purpose
+        answer = Request(url + "/r", timeout=5).run().status
     alive = weakref.ref(app)
     del app
+    assert answer == status
     assert alive() is None, "the stopped server is still alive: something it registered holds it (a cycle)"
 
 
