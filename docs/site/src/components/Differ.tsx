@@ -11,22 +11,27 @@ function cell(text: string): React.ReactNode {
   return text.split('`').map((part, i) => (i % 2 ? <code key={i}>{part}</code> : <React.Fragment key={i}>{part}</React.Fragment>));
 }
 
-// The "Where the two differ" table of a page: it shows the language chosen in the navbar, so it follows the switch like the code does.
+// The "API at a glance" table of a page: it shows the language chosen in the navbar, and has the same tabs as the code boxes, so it
+// follows the switch like the code does and can be switched from here.
 export default function Differ({rows}: {rows: Row[]}) {
-  const {lang} = useLang();
+  const {lang, setLang} = useLang();
   const column = Math.max(0, languages.findIndex((l) => l.id === lang)) + 1;
-  const label = languages.find((l) => l.id === lang)?.label ?? '';
   return (
     <div className={styles.wrap}>
+      <div className={styles.tabs} role="tablist" aria-label="Language">
+        {languages.map((l) => (
+          <button
+            key={l.id}
+            type="button"
+            role="tab"
+            aria-selected={lang === l.id}
+            className={styles.tab}
+            onClick={() => setLang(l.id)}>
+            {l.label}
+          </button>
+        ))}
+      </div>
       <table className={styles.table}>
-        <thead>
-          <tr>
-            <th scope="col" className={styles.what}>
-              What
-            </th>
-            <th scope="col">{label}</th>
-          </tr>
-        </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row[0]}>

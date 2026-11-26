@@ -38,7 +38,7 @@ Set `res.file` and the body is streamed from that path with a known `Content-Len
 
 The path is trusted. Never build it from what a visitor sent, because a name such as `../../etc/passwd` would walk out of your folder. For files that a visitor names, [serve a folder](serve-directory.mdx) and let httpp do the checking.
 
-## Where the two differ
+## API at a glance
 
 <Differ rows={[
   ["Send a file", "`return httpp.file(path)`", "`res.file = path`"],

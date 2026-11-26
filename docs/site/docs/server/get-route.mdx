@@ -50,7 +50,7 @@ Both languages use the same syntax, parsed by the same code. Add a type after a 
 
 A segment that does not fit means the route does not match, so the request goes on to the next route that fits, or gets a `404`. A parameter is always a whole segment, and a malformed pattern (`:id`, `<id>`, `{id`, `a{id}`, an unknown type) is an error when the route is registered.
 
-## Where the two differ
+## API at a glance
 
 <Differ rows={[
   ["Server type", "`httpp.Server`", "`httpp::server`"],

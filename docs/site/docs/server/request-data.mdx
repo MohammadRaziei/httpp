@@ -47,7 +47,7 @@ The handler receives a `const httpp::server_request&`. `method`, `path` and `bod
 
 `request.form()` (Python) and `req.form()` (C++) decode a `multipart/form-data` or urlencoded body. A text field is `form.field(name)` and a file is `form.file(name)`, which has `filename` (as sent, without any folder), `content_type` and the bytes. The whole body is held in memory while it is read, so the server limits its size (`max_body`, 100 MiB by default); the client side sends a file from disk without that cost, see [upload](../client/upload.mdx).
 
-## Where the two differ
+## API at a glance
 
 <Differ rows={[
   ["Type of the request", "`httpp.ServerRequest`", "`httpp::server_request`"],

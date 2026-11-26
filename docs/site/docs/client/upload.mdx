@@ -94,7 +94,7 @@ httpp curl -T backup.tar -# http://127.0.0.1:8000/store
 
 `-F name=@file` uploads a file (add `;type=image/png` or `;filename=me.png` after the path), `-F name=<file` sends the text of a file as a value, `--form-string` never treats a value as a file, and `-#` draws a progress bar on stderr. See [`httpp curl`](curl-command.mdx).
 
-## Where the two differ
+## API at a glance
 
 <Differ rows={[
   ["Text field", "`req.field(name, value)`", "`req.field(name, value)`"],

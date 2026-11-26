@@ -1,4 +1,4 @@
-/* The table of "Where the two differ": hairlines only, a quiet label column, the code of the chosen language in front. */
+/* The "API at a glance" table: the language tabs of the code boxes, hairlines only, a quiet label column. */
 .wrap {
   margin-bottom: var(--ifm-leading);
   overflow-x: auto;
@@ -24,25 +24,47 @@
   vertical-align: top;
 }
 
-.table thead th {
-  border-top: 0;
+.tabs {
+  display: flex;
+  padding: 0 0.35rem;
   border-bottom: 1px solid var(--ifm-color-emphasis-300);
-  font: 600 0.75rem var(--ifm-font-family-base);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ifm-color-emphasis-700);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.82rem;
 }
 
-.table thead th:last-child {
+.tab {
+  min-height: 36px;
+  padding: 0 0.8rem;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ifm-color-emphasis-600);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--ifm-font-color-base);
+}
+
+.tab[aria-selected='true'] {
   color: var(--ifm-color-primary);
+  border-bottom-color: var(--ifm-color-primary);
+  font-weight: 600;
 }
 
-.table tbody tr:first-child > * {
-  border-top: 0;
+.tab:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
 }
 
 .table tbody tr:nth-child(even) {
   background: transparent;
+}
+
+.table tbody tr:first-child > * {
+  border-top: 0;
 }
 
 .what {

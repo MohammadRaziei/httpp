@@ -98,7 +98,7 @@ httpp.Directory("public").show_hidden(False).show_dates(False).download_active(T
 
 `show_dates(bool)` (default `true`) is the switch for the times of the files. With `false` there is no `Last-Modified` and no `ETag` (it holds the time too), so no request can get a 304 and a browser asks again each time (`Cache-Control: no-cache`); a range request still gets its part, but one that carries `If-Range` cannot be checked and gets the whole file. `index(bool)` (default `true`) is the switch for the `index.html` answer. `download_active(true)` also adds `X-Content-Type-Options: nosniff`, and `?download=1` on any file asks for a download. `mount` raises `ValueError` (Python) or `std::invalid_argument` (C++) when the mount path does not start with `/`. To list a folder for people to browse, see the [file browser](file-browser.mdx).
 
-## Where the two differ
+## API at a glance
 
 <Differ rows={[
   ["Short call", "`app.serve_directory(mount, folder)`", "`app.serve_directory(mount, folder)`"],
