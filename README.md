@@ -50,13 +50,14 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - **Built-in server, no ASGI/WSGI.** Plain `def` and `async def` handlers both run on httpp itself: no ASGI/WSGI layer and
   no separate process to launch. The routing API follows FastAPI's, so moving an app over takes little rewriting.
   The ideas of both standards are kept in a simpler form: `def` handlers run on a worker pool (WSGI's model), `async def`
-  handlers on one shared event loop (ASGI's), plus `@app.websocket` and `on_startup` / `on_shutdown`. httpp owns both
+  handlers on an asyncio event loop (ASGI's), plus `@app.websocket` and `on_startup` / `on_shutdown`. httpp owns both
   the server and the framework, so a request is never translated into an ASGI `scope` and back, and there is no middleware
   stack: `before_request`, `after_request` and the error handlers do that work. The price: no third-party ASGI/WSGI apps or
   middleware (`add_middleware` takes the classes of `httpp.middleware` only). This design, with the C++ engine under it, is
-  what makes httpp faster than a bare ASGI app on uvicorn (see **Speed** below); details in
+  part of why httpp is faster than a bare ASGI app on uvicorn (see **Speed** below; how much each part adds has not
+  been measured); details in
   [No ASGI or WSGI](docs/site/docs/no-asgi.mdx).
-- **Real async.** `async def` handlers run on one shared asyncio event loop and release their
+- **Real async.** `async def` handlers run on an asyncio event loop and release their
   worker thread while they `await`. Idle connections wait in an event loop too (epoll, kqueue or IOCP,
   via [Asio](https://think-async.com/Asio/)), so thousands of slow or idle requests cost
   almost no threads.
@@ -484,23 +485,29 @@ httpp py run main:app --reload                # development: restart when a .py 
 - Plain `def` handlers run on the server's thread pool (see [Settings](#settings)), so a handler that
   blocks holds its thread for as long as it blocks.
 - `async def` handlers run on **one shared asyncio event loop** (a background thread, started when the
-  server starts listening). The server's I/O thread parses the request, matches the route and queues it
+  server starts listening; a free-threaded Python runs one loop per I/O thread instead, see
+  [ADR-0024](docs/adr/0024-io-threads-and-defaults.md)). The server's I/O thread parses the request, matches the route and queues it
   for the loop right there, without taking the GIL and without a thread-pool hop (a `before_request` hook,
   which may block, still goes through the pool first). It pokes the loop through a socket, and the loop
   thread takes the GIL once per burst of requests, not once per request. Each request is one asyncio task,
   and a handler that does not take `request` never gets one built. While they `await`, no thread is held,
-  so far more requests can be in flight than there are threads. Because every request shares the same
-  loop, loop-bound objects (an `aiohttp.ClientSession`, an async DB pool) can be created once and reused.
-  A blocking call inside an `async def` handler blocks **every** async route, since they all share that
-  loop.
-- **Speed.** `benchmarks/bench.py` measures requests per second with `oha` against uvicorn (a bare ASGI app, uvloop,
-  httptools) and against FastAPI on uvicorn. On two cores, with the server and the load generator sharing them,
-  `async def` routes did about 1.1 to 1.4 times the requests per second of bare uvicorn, and 5 to 17 times
-  FastAPI, which also validates and routes (hello, a path parameter with a JSON body, the last of 300 routes). Plain `def`
-  routes did about 2 times bare uvicorn on both CPython 3.13 and free-threaded 3.14t, where a CPU-bound
-  `def` handler also uses both cores (about 2 times from 1 to 8 connections); `async def` handlers share one loop thread
-  and do not. Run to run the numbers move by about 10 percent, so only comparisons inside one run mean anything.
-  Tables for more servers and clients: [Benchmarks](docs/site/docs/benchmarks.mdx).
+  so far more requests can be in flight than there are threads. With the GIL every request shares the same
+  loop, so loop-bound objects (an `aiohttp.ClientSession`, an async DB pool) can be created once and reused;
+  on a free-threaded Python each loop needs its own. A blocking call inside an `async def` handler blocks
+  **every** async request on its loop: all of them with the GIL, and those of the same I/O thread on a
+  free-threaded Python.
+- **Speed.** `benchmarks/` measures requests per second with `oha` against uvicorn (a bare ASGI app, uvloop,
+  httptools, one worker) and against FastAPI on uvicorn. In the published run (CPython 3.14, a laptop with a Core
+  i7-13620H, the server on 8 CPUs and the load generator on 8 others, 64 connections), with one I/O thread, the
+  like-for-like setting against one uvicorn event loop, `def` and `async def` routes did 2.8 to 3.3 times the
+  requests per second of bare uvicorn on `hello` (a constant answer) and `json` (a path parameter and a JSON
+  body), and 11 to 15 times FastAPI, on both the GIL and the free-threaded build. With more I/O threads `hello`
+  reached 7.3 times (GIL) and 7.7 times (free-threaded) bare uvicorn. A CPU-bound `def` handler (about 60 µs of
+  work) did 23 to 24 thousand requests per second on the GIL build and 58 to 71 thousand on the free-threaded
+  build, against 20 and 18 thousand for bare uvicorn. A run is one machine on one day, so only comparisons
+  inside one run mean anything, and how much of the gain is the missing ASGI layer, and how much the C++ engine,
+  the thread pool and the routing, has not been measured. Tables for more servers and clients:
+  [Benchmarks](docs/site/docs/benchmarks.mdx).
 - **The server is event-driven** on every platform: all socket I/O (accepting, reading, keep-alive idle
   connections, timeouts, writing) runs on one Asio thread (epoll on Linux, kqueue on macOS, IOCP on
   Windows), and requests are parsed by llhttp. Idle connections cost no worker thread. A worker is used
@@ -605,7 +612,7 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
 - Awaitable downloads (`Download.run_async`) still run on the event loop's thread pool; downloads have no
   timeout option; the server's hooks hold a worker thread while they await; a plain `def` handler cannot
   be cancelled by `handler_timeout`. Handler code is Python, so it still needs the GIL: `async def`
-  handlers share one loop thread, plain `def` handlers take the GIL on pool threads (set `threads=` to
+  handlers share one loop thread (a free-threaded Python has one per I/O thread), plain `def` handlers take the GIL on pool threads (set `threads=` to
   fit your blocking calls), and real parallelism needs `--workers` or a free-threaded Python (below).
 - HTTP/1.1 only (the server speaks TLS, see the TLS section); a cancelled `await` stops waiting but the request itself
   keeps running until it finishes.
