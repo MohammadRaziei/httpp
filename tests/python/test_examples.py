@@ -207,6 +207,10 @@ def check_swagger_auto_document(base):
     expect(status == 200 and doc["info"]["title"] == "Library API", f"/openapi.json gave {status} {body[:120]!r}")
     expect({"/books", "/books/{book_id}", "/health"} <= set(doc["paths"]), f"paths {sorted(doc['paths'])}")
     expect(doc["paths"]["/books/by-author/{author}"]["get"].get("deprecated") is True, "by-author is not deprecated")
+    # The C++ twin writes this document by hand: the pictures of the docs page are the same for both languages, so it must stay the same.
+    expect(set(doc["components"]["schemas"]) == {"Book", "BookIn", "HTTPValidationError", "ValidationError"}, f"schemas {sorted(doc['components']['schemas'])}")
+    expect(doc["components"]["schemas"]["BookIn"]["properties"]["year"]["minimum"] == 1450, "the year of BookIn has no minimum")
+    expect(doc["paths"]["/books"]["post"]["requestBody"]["required"] is True, "adding a book has no required body")
     status, _, body = http("GET", base + "/docs")
     expect(status == 200 and "swagger" in body.lower(), f"/docs gave {status} {body[:120]!r}")
     status, _, body = http("GET", base + "/books?limit=2")

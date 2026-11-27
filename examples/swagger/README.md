@@ -8,6 +8,7 @@ The page that explains it: [https://mohammadraziei.github.io/httpp/docs/server/s
 
 ```bash
 python python/main.py       # Python
+python python/auto_document.py   # the Library API
 ```
 
 For C++, build `cpp/main.cpp` like any program that uses httpp (CMake and `httpp::httpp_core`, see the [Install page](https://mohammadraziei.github.io/httpp/docs/install/)) and run the program.
@@ -21,6 +22,6 @@ curl http://127.0.0.1:8000/openapi.json
 
 ## More files
 
-- `auto_document` (Python): the Library API: the `Server` writes the document itself, from the routes, the type hints and the models. C++ does not read handlers, so it has no twin.
+- `auto_document` (Python and C++): the Library API of the pictures on the page. Python's `Server` writes the document itself, from the routes, the type hints and the models; the C++ file writes the same document by hand (`openapi::document`), so the page shows the same thing. Adding a book is not in the C++ file: httpp does not read JSON.
 
 The tests in `tests/python/test_examples.py` run every file here and check what it does.

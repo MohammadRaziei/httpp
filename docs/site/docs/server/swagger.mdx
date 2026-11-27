@@ -41,19 +41,27 @@ You describe the API apart from the handlers, so the document can drift from the
 
 <Only lang="python">
 
-**In Python the document can write itself.** A `Server` writes the document from its routes, the type hints and the models, so it cannot drift. This is the API in every picture on this page:
+**In Python the document can write itself.** A `Server` writes the document from its routes, the type hints and the models, so it cannot drift.
+
+</Only>
+
+<Only lang="cpp">
+
+**In C++ you write the whole document**, and a bigger API is only more of the same lines: the models as JSON text, and one `doc.get(...)` for each route. The example below is a library with books. The Python page has the same API, and the document of both is the same, so the pictures on this page are the same for both languages.
+
+</Only>
+
+This is the API in every picture on this page:
 
 <Lang name="swagger" file="auto_document" />
 
 Run it and open `http://127.0.0.1:8000/docs`. The same server answers `/openapi.json`, the OpenAPI 3.1 document the page reads.
 
-</Only>
-
 ## The page
 
-<Only lang="python">
-
 ![Swagger UI showing the Library API, with its routes grouped by tag](./swagger/01-overview.png)
+
+<Only lang="python">
 
 The title, version and description at the top are the arguments of `Server`. Routes are grouped by `tags`, and each line shows the method, the path and the `summary`. A route marked `deprecated=True` is struck through, as the by-author route is here, and it still works. A route with `include_in_schema=False` is left out, and so are `/docs` and `/openapi.json` themselves.
 
@@ -61,30 +69,44 @@ The title, version and description at the top are the arguments of `Server`. Rou
 
 <Only lang="cpp">
 
-The page is the same Swagger UI that Python serves. `mount` puts it at the base you give and answers there; the document it reads is the one you serve at the address you gave to `httpp::swagger`.
+The title, version and description at the top are the arguments of `oa::document` and its `description()`. Routes are grouped by `tag()`, and each line shows the method, the path and the `summary`. A route marked `deprecated()` is struck through, as the by-author route is here, and it still works. A route that is not in the document is not on the page. The page is the same Swagger UI that Python serves. `mount` puts it at the base you give and answers there; the document it reads is the one you serve at the address you gave to `httpp::swagger`.
 
 </Only>
 
 
 ## What an operation shows
 
-<Only lang="python">
-
-A click on a line opens it. The text under the line is the docstring of the function.
+A click on a line opens it. The text under the line is the `description` of the operation (in Python, the docstring of the function).
 
 ![The parameters of Read one book: a required integer in the path](./swagger/02-parameters.png)
+
+<Only lang="python">
 
 Parameters come from the arguments of the function. A name that is in the path is a path parameter, the other simple arguments are query parameters, and one that has a default or is `Optional` is not marked as required. `Query(..., description=...)` adds the text next to a parameter.
 
 A model argument becomes the request body, and its example is built from the `examples` of the fields.
 
+</Only>
+
+<Only lang="cpp">
+
+A parameter is `parameter(name, in, required, schema_json, description)`: `in` is `"path"`, `"query"`, `"header"` or `"cookie"`, and the schema carries the type, the limits and the default.
+
+The request body is `request_body(json)`, and its example is built from the `examples` of the fields of the schema it points to.
+
+</Only>
+
 ![The request body of Add a book, with an example made from the field examples](./swagger/03-request-body.png)
+
+<Only lang="python">
 
 The documented answers are the success status, which is `status_code` (200 if you give none) with the schema of `response_model`, and `422`, the answer for a request that does not fit its parameters or its body.
 
 </Only>
 
 <Only lang="cpp">
+
+The answers are the ones you give to `response(status, description, content_json)`: here the success status and `422`, as in Python.
 
 Each `doc.get(path)` (or `post`, `put`, `delete`) is one operation. Its `summary`, `parameter(name, in, required)` and `response(status, description)` are what the page shows for it, and the order of the calls is the order of the lines.
 
@@ -95,15 +117,15 @@ Where a schema or a body is more than a few fields, give it as JSON text: `param
 
 ## Try it out
 
-<Only lang="python">
-
-**Try it out** turns the parameters into fields, **Execute** sends a real request from your browser to your server, and the page shows what came back, with the `curl` command that does the same.
+**Try it out** turns the parameters into fields, **Execute** sends a real request from your browser to your server, and the page shows what came back, with the `curl` command that does the same. A route that you did not describe is not on the page, so there is nothing to try.
 
 ![Try it out on List books with q=software and limit=2, answered 200](./swagger/04-try-it-200.png)
 
-A 404 that your function raises with `HTTPException` works as well. Swagger UI labels it _Undocumented_, because only the success status and `422` are described for you.
+A 404 that your handler raises (`HTTPException` in Python, `httpp::http_exception` in C++) works as well. Swagger UI labels it _Undocumented_, because only the success status and `422` are described.
 
 ![Read one book with book_id=99, answered 404 with the detail "no such book"](./swagger/05-try-it-404.png)
+
+<Only lang="python">
 
 The page also checks the limits of a parameter by itself. With `limit=500` it shows _Value must be less than or equal to 100_ and sends nothing, so to see the server's own `422`, send a body that breaks a rule of the model. Here the title is empty and the year is before 1450:
 
@@ -115,7 +137,7 @@ Each error says the `type`, where it is (`loc`), a `msg`, the `input` that was r
 
 <Only lang="cpp">
 
-**Try it out** works as it does for a Python server: the page turns the parameters you described into fields and sends a real request to your server. A route that you did not describe is not on the page, so there is nothing to try.
+The page also checks the limits of a parameter by itself: with `limit=500` it shows _Value must be less than or equal to 100_ and sends nothing. The `422` of a body that breaks a rule of the model is not made for you in C++: the library does not read JSON, so the handler reads the body with the library you use and answers `422` in the shape it likes. The picture of that answer on the Python page shows the shape that `HTTPValidationError` describes.
 
 </Only>
 
@@ -153,11 +175,13 @@ This only describes the API. Nothing is checked because of it: add `BasicAuthMid
 
 ## The models
 
-<Only lang="python">
-
 The **Schemas** section lists the models, and the rules of the fields show up in it: the length of `title`, the range of `year`, the descriptions and the examples.
 
 ![The Schemas section with BookIn opened: title 1 to 120 characters, year 1450 to 2100](./swagger/07-schemas.png)
+
+<Only lang="python">
+
+The models are your classes: `Field(min_length=1, max_length=120, ...)` is what writes the limits.
 
 </Only>
 
