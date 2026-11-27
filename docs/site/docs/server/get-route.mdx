@@ -6,6 +6,7 @@ title: Answer a GET request
 import Differ from '@site/src/components/Differ';
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
+import Grid from '@site/src/components/Grid';
 
 A route ties a path to a function. When a `GET` request matches the path, the function runs and its result is sent back.
 
@@ -42,11 +43,14 @@ The name is written `{name}`. The handler gets a `const httpp::server_request&` 
 
 Both languages use the same syntax, parsed by the same code. Add a type after a colon and the route only matches when the segment fits:
 
-| Pattern | Matches | Does not match |
-|---|---|---|
-| `/users/{id}` | any non-empty segment | an empty one |
-| `/users/{id:int}` | `42`, `-5` | `abc`, `4.5` |
-| `/prices/{p:float}` | `3`, `-3.5` | `abc`, `1e5` |
+<Grid
+  head={["Pattern", "Matches", "Does not match"]}
+  rows={[
+    ["`/users/{id}`", "any non-empty segment", "an empty one"],
+    ["`/users/{id:int}`", "`42`, `-5`", "`abc`, `4.5`"],
+    ["`/prices/{p:float}`", "`3`, `-3.5`", "`abc`, `1e5`"],
+  ]}
+/>
 
 A segment that does not fit means the route does not match, so the request goes on to the next route that fits, or gets a `404`. A parameter is always a whole segment, and a malformed pattern (`:id`, `<id>`, `{id`, `a{id}`, an unknown type) is an error when the route is registered.
 

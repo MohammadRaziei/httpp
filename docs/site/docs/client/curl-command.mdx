@@ -3,6 +3,8 @@ id: curl-command
 title: The httpp curl command
 ---
 
+import Grid from '@site/src/components/Grid';
+
 `httpp curl` makes requests from the command line with the curl flags that get used every day. It runs on the same client as `httpp::request` and `httpp.Request`, so it follows redirects, decodes gzip and deflate, and speaks TLS the same way. The answers of the server pages in this guide can be tried with it.
 
 ```bash
@@ -14,45 +16,51 @@ httpp curl http://127.0.0.1:8000/health -sS -f -m 5 --retry 3
 
 ## Send a request
 
-| Flag | What it does |
-| --- | --- |
-| `-X`, `--request METHOD` | The method. Without it: `GET`, or `POST` when there is a body, `PUT` with `-T`, `HEAD` with `-I`. |
-| `-H`, `--header "Name: value"` | An extra header. Repeat it for more. |
-| `-d`, `--data TEXT` | The body. Repeat it and the pieces are joined with `&`. `-d @file` reads a file (`@-` reads standard input) and drops its line breaks, as curl does. |
-| `--json DATA` | Send DATA as the body with `Content-Type` and `Accept` set to `application/json` (a `-H` with the same name wins). `--json @file` reads a file as it is, line breaks included. Repeat it and the pieces are joined with no separator. It cannot be combined with `-d` or `-T`. |
-| `-T`, `--upload-file FILE` | Send a file with `PUT`, read while it is sent, so a big file costs no memory (`-` is standard input, read whole first). A URL that ends with `/` gets the file name added. It cannot be combined with `-d`, `--json` or `-F`. |
-| `-F`, `--form NAME=CONTENT` | Send a `multipart/form-data` body. `name=value` is a text field, `name=@file` uploads a file (`;type=TYPE` and `;filename=NAME` may follow the path), `name=<file` sends the text of a file. Repeat it for more parts. The file is read while it is sent. It cannot be combined with `-d`, `--json` or `-T`. |
-| `--form-string NAME=VALUE` | Like `-F name=value`, but a value that starts with `@` or `<` is text, not a file. |
-| `-#`, `--progress-bar` | With `-F` or `-T`: a progress bar on stderr while the file is sent. |
-| `-x`, `--proxy URL` | Use this proxy: `[http://][user:password@]host[:port]`, `socks5://...` or `socks5h://...`. `-x ""` and `-x direct://` (any case) mean no proxy at all, whatever the environment says. Nothing may follow the scheme (`direct://host` is an error), a bare `direct` or `off` is a host as in curl, and `http_proxy=direct://` in the environment is an error. curl itself does not know `direct://`. |
-| `--noproxy LIST` | Hosts that go direct, separated by commas: names (and their subdomains), IPv4 addresses, `a.b.c.d/n` ranges, `*` for all. Replaces `no_proxy`, and also applies to `-x`. |
-| `-u`, `--user user:password` | Basic authentication. Only the first colon splits, so a password may contain colons. |
-| `-A`, `--user-agent NAME` and `-e`, `--referer URL` | Set `User-Agent` and `Referer`. A `-H` with the same name wins. Without `-A`, the `User-Agent` is `curl/8.18.0`, as curl sends it, because some sites answer only to that. |
-| `-V`, `--version` | Prints `httpp curl 0.9.0 compatible with curl 8.18.0`: the httpp version, and the curl release whose behavior the command follows. |
-| `--compressed` | Accepted so curl scripts keep working, and it changes nothing: the answer is written as it arrives, so the request asks for `Accept-Encoding: identity` and you get the plain bytes. A `-H "Accept-Encoding: ..."` of your own wins, and then the bytes are written as the server sent them. |
-| `-L`, `--location` and `--max-redirs N` | Follow redirects, at most N of them (default 20, `-1` means no limit). Past the limit the exit code is 47. |
-| `-m`, `--max-time SECONDS` | Give up when the whole transfer, redirects and body included, takes longer than this. A server that keeps sending is cut off too (exit code 28), so `-m 10` is safe on an endless stream. |
-| `-k`, `--insecure` | https: do not check the server's certificate. This is how you reach a development server with a self-signed one. |
-| `--cacert FILE` | https: trust the CA certificates in this PEM file instead of the system's, for a server with a certificate of your own. A file that cannot be read is exit code 77. `-k` wins over it. |
-| `--connect-timeout SECONDS` | Give up when resolving, connecting or the TLS handshake takes longer than this. |
+<Grid
+  head={["Flag", "What it does"]}
+  rows={[
+    ["`-X`, `--request METHOD`", "The method. Without it: `GET`, or `POST` when there is a body, `PUT` with `-T`, `HEAD` with `-I`."],
+    ["`-H`, `--header \"Name: value\"`", "An extra header. Repeat it for more."],
+    ["`-d`, `--data TEXT`", "The body. Repeat it and the pieces are joined with `&`. `-d @file` reads a file (`@-` reads standard input) and drops its line breaks, as curl does."],
+    ["`--json DATA`", "Send DATA as the body with `Content-Type` and `Accept` set to `application/json` (a `-H` with the same name wins). `--json @file` reads a file as it is, line breaks included. Repeat it and the pieces are joined with no separator. It cannot be combined with `-d` or `-T`."],
+    ["`-T`, `--upload-file FILE`", "Send a file with `PUT`, read while it is sent, so a big file costs no memory (`-` is standard input, read whole first). A URL that ends with `/` gets the file name added. It cannot be combined with `-d`, `--json` or `-F`."],
+    ["`-F`, `--form NAME=CONTENT`", "Send a `multipart/form-data` body. `name=value` is a text field, `name=@file` uploads a file (`;type=TYPE` and `;filename=NAME` may follow the path), `name=<file` sends the text of a file. Repeat it for more parts. The file is read while it is sent. It cannot be combined with `-d`, `--json` or `-T`."],
+    ["`--form-string NAME=VALUE`", "Like `-F name=value`, but a value that starts with `@` or `<` is text, not a file."],
+    ["`-#`, `--progress-bar`", "With `-F` or `-T`: a progress bar on stderr while the file is sent."],
+    ["`-x`, `--proxy URL`", "Use this proxy: `[http://][user:password@]host[:port]`, `socks5://...` or `socks5h://...`. `-x \"\"` and `-x direct://` (any case) mean no proxy at all, whatever the environment says. Nothing may follow the scheme (`direct://host` is an error), a bare `direct` or `off` is a host as in curl, and `http_proxy=direct://` in the environment is an error. curl itself does not know `direct://`."],
+    ["`--noproxy LIST`", "Hosts that go direct, separated by commas: names (and their subdomains), IPv4 addresses, `a.b.c.d/n` ranges, `*` for all. Replaces `no_proxy`, and also applies to `-x`."],
+    ["`-u`, `--user user:password`", "Basic authentication. Only the first colon splits, so a password may contain colons."],
+    ["`-A`, `--user-agent NAME` and `-e`, `--referer URL`", "Set `User-Agent` and `Referer`. A `-H` with the same name wins. Without `-A`, the `User-Agent` is `curl/8.18.0`, as curl sends it, because some sites answer only to that."],
+    ["`-V`, `--version`", "Prints `httpp curl 0.9.0 compatible with curl 8.18.0`: the httpp version, and the curl release whose behavior the command follows."],
+    ["`--compressed`", "Accepted so curl scripts keep working, and it changes nothing: the answer is written as it arrives, so the request asks for `Accept-Encoding: identity` and you get the plain bytes. A `-H \"Accept-Encoding: ...\"` of your own wins, and then the bytes are written as the server sent them."],
+    ["`-L`, `--location` and `--max-redirs N`", "Follow redirects, at most N of them (default 20, `-1` means no limit). Past the limit the exit code is 47."],
+    ["`-m`, `--max-time SECONDS`", "Give up when the whole transfer, redirects and body included, takes longer than this. A server that keeps sending is cut off too (exit code 28), so `-m 10` is safe on an endless stream."],
+    ["`-k`, `--insecure`", "https: do not check the server's certificate. This is how you reach a development server with a self-signed one."],
+    ["`--cacert FILE`", "https: trust the CA certificates in this PEM file instead of the system's, for a server with a certificate of your own. A file that cannot be read is exit code 77. `-k` wins over it."],
+    ["`--connect-timeout SECONDS`", "Give up when resolving, connecting or the TLS handshake takes longer than this."],
+  ]}
+/>
 
 ## Choose the output
 
-| Flag | What it does |
-| --- | --- |
-| `-o`, `--output FILE` | Write the body to a file instead of standard output. |
-| `-O`, `--remote-name` | Write the body to a file named after the end of the URL path (`report.txt` for `/files/report.txt`). A URL without a file name is an error (exit code 23). |
-| `-J`, `--remote-header-name` | With `-O`: name the file after the `filename=` in the answer's `Content-Disposition` instead (any folder part is cut off), and fall back to the URL's name when there is none. It never replaces a file that exists: that is exit code 23. `filename*=` is not read. |
-| `--output-dir DIR` | Put the files of `-o` and `-O` in this folder. A name that is an absolute path stays where it is. |
-| `--create-dirs` | Make the folders above an `-o` or `-O` file when they are missing. Without it a missing folder is exit code 23. |
-| `-i`, `--include` | Print the status line and the headers before the body. |
-| `-I`, `--head` | Send `HEAD` and print only the status line and the headers. |
-| `-D`, `--dump-header FILE` | Write the status line and the headers to a file (`-` is standard output). |
-| `-v`, `--verbose` | Print the request line and the `-H` headers, then the status and the headers of the answer, on standard error. |
-| `-w`, `--write-out FORMAT` | Print FORMAT after each transfer. Variables: `%{http_code}` (`000` when there was no answer), `%{content_type}`, `%{size_download}`, `%{exitcode}`, `%{errormsg}`, `%{url}`. Also `\n`, `\t` and `%%`. `@file` reads the format from a file. |
-| `-s`, `--silent` and `-S`, `--show-error` | `-s` hides the error line and the retry warnings; `-S` brings the error line back. |
-| `-f`, `--fail` | A status of 400 or more prints nothing and exits with 22. Without it an error status is an answer like any other, and the exit code is 0. |
-| `--fail-with-body` | Like `-f` (exit code 22 for 400 or more), but the body is still printed or saved, which is what you want when the error page says what went wrong. It cannot be combined with `-f`. |
+<Grid
+  head={["Flag", "What it does"]}
+  rows={[
+    ["`-o`, `--output FILE`", "Write the body to a file instead of standard output."],
+    ["`-O`, `--remote-name`", "Write the body to a file named after the end of the URL path (`report.txt` for `/files/report.txt`). A URL without a file name is an error (exit code 23)."],
+    ["`-J`, `--remote-header-name`", "With `-O`: name the file after the `filename=` in the answer's `Content-Disposition` instead (any folder part is cut off), and fall back to the URL's name when there is none. It never replaces a file that exists: that is exit code 23. `filename*=` is not read."],
+    ["`--output-dir DIR`", "Put the files of `-o` and `-O` in this folder. A name that is an absolute path stays where it is."],
+    ["`--create-dirs`", "Make the folders above an `-o` or `-O` file when they are missing. Without it a missing folder is exit code 23."],
+    ["`-i`, `--include`", "Print the status line and the headers before the body."],
+    ["`-I`, `--head`", "Send `HEAD` and print only the status line and the headers."],
+    ["`-D`, `--dump-header FILE`", "Write the status line and the headers to a file (`-` is standard output)."],
+    ["`-v`, `--verbose`", "Print the request line and the `-H` headers, then the status and the headers of the answer, on standard error."],
+    ["`-w`, `--write-out FORMAT`", "Print FORMAT after each transfer. Variables: `%{http_code}` (`000` when there was no answer), `%{content_type}`, `%{size_download}`, `%{exitcode}`, `%{errormsg}`, `%{url}`. Also `\\n`, `\\t` and `%%`. `@file` reads the format from a file."],
+    ["`-s`, `--silent` and `-S`, `--show-error`", "`-s` hides the error line and the retry warnings; `-S` brings the error line back."],
+    ["`-f`, `--fail`", "A status of 400 or more prints nothing and exits with 22. Without it an error status is an answer like any other, and the exit code is 0."],
+    ["`--fail-with-body`", "Like `-f` (exit code 22 for 400 or more), but the body is still printed or saved, which is what you want when the error page says what went wrong. It cannot be combined with `-f`."],
+  ]}
+/>
 
 The status line is `HTTP/1.1 <status>` with no reason phrase, because the answer does not carry one. When redirects are followed, the head is the one of the final answer.
 
@@ -72,19 +80,22 @@ The file flags work the same way: `-o`, `-O`, `-J`, `--output-dir`, `--create-di
 
 ## Exit codes
 
-| Code | Meaning |
-| --- | --- |
-| 0 | An answer arrived (and with `-f` its status is below 400). |
-| 3 | The URL is not valid. |
-| 7 | The connection failed. A failed lookup is reported here too. |
-| 22 | `-f` and a status of 400 or more. |
-| 23 | A file could not be written, or `-O` found no file name. |
-| 26 | A file for `-d`, `-T` or `-F` could not be read. |
-| 28 | Timeout. |
-| 35 | TLS failed. |
-| 47 | Too many redirects. |
-| 63 | The answer is larger than the limit. |
-| 1 | Anything else, such as a malformed `-H`. |
+<Grid
+  head={["Code", "Meaning"]}
+  rows={[
+    ["0", "An answer arrived (and with `-f` its status is below 400)."],
+    ["3", "The URL is not valid."],
+    ["7", "The connection failed. A failed lookup is reported here too."],
+    ["22", "`-f` and a status of 400 or more."],
+    ["23", "A file could not be written, or `-O` found no file name."],
+    ["26", "A file for `-d`, `-T` or `-F` could not be read."],
+    ["28", "Timeout."],
+    ["35", "TLS failed."],
+    ["47", "Too many redirects."],
+    ["63", "The answer is larger than the limit."],
+    ["1", "Anything else, such as a malformed `-H`."],
+  ]}
+/>
 
 ## Where it differs from curl
 

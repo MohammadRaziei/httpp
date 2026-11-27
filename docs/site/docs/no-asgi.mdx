@@ -2,6 +2,7 @@
 id: no-asgi
 title: No ASGI or WSGI
 ---
+import Grid from '@site/src/components/Grid';
 
 httpp has no ASGI or WSGI layer. It is the server and the framework in one, so a handler is called by the engine itself, with nothing in between. This page says what that means, why it is faster, and what you give up.
 
@@ -15,12 +16,15 @@ httpp has no ASGI or WSGI layer. It is the server and the framework in one, so a
 
 The two ideas behind the standards are still there, in a simpler form.
 
-| The idea | In WSGI / ASGI | In httpp |
-|---|---|---|
-| A request runs to the end on its own thread | a WSGI app, called by a thread pool | a plain `def` handler, run on the worker pool |
-| Many requests wait on one event loop | an ASGI app and its loop | an `async def` handler, run on one shared asyncio loop; no thread is held while it awaits |
-| Persistent connections | the `websocket` scope | `@app.websocket(path)` |
-| Start and stop | the lifespan events | `@app.on_startup` and `@app.on_shutdown` |
+<Grid
+  head={["The idea", "In WSGI / ASGI", "In httpp"]}
+  rows={[
+    ["A request runs to the end on its own thread", "a WSGI app, called by a thread pool", "a plain `def` handler, run on the worker pool"],
+    ["Many requests wait on one event loop", "an ASGI app and its loop", "an `async def` handler, run on one shared asyncio loop; no thread is held while it awaits"],
+    ["Persistent connections", "the `websocket` scope", "`@app.websocket(path)`"],
+    ["Start and stop", "the lifespan events", "`@app.on_startup` and `@app.on_shutdown`"],
+  ]}
+/>
 
 So a decorator and a function are all you write, and the same server runs both kinds of handler. A C++ handler is called directly, with the same hooks.
 

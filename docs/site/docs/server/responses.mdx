@@ -6,6 +6,7 @@ title: Shape the response
 import Differ from '@site/src/components/Differ';
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
+import Grid from '@site/src/components/Grid';
 
 Set the status, the headers and the body. The example creates an item and answers `201` with a `Location` header, and answers `404` for an item that does not exist.
 
@@ -25,14 +26,17 @@ httpp curl -i http://127.0.0.1:8000/items/2
 
 A handler answers with its return value. The shape of the value picks the response:
 
-| Return value | Response |
-|---|---|
-| `str` | `200`, `text/plain; charset=utf-8` |
-| `bytes` | `200`, `application/octet-stream` |
-| `dict` or `list` | `200`, `application/json` |
-| `None` | `200`, empty body |
-| `(body, status)` | the same, with your status code |
-| `(body, status, headers)` | the same, with extra headers as a dict, or as a list of `(name, value)` pairs when a name repeats |
+<Grid
+  head={["Return value", "Response"]}
+  rows={[
+    ["`str`", "`200`, `text/plain; charset=utf-8`"],
+    ["`bytes`", "`200`, `application/octet-stream`"],
+    ["`dict` or `list`", "`200`, `application/json`"],
+    ["`None`", "`200`, empty body"],
+    ["`(body, status)`", "the same, with your status code"],
+    ["`(body, status, headers)`", "the same, with extra headers as a dict, or as a list of `(name, value)` pairs when a name repeats"],
+  ]}
+/>
 
 A response header whose name or value contains a line break is refused with a `500` and never sent.
 

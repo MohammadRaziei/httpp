@@ -6,6 +6,7 @@ title: Serve a folder
 import Differ from '@site/src/components/Differ';
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
+import Grid from '@site/src/components/Grid';
 
 `serve_directory` makes a folder of files part of the server, like `python -m http.server` but inside your app. Use it for a site's images, scripts and pages, and for any file whose name the visitor chooses.
 
@@ -21,13 +22,16 @@ httpp server public     # for example: the folder `public` next to you
 
 The folder defaults to the current one, and `Ctrl+C` stops it. Each request is logged on one line (`GET /notes.txt 200`). On a terminal it also prints a small banner first; `--no-banner` turns that off, and a pipe or a log file never gets it.
 
-| | `python -m http.server` | `httpp server` |
-|---|---|---|
-| The folder | `--directory <path>` | `<path>` |
-| The port | `8000` | `-p 8000` (default `8000`) |
-| The address | `--bind 127.0.0.1` | `--host 127.0.0.1` (default `0.0.0.0`) |
-| A folder without `index.html` | lists its files | answers 404 |
-| Names that start with a dot | served | answer 404 (`--hidden` serves them) |
+<Grid
+  head={["", "`python -m http.server`", "`httpp server`"]}
+  rows={[
+    ["The folder", "`--directory <path>`", "`<path>`"],
+    ["The port", "`8000`", "`-p 8000` (default `8000`)"],
+    ["The address", "`--bind 127.0.0.1`", "`--host 127.0.0.1` (default `0.0.0.0`)"],
+    ["A folder without `index.html`", "lists its files", "answers 404"],
+    ["Names that start with a dot", "served", "answer 404 (`--hidden` serves them)"],
+  ]}
+/>
 
 `--no-dates` sends no file times: no `Last-Modified` and no `ETag`, so the files' modified times stay private and a browser always asks again (`Cache-Control: no-cache`). `--shutdown-timeout SECONDS` (default `10`) is how long requests in progress may take to finish on `Ctrl+C`, and `--log-level` (`trace`, `debug`, `info`, `warning`, `error` or `off`, default `info`) says what goes to stderr.
 

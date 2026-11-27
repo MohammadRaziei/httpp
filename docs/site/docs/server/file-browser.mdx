@@ -17,6 +17,8 @@ import search from './browse/08-search.png';
 import folder from './browse/09-folder.png';
 import mobile from './browse/10-mobile-dark.png';
 import noDates from './browse/11-no-dates.png';
+import Differ from '@site/src/components/Differ';
+import Grid from '@site/src/components/Grid';
 
 A file browser is a page where people can look through a folder, filter it, sort it, preview files and download one file or many. It is read-only: nothing can be uploaded, renamed or deleted (the only route that reads a body is the optional ZIP request, and all it reads is names). The page is one self-contained HTML document that comes with the library, so it needs no files of yours and no internet.
 
@@ -139,12 +141,15 @@ The header is `httpp/file_browser.hpp`. It is not part of `httpp.h`, so include 
 
 The routes are shown under `/files`, the base of the example. `httpp browse` mounts the browser at `/`, so there they are `/`, `/api/list`, `/raw/<path>` and `/api/zip`.
 
-| Request | Answer |
-|---|---|
-| `GET /files` | the browser page |
-| `GET /files/api/list?path=/sub` | the entries of one folder as JSON |
-| `GET /files/raw/<path>` | the file itself; `Range` and `HEAD` work |
-| `GET` or `POST /files/api/zip` | a ZIP of a folder or of chosen names in it; only with ZIP on |
+<Grid
+  head={["Request", "Answer"]}
+  rows={[
+    ["`GET /files`", "the browser page"],
+    ["`GET /files/api/list?path=/sub`", "the entries of one folder as JSON"],
+    ["`GET /files/raw/<path>`", "the file itself; `Range` and `HEAD` work"],
+    ["`GET` or `POST /files/api/zip`", "a ZIP of a folder or of chosen names in it; only with ZIP on"],
+  ]}
+/>
 
 A file that could run code in the page's own origin (html, svg, xml, scripts and files of an unknown type) is always sent as a download, and `?download=1` makes any file a download. The one exception is html and svg in the default mode; see [What it keeps out](#what-it-keeps-out).
 
@@ -154,21 +159,24 @@ The ZIP route works for programs too: `GET /files/api/zip?path=/music&name=a.mp3
 
 Every setting is a method that returns the browser, so they chain, and the same names work in both languages. A bad value is refused where you set it and leaves the browser as it was. Most settings are also an option of `httpp browse`; the second column says which.
 
-| Setting | `httpp browse` | Default | Meaning |
-|---|---|---|---|
-| `title(text)` | `--title` | `"Files"` | page header and tab title (escaped, any text is safe) |
-| `theme(theme)` | `--theme` | `system` | `Theme.SYSTEM` follows the system (`auto` in the command), or `Theme.LIGHT` / `Theme.DARK`; the viewer can still switch |
-| `accent("#rrggbb")` | `--accent #RRGGBB` | empty | accent colour, empty for the default |
-| `search(bool)` | `--no-search` | `true` | show the filter box (it filters the open folder in the browser) |
-| `show_hidden(bool)` | `--hidden` | `false` | list and serve names that start with a dot |
-| `show_dates(bool)` | `--no-dates` | `true` | `false`: no file time anywhere: no Modified column or sort by date, no `mtime` in `api/list`, no `Last-Modified` or `ETag` on the files, every ZIP entry dated 1980-01-01 |
-| `max_entries(count)` | `--max-entries N` | `5000` | a larger folder is cut at this many and flagged `"truncated"`; must be above 0 |
-| `layout(view)` | `--view` | `list` | first view, `View.LIST` or `View.GRID` |
-| `sort_by(key)` | `--sort` | `name` | first sort, `Sort.NAME`, `Sort.SIZE` or `Sort.DATE` |
-| `zip(bool)` | `--no-zip` | `false` | the page can select files and folders and download them as one ZIP (`api/zip`). The command turns it on |
-| `max_zip_entries(count)` | none | `50000` | the most entries (files and folders) one ZIP may hold, `413` beyond; must be above 0 |
-| `powered_by(bool)` | `--no-powered-by` | `true` | the "Powered by httpp" line at the bottom of the page |
-| `safe_mode(bool)` | `--safe` | `false` | `false`: html and svg are rendered by "Open raw", in a sandbox. `true`: html, svg, xml, js and unknown types are only downloaded |
+<Grid
+  head={["Setting", "`httpp browse`", "Default", "Meaning"]}
+  rows={[
+    ["`title(text)`", "`--title`", "`\"Files\"`", "page header and tab title (escaped, any text is safe)"],
+    ["`theme(theme)`", "`--theme`", "`system`", "`Theme.SYSTEM` follows the system (`auto` in the command), or `Theme.LIGHT` / `Theme.DARK`; the viewer can still switch"],
+    ["`accent(\"#rrggbb\")`", "`--accent #RRGGBB`", "empty", "accent colour, empty for the default"],
+    ["`search(bool)`", "`--no-search`", "`true`", "show the filter box (it filters the open folder in the browser)"],
+    ["`show_hidden(bool)`", "`--hidden`", "`false`", "list and serve names that start with a dot"],
+    ["`show_dates(bool)`", "`--no-dates`", "`true`", "`false`: no file time anywhere: no Modified column or sort by date, no `mtime` in `api/list`, no `Last-Modified` or `ETag` on the files, every ZIP entry dated 1980-01-01"],
+    ["`max_entries(count)`", "`--max-entries N`", "`5000`", "a larger folder is cut at this many and flagged `\"truncated\"`; must be above 0"],
+    ["`layout(view)`", "`--view`", "`list`", "first view, `View.LIST` or `View.GRID`"],
+    ["`sort_by(key)`", "`--sort`", "`name`", "first sort, `Sort.NAME`, `Sort.SIZE` or `Sort.DATE`"],
+    ["`zip(bool)`", "`--no-zip`", "`false`", "the page can select files and folders and download them as one ZIP (`api/zip`). The command turns it on"],
+    ["`max_zip_entries(count)`", "none", "`50000`", "the most entries (files and folders) one ZIP may hold, `413` beyond; must be above 0"],
+    ["`powered_by(bool)`", "`--no-powered-by`", "`true`", "the \"Powered by httpp\" line at the bottom of the page"],
+    ["`safe_mode(bool)`", "`--safe`", "`false`", "`false`: html and svg are rendered by \"Open raw\", in a sandbox. `true`: html, svg, xml, js and unknown types are only downloaded"],
+  ]}
+/>
 
 In Python the enums are `httpp.FileBrowser.Theme`, `.View` and `.Sort`; in C++ they are `httpp::file_browser::theme_mode`, `view_mode` and `sort_key`. Python also takes the settings as keyword arguments: `httpp.FileBrowser("shared", title="Team files", view=httpp.FileBrowser.View.GRID)`.
 
@@ -176,28 +184,33 @@ A bad `base` (it must start with `/`) and a folder that does not exist or is the
 
 These options belong to the command only, because a program has its own server to set up:
 
-| `httpp browse` | Default | Meaning |
-|---|---|---|
-| `directory` | `.` | the folder to browse |
-| `--host` | `127.0.0.1` | `0.0.0.0` shares on every interface (there is no login) |
-| `-p`, `--port` | `8000` | the port |
-| `--ssl-certfile FILE`, `--ssl-keyfile FILE` | none | serve `https` (see [HTTPS](#https)); give both |
-| `--ssl-keyfile-password PASSWORD` | none | the password of an encrypted key; `HTTPP_SSL_KEYFILE_PASSWORD` works too |
-| `--no-banner` | off | do not print the banner on a terminal |
-| `--log-level` | `info` | `trace`, `debug`, `info`, `warning`, `error` or `off` |
-| `--shutdown-timeout SECONDS` | `10` | how long requests in progress may take to finish on Ctrl+C |
+<Grid
+  head={["`httpp browse`", "Default", "Meaning"]}
+  rows={[
+    ["`directory`", "`.`", "the folder to browse"],
+    ["`--host`", "`127.0.0.1`", "`0.0.0.0` shares on every interface (there is no login)"],
+    ["`-p`, `--port`", "`8000`", "the port"],
+    ["`--ssl-certfile FILE`, `--ssl-keyfile FILE`", "none", "serve `https` (see [HTTPS](#https)); give both"],
+    ["`--ssl-keyfile-password PASSWORD`", "none", "the password of an encrypted key; `HTTPP_SSL_KEYFILE_PASSWORD` works too"],
+    ["`--no-banner`", "off", "do not print the banner on a terminal"],
+    ["`--log-level`", "`info`", "`trace`, `debug`, `info`, `warning`, `error` or `off`"],
+    ["`--shutdown-timeout SECONDS`", "`10`", "how long requests in progress may take to finish on Ctrl+C"],
+  ]}
+/>
 
 In your own program the server owns the address, the log and TLS: see [serve a directory](serve-directory.mdx#https) for TLS and the [server handle](server-handle.mdx) for the rest.
 
 ### Python and C++
 
-| | Python | C++ |
-|---|---|---|
-| Mount | `httpp.FileBrowser(root).title(...).mount(app, base)` | `httpp::file_browser(root).title(...).mount(app, base)` |
-| Settings | methods, or keyword arguments | methods |
-| Enums | `FileBrowser.Theme`, `.View`, `.Sort` | `theme_mode`, `view_mode`, `sort_key` |
-| Header | nothing to include | `httpp/file_browser.hpp` |
-| Bad setup | `ValueError` | `std::invalid_argument` |
+<Differ
+  rows={[
+    ["Mount", "`httpp.FileBrowser(root).title(...).mount(app, base)`", "`httpp::file_browser(root).title(...).mount(app, base)`"],
+    ["Settings", "methods, or keyword arguments", "methods"],
+    ["Enums", "`FileBrowser.Theme`, `.View`, `.Sort`", "`theme_mode`, `view_mode`, `sort_key`"],
+    ["Header", "nothing to include", "`httpp/file_browser.hpp`"],
+    ["Bad setup", "`ValueError`", "`std::invalid_argument`"],
+  ]}
+/>
 
 ## What it keeps out
 

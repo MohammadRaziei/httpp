@@ -16,7 +16,7 @@
 
 .table th,
 .table td {
-  padding: 0.65rem 1rem;
+  padding: 0.6rem 0.8rem;
   border: 0;
   border-top: 1px solid var(--ifm-color-emphasis-200);
   background: transparent;
@@ -44,20 +44,33 @@
 }
 
 .what {
-  width: 20%;
+  width: 22%;
   font-weight: 500;
   color: var(--ifm-color-emphasis-800);
-  white-space: nowrap;
 }
 
-/* Names are never cut in the middle; only the last column (prose) may break a long piece of code. */
+/* A name is never cut in the middle; a piece of code with spaces may break between its words. Only the last column (prose) may break
+   inside a long word, and it never gets narrower than a readable line. */
+.table {
+  font-size: 0.92rem;
+}
+
 .table code {
+  font-size: 0.86em;
   border: 0;
   background: var(--ifm-color-emphasis-100);
+  white-space: normal;
+}
+
+.word {
   white-space: nowrap;
 }
 
-.table td:last-child code {
+.table td:last-child {
+  min-width: 12rem;
+}
+
+.table td:last-child .word {
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -70,6 +83,6 @@
 @media (max-width: 600px) {
   .table th,
   .table td {
-    padding: 0.55rem 0.7rem;
+    padding: 0.5rem 0.6rem;
   }
 }
