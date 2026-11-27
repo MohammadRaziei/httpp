@@ -49,6 +49,12 @@ installed system-wide (no `apt`, `brew` or `choco`).
   conversion, JSON responses, `async def` handlers.
 - **Built-in server, no ASGI/WSGI.** Plain `def` and `async def` handlers both run on httpp itself: no ASGI/WSGI layer and
   no separate process to launch. The routing API follows FastAPI's, so moving an app over takes little rewriting.
+  The ideas of both standards are kept in a simpler form: `def` handlers run on a worker pool (WSGI's model), `async def`
+  handlers on one shared event loop (ASGI's), plus `@app.websocket` and `on_startup` / `on_shutdown`. httpp owns both
+  the server and the framework, so a request is never translated into an ASGI `scope` and back, and there is no middleware
+  stack: `before_request`, `after_request` and the error handlers do that work. The price: no third-party ASGI/WSGI apps or
+  middleware (`add_middleware` takes the classes of `httpp.middleware` only). How much of the speed comes from this
+  alone has not been measured; see [No ASGI or WSGI](docs/site/docs/no-asgi.mdx) and [ADR-0001](docs/adr/0001-own-both-layers.md).
 - **Real async.** `async def` handlers run on one shared asyncio event loop and release their
   worker thread while they `await`. Idle connections wait in an event loop too (epoll, kqueue or IOCP,
   via [Asio](https://think-async.com/Asio/)), so thousands of slow or idle requests cost

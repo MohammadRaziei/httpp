@@ -1,0 +1,52 @@
+---
+id: no-asgi
+title: No ASGI or WSGI
+---
+
+httpp has no ASGI or WSGI layer. It is the server and the framework in one, so a handler is called by the engine itself, with nothing in between. This page says what that means, why it is faster, and what you give up.
+
+## What is not there
+
+- **The interfaces.** There is no `environ` / `start_response` (WSGI) and no `scope` / `receive` / `send` (ASGI). `httpp.Server` is not an ASGI app, so `uvicorn main:app` does not start it: you start it with `httpp run main:app` or `app.listen(...)`.
+- **A separate server process.** There is no uvicorn or gunicorn under your app. Sockets, HTTP parsing, keep-alive, timeouts and TLS are the library's own C++ engine.
+- **Third-party ASGI middleware.** `add_middleware()` takes the classes of `httpp.middleware` only and raises `TypeError` for anything else. An ASGI app cannot be mounted inside a server, and a server cannot be mounted in one.
+
+## What takes their place
+
+The two ideas behind the standards are still there, in a simpler form.
+
+| The idea | In WSGI / ASGI | In httpp |
+|---|---|---|
+| A request runs to the end on its own thread | a WSGI app, called by a thread pool | a plain `def` handler, run on the worker pool |
+| Many requests wait on one event loop | an ASGI app and its loop | an `async def` handler, run on one shared asyncio loop; no thread is held while it awaits |
+| Persistent connections | the `websocket` scope | `@app.websocket(path)` |
+| Start and stop | the lifespan events | `@app.on_startup` and `@app.on_shutdown` |
+
+So a decorator and a function are all you write, and the same server runs both kinds of handler. A C++ handler is called directly, with the same hooks.
+
+## Why this is faster
+
+In the usual stack (FastAPI on Starlette on uvicorn on a socket) every layer boundary costs something: a copy of the data, a hop to another thread, or time under the GIL. Making one layer fast leaves the boundaries. httpp owns both the top and the bottom, so a request goes from the socket to your handler without being translated into an ASGI `scope` and back, and that is the decision recorded in [ADR-0001](https://github.com/mohammadraziei/httpp/blob/master/docs/adr/0001-own-both-layers.md).
+
+It also decided what is left out. A middleware stack wraps every request in extra calls and, in Python, extra frames. httpp has `before_request`, `after_request` and the error handlers instead, and the jobs people write middleware for are core features (compression is `set_compression` in C++ and `GZipMiddleware` in Python, and CORS, trusted hosts and the HTTPS redirect are classes of `httpp.middleware`). Handlers that do not ask for a `request` never get one built ([ADR-0016](https://github.com/mohammadraziei/httpp/blob/master/docs/adr/0016-dual-api.md)).
+
+What the measurements say, on two cores shared with the load generator (see [Benchmarks](benchmarks.mdx) and [ADR-0021](https://github.com/mohammadraziei/httpp/blob/master/docs/adr/0021-pool-thread-state-and-two-core-numbers.md)):
+
+- `async def` routes did about 1.1 to 1.4 times the requests per second of bare uvicorn (an ASGI function with no routing and no validation), and 5 to 17 times FastAPI on uvicorn.
+- Plain `def` routes did about 2 times bare uvicorn, and on a free-threaded Python a CPU-bound `def` handler uses both cores.
+
+:::note
+
+These numbers compare whole stacks. No run changes only the ASGI part, for example by putting an ASGI adapter on the same engine, so how much of the gain is the missing ASGI layer, and how much is the C++ engine, the thread pool and the routing, has **not been measured**. Run to run the numbers also move by about 10 percent, so only comparisons inside one run mean anything.
+
+:::
+
+## What you give up
+
+- You cannot run an existing ASGI or WSGI app on httpp, or use middleware written for ASGI (Sentry's or OpenTelemetry's ASGI middleware, for instance). Use their client libraries from a hook instead.
+- A FastAPI app is not drop-in. The names are the same (`Query`, `Depends`, `HTTPException`, `response_model`, `/docs`), so most code moves by changing the import, but the middleware stack and the Pydantic models are httpp's own.
+- A blocking call inside an `async def` handler blocks every async route, because they share one loop. Use a plain `def` handler for blocking work.
+
+## Later
+
+An ASGI adapter, to run third-party ASGI apps on the engine, is on the list with low priority (`checklist.md`). It would bring the boundary back for those apps, and translating `scope`, `receive` and `send` would limit their speed, so it is only for someone who needs a third-party app and is not part of the plan for your own code.

@@ -14,6 +14,7 @@ const sidebars: SidebarsConfig = {
       label: 'Client',
       items: ['client/get-request', 'client/post-request', 'client/download', 'client/upload', 'client/curl-command'],
     },
+    'no-asgi',
     'benchmarks',
   ],
 };
