@@ -347,6 +347,22 @@ def test_second_server_on_a_served_port_fails_instead_of_sharing_it():
 # ---- real async: awaiting requests must not occupy worker threads -----------
 
 
+def connect_retrying(port, timeout):
+    """socket.create_connection, trying again for a moment when the kernel answers EAGAIN ("Resource temporarily unavailable").
+
+    A non-blocking connect() to the loopback can fail that way for a moment when many connections are opened one after the other
+    (it was seen once, on the cp314t musllinux wheel job, and nowhere else). The server is not at fault: its listen backlog is
+    SOMAXCONN. The connection is simply asked for again until the test's own deadline."""
+    end = time.monotonic() + timeout
+    while True:
+        try:
+            return socket.create_connection(("127.0.0.1", port), timeout=timeout)
+        except BlockingIOError:
+            if time.monotonic() >= end:
+                raise
+            time.sleep(0.05)
+
+
 def get_all_at_once(port, path, count, timeout=10.0):
     """`count` GET requests on `count` connections, sent and read by THIS thread alone; the status code of each answer.
 
@@ -358,7 +374,7 @@ def get_all_at_once(port, path, count, timeout=10.0):
     answers = {}
     try:
         for i in range(count):
-            sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+            sock = connect_retrying(port, timeout)
             sock.sendall(request)
             sock.setblocking(False)
             answers[i] = bytearray()
