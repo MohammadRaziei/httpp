@@ -1,0 +1,75 @@
+/* A table with a header row: hairlines only, a small-caps header, a quiet first column. */
+.wrap {
+  margin-bottom: var(--ifm-leading);
+  overflow-x: auto;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 6px;
+}
+
+.table {
+  display: table;
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  background: transparent;
+}
+
+.table th,
+.table td {
+  padding: 0.65rem 1rem;
+  border: 0;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  background: transparent;
+  text-align: left;
+  vertical-align: top;
+}
+
+.table thead th {
+  border-top: 0;
+  border-bottom: 1px solid var(--ifm-color-emphasis-300);
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.table tbody tr:nth-child(even) {
+  background: transparent;
+}
+
+.table tbody tr:first-child > * {
+  border-top: 0;
+}
+
+.what {
+  width: 20%;
+  font-weight: 500;
+  color: var(--ifm-color-emphasis-800);
+  white-space: nowrap;
+}
+
+/* Names are never cut in the middle; only the last column (prose) may break a long piece of code. */
+.table code {
+  border: 0;
+  background: var(--ifm-color-emphasis-100);
+  white-space: nowrap;
+}
+
+.table td:last-child code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* A narrow screen scrolls the table sideways instead of squeezing the names. */
+.table {
+  min-width: 34rem;
+}
+
+@media (max-width: 600px) {
+  .table th,
+  .table td {
+    padding: 0.55rem 0.7rem;
+  }
+}

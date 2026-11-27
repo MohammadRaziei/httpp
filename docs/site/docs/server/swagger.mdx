@@ -6,6 +6,7 @@ sidebar_label: API docs (Swagger)
 
 import Lang from '@site/src/components/Lang';
 import Only from '@site/src/components/Only';
+import Grid from '@site/src/components/Grid';
 
 <Only lang="python">
 
@@ -205,14 +206,17 @@ The models are your classes: `Field(min_length=1, max_length=120, ...)` is what 
 
 <Only lang="python">
 
-| Where | Option | Meaning |
-|---|---|---|
-| `Server(...)` | `title`, `version`, `description` | the header of the page and of the document (`"httpp"`, `"0.1.0"` and none by default) |
-| `Server(...)` | `docs_url` | where the page is (`"/docs"`); `None` removes the page and keeps the document |
-| `Server(...)` | `openapi_url` | where the document is (`"/openapi.json"`); `None` removes both |
-| a route | `summary`, `description`, `tags` | the line, the text and the group (the description is the docstring if you give none) |
-| a route | `deprecated`, `include_in_schema` | strike the route through, or leave it out |
-| a route | `status_code`, `response_model` | the documented success answer, and the model that the returned value is checked against |
+<Grid
+  head={['Where', 'Option', 'Meaning']}
+  rows={[
+    ['`Server(...)`', '`title`, `version`, `description`', 'the header of the page and of the document (`"httpp"`, `"0.1.0"` and none by default)'],
+    ['`Server(...)`', '`docs_url`', 'where the page is (`"/docs"`); `None` removes the page and keeps the document'],
+    ['`Server(...)`', '`openapi_url`', 'where the document is (`"/openapi.json"`); `None` removes both'],
+    ['a route', '`summary`, `description`, `tags`', 'the line, the text and the group (the description is the docstring if you give none)'],
+    ['a route', '`deprecated`, `include_in_schema`', 'strike the route through, or leave it out'],
+    ['a route', '`status_code`, `response_model`', 'the documented success answer, and the model that the returned value is checked against'],
+  ]}
+/>
 
 `app.openapi()` returns the document as a dict. It is built the first time it is asked for and built again when a route is added after that.
 
