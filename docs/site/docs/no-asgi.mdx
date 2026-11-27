@@ -26,11 +26,13 @@ So a decorator and a function are all you write, and the same server runs both k
 
 ## Why this is faster
 
-In the usual stack (FastAPI on Starlette on uvicorn on a socket) every layer boundary costs something: a copy of the data, a hop to another thread, or time under the GIL. Making one layer fast leaves the boundaries. httpp owns both the top and the bottom, so a request goes from the socket to your handler without being translated into an ASGI `scope` and back, and that is the decision recorded in [ADR-0001](https://github.com/mohammadraziei/httpp/blob/master/docs/adr/0001-own-both-layers.md).
+In total, this design is what makes httpp fast: it is faster than bare ASGI on uvicorn, which is the floor for what an ASGI server can do, and many times faster than FastAPI on top of it.
 
-It also decided what is left out. A middleware stack wraps every request in extra calls and, in Python, extra frames. httpp has `before_request`, `after_request` and the error handlers instead, and the jobs people write middleware for are core features (compression is `set_compression` in C++ and `GZipMiddleware` in Python, and CORS, trusted hosts and the HTTPS redirect are classes of `httpp.middleware`). Handlers that do not ask for a `request` never get one built ([ADR-0016](https://github.com/mohammadraziei/httpp/blob/master/docs/adr/0016-dual-api.md)).
+In the usual stack (FastAPI on Starlette on uvicorn on a socket) every layer boundary costs something: a copy of the data, a hop to another thread, or time under the GIL. Making one layer fast leaves the boundaries. httpp owns both the top and the bottom, so a request goes from the socket to your handler without being translated into an ASGI `scope` and back.
 
-What the measurements say, on two cores shared with the load generator (see [Benchmarks](benchmarks.mdx) and [ADR-0021](https://github.com/mohammadraziei/httpp/blob/master/docs/adr/0021-pool-thread-state-and-two-core-numbers.md)):
+It also decided what is left out. A middleware stack wraps every request in extra calls and, in Python, extra frames. httpp has `before_request`, `after_request` and the error handlers instead, and the jobs people write middleware for are core features (compression is `set_compression` in C++ and `GZipMiddleware` in Python, and CORS, trusted hosts and the HTTPS redirect are classes of `httpp.middleware`). Handlers that do not ask for a `request` never get one built.
+
+What the measurements say, on two cores shared with the load generator (see [Benchmarks](benchmarks.mdx)):
 
 - `async def` routes did about 1.1 to 1.4 times the requests per second of bare uvicorn (an ASGI function with no routing and no validation), and 5 to 17 times FastAPI on uvicorn.
 - Plain `def` routes did about 2 times bare uvicorn, and on a free-threaded Python a CPU-bound `def` handler uses both cores.
@@ -49,4 +51,4 @@ These numbers compare whole stacks. No run changes only the ASGI part, for examp
 
 ## Later
 
-An ASGI adapter, to run third-party ASGI apps on the engine, is on the list with low priority (`checklist.md`). It would bring the boundary back for those apps, and translating `scope`, `receive` and `send` would limit their speed, so it is only for someone who needs a third-party app and is not part of the plan for your own code.
+An ASGI adapter, to run third-party ASGI apps on the engine, is on the list with low priority. It would bring the boundary back for those apps, and translating `scope`, `receive` and `send` would limit their speed, so it is only for someone who needs a third-party app and is not part of the plan for your own code.

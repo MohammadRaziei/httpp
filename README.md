@@ -53,8 +53,9 @@ installed system-wide (no `apt`, `brew` or `choco`).
   handlers on one shared event loop (ASGI's), plus `@app.websocket` and `on_startup` / `on_shutdown`. httpp owns both
   the server and the framework, so a request is never translated into an ASGI `scope` and back, and there is no middleware
   stack: `before_request`, `after_request` and the error handlers do that work. The price: no third-party ASGI/WSGI apps or
-  middleware (`add_middleware` takes the classes of `httpp.middleware` only). How much of the speed comes from this
-  alone has not been measured; see [No ASGI or WSGI](docs/site/docs/no-asgi.mdx) and [ADR-0001](docs/adr/0001-own-both-layers.md).
+  middleware (`add_middleware` takes the classes of `httpp.middleware` only). This design, with the C++ engine under it, is
+  what makes httpp faster than a bare ASGI app on uvicorn (see **Speed** below); details in
+  [No ASGI or WSGI](docs/site/docs/no-asgi.mdx).
 - **Real async.** `async def` handlers run on one shared asyncio event loop and release their
   worker thread while they `await`. Idle connections wait in an event loop too (epoll, kqueue or IOCP,
   via [Asio](https://think-async.com/Asio/)), so thousands of slow or idle requests cost
@@ -62,7 +63,7 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - **Python, C++ and a CLI from the same wheel.** One binary core, three front ends.
 - **HTTP and HTTPS** on the client (mbedtls, vendored).
 - **WebSocket server (C++ so far).** `server::route_ws` with callbacks on the I/O thread, thread-safe sends and a bounded send
-  queue ([ADR-0026](docs/adr/0026-websocket.md)); Python: `@app.websocket` with `async def` ([ADR-0026](docs/adr/0026-websocket.md)).
+  queue; Python: `@app.websocket` with `async def`.
 - **Hooks, streaming and files** on the server: `before_request` / `after_request`, error and exception
   handlers, generators as streamed bodies, files sent from disk, cookies and redirects.
 - **A client with a real error model**: `res.json()`, `res.error`, `raise_for_status()`, typed
@@ -168,7 +169,7 @@ runs on a pool thread, which is the faster path when the handler does nothing sl
 when the handler mostly waits on the network and you can `await` it.
 
 An `async def` handler with no `await` at all (and no `Depends`) skips the hop to the event loop thread when the server is idle
-enough: it runs right on the I/O thread, while the loop thread sleeps and no `def` handler runs (Python 3.12+; ADR-0023). It gives the same
+enough: it runs right on the I/O thread, while the loop thread sleeps and no `def` handler runs (Python 3.12+). It gives the same
 answers as before; it only makes such handlers about 30 percent cheaper. A handler that awaits always runs on the loop thread.
 
 The difference shows when handlers wait. With a 10 ms wait per request (2 cores, Python 3.13, one
@@ -263,7 +264,7 @@ async def profile(name: str = Form(), age: int = Form(18), avatar: UploadFile = 
 client sent, cut to its last path component; never build a disk path from it unchecked. At most 1024 parts and 8 KiB of headers per part.
 `UploadFile.read()` is not there: the data is already in `data` (no `await` needed).
 
-Sending a file from the client is `Request.file()` (C++ `request::file()`): the file is read from disk while it is sent, so its size is not limited by memory ([guide](docs/site/docs/client/upload.mdx), [ADR-0113](docs/adr/0113-client-uploads-streamed-bodies-and-multipart.md)):
+Sending a file from the client is `Request.file()` (C++ `request::file()`): the file is read from disk while it is sent, so its size is not limited by memory ([guide](docs/site/docs/client/upload.mdx)):
 
 ```python
 res = httpp.Request(url).field("who", "ada").file("doc", "report.pdf").progress(lambda sent, total: print(sent, total)).run()
@@ -499,7 +500,7 @@ httpp py run main:app --reload                # development: restart when a .py 
   routes did about 2 times bare uvicorn on both CPython 3.13 and free-threaded 3.14t, where a CPU-bound
   `def` handler also uses both cores (about 2 times from 1 to 8 connections); `async def` handlers share one loop thread
   and do not. Run to run the numbers move by about 10 percent, so only comparisons inside one run mean anything.
-  Details, tables and what is not verified: [ADR-0021](docs/adr/0021-pool-thread-state-and-two-core-numbers.md).
+  Tables for more servers and clients: [Benchmarks](docs/site/docs/benchmarks.mdx).
 - **The server is event-driven** on every platform: all socket I/O (accepting, reading, keep-alive idle
   connections, timeouts, writing) runs on one Asio thread (epoll on Linux, kqueue on macOS, IOCP on
   Windows), and requests are parsed by llhttp. Idle connections cost no worker thread. A worker is used
@@ -547,7 +548,7 @@ def test_items():
 It follows Starlette's interface: `get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `request`; `params`, `headers`, `json`, `data` (a dict is a form), `content`, `cookies`, `auth=("user", "pw")`,
 `follow_redirects` (on by default), `base_url` (default `http://testserver`, the `Host` the app sees). Cookies the server sets are kept and sent back (`client.cookies`).
 A handler that raises with no exception handler for it is raised again in your test (`raise_server_exceptions=False` gives you the 500 instead). Without `with`, the first request starts the server and `client.close()` stops it.
-`files=` sends multipart, and `client.websocket_connect("/ws")` gives a session with `send_text`, `receive_text`, `send_json` and friends (ADR-0042). Not there: a mode without a socket (ADR-0042).
+`files=` sends multipart, and `client.websocket_connect("/ws")` gives a session with `send_text`, `receive_text`, `send_json` and friends. Not there: a mode without a socket.
 
 ### TLS (https, wss)
 
@@ -611,7 +612,7 @@ httpp is **alpha**: the API can still change between minor versions. Current lim
 - Platforms: the connection layer is tested on Linux. Windows and macOS are untested by the author; CI
   on those platforms is the real check.
 - cpp-httplib is no longer used: the server, the client (blocking and async) and downloads all run on our own
-  engines (Asio + llhttp + mbedTLS), see ADR-0051 to ADR-0051.
+  engines (Asio + llhttp + mbedTLS).
 - `httpp curl` is a subset of curl (no `-F`, `--json`, `-G`, `-b`, `-x`, `-k`, `--cacert`, `--data-binary`, `-C`, `-r`, `--http2`; `httpp::request` has several of these, the command does not expose them yet); there is no libcurl-style C API.
 - `--workers` is Linux only.
 
@@ -619,7 +620,7 @@ Issues and pull requests are welcome.
 
 ## Logging
 
-Logging, `httpp::sformat` and `httpp::path` live in their own small library, `httpp::utils` (`libhttpp_utils`): link just that if you only want to log, without the HTTP stack (ADR-0086).
+Logging, `httpp::sformat` and `httpp::path` live in their own small library, `httpp::utils` (`libhttpp_utils`): link just that if you only want to log, without the HTTP stack.
 
 The library logs through a private logger of its own (it never touches `std::clog` or your own logging). By default
 warnings and errors go to stderr, e.g. a handler that throws with no exception handler installed.
@@ -645,7 +646,7 @@ logging.getLogger("libspeech.dsp").setLevel(logging.DEBUG)     # also from dictC
 ```
 
 
-### Stream style and lazy lines (ADR-0011)
+### Stream style and lazy lines
 
 ```cpp
 auto& log = httpp::logging::get_logger("libspeech.dsp");
@@ -654,7 +655,7 @@ HTTPP_LOGF(log, debug, "frame %d in %s", n, name);          // printf style, sam
 log.debug("frame %d", n);                                      // the method form still works (its arguments are always evaluated)
 ```
 
-### Using `httpp_utils` from another wheel (ADR-0086)
+### Using `httpp_utils` from another wheel
 
 A package that wants the logger registry, `httpp::sformat`, `httpp::path` or the progress bar without shipping the HTTP stack (for
 example libspeech) depends on `httpp` at run time and does not bundle its own copy of `libhttpp_utils`:

@@ -78,7 +78,7 @@ httpp download https://example.com/f.zip -o f.zip
 httpp download https://example.com/f.zip -o f.zip --retry 3   # try again up to 3 times after a timeout or a 408, 429, 500, 502, 503, 504
 ```
 
-`--retry NUM`, `--retry-delay SECONDS` (default 1, 2, 4, ... up to 600) and `--retry-connrefused` are those of `httpp curl`, and the library does the retrying (`retry`, `retry_delay`, `retry_connrefused` and `on_retry` of `httpp::download`, ADR-0109). A warning is printed before each wait unless `-q`. Without `-o` the body goes to standard output and the same flags apply. With `--resume` in the library a try that is cut off in the middle of the body does not write the file twice (ADR-0104).
+`--retry NUM`, `--retry-delay SECONDS` (default 1, 2, 4, ... up to 600) and `--retry-connrefused` are those of `httpp curl`, and the library does the retrying (`retry`, `retry_delay`, `retry_connrefused` and `on_retry` of `httpp::download`). A warning is printed before each wait unless `-q`. Without `-o` the body goes to standard output and the same flags apply. With `--resume` in the library a try that is cut off in the middle of the body does not write the file twice (ADR-0104).
 
 ## API at a glance
 
