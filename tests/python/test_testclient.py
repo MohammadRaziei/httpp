@@ -474,3 +474,31 @@ def test_messages_sent_back_to_back_are_read_in_order():
         with c.websocket_connect("/ws") as session:
             assert session.receive_text() == "one"
             assert session.receive_text() == "two"
+
+
+def test_a_client_that_is_dropped_without_close_stops_its_server():
+    import gc
+    import threading
+    import time
+
+    app, _ = make_app()
+    c = TestClient(app)
+    assert c.get("/").status_code == 200
+    assert any(t.name == "httpp-testclient" for t in threading.enumerate())
+    del c
+    gc.collect()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and any(t.name == "httpp-testclient" for t in threading.enumerate()):
+        time.sleep(0.02)
+    assert not any(t.name == "httpp-testclient" for t in threading.enumerate())
+
+
+def test_close_right_after_start_never_leaves_the_thread():
+    import threading
+
+    for _ in range(25):  # a stop that races the loop's start must still end the thread
+        app, _calls = make_app()
+        c = TestClient(app)
+        c._start()
+        c.close()
+        assert not any(t.name == "httpp-testclient" and t.is_alive() for t in threading.enumerate())

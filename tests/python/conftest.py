@@ -113,6 +113,29 @@ def httpp_exe(request):
     return [exe] if exe else [sys.executable, "-m", "httpp"]
 
 
+@pytest.fixture(autouse=True)
+def _no_test_server_left_running(request):
+    """A test must not leave a TestClient server thread behind.
+
+    An unclosed server keeps its I/O thread, its worker threads and their stacks for the rest of the process. On the 32-bit
+    free-threaded Windows job (2 GiB of address space) that ran the process out of memory after a few hundred tests, and the
+    next thread.start() then hung. The client now stops its server when it is collected, so this only fails a test that keeps a
+    client alive after it ended (a module level client, say), and says which one."""
+    yield
+    import gc
+    import threading
+    import time
+
+    gc.collect()
+    deadline = time.monotonic() + 5
+    while True:
+        left = [t for t in threading.enumerate() if t.name == "httpp-testclient" and t.is_alive()]
+        if not left or time.monotonic() >= deadline:
+            break
+        time.sleep(0.02)
+    assert not left, f"{request.node.nodeid} left {len(left)} httpp-testclient server thread(s) running: close the TestClient"
+
+
 # --- Address-space trace (diagnosis of the cp314t-win32 wheel job) ---------------------------------------------------------
 # On the 32-bit free-threaded Windows job the hook tests of test_server_features.py fail after ~750 passed tests with MemoryError
 # that Python cannot even print ("lost sys.stderr"). The suspicion is that the process runs out of its 2 GiB of address space;

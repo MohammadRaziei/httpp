@@ -33,6 +33,8 @@ import struct
 import threading
 import time
 import urllib.parse
+import warnings
+import weakref
 
 from .errors import HTTPError, TooManyRedirects
 from .httpp_python import Request as _Request
@@ -409,6 +411,32 @@ class TestResponse:
         return f"<TestResponse [{self.status_code} {self.reason_phrase}]>"
 
 
+def _serve(app, failure):
+    """The body of the server thread. It holds the app and the failure list but never the TestClient, so a client that nobody closed
+    can still be collected (and its finalizer then stops this thread)."""
+    try:
+        app.listen_after_bind()
+    except BaseException as e:  # the thread must not die silently: the next request reports it
+        failure.append(e)
+
+
+def _halt(app, thread, wait=30.0):
+    """Stop the server that `thread` runs and wait for the thread; True when it is gone.
+
+    stop() is repeated until the thread ends, as listen_until_signal does in C++: a stop that arrives while the server thread is
+    still on its way into the event loop must not be the only one. A thread that is still alive afterwards would keep the
+    server, its worker threads and their stacks for the rest of the process (on a 32-bit build that runs the address space
+    out), so the caller is told."""
+    deadline = time.monotonic() + wait
+    while True:
+        app.stop()
+        thread.join(0.05)
+        if not thread.is_alive():
+            return True
+        if time.monotonic() >= deadline:
+            return False
+
+
 class TestClient:
     """Serve `app` (a httpp.Server) on a loopback port of its own and talk to it.
 
@@ -439,6 +467,7 @@ class TestClient:
         self._thread = None
         self._port = None
         self._failure = []
+        self._finalizer = None
 
     # --- the server ---
 
@@ -449,23 +478,20 @@ class TestClient:
             self._failure = []
             port = self.app.bind_to_any_port("127.0.0.1")
 
-            def serve():
-                try:
-                    self.app.listen_after_bind()
-                except BaseException as e:  # the thread must not die silently: the next request reports it
-                    self._failure.append(e)
-
             self.app._exception_sink = []
-            thread = threading.Thread(target=serve, name="httpp-testclient", daemon=True)
+            thread = threading.Thread(target=_serve, args=(self.app, self._failure), name="httpp-testclient", daemon=True)
             thread.start()
             self._thread, self._port = thread, port
+            # A client that is dropped without close() (or at interpreter exit) still stops its server: the thread does not
+            # reference the client, so the client can be collected.
+            self._finalizer = weakref.finalize(self, _halt, self.app, thread)
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
                 if self._failure:
                     self._stop()
                     raise self._failure[0]
                 try:
-                    socket.create_connection(("127.0.0.1", port), 0.2).close()  # listening and past the startup hooks
+                    socket.create_connection(("127.0.0.1", port), 0.2).close()  # the port accepts (the kernel does that before the loop runs)
                     return
                 except OSError:
                     time.sleep(0.005)
@@ -475,11 +501,15 @@ class TestClient:
     def _stop(self):
         with self._lock:
             thread, self._thread, self._port = self._thread, None, None
+            finalizer, self._finalizer = self._finalizer, None
             if thread is None:
                 return
-            self.app.stop()
-            thread.join(30)
+            if finalizer is not None:
+                finalizer.detach()
+            stopped = _halt(self.app, thread)
             self.app._exception_sink = None
+            if not stopped:
+                raise RuntimeError("the test server thread did not stop within 30 seconds")
 
     def close(self):
         """Stop the server (the shutdown hooks run). Harmless when it is not running; a later request starts it again."""
