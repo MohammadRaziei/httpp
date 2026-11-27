@@ -97,7 +97,7 @@ std::string random_boundary() {
 }
 
 // A value inside a quoted parameter of Content-Disposition: a quote is escaped (the server side reads \" back), a line break cannot be sent.
-std::string quoted(const std::string& text) {
+std::string escape_quoted(const std::string& text) {
     std::string out;
     for (char c : text) {
         if (c == '"') out += "\\\"";
@@ -157,7 +157,7 @@ std::shared_ptr<body_source> make_multipart_source(const std::vector<form_part>&
             error = "a form part needs a name";
             return nullptr;
         }
-        std::string head = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + quoted(p.name) + "\"";
+        std::string head = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + escape_quoted(p.name) + "\"";
         if (p.what == form_part::kind::text) {
             head += "\r\n\r\n";
             add_text(std::move(head));
@@ -169,7 +169,7 @@ std::shared_ptr<body_source> make_multipart_source(const std::vector<form_part>&
         if (filename.empty() && p.what == form_part::kind::file) filename = base_name(p.value);
         std::string type = p.content_type;
         if (type.empty()) type = filename.empty() ? "application/octet-stream" : mime_type_for(filename);
-        head += "; filename=\"" + quoted(filename) + "\"\r\nContent-Type: " + type + "\r\n\r\n";
+        head += "; filename=\"" + escape_quoted(filename) + "\"\r\nContent-Type: " + type + "\r\n\r\n";
         add_text(std::move(head));
         if (p.what == form_part::kind::data) {
             add_text(p.value);
