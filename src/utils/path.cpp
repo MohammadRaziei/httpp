@@ -277,6 +277,35 @@ long long path::size() const {
     return i.type == kind::file ? i.size : -1;
 }
 
+#ifdef _WIN32
+// Not std::ifstream here: it opens a file without FILE_SHARE_DELETE, and while one is open nobody can delete or rename that file (DeleteFileW
+// fails with a sharing violation, and so does a rename). Reading a file must not keep its owner from removing it: a lock file that waiters
+// read every few milliseconds and its owner deletes is the case that matters (file_lock). CreateFileW with all three sharing modes lets the
+// reader be there without being in the way. The result is the same as the portable code below, byte for byte.
+std::string path::read_text(std::size_t start, std::size_t end) const {
+    HANDLE file = CreateFileW(native().c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr); // a folder is refused here, as ifstream refuses it
+    if (file == INVALID_HANDLE_VALUE) throw std::runtime_error("cannot read " + text_);
+    struct closer { HANDLE h; ~closer() { CloseHandle(h); } } guard{file};
+    if (end <= start) return std::string(); // (0, npos) is the whole file, so it does not come here
+    if (start != 0) {
+        LARGE_INTEGER to;
+        to.QuadPart = static_cast<LONGLONG>(start);
+        if (!SetFilePointerEx(file, to, nullptr, FILE_BEGIN)) return std::string(); // past what a file can be: nothing to read
+    }
+    std::size_t want = end - start; // npos - start does not overflow: end > start
+    std::string text;
+    char buf[65536];
+    while (want > 0) {
+        const DWORD ask = static_cast<DWORD>(want < sizeof buf ? want : sizeof buf);
+        DWORD got = 0;
+        if (!ReadFile(file, buf, ask, &got, nullptr) || got == 0) break; // the end of the file (or an error: what was read stays)
+        text.append(buf, got);
+        want -= got;
+    }
+    return text;
+}
+#else
 std::string path::read_text(std::size_t start, std::size_t end) const {
     std::ifstream in(native(), std::ios::binary);
     if (!in) throw std::runtime_error("cannot read " + text_);
@@ -295,6 +324,7 @@ std::string path::read_text(std::size_t start, std::size_t end) const {
     }
     return text;
 }
+#endif
 
 void path::write_text(const std::string& data) const {
     std::ofstream out(native(), std::ios::binary | std::ios::trunc);
