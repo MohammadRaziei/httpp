@@ -17,7 +17,7 @@ For C++, build `cpp/main.cpp` like any program that uses httpp (CMake and `httpp
 It listens on `127.0.0.1:8000`. In another terminal:
 
 ```bash
-curl http://127.0.0.1:8000/static/notes.txt
+httpp curl http://127.0.0.1:8000/static/notes.txt
 ```
 
 The tests in `tests/python/test_examples.py` run every file here and check what it does.

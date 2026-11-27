@@ -57,7 +57,7 @@ function CodeWindow() {
         )}
       </Highlight>
       <div className={styles.reply}>
-        <span className={styles.replyIn}>$ curl 127.0.0.1:8000/hello/world</span>
+        <span className={styles.replyIn}>$ httpp curl 127.0.0.1:8000/hello/world</span>
         <span className={styles.replyOut}>hello world</span>
       </div>
     </div>

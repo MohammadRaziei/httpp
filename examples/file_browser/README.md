@@ -18,7 +18,7 @@ It listens on `127.0.0.1:8000`. In another terminal:
 
 ```bash
 # open http://127.0.0.1:8000/files/ in a browser, or:
-curl "http://127.0.0.1:8000/files/api/list?path=/"
+httpp curl "http://127.0.0.1:8000/files/api/list?path=/"
 ```
 
 The tests in `tests/python/test_examples.py` run every file here and check what it does.

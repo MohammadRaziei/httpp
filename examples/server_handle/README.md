@@ -17,7 +17,7 @@ For C++, build `cpp/main.cpp` like any program that uses httpp (CMake and `httpp
 It listens on `127.0.0.1:8000` (HTTPS). In another terminal:
 
 ```bash
-curl -k https://127.0.0.1:8000/
+httpp curl -k https://127.0.0.1:8000/
 ```
 
 ## More files

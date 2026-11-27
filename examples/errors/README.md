@@ -15,10 +15,10 @@ For C++, build `cpp/main.cpp` like any program that uses httpp (CMake and `httpp
 It listens on `127.0.0.1:8000`. In another terminal:
 
 ```bash
-curl -i http://127.0.0.1:8000/users/9     # 404, your own answer
-curl -i http://127.0.0.1:8000/parse       # 422, from the exception handler
-curl -i http://127.0.0.1:8000/boom        # 500, the message is not in the answer
-curl -i http://127.0.0.1:8000/nope        # 404, from the error handler
+httpp curl -i http://127.0.0.1:8000/users/9     # 404, your own answer
+httpp curl -i http://127.0.0.1:8000/parse       # 422, from the exception handler
+httpp curl -i http://127.0.0.1:8000/boom        # 500, the message is not in the answer
+httpp curl -i http://127.0.0.1:8000/nope        # 404, from the error handler
 ```
 
 ## More files

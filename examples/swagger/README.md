@@ -17,7 +17,7 @@ It listens on `127.0.0.1:8000`. In another terminal:
 
 ```bash
 # open http://127.0.0.1:8000/docs in a browser, or:
-curl http://127.0.0.1:8000/openapi.json
+httpp curl http://127.0.0.1:8000/openapi.json
 ```
 
 ## More files

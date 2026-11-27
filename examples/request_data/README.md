@@ -15,8 +15,8 @@ For C++, build `cpp/main.cpp` like any program that uses httpp (CMake and `httpp
 It listens on `127.0.0.1:8000`. In another terminal:
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/inspect?page=2" -H "X-Token: abc" -d hello
-curl -F title=shopping -F doc=@notes.txt http://127.0.0.1:8000/upload
+httpp curl -X POST "http://127.0.0.1:8000/inspect?page=2" -H "X-Token: abc" -d hello
+httpp curl -F title=shopping -F doc=@notes.txt http://127.0.0.1:8000/upload
 ```
 
 The second command sends a form with a file to `/upload`: see [`upload`](../upload/) for the client that does the same.
