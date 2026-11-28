@@ -69,6 +69,16 @@ jobs:
     uses: ./.github/workflows/docs.yml
     needs: [init, cmake]
 
+  # Publishes the documentation site to GitHub Pages. pages.yml decides by itself (its `changed` job) whether a push touched the site;
+  # the permissions are given here because a called workflow cannot ask for more than its caller gives.
+  pages:
+    uses: ./.github/workflows/pages.yml
+    needs: [init]
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
   release-wheels:
     needs: [wheel, init]
     runs-on: ubuntu-latest
