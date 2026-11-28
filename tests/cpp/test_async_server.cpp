@@ -494,6 +494,97 @@ UTEST(async_server, a_known_length_stream_that_comes_up_short_drops_the_connecti
     ASSERT_TRUE(c.wait_eof());
 }
 
+// ADR-0114: the next piece of a streamed body is read while the previous one is written, and never more than one piece ahead.
+UTEST(async_server, a_stream_reads_one_piece_ahead_of_a_write_that_cannot_finish_and_no_further) {
+    constexpr std::size_t piece_size = 24u * 1024 * 1024; // more than the socket buffers of both sides: the write waits for the client
+    auto calls = std::make_shared<std::atomic<int>>(0);
+    fixture f([calls](const http_request&) {
+        wire_response r;
+        r.status = 200;
+        r.length = static_cast<long long>(4 * piece_size);
+        r.next = [calls](std::string& piece) {
+            piece.assign(piece_size, static_cast<char>('a' + calls->load()));
+            return ++*calls < 4;
+        };
+        return r;
+    });
+    raw_client c(f.port);
+    c.send("GET / HTTP/1.1\r\nHost: t\r\n\r\n");
+    ASSERT_TRUE(c.has("\r\n\r\n"));
+    std::this_thread::sleep_for(500ms); // the client reads nothing: the first piece is stuck in the socket
+    ASSERT_EQ(2, calls->load());         // the first piece and one ahead, not the whole body
+    // Now read everything: the pieces arrive whole and in order.
+    const std::size_t head = c.buf.find("\r\n\r\n") + 4;
+    ASSERT_TRUE(c.read_until([&](const std::string& b) { return b.size() >= head + 4 * piece_size; }, 20000));
+    ASSERT_EQ(4, calls->load());
+    for (std::size_t i = 0; i < 4; ++i) {
+        const char want = static_cast<char>('a' + i);
+        ASSERT_EQ(want, c.buf[head + i * piece_size]);
+        ASSERT_EQ(want, c.buf[head + (i + 1) * piece_size - 1]);
+    }
+}
+
+UTEST(async_server, many_small_pieces_arrive_in_order_and_the_connection_stays_usable) {
+    constexpr int pieces = 300;
+    fixture f([](const http_request&) {
+        wire_response r;
+        r.status = 200;
+        auto n = std::make_shared<int>(0);
+        r.next = [n](std::string& piece) {
+            piece = "[" + std::to_string(*n) + "]";
+            return ++*n < pieces;
+        };
+        return r;
+    });
+    std::string want;
+    for (int i = 0; i < pieces; ++i) want += "[" + std::to_string(i) + "]";
+    raw_client c(f.port);
+    for (int round = 0; round < 2; ++round) { // the second request runs on the same connection
+        c.buf.clear();
+        c.send("GET / HTTP/1.1\r\nHost: t\r\n\r\n");
+        ASSERT_TRUE(c.has("0\r\n\r\n"));
+        std::string body;
+        for (std::size_t at = c.buf.find("\r\n\r\n") + 4; at < c.buf.size();) { // undo the chunking
+            const std::size_t eol = c.buf.find("\r\n", at);
+            const std::size_t size = std::stoul(c.buf.substr(at, eol - at), nullptr, 16);
+            if (size == 0) break;
+            body += c.buf.substr(eol + 2, size);
+            at = eol + 2 + size + 2;
+        }
+        ASSERT_TRUE(body == want);
+    }
+}
+
+UTEST(async_server, a_client_that_leaves_while_the_next_piece_is_being_read_releases_the_generator) {
+    constexpr std::size_t piece_size = 24u * 1024 * 1024;
+    std::mutex mu;
+    std::weak_ptr<int> weak; // the token that only this request's generator holds
+    fixture f([&](const http_request&) {
+        auto token = std::make_shared<int>(1);
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            weak = token;
+        }
+        wire_response r;
+        r.status = 200;
+        r.next = [token](std::string& piece) { piece.assign(piece_size, 'x'); return true; };
+        return r;
+    });
+    {
+        raw_client c(f.port);
+        c.send("GET / HTTP/1.1\r\nHost: t\r\n\r\n");
+        ASSERT_TRUE(c.has("\r\n\r\n"));
+        std::this_thread::sleep_for(300ms); // one piece is stuck in the socket and one waits behind it
+    }                                        // the client goes away without reading
+    bool released = false;
+    for (int i = 0; i < 100 && !released; ++i) {
+        std::this_thread::sleep_for(50ms);
+        std::lock_guard<std::mutex> lk(mu);
+        released = weak.expired();
+    }
+    ASSERT_TRUE(released); // the generator (and the piece read ahead) is gone while the server still runs
+}
+
 UTEST(async_server, a_generator_is_released_when_its_response_ends) {
     auto token = std::make_shared<int>(1);
     std::weak_ptr<int> weak = token;

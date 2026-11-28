@@ -76,6 +76,7 @@ texts kept, in order, as its parts. Numbers are not renumbered, so there are gap
 | [0111](0111-port-0-for-the-native-commands.md) | `httpp server` and `httpp browse` accept `--port 0`; the CLI tests start a server on port 0 and read the port from the printed line, so they are safe under pytest-xdist |
 | [0112](0112-a-stopped-server-must-not-be-in-a-reference-cycle.md) | Handlers and hooks hold a shared `_RequestState` / `_OpenAPIDocument`, not the Server: a stopped server is freed by reference counting, also on free-threaded CPython; the 100-request test uses one client thread because a thread costs 44 to 75 MiB of address space there |
 | [0113](0113-client-uploads-streamed-bodies-and-multipart.md) | Client uploads: `field`, `file`, `file_data`, `body_file` and `progress` on `request`, a body read while it is sent, `curl -F` and a streamed `-T`; no `upload` class |
+| [0114](0114-a-streamed-body-is-read-one-piece-ahead.md) | A streamed body is read one piece ahead while the previous piece is written, and a served file is opened once |
 | [0109](0109-download-on-retry-and-the-download-retry-flags.md) | `download::on_retry` and `httpp download --retry/--retry-delay/--retry-connrefused` (also without `-o`); one shared warning function with `curl`; `-q` hides it | implemented (C++) |
 
 ## Not decided yet

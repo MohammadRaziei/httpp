@@ -604,12 +604,16 @@ struct server::impl {
         }
 
         if (!res.file.empty()) {
-            const long long size = file_size(res.file.str());
-            if (size < 0) return failure(404, "Not Found");
+            // One open: the stat tells a regular file from a directory (which opens without an error on Linux), the open tells a readable
+            // file from one that is not. file_size() would open it a second time just to ask the same.
+            const httpp::path::status info = res.file.stat();
+            if (info.type != httpp::path::kind::file) return failure(404, "Not Found");
+            auto in = std::make_shared<std::ifstream>(res.file.native(), std::ios::binary);
+            if (!*in) return failure(404, "Not Found");
+            const long long size = info.size;
             if (offset > size) offset = size;
             const long long len = length < 0 ? size - offset : std::min(length, size - offset);
             w.length = len;
-            auto in = std::make_shared<std::ifstream>(res.file.native(), std::ios::binary);
             w.next = [in, pos = offset, end = offset + len](std::string& piece) mutable {
                 if (pos >= end) return false;
                 const std::size_t n = static_cast<std::size_t>(std::min<long long>(128 * 1024, end - pos));

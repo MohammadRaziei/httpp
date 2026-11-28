@@ -11,6 +11,10 @@ such changes are listed under **Changed**).
 
 - Benchmark: three new parts, `upload` (a 64 KiB POST body), `file` (a 256 KiB file from disk) and `mw` (CORS and trusted host middleware), for the Python servers (httpp, bare uvicorn, FastAPI); they are in the default `BENCH_ONLY` and have charts on the Benchmarks page. A result file made before this change has no rows for them.
 
+### Changed
+
+- A streamed response body (a file, or a generator) is read one piece ahead while the previous piece is written, and a file is opened once instead of twice (ADR-0114). A file of several pieces is served about 15 to 22 percent faster on one connection (measured on Linux); a generator is now called one piece earlier than before, still one at a time and in order.
+
 ## [0.10.0] - 2026-11-28
 
 The first release since 0.9.0 (140 commits). Highlights:

@@ -25,6 +25,7 @@
 #include <deque>
 #include <ctime>
 #include <mutex>
+#include <optional>
 #include <vector>
 #include <unordered_set>
 
@@ -253,6 +254,15 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         long long sent = 0;
         bool chunked = false;
         bool keep = false;
+        // One piece is read ahead (ADR-0114): while a piece is written, the next one is already being read on a pool thread. A piece
+        // that arrives before the write of the previous one is done waits here; there is never more than this one.
+        struct piece_result {
+            std::string data;
+            bool more = false;
+            bool failed = false;
+        };
+        std::optional<piece_result> ahead;
+        bool writing = false; // a piece is on its way to the socket
     };
     std::shared_ptr<stream_state> stream;
     // Holds the answer's after_send job. Dropping it (the answer is written, or the connection closed) hands the job to
@@ -875,10 +885,14 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
         write(std::move(out), [self = shared_from_this()] { self->pump(); });
     }
 
-    // Asks a pool thread for the next piece of a streamed body, writes it, repeats.
+    // The head is written: asks for the first piece. After that every piece asks for the next one itself (piece_ready).
     void pump() {
-        auto st = stream;
-        if (!st || closed) return;
+        if (stream && !closed) fetch(stream);
+    }
+
+    // Asks a pool thread for the next piece of a streamed body. Never two at once: the next ask comes only after the previous piece has
+    // arrived (fetched), so the generator is still called one piece at a time and in order, just earlier than the write of the piece before.
+    void fetch(const std::shared_ptr<stream_state>& st) {
         auto self = shared_from_this();
         auto post = srv.poster_;
         const bool queued = srv.run_blocking([self, st, post] {
@@ -890,10 +904,31 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
                 failed = true;
             }
             post->post([self, st, piece = std::move(piece), more, failed]() mutable {
-                self->piece_ready(st, std::move(piece), more, failed);
+                self->fetched(st, std::move(piece), more, failed);
             });
         });
         if (!queued) close();
+    }
+
+    // A piece has been read. It goes out now, unless the previous piece is still being written: then it waits (at most one does).
+    void fetched(const std::shared_ptr<stream_state>& st, std::string piece, bool more, bool failed) {
+        if (closed || stream != st) return;
+        if (st->writing) {
+            st->ahead = stream_state::piece_result{std::move(piece), more, failed};
+            return;
+        }
+        piece_ready(st, std::move(piece), more, failed);
+    }
+
+    // A piece has been written: the one that was read meanwhile goes out. If it is not there yet, fetched() sends it when it comes.
+    void piece_written(const std::shared_ptr<stream_state>& st) {
+        if (closed || stream != st) return;
+        st->writing = false;
+        if (st->ahead) {
+            stream_state::piece_result next = std::move(*st->ahead);
+            st->ahead.reset();
+            piece_ready(st, std::move(next.data), next.more, next.failed);
+        }
     }
 
     void piece_ready(const std::shared_ptr<stream_state>& st, std::string piece, bool more, bool failed) {
@@ -926,8 +961,10 @@ struct async_server::impl::conn : std::enable_shared_from_this<conn> {
             if (out.empty()) return done(keep);
             return write(std::move(out), [self = shared_from_this(), keep] { self->done(keep); });
         }
-        if (out.empty()) return pump();
-        write(std::move(out), [self = shared_from_this()] { self->pump(); });
+        fetch(st); // the read of the next piece runs while this one is written
+        if (closed || out.empty()) return;
+        st->writing = true;
+        write(std::move(out), [self = shared_from_this(), st] { self->piece_written(st); });
     }
 
     std::shared_ptr<void> make_sent_guard(std::function<void()> job) {
