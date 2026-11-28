@@ -3,6 +3,7 @@
 #include "internal/windows_text.hpp" // widen(), narrow()
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
@@ -228,6 +229,24 @@ std::string parse_sha256_checksum(const std::string& text, const std::string& fi
         if (name != file_name) throw std::runtime_error("Checksum file is for '" + name + "', not for '" + file_name + "'");
     }
     return digest;
+}
+
+} // namespace httpp
+
+// ---- the end of a thread httpp started ------------------------------------------------------------------------------------------
+
+namespace httpp {
+
+namespace {
+// One pointer per process (libhttpp_utils is one shared library). Set once, at import time of the Python binding, and read at every
+// thread end, so an atomic with acquire/release is all it takes.
+std::atomic<thread_exit_fn> g_thread_exit_hook{nullptr};
+} // namespace
+
+void set_thread_exit_hook(thread_exit_fn fn) noexcept { g_thread_exit_hook.store(fn, std::memory_order_release); }
+
+void run_thread_exit_hook() noexcept {
+    if (thread_exit_fn fn = g_thread_exit_hook.load(std::memory_order_acquire)) fn();
 }
 
 } // namespace httpp

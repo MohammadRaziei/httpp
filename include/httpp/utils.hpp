@@ -88,3 +88,23 @@ private:
 };
 
 } // namespace httpp::env
+
+// ---- the end of a thread httpp started -------------------------------------------------------------------------------------------
+
+namespace httpp {
+
+// A function that httpp calls on every thread it started (worker pool threads, I/O threads, the network thread of an async client, the
+// thread of an asynchronous download), on that thread, as the very last thing it does before the thread ends. It is for a program that
+// keeps state for a thread it did not start and must give it back when the thread goes: the Python binding keeps a Python thread state
+// for each such thread that runs Python code, and frees it here. Not called for a thread the caller started itself.
+//
+// It runs in the thread function, never from a destructor of a thread_local or from DllMain, so it may block (the Python binding waits
+// for its interpreter there). It must not throw. One function for the whole process; nullptr removes it.
+using thread_exit_fn = void (*)() noexcept;
+HTTPP_UTILS_API void set_thread_exit_hook(thread_exit_fn fn) noexcept;
+
+// Calls the function that set_thread_exit_hook() installed, if any. httpp's own threads call it; so can a program that starts a thread
+// of its own and wants the same cleanup for it.
+HTTPP_UTILS_API void run_thread_exit_hook() noexcept;
+
+} // namespace httpp

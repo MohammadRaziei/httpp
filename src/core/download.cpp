@@ -6,6 +6,7 @@
 
 #include "internal/file_writer.hpp"
 #include "internal/http_exchange.hpp"
+#include "internal/thread_exit.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -472,7 +473,11 @@ download_result download::run() const { return execute(impl_->to_job()); }
 
 std::future<download_result> download::run_async() const {
     // The job is a copy: the builder may go out of scope before the async task runs.
-    return std::async(std::launch::async, [j = impl_->to_job()] { return execute(j); });
+    // The callbacks of a Python download run on this thread; the thread exit hook lets the binding free the thread state it kept for it.
+    return std::async(std::launch::async, [j = impl_->to_job()] {
+        detail::thread_exit_scope at_exit;
+        return execute(j);
+    });
 }
 
 } // namespace httpp

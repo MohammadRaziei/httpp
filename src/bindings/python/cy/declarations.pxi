@@ -142,6 +142,7 @@ cdef extern from *:
 cdef extern from *:
     """
     #include "httpp/server.hpp"
+    #include "httpp/utils.hpp"
     #include <memory>
     #include <stdexcept>
     typedef bool (*httpp_py_before_trampoline)(void*, const httpp::server_request&, httpp::response&);
@@ -171,16 +172,33 @@ cdef extern from *:
     static void httpp_py_reset(httpp::response& res) { res = httpp::response(); }
     // Pool threads are not Python threads. PyGILState_Ensure/Release would create a thread state on
     // every request and destroy it again (the counter drops to 0), which is very slow on free-threaded
-    // CPython. One Ensure per thread that is never released keeps the state alive, so the later
-    // `with gil` blocks only attach and detach it.
-    // ponytail: the state of an exited pool thread is freed at interpreter shutdown, not earlier.
+    // CPython. One Ensure per thread keeps the state alive, so the later `with gil` blocks only attach
+    // and detach it.
+    // The state is freed when the thread ends: httpp calls httpp_py_unpin_thread (httpp::set_thread_exit_hook) as the last
+    // thing a worker, I/O or network thread does. Not from a thread_local destructor: on Windows that runs inside DllMain with
+    // the loader lock held, and freeing a state waits for the interpreter, which a thread that imports a module can hold.
+    // A thread that Python already knows (threading made it, or it called listen) keeps a state of its own: nothing is pinned.
+    // ponytail: a state is only freed while the interpreter is initialized; during finalization it is left to Py_Finalize.
+    static thread_local bool httpp_py_pin_done = false;
+    static thread_local PyThreadState* httpp_py_pin_saved = nullptr;
+    static thread_local PyGILState_STATE httpp_py_pin_state = PyGILState_UNLOCKED;
     static void httpp_py_pin_thread() {
-        static thread_local bool pinned = false;
-        if (pinned) return;
-        pinned = true;
-        PyGILState_Ensure();
-        PyEval_SaveThread();
+        if (httpp_py_pin_done) return;
+        httpp_py_pin_done = true;
+        if (PyGILState_GetThisThreadState() != nullptr) return;
+        httpp_py_pin_state = PyGILState_Ensure();
+        httpp_py_pin_saved = PyEval_SaveThread();
     }
+    static void httpp_py_unpin_thread() noexcept {
+        PyThreadState* saved = httpp_py_pin_saved;
+        if (saved == nullptr) return;
+        httpp_py_pin_saved = nullptr;
+        httpp_py_pin_done = false;
+        if (!Py_IsInitialized()) return;
+        PyEval_RestoreThread(saved);
+        PyGILState_Release(httpp_py_pin_state); // the counter drops to 0: the state is cleared and deleted
+    }
+    static void httpp_py_install_thread_exit_hook() { httpp::set_thread_exit_hook(&httpp_py_unpin_thread); }
     typedef void (*httpp_py_trampoline)(void*, const httpp::server_request&, httpp::response&);
     static httpp::handler httpp_py_make_handler(httpp_py_trampoline fn, void* ctx) {
         return [fn, ctx](const httpp::server_request& q, httpp::response& r) { fn(ctx, q, r); };
@@ -199,6 +217,7 @@ cdef extern from *:
     }
     """
     void httpp_py_pin_thread() noexcept nogil
+    void httpp_py_install_thread_exit_hook() noexcept nogil
     ctypedef void (*trampoline_fn "httpp_py_trampoline")(void*, const cpp_request&, response&) noexcept nogil
     cpp_handler make_handler "httpp_py_make_handler"(trampoline_fn fn, void* ctx)
     ctypedef void (*async_trampoline_fn "httpp_py_async_trampoline")(void*, const cpp_request&, const cpp_responder&) noexcept nogil
@@ -213,6 +232,9 @@ cdef extern from *:
     ctypedef void (*release_fn "httpp_py_release_fn")(void*) noexcept nogil
     ctypedef void (*run_fn "httpp_py_run_fn")(void*) noexcept nogil
     void set_after_send "httpp_py_set_after_send"(response& res, run_fn run, release_fn release, void* ctx)
+
+# At import, before any thread of httpp can run Python: every thread httpp ends frees the Python thread state that was kept for it.
+httpp_py_install_thread_exit_hook()
 
 
 # The "gate" and the busy count. They let an `async def` handler that cannot suspend run on the I/O thread

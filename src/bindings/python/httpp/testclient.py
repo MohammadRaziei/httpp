@@ -478,25 +478,27 @@ class TestClient:
             self._failure = []
             port = self.app.bind_to_any_port("127.0.0.1")
 
+            started = []  # a plain list: set from the serving thread once the startup hooks are done
             self.app._exception_sink = []
+            self.app._on_ready = lambda: started.append(True)  # holds the list only, never the client
             thread = threading.Thread(target=_serve, args=(self.app, self._failure), name="httpp-testclient", daemon=True)
             thread.start()
             self._thread, self._port = thread, port
             # A client that is dropped without close() (or at interpreter exit) still stops its server: the thread does not
             # reference the client, so the client can be collected.
             self._finalizer = weakref.finalize(self, _halt, self.app, thread)
+            # The socket of bind_to_any_port accepts connections before the startup hooks run, so a connect would say "up" too
+            # early: wait for the server itself to say that the hooks are done. Requests that arrive right after wait in the backlog.
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
                 if self._failure:
                     self._stop()
                     raise self._failure[0]
-                try:
-                    socket.create_connection(("127.0.0.1", port), 0.2).close()  # the port accepts (the kernel does that before the loop runs)
+                if started:
                     return
-                except OSError:
-                    time.sleep(0.005)
+                time.sleep(0.002)
             self._stop()
-            raise TimeoutError("the test server did not start listening within 10 seconds")
+            raise TimeoutError("the test server did not start within 10 seconds")
 
     def _stop(self):
         with self._lock:
@@ -508,6 +510,7 @@ class TestClient:
                 finalizer.detach()
             stopped = _halt(self.app, thread)
             self.app._exception_sink = None
+            self.app._on_ready = None
             if not stopped:
                 raise RuntimeError("the test server thread did not stop within 30 seconds")
 

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -150,4 +151,81 @@ UTEST(worker_pool, short_jobs_do_not_make_a_pool_with_a_long_wait_grow) {
     while (done < 2000 && std::chrono::steady_clock::now() - t0 < 20s) std::this_thread::sleep_for(1ms);  // a bound: a lost job fails, not hangs
     ASSERT_EQ(2000, done.load());
     ASSERT_TRUE(seen.size() <= 2u);
+}
+
+// ---- the thread exit hook (ADR-0112): a worker runs it as its last act, never with the pool's lock held ----
+
+namespace {
+
+std::atomic<int> g_exit_calls{0};
+worker_pool* g_hook_pool = nullptr;
+
+void count_exit() noexcept { ++g_exit_calls; }
+
+// Takes the pool's lock (enqueue locks it): a hook that ran inside the lock would deadlock here.
+void enqueue_then_count_exit() noexcept {
+    if (g_hook_pool) g_hook_pool->enqueue([] {});
+    ++g_exit_calls;
+}
+
+template <class Pred>
+bool wait_until(Pred done, std::chrono::milliseconds limit) {
+    const auto t0 = std::chrono::steady_clock::now();
+    while (!done()) {
+        if (std::chrono::steady_clock::now() - t0 > limit) return false;
+        std::this_thread::sleep_for(2ms);
+    }
+    return true;
+}
+
+struct gate_state {
+    std::promise<void> release;
+    std::shared_future<void> gate = release.get_future().share();
+    std::atomic<int> running{0};
+};
+
+// Makes `n` jobs run at the same time, so the pool grows to `n` threads, then lets them all go. False when they did not all start.
+bool run_n_blocked_jobs(worker_pool& pool, int n) {
+    auto state = std::make_shared<gate_state>(); // the jobs own it: they may outlive this function
+    for (int i = 0; i < n; ++i) pool.enqueue([state] { ++state->running; state->gate.wait(); });
+    const bool all_running = wait_until([&] { return state->running.load() == n; }, 5s);
+    state->release.set_value(); // also when not all started: no thread stays blocked
+    return all_running;
+}
+
+} // namespace
+
+UTEST(worker_pool, every_worker_runs_the_exit_hook_once_when_the_pool_shuts_down) {
+    g_exit_calls = 0;
+    {
+        worker_pool pool(4, 4, 500us, &count_exit);
+    } // the destructor shuts down and joins; the scout thread runs no job and no hook
+    ASSERT_EQ(4, g_exit_calls.load());
+}
+
+UTEST(worker_pool, a_thread_that_leaves_after_idling_runs_the_exit_hook_and_the_base_threads_stay) {
+    g_exit_calls = 0;
+    {
+        worker_pool pool(1, 4, 500us, &count_exit, 30ms);
+        ASSERT_TRUE(run_n_blocked_jobs(pool, 4));                              // 4 threads now
+        ASSERT_TRUE(wait_until([] { return g_exit_calls.load() == 3; }, 5s));  // the 3 above base leave after 30 ms idle
+        std::this_thread::sleep_for(150ms);
+        ASSERT_EQ(3, g_exit_calls.load());                                      // the base thread stays
+        std::promise<void> ran;
+        ASSERT_TRUE(pool.enqueue([&] { ran.set_value(); }));
+        ASSERT_TRUE(ran.get_future().wait_for(2s) == std::future_status::ready); // and the pool still works
+    }
+    ASSERT_EQ(4, g_exit_calls.load()); // the base thread runs the hook at shutdown
+}
+
+UTEST(worker_pool, the_exit_hook_runs_without_the_pool_lock) {
+    g_exit_calls = 0;
+    {
+        worker_pool pool(1, 2, 500us, &enqueue_then_count_exit, 30ms);
+        g_hook_pool = &pool;
+        ASSERT_TRUE(run_n_blocked_jobs(pool, 2));
+        ASSERT_TRUE(wait_until([] { return g_exit_calls.load() == 1; }, 5s)); // an idle exit: the hook enqueued from inside
+    }
+    g_hook_pool = nullptr;
+    ASSERT_EQ(2, g_exit_calls.load()); // and the base thread at shutdown (enqueue then answers false, but needs the lock too)
 }

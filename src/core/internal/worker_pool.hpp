@@ -3,6 +3,10 @@
 // Internal. A small thread pool for the code that may block: server handlers and body
 // providers. `base` threads stay; up to `max` threads run under load, and the extra ones leave
 // again after a few idle seconds. Sleeping threads wake last-in first-out. Header-only so both the core and the tests can use it.
+//
+// `on_exit` (optional) runs on every worker thread as the last thing it does, whether it leaves after idling or the pool shuts down, and
+// never while the pool's lock is held: it may wait for something that a running job holds (the Python interpreter). The scout thread
+// runs no job and does not call it.
 
 #include <algorithm>
 #include <chrono>
@@ -19,8 +23,11 @@ namespace httpp::detail {
 
 class worker_pool {
 public:
-    worker_pool(std::size_t base, std::size_t max, std::chrono::microseconds grow_after = std::chrono::microseconds(500))
-        : help_after(grow_after), base_(std::max<std::size_t>(base, 1)), max_(std::max(max, base_)) {
+    using exit_fn = void (*)() noexcept;
+
+    worker_pool(std::size_t base, std::size_t max, std::chrono::microseconds grow_after = std::chrono::microseconds(500),
+                exit_fn on_exit = nullptr, std::chrono::milliseconds idle_after = std::chrono::milliseconds(5000))
+        : help_after(grow_after), on_exit_(on_exit), idle_after_(idle_after), base_(std::max<std::size_t>(base, 1)), max_(std::max(max, base_)) {
         std::lock_guard<std::mutex> lk(mu_);
         for (std::size_t i = 0; i < base_; ++i) add_thread_locked(false);
         scout_ = std::thread([this] { scout(); });
@@ -63,7 +70,15 @@ private:
         bool go = false;
     };
 
-    std::size_t live_locked() const { return threads_.size() - exited_.size(); }
+    // Threads that stay: not gone, and not on their way out (see run()).
+    std::size_t live_locked() const {
+        const std::size_t gone = exited_.size() + leaving_;
+        return threads_.size() > gone ? threads_.size() - gone : 0;
+    }
+
+    void leave() noexcept {
+        if (on_exit_) on_exit_();
+    }
 
     // Makes sure there is a thread on its way for every queued job: wakes the hottest sleeper, or
     // grows the pool when all threads are busy. A thread already woken but not yet running counts,
@@ -143,15 +158,27 @@ private:
                 --running_;
                 continue;
             }
-            if (stop_) return;
+            if (stop_) {
+                lk.unlock(); // shutdown() joins this thread outside the lock, and the exit hook may wait for a running job
+                leave();
+                return;
+            }
             waiter w;
             idle_.push_back(&w);
-            w.cv.wait_for(lk, std::chrono::seconds(5), [&] { return w.go || stop_; });
+            w.cv.wait_for(lk, idle_after_, [&] { return w.go || stop_; });
             if (w.go) { --woken_; continue; }
             idle_.erase(std::find(idle_.begin(), idle_.end(), &w)); // timed out, or shutting down
             if (stop_) continue;                                    // the queue is finished first
             if (jobs_.empty() && live_locked() > base_) { // idle for a while and above base: leave
-                exited_.push_back(std::this_thread::get_id());
+                // The exit hook may wait for the Python interpreter, which a running job can hold while it waits for this lock
+                // (enqueue, or a job that ends): so it runs unlocked. `leaving_` takes this thread out of the count meanwhile, so
+                // two idle threads cannot both leave and take the pool below `base_`.
+                ++leaving_;
+                lk.unlock();
+                leave();
+                lk.lock();
+                --leaving_;
+                if (!stop_) exited_.push_back(std::this_thread::get_id()); // after shutdown() the thread is joined from `all`
                 return;
             }
         }
@@ -163,11 +190,14 @@ private:
         std::chrono::steady_clock::time_point at;
     };
     const std::chrono::microseconds help_after;
+    const exit_fn on_exit_;
+    const std::chrono::milliseconds idle_after_;
     std::deque<queued> jobs_;
     std::unordered_map<std::thread::id, std::thread> threads_;
     std::vector<std::thread::id> exited_;
     std::vector<waiter*> idle_; // sleeping threads, the most recent last
     std::size_t base_, max_;
+    std::size_t leaving_ = 0;   // idle threads that decided to leave and are running the exit hook
     std::size_t woken_ = 0;     // woken or just added, not yet running
     std::size_t running_ = 0;   // threads inside a job
     bool armed_ = false;        // the scout is watching the queue

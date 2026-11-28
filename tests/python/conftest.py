@@ -139,10 +139,45 @@ def _no_test_server_left_running(request):
 # --- Address-space trace (diagnosis of the cp314t-win32 wheel job) ---------------------------------------------------------
 # On the 32-bit free-threaded Windows job the hook tests of test_server_features.py fail after ~750 passed tests with MemoryError
 # that Python cannot even print ("lost sys.stderr"). The suspicion is that the process runs out of its 2 GiB of address space;
-# nothing proves it. This writes one MEMTRACE line after every test (free address space, address space in use, thread count) so
-# one CI run shows whether the numbers fall to zero before the first failure, and in which test they jump.
+# nothing proves it. This writes one MEMTRACE line after every test (free address space, address space in use, thread count, and the
+# number of Python thread states, which also counts native threads that ran Python) so one CI run shows whether the numbers fall
+# to zero before the first failure, and in which test they jump.
 # It is on by itself in a 32-bit Windows process and with HTTPP_MEM_TRACE=1 anywhere. Take it out when the cause is fixed.
 _MEM_TRACE = os.environ.get("HTTPP_MEM_TRACE") == "1" or (sys.platform == "win32" and sys.maxsize <= 2**32)
+
+
+def _count_thread_states():
+    """How many Python thread states the interpreter holds, or None where ctypes cannot ask.
+
+    threading.active_count() counts only the threads that threading made. A native thread that ran Python code (a worker of the
+    server's pool) has a thread state too, and each one costs address space: tens of MiB on 32-bit free-threaded CPython. The
+    thread dump of the cp314t-win32 job listed more than 100 of them with `threading.active_count()` saying 10 (ADR-0112)."""
+    import ctypes
+
+    api = ctypes.pythonapi  # a PyDLL: the calls keep the interpreter attached
+    try:
+        main, head, following = api.PyInterpreterState_Main, api.PyInterpreterState_ThreadHead, api.PyThreadState_Next
+    except AttributeError:
+        return None
+    main.restype = ctypes.c_void_p
+    main.argtypes = []
+    head.restype = ctypes.c_void_p
+    head.argtypes = [ctypes.c_void_p]
+    following.restype = ctypes.c_void_p
+    following.argtypes = [ctypes.c_void_p]
+    count, state = 0, head(main())
+    while state:
+        count += 1
+        state = following(state)
+    return count
+
+
+@pytest.fixture
+def python_thread_states():
+    """The function above, for a test that checks that thread states are given back."""
+    if _count_thread_states() is None:
+        pytest.skip("this Python does not export the thread state list through ctypes.pythonapi")
+    return _count_thread_states
 
 
 def _address_space_mib():
@@ -181,7 +216,9 @@ def _memtrace(request):
     free, used = numbers if numbers is not None else (None, None)
     if free is None:
         return
-    line = f"MEMTRACE free={free}MiB used={used}MiB threads={threading.active_count()} {request.node.nodeid}"
+    states = _count_thread_states()
+    line = (f"MEMTRACE free={free}MiB used={used}MiB threads={threading.active_count()} states={states} "
+            f"{request.node.nodeid}")
     # pytest's capture would keep the line until the test fails; switch it off for this one line
     capture = request.config.pluginmanager.get_plugin("capturemanager")
     if capture is not None:

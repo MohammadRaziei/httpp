@@ -8,6 +8,7 @@
 #include "internal/http_reason.hpp"
 #include "internal/logging.hpp"
 #include "internal/response_compression.hpp"
+#include "internal/thread_exit.hpp"
 #include "internal/urlencoded.hpp"
 #include "internal/websocket.hpp"
 #include "internal/worker_pool.hpp"
@@ -1502,7 +1503,8 @@ bool server::listen_after_bind() {
     impl_->draining = false;
     const std::size_t base = impl_->pool_base;
     const std::size_t max = impl_->pool_max ? impl_->pool_max : base * 4;
-    detail::worker_pool pool(base, max, impl_->pool_grow_after);
+    // Each worker runs the thread exit hook as it ends (the Python binding frees the thread state it kept for it), see utils.hpp.
+    detail::worker_pool pool(base, max, impl_->pool_grow_after, &run_thread_exit_hook);
     impl_->pool = &pool;
     // Every I/O thread gets the same number of connections (the kernel's SO_REUSEPORT hash does not give that).
     {
@@ -1529,6 +1531,7 @@ bool server::listen_after_bind() {
     for (std::size_t i = 1; i < impl_->engines.size(); ++i) {
         detail::async_server* e = impl_->engines[i].get();
         more.emplace_back([e, &others_ok, owner = impl_.get(), list = impl_->waits[i].get()] {
+            detail::thread_exit_scope at_exit; // after the thread_local flags below are reset
             tl_on_io_thread = true;
             tl_wait_owner = owner;
             tl_wait_list = list;
@@ -1571,6 +1574,7 @@ bool server::listen_until_signal(std::chrono::milliseconds grace) {
     std::atomic<bool> finished{false};
     bool ok = false;
     std::thread listener([&] {
+        detail::thread_exit_scope at_exit;
         ok = listen_after_bind();
         finished.store(true);
     });

@@ -1,6 +1,7 @@
 """httpp.testclient.TestClient: a Starlette-shaped client that serves the app on a loopback port of its own (ADR-0042)."""
 
 import json
+import time
 import urllib.parse
 
 import pytest
@@ -502,3 +503,34 @@ def test_close_right_after_start_never_leaves_the_thread():
         c._start()
         c.close()
         assert not any(t.name == "httpp-testclient" and t.is_alive() for t in threading.enumerate())
+
+
+def test_a_slow_startup_hook_is_done_before_the_client_is_used():
+    # The socket of bind() accepts connections while the startup hooks still run, so "the port answers" is no proof that they are
+    # done: a connect-based wait returned early here (and made test_with_runs_startup_and_shutdown_once flaky on a loaded machine).
+    app = Server()
+    done = []
+
+    @app.on_startup
+    def slow():
+        time.sleep(0.3)
+        done.append(True)
+
+    @app.get("/")
+    def index():
+        return "ok"
+
+    with TestClient(app) as c:
+        assert done == [True]
+        assert c.get("/").status_code == 200
+
+
+def test_a_failing_startup_hook_is_raised_by_the_client():
+    app = Server()
+
+    @app.on_startup
+    def broken():
+        raise RuntimeError("startup failed")
+
+    with pytest.raises(RuntimeError, match="startup failed"):
+        TestClient(app).__enter__()

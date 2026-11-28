@@ -1433,9 +1433,16 @@ class Server(_Server):
     #: Seconds a graceful stop (Ctrl+C, SIGTERM) waits for requests in progress before cutting them. `httpp py run --shutdown-timeout`.
     shutdown_timeout = 10.0
 
+    #: Called once, on the serving thread, when the startup hooks are done and the server is about to serve (`httpp.testclient` waits
+    #: for it: the socket of `bind()` already accepts connections while the hooks still run, so a connect proves nothing).
+    _on_ready = None
+
     def listen_after_bind(self):
         """Block until stop(), running the startup/shutdown hooks around it."""
         with self._lifecycle():
+            ready = self._on_ready
+            if ready is not None:
+                ready()
             _Server.listen_after_bind(self)
 
     def listen(self, host="127.0.0.1", port=8000):

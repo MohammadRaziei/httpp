@@ -1,6 +1,7 @@
 #include "internal/async_http.hpp"
 #include "internal/content_decode.hpp"
 #include "internal/logging.hpp"
+#include "internal/thread_exit.hpp"
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -106,7 +107,11 @@ struct async_http::impl {
         return c;
     }
 
-    impl() : thread([this] { io.run(); }) {}
+    // The thread exit hook runs after the loop ended (the Python binding frees the thread state it kept for this network thread).
+    impl() : thread([this] {
+        thread_exit_scope at_exit;
+        io.run();
+    }) {}
 
     static key_t key_of(const async_job& j) {
         const bool socks = !j.proxy_host.empty() && j.proxy_type != proxy_kind::http;
