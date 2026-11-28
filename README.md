@@ -35,8 +35,9 @@ installed system-wide (no `apt`, `brew` or `choco`).
 
 - [Features](#features)
 - [Install](#install)
-- [Python](#python)
-  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [`def` or `async def`](#def-or-async-def) · [Routers](#routers) · [Forms and uploads](#forms-and-uploads) · [`response` and background work](#the-response-argument-and-background-work) · [Streaming and files](#streaming-and-files) · [File browser](#a-read-only-file-browser) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Command line](#command-line) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async) · [Testing your app](#testing-your-app)
+- [Python](#python) (the client is under [Sessions and async](#sessions-and-async))
+  - [Serving: routes](#serving-routes) · [Handler reference](#handler-reference) · [`def` or `async def`](#def-or-async-def) · [Routers](#routers) · [Forms and uploads](#forms-and-uploads) · [`response` and background work](#the-response-argument-and-background-work) · [Streaming and files](#streaming-and-files) · [File browser](#a-read-only-file-browser) · [Settings](#settings) · [Hooks and error handling](#hooks-and-error-handling) · [Free-threaded Python](#free-threaded-python-313t-314t) · [Command line](#command-line) · [Running the server](#running-the-server) · [Sessions and async](#sessions-and-async) · [Testing your app](#testing-your-app) · [TLS](#tls-https-wss) · [Middleware](#middleware)
+- [C++](#c)
 - [Build from source](#build-from-source)
 - [Status](#status)
 - [Logging](#logging)
@@ -47,24 +48,19 @@ installed system-wide (no `apt`, `brew` or `choco`).
 - **Client and server in one library.** Most lightweight HTTP libraries only do one side.
 - **Decorator-style routing in Python**, in the spirit of Flask and FastAPI: path parameters, typed
   conversion, JSON responses, `async def` handlers.
-- **Built-in server, no ASGI/WSGI.** Plain `def` and `async def` handlers both run on httpp itself: no ASGI/WSGI layer and
-  no separate process to launch. The routing API follows FastAPI's, so moving an app over takes little rewriting.
-  The ideas of both standards are kept in a simpler form: `def` handlers run on a worker pool (WSGI's model), `async def`
-  handlers on an asyncio event loop (ASGI's), plus `@app.websocket` and `on_startup` / `on_shutdown`. httpp owns both
-  the server and the framework, so a request is never translated into an ASGI `scope` and back, and there is no middleware
-  stack: `before_request`, `after_request` and the error handlers do that work. The price: no third-party ASGI/WSGI apps or
-  middleware (`add_middleware` takes the classes of `httpp.middleware` only). This design, with the C++ engine under it, is
-  part of why httpp is faster than a bare ASGI app on uvicorn (see **Speed** below; how much each part adds has not
-  been measured); details in
-  [No ASGI or WSGI](docs/site/docs/no-asgi.mdx).
+- **Built-in server, no ASGI/WSGI.** Plain `def` and `async def` handlers run on httpp itself: `def` handlers on a worker pool,
+  `async def` handlers on an asyncio event loop, plus `@app.websocket` and `on_startup` / `on_shutdown`. The routing API follows
+  FastAPI's, so moving an app over takes little rewriting. The price: no third-party ASGI/WSGI apps or middleware
+  (`add_middleware` takes the classes of `httpp.middleware` only). Why, and what is measured: [No ASGI or WSGI](docs/site/docs/no-asgi.mdx)
+  and [Speed](#running-the-server).
 - **Real async.** `async def` handlers run on an asyncio event loop and release their
   worker thread while they `await`. Idle connections wait in an event loop too (epoll, kqueue or IOCP,
   via [Asio](https://think-async.com/Asio/)), so thousands of slow or idle requests cost
   almost no threads.
 - **Python, C++ and a CLI from the same wheel.** One binary core, three front ends.
 - **HTTP and HTTPS** on the client (mbedtls, vendored).
-- **WebSocket server (C++ so far).** `server::route_ws` with callbacks on the I/O thread, thread-safe sends and a bounded send
-  queue; Python: `@app.websocket` with `async def`.
+- **WebSocket server** in both languages: `server::route_ws` in C++ (callbacks on the I/O thread, thread-safe sends, a bounded send
+  queue) and `@app.websocket` with `async def` in Python.
 - **Hooks, streaming and files** on the server: `before_request` / `after_request`, error and exception
   handlers, generators as streamed bodies, files sent from disk, cookies and redirects.
 - **A client with a real error model**: `res.json()`, `res.error`, `raise_for_status()`, typed
@@ -85,6 +81,9 @@ Requires Python 3.8 or newer. Building the C++ side on its own needs CMake 3.21+
 (see [Build from source](#build-from-source)).
 
 ## Python
+
+This part is about the Python package: the server first, then the client (`Client`, `Request`, `Download`: see
+[Sessions and async](#sessions-and-async)), the command line and testing. The C++ API has [its own section](#c).
 
 ### Serving: routes
 
@@ -588,6 +587,70 @@ The options are Starlette's. The work runs in C++ without the GIL: a CORS prefli
 `httpp::trusted_host({...}).install(server&)` (`httpp/middleware.hpp`), or your own pair of hooks with `server::use(before, after)`.
 Not supported: ASGI middleware. `HTTPSRedirectMiddleware` sends plain requests to the https address (see TLS below).
 
+## C++
+
+The Python package is the C++ library with bindings: the server, the client and downloads are the same code, and the names match
+(`server`, `client`, `request`, `download`, `router`, `cookie`, ...). `pip install httpp` also installs the headers and a CMake
+package, so a C++ program can use the library without building it; [Build from source](#build-from-source) is for working on httpp itself.
+
+A server (`#include <httpp.h>` is the one header you need):
+
+```cpp
+#include <httpp.h>
+
+int main() {
+    httpp::server app;
+
+    app.get("/hello/{name}", [](const httpp::server_request& req, httpp::response& res) {
+        res.body = "hello " + req.path_param("name");
+    });
+
+    app.listen("127.0.0.1", 8000);  // blocks until app.stop()
+}
+```
+
+A client, and a download:
+
+```cpp
+#include <httpp.h>
+
+#include <iostream>
+
+int main() {
+    httpp::client client("127.0.0.1", 8000);
+    httpp::response res = client.get("/hello/world");
+    std::cout << res.status << " " << res.body << "\n";  // 200 hello world
+
+    // One call with a full URL, no host and port to split:
+    std::cout << httpp::client::fetch("http://127.0.0.1:8000/hello/world").status << "\n";
+
+    httpp::download_result result = httpp::download("http://127.0.0.1:8000/hello/world", "hello.txt").run();
+    std::cout << result.status << "\n";  // 200; hello.txt now holds "hello world"
+}
+```
+
+Build it with the package that `pip install httpp` put in your Python environment (`httpp::core` is the HTTP stack, `httpp::utils` only
+logging, `path` and the progress bar):
+
+```cmake
+cmake_minimum_required(VERSION 3.21)
+project(app LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(COMMAND ${Python3_EXECUTABLE} -c "import httpp; print(httpp.get_cmake_dir())"
+                OUTPUT_VARIABLE httpp_DIR OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+find_package(httpp CONFIG REQUIRED)
+
+add_executable(app main.cpp)
+target_link_libraries(app PRIVATE httpp::core)
+```
+
+The rest of the API follows the Python names: hooks, routers, middleware, WebSocket routes (`server::route_ws`), cookies, uploads,
+streaming, TLS, `request` with retries and `save_to`. Every topic has a C++ and a Python version in [`examples/`](examples/), which
+`tests/python/test_examples.py` builds and runs, and the headers in [`include/httpp/`](include/httpp/) are commented. The same
+`httpp` command that the wheel installs is a native program ([Command line](#command-line)).
+
 ## Build from source
 
 Most dependencies are vendored (`llhttp`, unmodified) or git submodules
@@ -609,18 +672,17 @@ pip install .                                                       # the Python
 
 httpp is **alpha**: the API can still change between minor versions. Current limitations:
 
-- Awaitable downloads (`Download.run_async`) still run on the event loop's thread pool; downloads have no
-  timeout option; the server's hooks hold a worker thread while they await; a plain `def` handler cannot
+- Awaitable downloads (`Download.run_async`) still run on the event loop's thread pool; the server's hooks hold a worker thread while they await; a plain `def` handler cannot
   be cancelled by `handler_timeout`. Handler code is Python, so it still needs the GIL: `async def`
   handlers share one loop thread (a free-threaded Python has one per I/O thread), plain `def` handlers take the GIL on pool threads (set `threads=` to
   fit your blocking calls), and real parallelism needs `--workers` or a free-threaded Python (below).
 - HTTP/1.1 only (the server speaks TLS, see the TLS section); a cancelled `await` stops waiting but the request itself
   keeps running until it finishes.
-- Platforms: the connection layer is tested on Linux. Windows and macOS are untested by the author; CI
-  on those platforms is the real check.
+- Platforms: Linux, macOS and Windows are built and tested in CI (the C++ tests and the wheels, on every push to master); the
+  author works on Linux, so a problem that shows only on the other two is likely to be found there first.
 - cpp-httplib is no longer used: the server, the client (blocking and async) and downloads all run on our own
   engines (Asio + llhttp + mbedTLS).
-- `httpp curl` is a subset of curl (no `-F`, `--json`, `-G`, `-b`, `-x`, `-k`, `--cacert`, `--data-binary`, `-C`, `-r`, `--http2`; `httpp::request` has several of these, the command does not expose them yet); there is no libcurl-style C API.
+- `httpp curl` is a subset of curl (no `-G`, `-b`, `--data-binary`, `-C`, `-r`, `--http2`); there is no libcurl-style C API.
 - `--workers` is Linux only.
 
 Issues and pull requests are welcome.
