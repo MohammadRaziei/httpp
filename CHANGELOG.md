@@ -7,6 +7,10 @@ such changes are listed under **Changed**).
 
 ## [Unreleased]
 
+### Added
+
+- Benchmark: three new parts, `upload` (a 64 KiB POST body), `file` (a 256 KiB file from disk) and `mw` (CORS and trusted host middleware), for the Python servers (httpp, bare uvicorn, FastAPI); they are in the default `BENCH_ONLY` and have charts on the Benchmarks page. A result file made before this change has no rows for them.
+
 ## [0.10.0] - 2026-11-28
 
 The first release since 0.9.0 (140 commits). Highlights:

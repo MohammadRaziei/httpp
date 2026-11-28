@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import platform
+import tempfile
 import re
 import resource
 import shutil
@@ -24,6 +25,8 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_BYTES = 64 * 1024  # the POST body of the part "upload"
+FILE_BYTES = 256 * 1024   # the file of the part "file"
 
 
 def free_port():
@@ -201,12 +204,14 @@ def meta_info(args, server_cpus, load_cpus):
             "tree": tree_id(), "compiler": subprocess.run([cxx, "--version"], capture_output=True, text=True).stdout.splitlines()[0] if cxx else "",
             "drogon": bool(args.drogon), "note": args.note, "pythons": pythons,
             "settings": {"conc": args.conc, "seconds": args.seconds, "rounds": args.rounds, "ws_size": args.ws_size, "idle_conns": args.idle_conns,
-                         "client_conc": args.client_conc, "io_threads": args.io_threads, "only": args.only}}
+                         "client_conc": args.client_conc, "io_threads": args.io_threads, "only": args.only,
+                         "upload_bytes": UPLOAD_BYTES, "file_bytes": FILE_BYTES}}
 
 
 class Variant:
-    def __init__(self, group, name, path, cmd, env=None, conc=None, rate=False, kind="http"):
+    def __init__(self, group, name, path, cmd, env=None, conc=None, rate=False, kind="http", method="GET", body=False, headers=()):
         self.group, self.name, self.path, self.cmd, self.env, self.conc, self.rate = group, name, path, cmd, env or {}, conc, rate
+        self.method, self.body, self.headers = method, body, tuple(headers)  # body: send the upload body file (suite "upload")
         self.kind = kind  # "http" (oha), "ws" (ws_load echo) or "idle" (memory with idle WebSocket connections)
         self.runs = []  # (req/s, us/req, p50 ms, p99 ms, errors, p99.9 ms)
         self.target = None  # kind "client": the Variant of the server the client talks to
@@ -242,8 +247,30 @@ def build_variants(args):
             for path, what in (("/", "hello"), ("/cpu", "cpu"), ("/item/42", "json")):
                 if what in args.only:
                     v.append(Variant(f"{what} (py {label})", f"aiohttp ({loop})", path, [py, "suite_aiohttp.py", "{port}"]))
+        fa = [py, "-m", "uvicorn", "fastapi_app:app", "--log-level", "error", "--no-access-log", "--port", "{port}"] + (["--loop", "uvloop"] if import_ok else [])
+        has_fastapi = subprocess.run([py, "-c", "import fastapi"], capture_output=True).returncode == 0
+        for what, path, method, body in (("upload", "/upload", "POST", True), ("file", "/file", "GET", False)):
+            if what in args.only:
+                g = f"{what} (py {label})"
+                v.append(Variant(g, "uvicorn bare ASGI", path, uv + ["--port", "{port}"], method=method, body=body))
+                if has_fastapi:
+                    v.append(Variant(g, "FastAPI + uvicorn", path, fa, method=method, body=body))
+        if "mw" in args.only:
+            g = f"mw (py {label})"
+            origin = ("Origin: http://example.com",)  # a request with an Origin, so that the CORS middleware does its work
+            n = args.io_threads[0]
+            ht = [py, "-m", "httpp", "py", "run", "suite_app:app", "--port", "{port}", "--log-level", "error", "--io-threads", str(n)]
+            v.append(Variant(g, f"httpp def, no middleware, io_threads={n}", "/mw", ht, headers=origin))
+            v.append(Variant(g, f"httpp def, CORS + trusted host, io_threads={n}", "/mw", ht, {"BENCH_MW": "1"}, headers=origin))
+            if has_fastapi:
+                v.append(Variant(g, "FastAPI + uvicorn, no middleware", "/mw", fa, headers=origin))
+                v.append(Variant(g, "FastAPI + uvicorn, CORS + trusted host", "/mw", fa, {"BENCH_MW": "1"}, headers=origin))
         for n in args.io_threads:
             ht = lambda: [py, "-m", "httpp", "py", "run", "suite_app:app", "--port", "{port}", "--log-level", "error", "--io-threads", str(n)]
+            for what, path, name, method, body in (("upload", "/upload", "httpp def", "POST", True), ("upload", "/aupload", "httpp async def", "POST", True),
+                                                   ("file", "/file", "httpp def", "GET", False)):
+                if what in args.only:
+                    v.append(Variant(f"{what} (py {label})", f"{name}, io_threads={n}", path, ht(), method=method, body=body))
             for path, name, what in (("/sync", "httpp def", "hello"), ("/async", "httpp async def", "hello"),
                                      ("/await", "httpp async + await", "hello"), ("/item/42", "httpp def JSON", "json"),
                                      ("/aitem/42", "httpp async def JSON", "json"), ("/cpu", "httpp def CPU-bound", "cpu"),
@@ -368,9 +395,17 @@ def ticks(pid):
     return int(parts[11]) + int(parts[12])
 
 
-def oha(args, load_cpus, url, seconds, conc=None, rate=None):
+def oha(args, load_cpus, url, seconds, conc=None, rate=None, var=None):
     cmd = ["taskset", "-c", cpu_ranges(load_cpus)] if shutil.which("taskset") else []
-    cmd += [args.oha] + (["-q", str(int(rate))] if rate else []) + ["-z", f"{seconds}s", "-c", str(conc or args.conc), "--no-tui", "--output-format", "json", url]
+    cmd += [args.oha] + (["-q", str(int(rate))] if rate else []) + ["-z", f"{seconds}s", "-c", str(conc or args.conc), "--no-tui", "--output-format", "json"]
+    if var is not None:
+        if var.method != "GET":
+            cmd += ["-m", var.method]
+        if var.body:
+            cmd += ["-D", args.upload_file]
+        for h in var.headers:
+            cmd += ["-H", h]
+    cmd += [url]
     return json.loads(subprocess.run(cmd, capture_output=True, check=True).stdout)
 
 
@@ -433,9 +468,9 @@ def measure(var, args, server_cpus, load_cpus, rate=None):
     with started(var, args, server_cpus) as srv:
         proc, port = srv.proc, srv.port
         url = f"http://127.0.0.1:{port}{var.path}"
-        oha(args, load_cpus, url, 1, var.conc)
+        oha(args, load_cpus, url, 1, var.conc, var=var)
         t0 = ticks(proc.pid)
-        data = oha(args, load_cpus, url, args.seconds, var.conc, rate)
+        data = oha(args, load_cpus, url, args.seconds, var.conc, rate, var=var)
         t1 = ticks(proc.pid)
         dist = data["statusCodeDistribution"]
         ok = dist.get("200", 0)
@@ -629,8 +664,9 @@ def main():
     ap.add_argument("--conc", type=int, default=64)
     ap.add_argument("--io-threads", default="1,2,4,8", help="I/O thread counts for httpp")
     ap.add_argument("--cpp-extra", default="", help="extra I/O thread counts only for the C++ server")
-    ap.add_argument("--only", default="hello,json,cpu,latency,ws,idle,client",
-                    help="hello, json, cpu, latency (one connection), ws (WebSocket echo), idle (memory with idle WebSockets), client (HTTP client libraries)")
+    ap.add_argument("--only", default="hello,json,cpu,latency,ws,idle,client,upload,file,mw",
+                    help="hello, json, cpu, latency (one connection), ws (WebSocket echo), idle (memory with idle WebSockets), client (HTTP client libraries), "
+                         "upload (a 64 KiB POST body), file (a 256 KiB file), mw (two middleware)")
     ap.add_argument("--server-cpus", default="", help="e.g. 0-7 (default: derived from the topology)")
     ap.add_argument("--load-cpus", default="", help="e.g. 8-11")
     ap.add_argument("--rate", action="store_true", help="also run the fixed-rate latency phase (needs hello in --only)")
@@ -643,6 +679,13 @@ def main():
     args.io_threads = [int(x) for x in args.io_threads.split(",") if x]
     args.cpp_extra = [int(x) for x in args.cpp_extra.split(",") if x]
     args.only = args.only.split(",")
+    # The two files of the parts "upload" and "file": made here, outside the source tree, and given to every server through BENCH_FILE.
+    work = tempfile.mkdtemp(prefix="httpp-bench-")
+    args.upload_file = os.path.join(work, "upload.bin")
+    os.environ["BENCH_FILE"] = os.path.join(work, "file.bin")
+    for path, size in ((args.upload_file, UPLOAD_BYTES), (os.environ["BENCH_FILE"], FILE_BYTES)):
+        with open(path, "wb") as f:
+            f.write(bytes(i * 7 % 251 for i in range(size)))
     sc, lc = default_split()
     server_cpus = parse_cpus(args.server_cpus) or sc
     load_cpus = parse_cpus(args.load_cpus) or lc

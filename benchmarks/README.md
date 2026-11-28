@@ -19,7 +19,7 @@ close heavy programs first.
 
 Settings are cache variables, set at configure time: `-DBENCH_SECONDS=10 -DBENCH_ROUNDS=5 -DBENCH_IO_THREADS=1,2,4,8 -DBENCH_PYS="3.14 3.14t"
 -DBENCH_ONLY=ws,idle -DBENCH_WS_SIZE=1024 -DBENCH_IDLE_CONNS=10000 -DBENCH_SERVER_CPUS=0-7 -DBENCH_LOAD_CPUS=8-15`
-(the list is at the top of `CMakeLists.txt`). `BENCH_ONLY` picks parts: `hello json cpu latency ws idle`.
+(the list is at the top of `CMakeLists.txt`). `BENCH_ONLY` picks parts: `hello json cpu latency ws idle client upload file mw`.
 
 `suite.py` is the runner (interleaved rounds, server and load generator pinned to separate CPUs, server CPU per request from `/proc`);
 `bench_setup.py` makes the virtualenvs and checks the machine. `bench.py`, `io_bench.py`, `cpu_bench.py` are the older single-purpose scripts.
@@ -52,6 +52,10 @@ What a result file holds:
   latency (at saturation a closed loop only measures queueing).
 - **websocket echo**: messages per second and latency of a closed loop of text messages (64 bytes, 64 connections) against the httpp C++ API, Drogon,
   uvicorn (its websockets implementation), the `websockets` library and httpp `async def`.
+- **upload**: `POST` of a 64 KiB body that the handler reads whole and answers the size of, against bare uvicorn, FastAPI and httpp (`def` and `async def`).
+  **file**: `GET` of a 256 KiB file, from disk for every request (bare ASGI reads it in the handler, FastAPI uses `FileResponse`, httpp `httpp.file`).
+  **mw**: a `hello` route with and without two middleware (CORS and trusted host, the same settings in httpp and in FastAPI), the request carries an `Origin`.
+  The sizes are in `system.json` (`upload_bytes`, `file_bytes`). Python servers only so far: no C++ or Drogon rows for these three.
 - **memory with idle WebSocket connections**: the server's RSS before and after N connections were opened and left alone (one run, not a median).
 
 The load generators get the rest of the performance cores and all efficiency cores, because above 300k requests per second it is the load generator that

@@ -54,6 +54,34 @@ async def aitem(item_id: int):
     return {"id": item_id, "ok": True}
 
 
+# The parts "upload", "file" and "mw" of the suite. BENCH_FILE is the file that /file sends (suite.py makes it); BENCH_MW=1 installs the
+# two middleware of the "mw" part (the same two, with the same settings, as in fastapi_app.py).
+@app.post("/upload")
+def upload(request):  # reads the whole body and answers its size
+    return str(len(request.body))
+
+
+@app.post("/aupload")
+async def aupload(request):
+    return str(len(request.body))
+
+
+@app.get("/file")
+def send_the_file():  # streamed from disk by the C++ engine
+    return httpp.file(os.environ["BENCH_FILE"])
+
+
+if os.environ.get("BENCH_MW") == "1":
+    from httpp.middleware import CORSMiddleware, TrustedHostMiddleware
+    app.add_middleware(CORSMiddleware, allow_origins=["*"])
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1"])
+
+
+@app.get("/mw")
+def mw_hello():
+    return "hello"
+
+
 @app.websocket("/ws")
 async def ws_echo(websocket):  # an echo: the same as suite_asgi.py, ws_websockets.py and the C++ servers
     await websocket.accept()

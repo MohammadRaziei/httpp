@@ -24,6 +24,16 @@ CPU-bound work. The load generator is [oha](https://github.com/hatoo/oha), pinne
 <BenchChart suite="cpu" title="CPU-bound: about 60 µs of work per request" what="Python handlers hold the GIL while they work. On a free-threaded build the worker threads can run in parallel." />
 <BenchChart suite="latency" title="Latency with one connection" metric="p50_ms" />
 
+## Bodies, files and middleware
+
+The same servers, with work that is not a constant answer: a 64 KiB `POST` body that the handler reads and counts, a 256 KiB file sent from disk
+(bare ASGI reads it in the handler, FastAPI uses `FileResponse`, httpp `httpp.file`), and a `hello` route behind two middleware (CORS and
+trusted host, the same settings in httpp and FastAPI; the request carries an `Origin`).
+
+<BenchChart suite="upload" title="Upload: a 64 KiB POST body" />
+<BenchChart suite="file" title="File: a 256 KiB file from disk" />
+<BenchChart suite="mw" title="Middleware: CORS and trusted host in front of hello" />
+
 ## WebSocket
 
 <BenchChart suite="ws" title="Echo of a text message" what="A closed loop: every connection sends the next message when the echo arrives." />
