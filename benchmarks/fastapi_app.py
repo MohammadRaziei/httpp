@@ -22,14 +22,8 @@ async def agent(request: Request):
     return request.headers.get("user-agent", "")
 
 
-for _i in range(300):
-    def _make(i=_i):
-        async def h(x: str):
-            return {"i": i}
-        return h
-    app.get(f"/many/r{_i}/{{x}}")(_make())
-
-
+# Routes are matched one after the other, so the order is part of the benchmark: hello and json are the first routes, the three below come
+# before the 300 filler routes too (placed after them, they would wait for 300 failed matches and look 3 times slower than hello).
 # The parts "upload", "file" and "mw" of the suite (the same answers as suite_app.py and suite_asgi.py). BENCH_MW=1 installs the same two
 # middleware, with the same settings, as suite_app.py does.
 @app.post("/upload")
@@ -52,3 +46,11 @@ if os.environ.get("BENCH_MW") == "1":
 @app.get("/mw")
 async def mw_hello():
     return "hello"
+
+
+for _i in range(300):
+    def _make(i=_i):
+        async def h(x: str):
+            return {"i": i}
+        return h
+    app.get(f"/many/r{_i}/{{x}}")(_make())
