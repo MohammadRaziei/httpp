@@ -401,16 +401,16 @@ def get_all_at_once(port, path, count, timeout=10.0):
 
 
 def test_async_handlers_do_not_hold_worker_threads():
-    """100 requests that each await 0.5 s finish together in ~0.5 s. With one
-    blocked thread per request they would need several rounds (the pool is a
-    few dozen threads), i.e. 2 s or more."""
+    """100 requests that each await 1 s finish together in ~1 s plus the time to open 100 connections (about 1 s on the slow 32-bit
+    Windows runner, so the limit leaves room for that). With one blocked thread per request they would need several rounds (the
+    pool is a few dozen threads), i.e. 4 s or more."""
     import asyncio
 
     app = Server()
 
     @app.get("/wait")
     async def wait():
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0)
         return "ok"
 
     with running(app) as url:
@@ -419,7 +419,7 @@ def test_async_handlers_do_not_hold_worker_threads():
         statuses = get_all_at_once(port, "/wait", 100)
         elapsed = time.time() - started
     assert statuses == [200] * 100
-    assert elapsed < 1.5
+    assert elapsed < 2.5
 
 
 def test_get_all_at_once_sees_a_server_that_holds_a_thread_per_request():

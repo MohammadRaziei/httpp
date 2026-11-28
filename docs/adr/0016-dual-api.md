@@ -164,7 +164,7 @@ Each step: tests first, C++ and Python together, ADR note if the design changes,
   times slower than zlib at the same level (not measured here), the price of zero system dependencies; `min_size` and the level are
   the two knobs. Compression runs on the thread that answers (a pool thread for `def` handlers; for `async def` most likely the Python asyncio loop thread, not verified,
   where it holds up the loop for those 100+ us). ponytail: no offload of big async answers to the pool; upgrade path: send them through
-  `blocking_pool` when a profile shows it.
+  a pool when a profile shows it (the unused `blocking_pool` header named here was deleted, see ADR-0112).
 - **Router.** C++ `router` is a list of (method, path, handler) with a prefix; `server::include` replays it. Python `APIRouter` is
   written in Python and replays into `Server.route` instead of binding the C++ class: a Python route must be adapted (parameters,
   models, dependencies, `def` or `async def`) at registration, which C++ knows nothing about. Behavior is the same and is tested the

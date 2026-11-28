@@ -61,7 +61,7 @@ Measured on Linux, free-threaded 3.14.6, the whole Python suite (973 tests) with
 
 A loop of 10 servers started and stopped, 8 requests each, leaves +10 states before the change (one per server) and +0 after.
 
-The growth came from these files (states added by their tests): `test_cli.py` 86, `test_async_engine.py` 42, `test_io_threads.py` 30, `test_server_features.py` 28, `test_testclient.py` 26, `test_server_lifetime.py` 23, `test_request_streaming.py` 18, `test_client.py` 17. The earlier idea that `blocking_pool` was a source was wrong: `src/core/internal/blocking_pool.hpp` is not used by anything.
+The growth came from these files (states added by their tests): `test_cli.py` 86, `test_async_engine.py` 42, `test_io_threads.py` 30, `test_server_features.py` 28, `test_testclient.py` 26, `test_server_lifetime.py` 23, `test_request_streaming.py` 18, `test_client.py` 17. The earlier idea that `blocking_pool` was a source was wrong: `src/core/internal/blocking_pool.hpp` was not used by anything, so it was deleted.
 
 ## Decision 3: a thread httpp started frees its state as the last thing it does (C++ layer)
 
