@@ -97,6 +97,7 @@ Design: `docs/adr/0041-command-line.md`. `httpp server|browse|download|curl` nat
 - [x] An ADR and a benchmark for server gzip (`compression`): [ADR-0061](docs/adr/0061-server-gzip-defaults.md), `benchmarks/gzip_bench.py`
 - [x] 0.8.1 committed, tagged and released by the owner (2026-11-11)
 - [ ] 0.9.0 committed, tagged and released by the owner
+- [ ] 0.10.0 committed, tagged and released by the owner (changelog and `include/httpp.h` are ready; the `cp314t-win32` and `cp315t-win32` wheel jobs must be green first)
 
 ## 5. Binding policy (ADR-0016), unchanged
 Python binds only what `include/` exports; a public C++ function is bound only when necessary; `tests/python/test_cpp_python_parity.py` forces every public C++ name to be bound or listed in `NOT_EXPOSED` with a reason. Not exposed on purpose: `route_io`, `route_shared`, `route_ws`, `find_swagger_ui_asset`. The new `mount_file_browser` is bound (as `Server.mount_file_browser`).
